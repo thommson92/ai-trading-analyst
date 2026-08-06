@@ -51,7 +51,10 @@ class TestBacktestingConfig:
 
     def test_cooldown_matches_the_screening_lookback(self) -> None:
         """F5: Der Cooldown entspricht der Lookback-Laenge der Kandidatenregel."""
-        assert BacktestingConfig().cooldown_candles == AppConfig().screening.lookback_closed_candles
+        assert (
+            BacktestingConfig().cooldown_candles
+            == AppConfig().screening.signal_lookback_previous_candles
+        )
 
     def test_rejects_inverted_confidence_thresholds(self) -> None:
         with pytest.raises(ValidationError, match="minimum_sample_size"):

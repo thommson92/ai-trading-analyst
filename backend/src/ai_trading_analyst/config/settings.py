@@ -98,7 +98,11 @@ class ScreeningConfig(_Section):
     """
 
     required_signal_count: PositiveInt = 2
-    lookback_closed_candles: PositiveInt = 5
+    signal_lookback_previous_candles: PositiveInt = 5
+    """Anzahl zusaetzlicher, vorheriger Kerzen. Die aktuelle Kerze kommt immer
+    und unabhaengig davon hinzu -- das Fenster umfasst also insgesamt
+    ``signal_lookback_previous_candles + 1`` Kerzen (G1-Pruefvorlage,
+    Abschnitt 3.2)."""
     direction: Literal["LONG", "SHORT"] = "LONG"
 
 
