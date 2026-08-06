@@ -150,3 +150,16 @@ class TestDetectionItself:
         layers = {internal_layer_of(name) for name in imported_modules(tree)}
 
         assert "infrastructure" in layers
+
+    def test_a_layer_importing_the_composition_root_would_be_detected(self) -> None:
+        """``bootstrap.py`` liegt bewusst ausserhalb der vier Schichten und darf
+        als einziger Ort alle Schichten gleichzeitig verdrahten (Composition
+        Root, Sprint 1B). Der Rueckweg -- eine Schicht importiert bootstrap.py
+        zurueck -- ist nicht gesondert verboten, sondern faellt automatisch
+        unter die bestehende Regel: 'bootstrap' ist kein bekannter Layer- und
+        kein Shared-Package-Name, jeder Import daraus aus einer Schicht heraus
+        ist deshalb bereits ein target_layer, der nicht in ``allowed`` steht."""
+        allowed_for_presentation = ALLOWED_LAYER_IMPORTS["presentation"] | SHARED_PACKAGES
+
+        assert "bootstrap" not in allowed_for_presentation
+        assert "bootstrap" not in ALLOWED_LAYER_IMPORTS

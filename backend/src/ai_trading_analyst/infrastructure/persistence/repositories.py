@@ -31,11 +31,15 @@ class SqlAlchemyStockRepository:
         self._session = session
 
     def add(self, stock: Stock) -> None:
-        """Idempotent: ein bereits bekanntes Symbol wird nicht erneut eingefuegt."""
+        """Idempotent nach Symbol -- nicht nach id: ein Marktdatenanbieter, der
+        fuer ein bereits bekanntes Symbol eine neue id liefert, soll den
+        bestehenden Datensatz unberuehrt lassen statt mit einer IntegrityError
+        abzubrechen (die Aktie waere sonst faelschlich ein StockProcessingError
+        statt regulaer gescreent zu werden)."""
         statement = (
             pg_insert(StockOrm)
             .values(id=stock.id, symbol=stock.symbol, exchange=stock.exchange)
-            .on_conflict_do_nothing(index_elements=["id"])
+            .on_conflict_do_nothing(index_elements=["symbol"])
         )
         self._session.execute(statement)
 

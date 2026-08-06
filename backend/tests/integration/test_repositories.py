@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
     RunStatus,
+    Stock,
     StockProcessingError,
     StockScreeningOutcome,
 )
@@ -41,6 +42,30 @@ class TestStockRepository:
     def test_unbekanntes_symbol_liefert_none(self, uow_factory: UowFactory) -> None:
         with uow_factory() as uow:
             assert uow.stocks.get_by_symbol("NICHT_VORHANDEN") is None
+
+    def test_add_ist_idempotent_auch_bei_abweichender_id_fuer_dasselbe_symbol(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Ein Marktdatenanbieter, der fuer ein bereits bekanntes Symbol eine
+        neue id liefert, darf den bestehenden Datensatz nicht per
+        IntegrityError zum Absturz bringen -- Idempotenz gilt nach Symbol,
+        nicht nach id (siehe SqlAlchemyStockRepository.add)."""
+        original = make_stock("SAMESYMBOL")
+        with_different_id = Stock(
+            id=make_stock("EIN_ANDERES_SYMBOL").id, symbol="SAMESYMBOL", exchange="NYSE"
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(original)
+            uow.commit()
+
+        with uow_factory() as uow:
+            uow.stocks.add(with_different_id)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.stocks.list_all()) == 1
+            assert uow.stocks.get_by_symbol("SAMESYMBOL") == original
 
 
 class TestAnalysisRunRepository:
