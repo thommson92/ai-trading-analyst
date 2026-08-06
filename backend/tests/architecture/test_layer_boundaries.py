@@ -45,6 +45,7 @@ FORBIDDEN_IN_DOMAIN = (
     "openai",
     "redis",
     "yaml",
+    "uvicorn",
 )
 
 
