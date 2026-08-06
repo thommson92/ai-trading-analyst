@@ -19,11 +19,15 @@ market:
   daily_candle_index: 1
 
 screening:
-  # Kandidatenregel: mindestens 2 der 3 Signale innerhalb der letzten 5
-  # abgeschlossenen Kerzen. Unabhaengig von Gate G1, weil die Regel nichts
-  # ueber die mathematische Definition der einzelnen Signale aussagt.
+  # Kandidatenregel: mindestens 2 der 3 Signale innerhalb eines
+  # Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige). Unabhaengig von
+  # Gate G1, weil die Regel nichts ueber die mathematische Definition der
+  # einzelnen Signale aussagt (G1-Pruefvorlage, Abschnitt 3).
   required_signal_count: 2
-  lookback_closed_candles: 5
+  # Anzahl zusaetzlicher, vorheriger Kerzen -- die aktuelle Kerze kommt immer
+  # dazu. Frueher lookback_closed_candles; umbenannt, weil dieser Name
+  # zwischen Fenstergroesse und Anzahl-Vorkerzen missverstaendlich war.
+  signal_lookback_previous_candles: 5
   direction: LONG
 
 backtesting:
