@@ -17,6 +17,11 @@ dev = [
     "mypy>=1.10,<2",
     "types-PyYAML>=6.0,<7",
 ]
+# Nur zum Regenerieren der Lock-Dateien (requirements*.lock.txt), keine
+# Laufzeit- oder Testabhaengigkeit. Siehe ADR 0008.
+lock = [
+    "pip-tools>=7.4,<8",
+]
 
 [build-system]
 requires = ["setuptools>=69"]

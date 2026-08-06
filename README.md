@@ -73,15 +73,33 @@ Vorausgesetzt: Python 3.12, Node.js 20+.
 ```bash
 cd backend
 python3.12 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install --require-hashes -r requirements-dev.lock.txt
+.venv/bin/pip install --no-deps -e .
+```
+
+Die Installation läuft ausschließlich über die Lock-Datei mit Hash-Verifikation
+— keine Versionsauflösung auf dem jeweiligen Rechner. Siehe
+[ADR 0008](docs/adr/0008-reproduzierbare-installation.md).
+
+Ändert sich `pyproject.toml`, werden die Lock-Dateien neu erzeugt:
+
+```bash
+.venv/bin/pip install "pip-tools>=7.4,<8"
+.venv/bin/pip-compile --generate-hashes --output-file=requirements.lock.txt pyproject.toml
+.venv/bin/pip-compile --generate-hashes --extra=dev --output-file=requirements-dev.lock.txt pyproject.toml
 ```
 
 ### Frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 ```
+
+`npm ci` installiert exakt die in `package-lock.json` festgeschriebenen
+Versionen und bricht ab, wenn `package.json` und die Lock-Datei
+auseinanderlaufen — im Gegensatz zu `npm install` also reproduzierbar.
 
 ### Geheimnisse
 
@@ -129,3 +147,11 @@ Es wird nie direkt auf `main` oder `dev` gearbeitet. Feature-Branches zweigen
 von `dev` ab und werden per Pull Request zurückgeführt (siehe
 [ADR 0002](docs/adr/0002-branching-modell.md)). Vor jedem PR laufen die
 Test-Suite und eine unabhängige Code-Review.
+
+**Bekannte Einschränkung:** Required Status Checks lassen sich für dieses
+private Repository im aktuellen GitHub-Plan nicht konfigurieren (weder über
+Branch Protection noch über Rulesets — beide verlangen GitHub Pro oder ein
+öffentliches Repository). Bis das geklärt ist, gilt ersatzweise: kein Merge
+ohne vorher geprüfte grüne CI (`gh pr checks <nummer>`). Details und die
+vorbereitete Konfiguration in
+[ADR 0009](docs/adr/0009-required-checks-nicht-konfigurierbar.md).
