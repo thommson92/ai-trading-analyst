@@ -1,6 +1,6 @@
 # ADR 0007: Indikator-Parameter bleiben bis zur fachlichen Freigabe leer
 
-- Status: Angenommen
+- Status: Abgelöst durch [ADR 0010](0010-gate-g1-freigegeben.md)
 - Datum: 2026-08-06
 
 ## Kontext

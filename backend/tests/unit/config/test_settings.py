@@ -79,11 +79,15 @@ class TestUnknownKeys:
 
 
 class TestGateG1:
-    def test_indicators_are_absent_by_default(self) -> None:
+    """Gate G1 ist freigegeben (docs/adr/0010); die Sicherung bleibt bestehen:
+    eine Konfiguration ohne den Abschnitt 'indicators' bricht weiterhin mit
+    einem klaren Fehler ab, statt mit fehlenden Parametern zu rechnen."""
+
+    def test_indicators_are_absent_without_explicit_configuration(self) -> None:
         assert AppConfig().indicators is None
 
-    def test_requiring_indicators_fails_with_an_explicit_gate_message(self) -> None:
-        with pytest.raises(GateNotClearedError, match="Gate G1"):
+    def test_requiring_indicators_fails_with_an_explicit_message(self) -> None:
+        with pytest.raises(GateNotClearedError, match="'indicators' fehlt"):
             AppConfig().require_indicators()
 
     def test_indicator_config_has_no_defaults_at_all(self) -> None:

@@ -84,10 +84,20 @@ class TestShippedDefaultConfig:
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
         assert load_config().config.market.timeframe_minutes == 195
 
-    def test_it_leaves_gate_g1_open(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Solange G1 nicht freigegeben ist, darf die Datei keine Indikatorwerte enthalten."""
+    def test_it_contains_the_confirmed_gate_g1_indicator_parameters(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Gate G1 ist freigegeben (docs/adr/0010) -- die Datei enthaelt die
+        bestaetigten Werte aus der G1-Pruefvorlage, nicht mehr None."""
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
-        assert load_config().config.indicators is None
+        indicators = load_config().config.require_indicators()
+        assert indicators.rsi_length == 14
+        assert indicators.rsi_method == "wilder"
+        assert indicators.rsi_ma_length == 14
+        assert indicators.rsi_ma_type == "sma"
+        assert indicators.fast_ema_length == 5
+        assert indicators.slow_ema_length == 20
+        assert indicators.warmup_candles == 250
 
     def test_it_contains_no_secret_like_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)

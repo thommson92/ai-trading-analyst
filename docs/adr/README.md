@@ -41,9 +41,10 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0004](0004-python-toolchain.md) | Python-Toolchain: pyproject, venv, ruff, mypy strict | Angenommen |
 | [0005](0005-konfiguration-und-secrets.md) | Konfiguration in YAML, Geheimnisse aus der Umgebung | Angenommen |
 | [0006](0006-kein-redis-im-mvp.md) | Kein Redis im MVP, Koordination über PostgreSQL | Angenommen |
-| [0007](0007-gate-g1-indikatorparameter.md) | Indikator-Parameter bleiben bis zur Freigabe leer | Angenommen |
+| [0007](0007-gate-g1-indikatorparameter.md) | Indikator-Parameter bleiben bis zur Freigabe leer | Abgelöst durch ADR 0010 |
 | [0008](0008-reproduzierbare-installation.md) | Reproduzierbare Installation über Lock-Dateien | Angenommen |
 | [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Angenommen (offener Punkt) |
+| [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
 
 ## Offene Entscheidungen
 
