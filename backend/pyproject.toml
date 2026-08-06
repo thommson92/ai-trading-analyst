@@ -1,0 +1,69 @@
+[project]
+name = "ai-trading-analyst"
+version = "0.1.0"
+description = "KI-gestuetztes Trading-Analyse-System fuer Long-Swing-Trades"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9",
+    "pytest-cov>=5.0,<7",
+    "ruff>=0.5,<1",
+    "mypy>=1.10,<2",
+    "types-PyYAML>=6.0,<7",
+]
+# Nur zum Regenerieren der Lock-Dateien (requirements*.lock.txt), keine
+# Laufzeit- oder Testabhaengigkeit. Siehe ADR 0008.
+lock = [
+    "pip-tools>=7.4,<8",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez -- keine naiven Zeitstempel
+    "RUF",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_unimported = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "architecture: prueft die Schichtgrenzen aus Doc 10 Paragraph 9",
+]
