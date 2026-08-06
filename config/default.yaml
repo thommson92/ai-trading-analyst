@@ -1,0 +1,84 @@
+# Fachliche Konfiguration des AI Trading Analyst (Doc 10, Paragraph 17).
+#
+# Diese Datei enthaelt KEINE Geheimnisse. Zugangsdaten, API-Schluessel und
+# Passwoerter kommen ausschliesslich aus Umgebungsvariablen mit dem Praefix
+# ATA_ (siehe .env.example).
+#
+# Unbekannte Schluessel fuehren zu einem Startfehler -- ein Tippfehler soll
+# auffallen und nicht still zu einem Default-Wert werden.
+
+market:
+  # Der Scheduler rechnet ausschliesslich in dieser Zeitzone. Es darf keine
+  # feste deutsche Uhrzeit im Code stehen (Doc 10, Paragraph 6.1).
+  timezone: America/New_York
+  regular_session_open: "09:30"
+  # 390 Minuten regulaere Sitzung = genau zwei 195-Minuten-Kerzen.
+  regular_session_minutes: 390
+  timeframe_minutes: 195
+  # Analysiert wird nach Abschluss der ersten Kerze (12:45 ET).
+  daily_candle_index: 1
+
+screening:
+  # Kandidatenregel: mindestens 2 der 3 Signale innerhalb der letzten 5
+  # abgeschlossenen Kerzen. Unabhaengig von Gate G1, weil die Regel nichts
+  # ueber die mathematische Definition der einzelnen Signale aussagt.
+  required_signal_count: 2
+  lookback_closed_candles: 5
+  direction: LONG
+
+backtesting:
+  history_years: 5
+  horizons: [5, 10, 20]
+  # Freigegeben als F5: Cooldown nach jedem gezaehlten Ereignis, damit
+  # geclusterte Qualifikationen die Stichprobe nicht aufblaehen.
+  cooldown_candles: 5
+  # Konfidenzstufen nach F6.
+  minimum_sample_size: 10
+  normal_confidence_sample_size: 30
+
+earnings_filter:
+  minimum_exclusion_candles: 10
+  maximum_exclusion_candles: 20
+  # Konservative Grenze fuer das MVP (Doc 10, Paragraph 6.5).
+  configured_exclusion_candles: 20
+
+data_availability:
+  # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener
+  # Vollstaendigkeit der Kerze (Risiko R9).
+  grace_period_seconds: 60
+  poll_interval_seconds: 30
+  max_wait_seconds: 1800
+
+notifications:
+  send_when_no_candidates: false
+  # Bis zur Auswahl des Kanals (F10) wird nicht wirklich versendet.
+  channel: dry_run
+
+scoring:
+  swing_version: "1.0"
+  long_term_version: "1.0"
+
+logging:
+  level: INFO
+  format: json
+
+# ---------------------------------------------------------------------------
+# GATE G1 -- Indikator-Parameter, noch NICHT fachlich freigegeben.
+#
+# Dieser Abschnitt bleibt bewusst auskommentiert. Solange er fehlt, bricht
+# jeder Codepfad, der Indikatoren berechnen will, mit einem eindeutigen
+# Hinweis ab, statt mit geratenen Werten zu rechnen (Doc 10, Paragraph 6.4).
+#
+# Die Werte werden am tatsaechlichen TradingView-Layout geklaert. Die
+# folgenden Zeilen sind ein Platzhalter fuer die Struktur, KEIN Vorschlag
+# und keine Vorwegnahme der fachlichen Entscheidung:
+#
+# indicators:
+#   rsi_length: <offen>
+#   rsi_method: <wilder|sma|ema>
+#   rsi_ma_length: <offen>
+#   rsi_ma_type: <sma|ema|wilder>
+#   fast_ema_length: <offen>
+#   slow_ema_length: <offen>
+#   warmup_candles: <offen>
+# ---------------------------------------------------------------------------
