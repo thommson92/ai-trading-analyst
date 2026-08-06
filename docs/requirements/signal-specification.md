@@ -1,8 +1,9 @@
 # Signalspezifikation — Gate G1
 
-- Status: **Signal-Mathematik bestätigt** — Kandidatenregel, Fünf-Kerzen-Fenster
-  und die Frage der Backtest-Kerzenabdeckung sind konsolidiert in der
-  [G1-Prüfvorlage](g1-pruefvorlage.md) zur abschließenden Prüfung.
+- Status: **Vollständig bestätigt.** Alle Signalformeln, Parameter, Warm-up-,
+  Präzisions- und Fehlerbehandlungsregeln sowie Kandidatenregel,
+  Sechs-Kerzen-Fenster und Backtest-Entscheidungslogik sind konsolidiert in
+  der [G1-Prüfvorlage](g1-pruefvorlage.md), die zur finalen Durchsicht vorliegt.
 - Zweck: exakte, testbare Definition der drei technischen Kaufsignale, bevor
   der Screener implementiert wird (Doc 10, Paragraph 6.4; siehe auch
   [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md))
@@ -60,11 +61,19 @@ Von dir bestätigt (Nachricht vom 2026-08-06, Punkte 1, 4, 5, 6):
 | Rundung / Gleichheitstoleranz | Keine Rundung, keine Toleranz. Alle Signalberechnungen verwenden die ungerundeten internen Werte — die im TradingView-Layout angezeigte Rundung ist für die Signalentscheidung irrelevant. Für Crossover-Vergleiche gilt einheitlich: Gleichheit auf der vorherigen Kerze ist zulässig (`<=`), auf der aktuellen Kerze muss die Überschreitung strikt sein (`>`). | **CONFIRMED** |
 | Umgang mit fehlenden Kerzen/Indikatorwerten | Fehlende Daten zählen **nicht** als „Signal nicht erfüllt". Kann eine erforderliche Kerze oder ein erforderlicher Indikatorwert nicht zuverlässig bestimmt werden, erhält die betreffende Aktienprüfung den Status `UNKNOWN_DATA_INCOMPLETE` — nach Ausschöpfen der vorgesehenen Retry-Regel, ohne Klassifikation als Kandidat oder Nicht-Kandidat, ohne vertiefte Analyse, mit gespeichertem Datenfehler und sichtbar in Laufbericht und Dashboard. Vollständige Prozessbeschreibung in der [G1-Prüfvorlage](g1-pruefvorlage.md). | **CONFIRMED** |
 
-Weiterhin offen — nicht durch die Nachricht vom 2026-08-06 abgedeckt:
+Zusätzlich bestätigt (Nachricht vom 2026-08-06, Punkte 8–11 — Kandidatenregel
+und Backtesting-Details):
 
-| Parameter | Frage | Status |
+| Parameter | Wert | Status |
 |---|---|---|
-| Historische Signalauswertung (Backtesting) | Werden für die 5-Jahres-Historie **alle** abgeschlossenen 195-Minuten-Kerzen ausgewertet (auch die zweite Tageskerze), oder ausschließlich die erste Tageskerze (`daily_candle_index: 1`), auf der auch der Live-Lauf screent? Das bestimmt die Stichprobengröße des Backtests und ob Live- und Backtest-Bedingungen exakt übereinstimmen. | OPEN |
+| Historische Signalauswertung (Backtesting) | Entscheidungspunkte ausschließlich an der ersten Tageskerze — wie im Live-Betrieb. Die zweite Tageskerze ist kein eigener Entscheidungspunkt, darf aber als Kerze innerhalb des Sechs-Kerzen-Fensters eines späteren Entscheidungspunkts dienen. Die Performancemessung (Horizonte 5/10/20) zählt dagegen alle nachfolgenden abgeschlossenen Kerzen, unabhängig von erster/zweiter Tageskerze. Details und Pseudocode in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 4. | **CONFIRMED** |
+| Fensterdefinition der Kandidatenregel | Sechs Kerzen: aktuelle Kerze `t` plus die fünf vorherigen `t-1` bis `t-5`. Details in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 3.2. | **CONFIRMED** |
+| Zeitliche Verteilung der Signaltypen | Die mindestens zwei erforderlichen Signaltypen müssen nicht auf derselben Kerze auftreten; jeder Signaltyp zählt höchstens einmal pro Fenster, unabhängig von der Anzahl einzelner Ereignisse dieses Typs. Details in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 3.3. | **CONFIRMED** |
+| Speicherung der Signalkombination (Backtesting) | Als Menge unterschiedlicher Signaltypen; die genaue Position im Fenster wird zusätzlich gespeichert, ist aber kein Kriterium für „identische Kombination". Details in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 4.3. | **CONFIRMED** |
+
+Diese Datei enthält keine offenen Punkte mehr. Die vollständige,
+konsolidierte Fassung liegt in der [G1-Prüfvorlage](g1-pruefvorlage.md) zur
+finalen Durchsicht.
 
 ---
 
@@ -259,13 +268,11 @@ Siehe gemeinsame Regel in Abschnitt 1 — Status `UNKNOWN_DATA_INCOMPLETE`.
 
 Zur Abgrenzung, damit beim Ausfüllen nichts doppelt verhandelt wird:
 
-- **Kandidatenregel** („mindestens 2 von 3 Signalen in den letzten 5
-  abgeschlossenen Kerzen") ist als Konfigurationswert bereits gesetzt
-  (`screening.required_signal_count`, `screening.lookback_closed_candles` in
-  `config/default.yaml`). Die *exakte Interpretation* des Fünf-Kerzen-Fensters
-  (welche Kerzen genau im Fenster liegen, ob die drei Signaltypen auf
-  derselben oder auf unterschiedlichen Kerzen auftreten dürfen) ist Teil der
-  [G1-Prüfvorlage](g1-pruefvorlage.md), nicht dieser Datei.
+- **Kandidatenregel** — vollständige Formeln, Pseudocode und Beispiele stehen
+  in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 3, nicht in dieser
+  Datei. Der Konfigurationswert `screening.lookback_closed_candles` wird bei
+  der Implementierung in `signal_lookback_previous_candles` umbenannt (siehe
+  G1-Prüfvorlage, Abschnitt 3.2).
 - **Backtest-Einstiegspunkt und Cooldown** sind bereits freigegeben (F4, F5 —
   siehe Entwicklungsplan und `config/default.yaml`, Abschnitt `backtesting`).
 - **Earnings-Filter** ist unabhängig von dieser Spezifikation (Doc 10 §6.5).
@@ -278,11 +285,11 @@ Zur Abgrenzung, damit beim Ausfüllen nichts doppelt verhandelt wird:
 |---|---|---|
 | 2026-08-06 | RSI-Länge 14, RSI-Quelle close, RSI-MA Typ SMA / Länge 14, EMA5 Länge 5 / close, EMA20 Länge 20 / close | Thomas Kellner |
 | 2026-08-06 | RSI-interne Glättung Wilder/RMA; Signal B = Option 2 (Kerzenkörper) mit vollständiger Formel; Signal C = Option 1 (keine Kursbedingung) mit vollständiger Formel; Vergleichspräzision (ungerundet, keine Toleranz, Gleichheitsregel für Crossover); `warmup_candles = 250`; Umgang mit fehlenden Daten (`UNKNOWN_DATA_INCOMPLETE`) | Thomas Kellner |
+| 2026-08-06 | Sechs-Kerzen-Fenster (aktuelle + 5 vorherige) der Kandidatenregel; Signaltypen dürfen auf unterschiedlichen Kerzen auftreten, Zählung pro Typ statt pro Ereignis; Backtesting-Entscheidungspunkte ausschließlich an ersten Tageskerzen; Performancemessung in Kerzen statt Handelstagen; Speicherung der Signalkombination als Menge | Thomas Kellner |
 
-Diese Tabelle wird bei jeder weiteren Bestätigung ergänzt. Offen bleibt
-ausschließlich die Frage der Backtest-Kerzenabdeckung (Abschnitt 1) sowie die
-in der [G1-Prüfvorlage](g1-pruefvorlage.md) zur Prüfung vorgelegte
-Fensterinterpretation der Kandidatenregel. Sobald auch diese bestätigt sind,
-gilt Gate G1 als vollständig freigegeben; ein neues ADR löst dann
-[ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ab und der Abschnitt
-`indicators:` in `config/default.yaml` wird aktiviert.
+Diese Tabelle wird bei jeder weiteren Bestätigung ergänzt. Diese Datei enthält
+keine offenen Punkte mehr; die vollständige, konsolidierte Fassung liegt in
+der [G1-Prüfvorlage](g1-pruefvorlage.md) zur finalen Durchsicht. Sobald du
+diese bestätigst, gilt Gate G1 als vollständig freigegeben; ein neues ADR löst
+dann [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ab und der
+Abschnitt `indicators:` in `config/default.yaml` wird aktiviert.
