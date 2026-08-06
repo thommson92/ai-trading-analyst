@@ -7,8 +7,8 @@ Aufgeteilt in zwei Quellen mit unterschiedlichem Vertrauensbereich:
 * ``Secrets`` -- Zugangsdaten ausschliesslich aus Umgebungsvariablen. Nie in
   einer Datei im Repository (Doc 10, Paragraph 13).
 
-Die Indikator-Parameter fehlen bewusst: sie unterliegen Gate G1 und werden
-erst nach fachlicher Freigabe am realen TradingView-Layout festgelegt. Siehe
+Die Indikator-Parameter unterlagen Gate G1 und sind seit
+docs/adr/0010-gate-g1-freigegeben.md fachlich freigegeben. Siehe
 ``IndicatorConfig``.
 """
 
@@ -71,13 +71,13 @@ class MarketConfig(_Section):
 
 
 class IndicatorConfig(_Section):
-    """Indikator-Parameter -- GATE G1, noch nicht freigegeben.
+    """Indikator-Parameter -- GATE G1, fachlich freigegeben.
 
-    Alle Felder sind Pflichtfelder ohne Default. In ``config/default.yaml`` ist
-    der Abschnitt auskommentiert, damit die Konfiguration ohne fachliche
-    Freigabe nachweislich unvollstaendig bleibt und ein Zugriff mit einem
-    klaren Fehler abbricht, statt still mit geratenen Werten zu rechnen
-    (Doc 10, Paragraph 6.4).
+    Werte siehe docs/requirements/g1-pruefvorlage.md, Abschnitt 1.2 und 1.3,
+    und docs/adr/0010-gate-g1-freigegeben.md. Alle Felder bleiben
+    Pflichtfelder ohne Default: Eine Konfiguration ohne diesen Abschnitt soll
+    weiterhin mit einem klaren Fehler abbrechen statt still mit geratenen
+    Werten zu rechnen (Doc 10, Paragraph 6.4).
     """
 
     rsi_length: PositiveInt
@@ -205,18 +205,22 @@ class AppConfig(_Section):
     indicators: IndicatorConfig | None = None
 
     def require_indicators(self) -> IndicatorConfig:
-        """Liefert die Indikator-Parameter oder bricht mit Gate-G1-Hinweis ab.
+        """Liefert die Indikator-Parameter oder bricht mit einem eindeutigen Hinweis ab.
 
-        Jeder Codepfad, der Indikatoren berechnet, geht ueber diese Methode.
-        So kann kein Modul versehentlich mit geratenen Parametern rechnen.
+        Gate G1 ist fachlich freigegeben (docs/adr/0010-gate-g1-freigegeben.md);
+        ``config/default.yaml`` enthaelt den Abschnitt ``indicators`` bereits.
+        Diese Methode bleibt trotzdem bestehen: Eine Konfiguration, die den
+        Abschnitt dennoch nicht enthaelt (z. B. eine unvollstaendige eigene
+        Config-Datei), soll weiterhin mit einem klaren Fehler abbrechen statt
+        mit fehlenden Parametern zu rechnen.
         """
         if self.indicators is None:
             raise GateNotClearedError(
-                "Gate G1 ist nicht freigegeben: Die Indikator-Parameter (RSI-Laenge und "
-                "-Methode, RSI-Moving-Average, EMA-Laengen) sind noch nicht fachlich "
-                "festgelegt. Sie muessen am realen TradingView-Layout geklaert und im "
-                "Abschnitt 'indicators' der Konfiguration hinterlegt werden. Es duerfen "
-                "dafuer keine Annahmen getroffen werden."
+                "Der Abschnitt 'indicators' fehlt in dieser Konfiguration. Gate G1 ist "
+                "fachlich freigegeben (RSI-Laenge und -Methode, RSI-Moving-Average, "
+                "EMA-Laengen sind festgelegt, siehe docs/requirements/g1-pruefvorlage.md) "
+                "-- die Werte muessen aber im Abschnitt 'indicators' dieser Konfiguration "
+                "hinterlegt sein."
             )
         return self.indicators
 

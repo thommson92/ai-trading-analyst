@@ -27,14 +27,18 @@ getrennt.
 
 ## Projektstand
 
-**Sprint 0 Teil A — Projektgrundlage.** Toolchain, Konfiguration, Logging,
-Schichtstruktur und CI stehen. Es gibt noch keine fachliche Analyselogik.
+**Sprint 1A — Deterministischer Signalkern.** Toolchain, Konfiguration,
+Logging, Schichtstruktur und CI stehen (Sprint 0 Teil A). Gate G1 ist
+fachlich freigegeben ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die
+drei Signalregeln und die 2-aus-3-Kandidatenregel sind als reiner
+Domain-Code implementiert (`backend/src/ai_trading_analyst/domain/screening`,
+Tag `sprint-1a-baseline`). Es gibt noch keine Persistenz, keinen
+Orchestrator und keine API.
 
 Bewusst noch nicht begonnen:
 
 | Thema | Blockiert durch |
 |---|---|
-| Signalformeln des Screeners | Gate G1 — Indikator-Parameter nicht freigegeben |
 | TradingView-Spike | Gate G2 — gesonderte Freigabe erforderlich |
 | Produktive TradingView-Integration | Gate G3 — Entscheidung nach Spike-Bericht |
 | Produktive Datenprovider | ADR ausstehend |
@@ -138,8 +142,8 @@ Default.
 
 Ein abweichender Pfad lässt sich über `ATA_CONFIG_FILE` setzen.
 
-Der Abschnitt `indicators` fehlt bewusst — siehe
-[ADR 0007](docs/adr/0007-gate-g1-indikatorparameter.md).
+Der Abschnitt `indicators` enthält die für Gate G1 fachlich freigegebenen
+Parameter — siehe [ADR 0010](docs/adr/0010-gate-g1-freigegeben.md).
 
 ## Mitwirken
 

@@ -1,16 +1,17 @@
 # G1-Prüfvorlage — konsolidierte Signal- und Kandidatenlogik
 
-- Status: **Alle Festlegungen bestätigt — zur finalen Durchsicht vorgelegt,
-  noch keine Implementierung.**
+- Status: **Gate G1 fachlich freigegeben** (2026-08-06, siehe
+  [ADR 0010](../adr/0010-gate-g1-freigegeben.md)).
 - Zweck: Diese Datei ist die einzige, vollständige und in sich geschlossene
   Grundlage, gegen die der Screener und das Backtesting-Modul implementiert
-  werden, sobald du diese finale Fassung ausdrücklich freigibst
-  (Doc 10, Paragraph 6.4).
+  werden (Doc 10, Paragraph 6.4).
 - Herkunft: konsolidiert aus [signal-specification.md](signal-specification.md)
   (dort mit Diskussion, Optionen und Herleitung) und den Festlegungen aus
   deinen Nachrichten vom 2026-08-06.
-- **Es ist noch kein Code geschrieben.** Diese Datei wird implementiert, sobald
-  du sie ausdrücklich freigibst — nicht vorher.
+- **Die Signalformeln und die 2-aus-3-Kandidatenregel sind implementiert**
+  (`backend/src/ai_trading_analyst/domain/screening`, Sprint 1A, Tag
+  `sprint-1a-baseline`). Die Backtesting-Regeln aus Abschnitt 4 sind weiterhin
+  unimplementiert und bleiben bis Sprint 3 verbindliche Grundlage.
 
 ## Kennzeichnung in diesem Dokument
 
@@ -253,17 +254,14 @@ zu verstehen: current candle + 5 previous candles = 6 candles total.
 Fenster = { t, t-1, t-2, t-3, t-4, t-5 }
 ```
 
-**Namensklärung (Umsetzungshinweis, kein fachlicher Punkt):** Der bestehende
-Konfigurationsname `lookback_closed_candles` ist mehrdeutig — er könnte als
+**Namensklärung (Umsetzungshinweis, kein fachlicher Punkt):** Der frühere
+Konfigurationsname `lookback_closed_candles` war mehrdeutig — er könnte als
 „Gesamtgröße des Fensters" oder als „Anzahl der Kerzen vor der aktuellen"
-gelesen werden. Er wird bei der Implementierung umbenannt in
-`signal_lookback_previous_candles: 5`, um eindeutig auszudrücken: fünf
-*zusätzliche, vorherige* Kerzen, die aktuelle Kerze kommt immer und
-unabhängig davon hinzu. Diese Umbenennung ist noch **nicht** vorgenommen
-worden — sie betrifft `backend/src/ai_trading_analyst/config/settings.py` und
-`config/default.yaml`, beide aktuell Teil des noch nicht gemergten PR #1, und
-wird zusammen mit der übrigen Screener-Implementierung nachgezogen, um keine
-Änderung auf einer instabilen Basis vorzunehmen.
+gelesen werden. Er wurde in `signal_lookback_previous_candles: 5` umbenannt,
+um eindeutig auszudrücken: fünf *zusätzliche, vorherige* Kerzen, die aktuelle
+Kerze kommt immer und unabhängig davon hinzu. Umgesetzt in
+`backend/src/ai_trading_analyst/config/settings.py` und
+`config/default.yaml` (Sprint 1A, Tag `sprint-1a-baseline`).
 
 ### 3.3 Zeitliche Verteilung und Zählung der Signaltypen — BESTÄTIGT
 
@@ -468,11 +466,8 @@ Backtest-Statistik als identische Kombination, auch wenn ihre
 | 11 | Performancemessung in Kerzen, nicht in Handelstagen (Abschnitt 4.2) | BESTÄTIGT |
 | 12 | Signalkombination als Menge, Position separat gespeichert (Abschnitt 4.3) | BESTÄTIGT |
 
-Nicht Teil der fachlichen Freigabe, sondern reiner Umsetzungshinweis: die
-Umbenennung von `lookback_closed_candles` zu
-`signal_lookback_previous_candles` (Abschnitt 3.2) ist noch nicht im Code
-vorgenommen — sie erfolgt zusammen mit der Screener-Implementierung.
+Die Umbenennung von `lookback_closed_candles` zu
+`signal_lookback_previous_candles` (Abschnitt 3.2) ist umgesetzt.
 
-**Alle zwölf fachlichen Punkte sind bestätigt. Gate G1 gilt als freigegeben,
-sobald du diese konsolidierte Fassung als exakt und widerspruchsfrei
-bestätigst.**
+**Alle zwölf fachlichen Punkte sind bestätigt. Gate G1 ist fachlich
+freigegeben (siehe [ADR 0010](../adr/0010-gate-g1-freigegeben.md)).**

@@ -67,22 +67,15 @@ logging:
   format: json
 
 # ---------------------------------------------------------------------------
-# GATE G1 -- Indikator-Parameter, noch NICHT fachlich freigegeben.
+# GATE G1 -- fachlich freigegeben (docs/adr/0010-gate-g1-freigegeben.md).
 #
-# Dieser Abschnitt bleibt bewusst auskommentiert. Solange er fehlt, bricht
-# jeder Codepfad, der Indikatoren berechnen will, mit einem eindeutigen
-# Hinweis ab, statt mit geratenen Werten zu rechnen (Doc 10, Paragraph 6.4).
-#
-# Die Werte werden am tatsaechlichen TradingView-Layout geklaert. Die
-# folgenden Zeilen sind ein Platzhalter fuer die Struktur, KEIN Vorschlag
-# und keine Vorwegnahme der fachlichen Entscheidung:
-#
-# indicators:
-#   rsi_length: <offen>
-#   rsi_method: <wilder|sma|ema>
-#   rsi_ma_length: <offen>
-#   rsi_ma_type: <sma|ema|wilder>
-#   fast_ema_length: <offen>
-#   slow_ema_length: <offen>
-#   warmup_candles: <offen>
+# Werte aus docs/requirements/g1-pruefvorlage.md, Abschnitt 1.2 und 1.3.
 # ---------------------------------------------------------------------------
+indicators:
+  rsi_length: 14
+  rsi_method: wilder
+  rsi_ma_length: 14
+  rsi_ma_type: sma
+  fast_ema_length: 5
+  slow_ema_length: 20
+  warmup_candles: 250
