@@ -28,11 +28,16 @@ out/
 .eslintcache
 
 # --- Datenbank / Laufzeitartefakte ---
+# Mit fuehrendem Schraegstrich verankert -- ohne ihn traf "data/" jeden
+# gleichnamigen Ordner auf jeder Tiefe und hat dadurch die eingecheckten
+# Fixture-Daten unter backend/src/.../infrastructure/fixtures/data/
+# verschluckt, obwohl sie lokal (ungetrackt) vorhanden blieben und Tests
+# deshalb nur lokal, nie in CI, funktionierten.
 *.sqlite3
-data/
-artifacts/
-logs/
-backups/
+/data/
+/artifacts/
+/logs/
+/backups/
 
 # --- Betriebssystem / Editor ---
 .DS_Store
