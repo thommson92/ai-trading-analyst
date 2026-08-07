@@ -45,6 +45,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0008](0008-reproduzierbare-installation.md) | Reproduzierbare Installation über Lock-Dateien | Angenommen |
 | [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Angenommen (offener Punkt) |
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
+| [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (offener Punkt) |
 
 ## Offene Entscheidungen
 
