@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Deterministische Fixture-Daten fuer den Walking Skeleton (Sprint 1B). Zeitstempel beginnen an einem festen Epoch-Datum, unabhaengig vom aktuellen Datum.",
+  "series_length": 259,
+  "decision_index": 258,
+  "stocks": [
+    {
+      "symbol": "FIXCAND",
+      "exchange": "NASDAQ",
+      "scenario": "candidate",
+      "indicator_overrides": {
+        "254": { "rsi": 60.0, "rsi_ma": 50.0 }
+      },
+      "candle_overrides": {
+        "257": { "open": 100.0, "close": 105.0 }
+      }
+    },
+    {
+      "symbol": "FIXNOCAND",
+      "exchange": "NASDAQ",
+      "scenario": "not_candidate",
+      "indicator_overrides": {
+        "258": { "rsi": 60.0, "rsi_ma": 50.0 }
+      }
+    },
+    {
+      "symbol": "FIXINCOMPLETE",
+      "exchange": "NASDAQ",
+      "scenario": "unknown_data_incomplete",
+      "indicator_overrides": {
+        "255": { "rsi": null, "rsi_ma": null, "ema5": null, "ema20": null }
+      }
+    },
+    {
+      "symbol": "FIXERROR",
+      "exchange": "NASDAQ",
+      "scenario": "provider_error",
+      "error_message": "Simulierter Verbindungsabbruch zum Marktdatenanbieter fuer FIXERROR"
+    }
+  ]
+}
