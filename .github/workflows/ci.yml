@@ -22,6 +22,24 @@ jobs:
       run:
         working-directory: backend
 
+    # Fuer Persistenz- und Migrationstests: echtes PostgreSQL, kein SQLite-
+    # Ersatz (Sprint 1B). Die Tests lesen die Verbindung ueber
+    # TEST_DATABASE_URL, siehe tests/integration/conftest.py und README.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ata
+          POSTGRES_PASSWORD: ata
+          POSTGRES_DB: ata_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ata"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +65,8 @@ jobs:
         run: python -m mypy src tests
 
       - name: Pytest
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://ata:ata@localhost:5432/ata_test
         run: python -m pytest
 
   frontend:

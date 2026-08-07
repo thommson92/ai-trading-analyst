@@ -7,6 +7,11 @@ dependencies = [
     "pydantic>=2.7,<3",
     "pydantic-settings>=2.3,<3",
     "PyYAML>=6.0,<7",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "psycopg[binary]>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -16,6 +21,7 @@ dev = [
     "ruff>=0.5,<1",
     "mypy>=1.10,<2",
     "types-PyYAML>=6.0,<7",
+    "httpx>=0.27,<1",
 ]
 # Nur zum Regenerieren der Lock-Dateien (requirements*.lock.txt), keine
 # Laufzeit- oder Testabhaengigkeit. Siehe ADR 0008.
@@ -29,6 +35,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+ai_trading_analyst = ["infrastructure/fixtures/data/**/*.json"]
 
 [tool.ruff]
 line-length = 100
@@ -48,6 +57,11 @@ select = [
     "DTZ",  # flake8-datetimez -- keine naiven Zeitstempel
     "RUF",
 ]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPIs Depends(...)/Query(...) in Funktions-Defaults sind das idiomatische
+# Dependency-Injection-Muster, kein Bug (B008 waere sonst ein Dauer-Fehlalarm).
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.mypy]
 python_version = "3.12"

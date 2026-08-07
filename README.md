@@ -27,13 +27,15 @@ getrennt.
 
 ## Projektstand
 
-**Sprint 1A — Deterministischer Signalkern.** Toolchain, Konfiguration,
-Logging, Schichtstruktur und CI stehen (Sprint 0 Teil A). Gate G1 ist
-fachlich freigegeben ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die
-drei Signalregeln und die 2-aus-3-Kandidatenregel sind als reiner
-Domain-Code implementiert (`backend/src/ai_trading_analyst/domain/screening`,
-Tag `sprint-1a-baseline`). Es gibt noch keine Persistenz, keinen
-Orchestrator und keine API.
+**Sprint 1B — Backend Walking Skeleton.** Toolchain, Konfiguration, Logging,
+Schichtstruktur und CI stehen (Sprint 0 Teil A). Gate G1 ist fachlich
+freigegeben ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei
+Signalregeln und die 2-aus-3-Kandidatenregel sind als reiner Domain-Code
+implementiert (`backend/src/ai_trading_analyst/domain/screening`, Tag
+`sprint-1a-baseline`). Eine dünne, durchgehend lauffähige Kette mit
+Fixture-Daten steht: `FixtureMarketDataProvider` → Application Use Case →
+Screener → PostgreSQL → REST API (`/api/v1`). Noch kein produktiver
+Scheduler, keine echten Marktdaten, kein Frontend-Ausbau.
 
 Bewusst noch nicht begonnen:
 
@@ -50,13 +52,21 @@ Bewusst noch nicht begonnen:
 backend/          Python 3.12, FastAPI-Anwendung
   src/ai_trading_analyst/
     domain/         Fachregeln, Provider-Schnittstellen (ohne Infrastruktur)
-    application/    Use Cases, Orchestrierung
+      screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1)
+      analysis/       AnalysisRun/Stock-Modelle, Provider-Ports
+    application/    Use Cases, Orchestrierung (run_analysis.py)
     infrastructure/ Repositories, Adapter
-    presentation/   API-Endpunkte, Schemas
+      fixtures/       FixtureMarketDataProvider, versionierte JSON-Fixtures
+      persistence/    SQLAlchemy-Modelle, Repositories, UnitOfWork
+    presentation/   API-Endpunkte, Schemas (/api/v1)
     config/         Konfiguration und Geheimnisse
     observability/  Logging, Correlation IDs
+    bootstrap.py    Composition Root -- verdrahtet alle Schichten
+    main.py         ASGI-Einstiegspunkt (uvicorn ai_trading_analyst.main:app)
+  migrations/       Alembic-Migrationen
   tests/
-    unit/           Fachliche Einzeltests
+    unit/           Fachliche Einzeltests, keine Datenbank
+    integration/    Repositories, Migration, API -- echtes PostgreSQL
     architecture/   Schichtgrenzen (bricht bei Verstoß die CI)
 frontend/         Next.js 15, TypeScript strict
 config/           default.yaml — fachliche Konfiguration ohne Geheimnisse
@@ -132,6 +142,37 @@ npm run lint
 npm run typecheck
 npm run build
 ```
+
+### Tests mit echtem PostgreSQL
+
+`backend/tests/integration/` prüft Persistenz, Migrationen und die REST-API
+gegen echtes PostgreSQL — SQLite ist dafür bewusst kein Ersatz. Ohne
+erreichbare Datenbank schlagen diese Tests mit einer klaren Fehlermeldung
+fehl (kein stilles Überspringen). Lokal:
+
+```bash
+docker run -d --name ata-postgres-test \
+  -e POSTGRES_USER=ata -e POSTGRES_PASSWORD=ata -e POSTGRES_DB=ata_test \
+  -p 55432:5432 postgres:16-alpine
+
+export TEST_DATABASE_URL="postgresql+psycopg://ata:ata@localhost:55432/ata_test"
+cd backend && .venv/bin/python -m pytest
+```
+
+In der CI übernimmt das ein Postgres-Service-Container (`.github/workflows/ci.yml`).
+
+### Backend lokal starten
+
+```bash
+cd backend
+cp ../.env.example ../.env   # ATA_DATABASE_URL und ATA_SESSION_SECRET setzen
+.venv/bin/python -m alembic upgrade head
+.venv/bin/uvicorn ai_trading_analyst.main:app --reload
+```
+
+`POST /api/v1/analysis-runs` startet in Sprint 1B ausschließlich einen
+fixture-basierten manuellen Lauf (`FixtureMarketDataProvider`) — noch keine
+produktiven Marktdaten.
 
 ## Konfiguration
 

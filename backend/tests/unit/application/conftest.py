@@ -1,0 +1,194 @@
+"""In-Memory-Fakes fuer die Domain-Ports -- keine Datenbank, keine Fixtures.
+
+Testet ausschliesslich die Orchestrierung des Use Case (Reihenfolge,
+Statusuebergaenge, Fehlerisolation), nicht die Persistenz selbst (dafuer
+``tests/integration``).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+from types import TracebackType
+from typing import Self
+
+from ai_trading_analyst.domain.analysis import (
+    AnalysisRun,
+    AnalysisRunRepository,
+    MarketDataProviderError,
+    ProcessingErrorRepository,
+    ScreeningResultRepository,
+    Stock,
+    StockProcessingError,
+    StockRepository,
+    StockScreeningOutcome,
+)
+from ai_trading_analyst.domain.screening import Candle, CandleSeries, IndicatorValues
+
+_EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
+_TIMEFRAME = timedelta(minutes=195)
+_BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+_CANDIDATE_INDICATORS = IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+
+
+def make_stock(symbol: str) -> Stock:
+    return Stock(id=uuid.uuid5(uuid.NAMESPACE_DNS, symbol), symbol=symbol, exchange="NASDAQ")
+
+
+def make_series(length: int, *, candidate: bool) -> CandleSeries:
+    """``candidate=True`` laesst genau auf der letzten Kerze zwei Signaltypen
+    gleichzeitig feuern (RSI_CROSS und EMA5_EMA20_CROSS) -- alles davor bleibt
+    Baseline und feuert nie (siehe domain/screening-Tests fuer das Prinzip)."""
+    candles = tuple(
+        Candle(
+            timestamp=_EPOCH + i * _TIMEFRAME,
+            daily_candle_index=1 if i % 2 == 0 else 2,
+            open=100.0,
+            high=100.0,
+            low=100.0,
+            close=100.0,
+            volume=1_000.0,
+        )
+        for i in range(length)
+    )
+    indicators = [_BASELINE] * length
+    if candidate:
+        indicators[-1] = _CANDIDATE_INDICATORS
+    return CandleSeries(candles=candles, indicators=tuple(indicators))
+
+
+def make_incomplete_series(length: int) -> CandleSeries:
+    candles = tuple(
+        Candle(
+            timestamp=_EPOCH + i * _TIMEFRAME,
+            daily_candle_index=1 if i % 2 == 0 else 2,
+            open=100.0,
+            high=100.0,
+            low=100.0,
+            close=100.0,
+            volume=1_000.0,
+        )
+        for i in range(length)
+    )
+    indicators = [_BASELINE] * length
+    indicators[-2] = IndicatorValues(rsi=None, rsi_ma=None, ema5=None, ema20=None)
+    return CandleSeries(candles=candles, indicators=tuple(indicators))
+
+
+class FakeMarketDataProvider:
+    def __init__(
+        self,
+        stocks: tuple[Stock, ...],
+        series_by_symbol: dict[str, CandleSeries],
+        error_symbols: frozenset[str] = frozenset(),
+        list_stocks_error: Exception | None = None,
+    ) -> None:
+        self._stocks = stocks
+        self._series_by_symbol = series_by_symbol
+        self._error_symbols = error_symbols
+        self._list_stocks_error = list_stocks_error
+
+    def list_stocks(self) -> tuple[Stock, ...]:
+        if self._list_stocks_error is not None:
+            raise self._list_stocks_error
+        return self._stocks
+
+    def get_candle_series(self, stock: Stock) -> CandleSeries:
+        if stock.symbol in self._error_symbols:
+            raise MarketDataProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        return self._series_by_symbol[stock.symbol]
+
+
+class FakeStockRepository:
+    def __init__(self) -> None:
+        self.added: list[Stock] = []
+
+    def add(self, stock: Stock) -> None:
+        if stock.symbol not in {s.symbol for s in self.added}:
+            self.added.append(stock)
+
+    def get_by_symbol(self, symbol: str) -> Stock | None:
+        return next((s for s in self.added if s.symbol == symbol), None)
+
+    def list_all(self) -> tuple[Stock, ...]:
+        return tuple(self.added)
+
+
+class FakeAnalysisRunRepository:
+    def __init__(self) -> None:
+        self._runs: dict[uuid.UUID, AnalysisRun] = {}
+
+    def add(self, run: AnalysisRun) -> None:
+        self._runs[run.id] = run
+
+    def get(self, run_id: uuid.UUID) -> AnalysisRun | None:
+        return self._runs.get(run_id)
+
+    def list_all(self) -> tuple[AnalysisRun, ...]:
+        return tuple(self._runs.values())
+
+    def update(self, run: AnalysisRun) -> None:
+        self._runs[run.id] = run
+
+
+class FakeScreeningResultRepository:
+    def __init__(self) -> None:
+        self.added: list[StockScreeningOutcome] = []
+
+    def add(self, outcome: StockScreeningOutcome) -> None:
+        self.added.append(outcome)
+
+    def list_for_run(self, run_id: uuid.UUID) -> tuple[StockScreeningOutcome, ...]:
+        return tuple(o for o in self.added if o.analysis_run_id == run_id)
+
+
+class FakeProcessingErrorRepository:
+    def __init__(self) -> None:
+        self.added: list[StockProcessingError] = []
+
+    def add(self, error: StockProcessingError) -> None:
+        self.added.append(error)
+
+    def list_for_run(self, run_id: uuid.UUID) -> tuple[StockProcessingError, ...]:
+        return tuple(e for e in self.added if e.analysis_run_id == run_id)
+
+
+class FakeUnitOfWork:
+    """Keine echten Transaktionsgrenzen -- fuer Use-Case-Tests genuegt ein
+    geteiltes In-Memory-Repository-Set, das jeder Aufruf der Factory wieder
+    zurueckgibt.
+
+    Die Attribute sind bewusst auf die Protocol-Typen annotiert (nicht auf
+    die konkreten Fake-Klassen): ``UnitOfWork`` deklariert sie als
+    veraenderliche Attribute, wofuer mypy invariante Uebereinstimmung
+    verlangt -- mit den konkreten Fake-Typen waere die Protocol-Konformanz
+    sonst ein Typfehler."""
+
+    def __init__(
+        self,
+        stocks: StockRepository,
+        analysis_runs: AnalysisRunRepository,
+        screening_results: ScreeningResultRepository,
+        processing_errors: ProcessingErrorRepository,
+    ) -> None:
+        self.stocks = stocks
+        self.analysis_runs = analysis_runs
+        self.screening_results = screening_results
+        self.processing_errors = processing_errors
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    def commit(self) -> None:
+        pass
+
+    def rollback(self) -> None:
+        pass
