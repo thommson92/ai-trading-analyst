@@ -77,6 +77,104 @@ durchlaufen sind:
    Spikes, mit denselben zwei getrennten Dimensionen wie bei TradingView
    (technische Stabilität / vertragliche Zulässigkeit) -- nicht vermischt.
 
+## Vorprüfung — Zwischenstand (2026-08-10)
+
+Schritt 1 (kurze Vorprüfung vor Spike-Start) ist teilweise durchgeführt. Wie
+bei ADR 0012 werden geprüfter Vertragsinhalt, technische Subsumtion und
+Einschätzung getrennt dargestellt; die abschließende Entscheidung trifft
+weiterhin der Projektinhaber (siehe "Verantwortlichkeiten"-Abschnitt,
+analog Abschnitt 2.3 der Gate-G3-Entscheidungsvorlage).
+
+### Geprüfte Quelle
+
+- Dokument: "Market Data API Supplement to the GFIS Subscriber Agreement"
+  -- die zusätzliche, speziell für API-Zugriff geltende Vereinbarung, die
+  die allgemeine GFIS Subscriber Agreement (Formular 3089) ergänzt.
+- Herkunft: vom Nutzer am 2026-08-10 direkt aus dem eigenen IBKR-Konto
+  (Marktdaten-Abonnement-Bereich) im Volltext bereitgestellt -- kein
+  öffentlich zugängliches Dokument, daher nicht extern verlinkbar.
+- Diese Vereinbarung ist bereits akzeptiert (elektronische Signatur laut
+  Dokument rechtlich einer handschriftlichen Unterschrift gleichgestellt).
+
+### Vertragsinhalt (wörtliche Kernzitate)
+
+> "The Data that Subscriber accesses through the API is provided to
+> Subscriber for trading-related purposes only [...] Subscriber may access
+> the Data through the API in order to perform analytics, enter orders, and
+> perform other transactions or functions exclusively in connection with
+> Subscriber's brokerage account(s) with IBKR and not for any other
+> purpose."
+
+Verbotene Nutzungen (Auszug, wörtlich):
+
+> "Publish, disseminate, or redistribute the Data to any third party."
+
+> "Assign, transfer, grant access or use, disclose or otherwise provide, in
+> any form whatsoever, the Data accessed through the API to any third
+> party, or display it electronically."
+
+> "Create data products based upon or derived from the Data, or use the
+> Data to create any index or use the Data to create any other derived
+> works that will be disseminated, published, or otherwise provided to
+> others."
+
+> "Use Subscriber's access to the Data through the API to develop software
+> applications that Subscriber wishes to: (a) sell to third-party users for
+> a fee or provide for free, or (b) give to third-party users to generate
+> an indirect financial benefit."
+
+Ergänzend (kein Verbot, aber operativ relevant): "The API is a mode of
+delivery for Data [...] and is not intended to be used as a substitute for
+a data feed. [...] there are fixed limits on the number of simultaneous
+data lines and other pacing limitations", sowie ein jederzeitiges,
+begründungsfreies Widerrufsrecht von GFIS bezüglich des API-Zugriffs.
+
+### Technische Subsumtion (getrennt vom Vertragsinhalt)
+
+Der für dieses Projekt geplante Verwendungszweck -- automatisiertes
+Auslesen von Kursdaten über die offizielle API, lokale Berechnung von
+Indikatoren, deterministischer Screener, Backtesting und KI-gestützte
+Analyse, ausschließlich zur Unterstützung eigener Handelsentscheidungen des
+Kontoinhabers, ohne Weitergabe an Dritte, ohne kommerziellen
+Vertrieb -- entspricht wörtlich der ausdrücklich erlaubten Kategorie
+"perform analytics [...] exclusively in connection with Subscriber's
+brokerage account(s)". Keine der aufgeführten Verbotstatbestände (Weitergabe
+an Dritte, elektronische Anzeige für Dritte, Erstellung extern verbreiteter
+abgeleiteter Produkte/Indizes, Verkauf oder unentgeltliche Weitergabe der
+Software an Dritte) trifft auf den geplanten rein persönlichen Gebrauch zu,
+solange das System ausschließlich vom Kontoinhaber selbst und für dessen
+eigenes Konto genutzt wird.
+
+Operativ relevant, aber keine rechtliche Hürde: Die pauschalen Hinweise auf
+Zeilen-/Pacing-Limits sind für die spätere technische Auslegung
+(historischer Backfill, Anzahl gleichzeitiger Marktdatenzeilen) zu
+berücksichtigen, ebenso das jederzeitige, begründungsfreie
+Widerrufsrecht von GFIS (operationelles Restrisiko, kein Nutzungsverbot).
+
+### Vorläufige Einschätzung (keine Rechtsberatung, keine Entscheidung)
+
+Anders als beim TradingView-Befund in ADR 0012 enthält dieser Vertragstext
+eine Klausel, die den geplanten Verwendungszweck **ausdrücklich und
+wörtlich als erlaubt benennt** ("perform analytics [...] exclusively in
+connection with Subscriber's brokerage account(s)"), statt ihn zu
+verbieten. Das entspricht eher Variante (a) ("dokumentierte tragfähige
+Grundlage") aus dem für Strang A entwickelten Entscheidungsraster als
+Variante (b) (Risikoakzeptanz bei Unklarheit) -- die Bedingungen sind hier
+nicht unklar, sondern decken den Fall konkret ab.
+
+Offene Punkte, die vor einer abschließenden Bewertung noch zu klären wären:
+- Welche IBKR-Rechtsträgerschaft (z. B. US-LLC vs. europäische
+  Tochtergesellschaft) das eigene Konto tatsächlich führt, da dies die
+  anwendbare Vertragsfassung bestimmen kann.
+- Ob für einzelne, konkret abonnierte Börsen-Feeds zusätzliche,
+  börsenspezifische Zusatzvereinbarungen mit eigenen Einschränkungen
+  bestehen (im Marktdaten-Bereich des Kontos einsehbar).
+
+**Die abschließende Bewertung (GO/NO_GO für diesen Vorprüfungsschritt) ist
+weiterhin eine Entscheidung des Projektinhabers**, nicht von Claude Code --
+analog zur Verantwortlichkeitsregelung in Abschnitt 2.3 der
+Gate-G3-Entscheidungsvorlage.
+
 ## Begründung
 
 Die Lehre aus Gate G2/G3 ist nicht "keine Spikes mehr", sondern
