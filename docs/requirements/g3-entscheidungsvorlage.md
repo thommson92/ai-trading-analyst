@@ -62,30 +62,44 @@ Nutzungsbedingungen vereinbar ist, wurde bewusst nicht geprüft — eine
 technische Machbarkeitsstudie kann und darf diese Frage nicht mitbeantworten
 (Nutzervorgabe, siehe Sprint-0-Auftrag).
 
-Relevante Eckpunkte des geprüften Zugriffswegs, die für die rechtliche
-Bewertung wichtig sind (rein technische Fakten aus dem Spike, keine
-rechtliche Einordnung):
+**Wichtiger Hinweis zu den folgenden Punkten:** Die nachstehende Liste
+beschreibt ausschließlich neutrale technische Tatsachen aus dem Spike —
+**keine Bewertung und keine Vorwegnahme**, ob diese Tatsachen rechtlich
+relevant, günstig oder unerheblich sind. Aus dem Fehlen eines direkten
+Server-Zugriffs oder aus der Nutzung der eigenen, bereits angemeldeten
+Sitzung folgt für sich genommen **keine** rechtliche Zulässigkeit. Ob und
+welche Bedeutung diese Tatsachen haben, ergibt sich ausschließlich aus der
+Prüfung in Abschnitt 2.2 gegen die tatsächlich geltenden Bedingungen.
 
-- Es wird ausschließlich die bereits angemeldete, eigene Sitzung des
-  Account-Inhabers verwendet — keine Umgehung von Login/Zahlschranken, keine
-  fremden Zugangsdaten (REPORT.md, Abschnitt 3b).
-- Es werden keine Server-Endpunkte direkt angesprochen; der Zugriff erfolgt
-  ausschließlich über die lokal laufende Desktop-App und das darin ohnehin
-  aktivierbare Chrome-DevTools-Protocol.
-- Es werden Marktdaten (Kurswerte, Indikatorwerte) ausgelesen und für den
-  eigenen, in Doc 01 beschriebenen Zweck (persönliches Analyse-Tool,
-  keine Weitergabe an Dritte, keine Order-Ausführung) gespeichert.
-- Es findet keine Veränderung der TradingView-Anwendung statt (kein
-  Reverse-Engineering im Sinne von Codeänderung, ausschließlich Auslesen
-  über eine von der Anwendung selbst bereitgestellte Debug-Schnittstelle).
+- Der Zugriff erfolgt über die bereits angemeldete, eigene Sitzung des
+  Account-Inhabers, nicht über fremde Zugangsdaten (REPORT.md, Abschnitt
+  3b) — eine rein beschreibende Tatsache, keine Aussage darüber, ob dieser
+  Zugriffsweg von den geltenden Bedingungen erfasst oder ausgeschlossen ist.
+- Der technische Zugriffspunkt ist das Chrome-DevTools-Protocol der lokal
+  laufenden Desktop-App, nicht ein direkt angesprochener Server-Endpunkt —
+  ebenfalls rein beschreibend; ob TradingViews Bedingungen zwischen diesen
+  Zugriffswegen unterscheiden oder sie gleich behandeln, ist Teil der
+  Prüfung in 2.2, nicht hier vorweggenommen.
+- Ausgelesen werden Marktdaten (Kurswerte, Indikatorwerte) für den in Doc 01
+  beschriebenen Zweck (persönliches Analyse-Tool, keine Weitergabe an
+  Dritte, keine Order-Ausführung) — die Vereinbarkeit dieses Zwecks mit
+  Markt­daten-/Exchange- und Abonnementbedingungen ist ausdrücklich Teil der
+  Prüfung (siehe erweiterte Prüfschritte A1–A3) und hier nicht unterstellt.
+- Es findet keine Codeänderung an der TradingView-Anwendung statt,
+  ausschließlich Auslesen über eine von der Anwendung selbst bereitgestellte
+  Debug-Schnittstelle — auch dies eine technische Tatsache ohne
+  rechtliche Einordnung.
 
 ### 2.2 Prüfschritte
 
 | # | Schritt | Status |
 |---|---|---|
-| A1 | Aktuelle TradingView-Nutzungsbedingungen (Website) beschaffen und Datum/Version notieren | OFFEN |
+| A1 | Aktuelle TradingView-Nutzungsbedingungen (Website, allgemeine ToS) beschaffen und Datum/Version notieren | OFFEN |
+| A1a | Separate Markt­daten-/Exchange-Vereinbarungen beschaffen: TradingView reicht Kursdaten typischerweise im Auftrag der Börsen/Datenlieferanten unter eigenen Nutzungsauflagen weiter (Market Data Agreements, Exchange Agreements, Real-Time-Data-Zustimmungserklärungen) — diese sind oft eigenständige Dokumente, keine Unterabschnitte der allgemeinen ToS | OFFEN |
+| A1b | Bedingungen des konkret genutzten Abonnements/Plans beschaffen (z. B. Einschränkungen zu Datenweitergabe, Anzahl gleichzeitiger Sitzungen, gestattete Verwendungszwecke je Tarif) | OFFEN |
 | A2 | Separate Lizenzbedingungen/EULA der Desktop-App (Microsoft-Store-Eintrag) beschaffen, falls abweichend von A1 | OFFEN |
-| A3 | Beide Dokumente gezielt auf folgende Punkte durchsehen: Verbote von "automated access" / "scraping" / Bots; Verbote oder Einschränkungen zur Nutzung von Debugging-/Automatisierungsschnittstellen; Unterscheidung privater vs. kommerzieller Nutzung; Bestimmungen zu Speicherung/Weiterverarbeitung bezogener Daten; Kündigungs- und Sperrungsklauseln bei Verstößen | OFFEN |
+| A2a | Eigenständige Richtlinien zu automatisierter Nutzung/API-Zugriff beschaffen, falls TradingView solche getrennt von den allgemeinen ToS führt (z. B. Acceptable-Use-Policy, Entwickler-/API-Richtlinien) | OFFEN |
+| A3 | Alle unter A1/A1a/A1b/A2/A2a beschafften Dokumente gezielt auf folgende Punkte durchsehen: Verbote von "automated access" / "scraping" / Bots; Verbote oder Einschränkungen zur Nutzung von Debugging-/Automatisierungsschnittstellen; Einschränkungen aus Markt­daten-/Exchange-Vereinbarungen (insbesondere Weiterverarbeitung, Speicherung, Ableitung eigener Werte aus Echtzeit-/verzögerten Kursdaten); tarifspezifische Nutzungsauflagen des Abonnements; Unterscheidung privater vs. kommerzieller Nutzung; Bestimmungen zu Speicherung/Weiterverarbeitung bezogener Daten; Kündigungs- und Sperrungsklauseln bei Verstößen | OFFEN |
 | A4 | Fundstellen wörtlich zitieren und einer laienverständlichen Einschätzung gegenüberstellen (nicht nur "passt"/"passt nicht", sondern die zitierte Klausel plus Begründung) | OFFEN |
 | A5 | Bei verbleibender Unsicherheit: Entscheidung, ob externe Rechtsberatung eingeholt wird, abhängig von Risikotoleranz und geplanter Tragweite (rein privates Tool vs. spätere kommerzielle Nutzung) | OFFEN |
 | A6 | Ergebnis als eigenständiges ADR dokumentieren, mit Datum/Version der geprüften Nutzungsbedingungen (ToS ändern sich — das ADR gilt nur für den geprüften Stand) | OFFEN |
@@ -95,25 +109,47 @@ rechtliche Einordnung):
 
 Diese Bewertung ist eine geschäftliche/persönliche Risikoentscheidung des
 Projektinhabers (Nutzer) und wird von ihm getroffen — nicht von Claude Code.
-Claude Code kann bei A1–A4 unterstützen (Beschaffung, Strukturierung,
-Gegenüberstellung von Fundstellen), trifft aber keine eigene rechtliche
-Bewertung und keine Empfehlung, die als Rechtsberatung verstanden werden
-könnte. Bei A5 entscheidet der Nutzer allein, ob externe Rechtsberatung
-nötig ist.
+Claude Code kann bei A1–A4 (inklusive A1a, A1b, A2a) unterstützen
+(Beschaffung, Strukturierung, Gegenüberstellung von Fundstellen), trifft
+aber keine eigene rechtliche Bewertung und keine Empfehlung, die als
+Rechtsberatung verstanden werden könnte — auch nicht dazu, ob (a) oder (b)
+aus Abschnitt 2.4 erfüllt ist. Bei A5 entscheidet der Nutzer allein, ob
+externe Rechtsberatung nötig ist.
 
 ### 2.4 Entscheidungskriterien
 
-**GO**, wenn alle folgenden Punkte zutreffen:
+**GO setzt mehr voraus als das bloße Fehlen eines ausdrücklichen Verbots.**
+Ein GO erfordert eine der beiden folgenden, ausdrücklich dokumentierten
+Grundlagen:
 
-- Kein explizites Verbot des geprüften Zugriffswegs (CDP gegen die eigene,
-  lokal laufende, mit dem eigenen Account angemeldete Desktop-App) in den
-  gültigen Nutzungsbedingungen gefunden.
-- Die geplante Nutzung bleibt innerhalb des als zulässig erachteten Verwendungszwecks
-  (insbesondere: persönliche, nicht-kommerzielle Nutzung durch den
-  angemeldeten Account-Inhaber selbst, keine Weitergabe an Dritte).
-- Das verbleibende Auslegungsrisiko (Nutzungsbedingungen sind selten
-  eindeutig zu jedem denkbaren technischen Detail) ist bewusst benannt und
-  vom Nutzer akzeptiert.
+- **(a) Eine dokumentierte tragfähige Grundlage:** Die Prüfung nach A3 kommt
+  zu dem begründeten Ergebnis, dass der geprüfte Zugriffsweg mit den
+  geltenden Bedingungen (ToS, Marktdaten-/Exchange-Vereinbarungen,
+  Abonnementbedingungen, Automatisierungsrichtlinien) vereinbar ist — mit
+  Zitat der einschlägigen Klauseln und einer nachvollziehbaren Begründung,
+  nicht nur der Feststellung, dass nichts Gegenteiliges gefunden wurde.
+
+  **oder**
+
+- **(b) Eine ausdrücklich verantwortete Risikoakzeptanz nach angemessener
+  fachlicher Prüfung:** Die Bedingungen sind an einzelnen Punkten
+  mehrdeutig oder nicht abschließend klärbar, die Prüfung wurde dennoch mit
+  angemessener Sorgfalt durchgeführt (einschließlich der Abwägung, ob
+  externe Rechtsberatung nach A5 nötig ist), und der Nutzer akzeptiert das
+  verbleibende Risiko ausdrücklich und schriftlich (ADR nach A6) — mit
+  Nennung der konkreten offenen Punkte, nicht als pauschale
+  Risikoübernahme.
+
+Zusätzlich muss gelten:
+
+- Die geplante Nutzung bleibt innerhalb des als zulässig erachteten
+  Verwendungszwecks (insbesondere: persönliche, nicht-kommerzielle Nutzung
+  durch den angemeldeten Account-Inhaber selbst, keine Weitergabe an
+  Dritte).
+
+**Ausdrücklich kein GO:** die alleinige Feststellung "kein explizites
+Verbot gefunden", ohne (a) oder (b) zu erfüllen. Das Fehlen eines
+Verbots ist ein Prüfergebnis, keine Entscheidungsgrundlage für sich.
 
 **NO_GO**, wenn mindestens einer der folgenden Punkte zutrifft:
 
@@ -212,3 +248,28 @@ GO erreicht haben.** Ein GO in nur einem Strang genügt nicht. Solange
 mindestens ein Strang OFFEN oder NO_GO ist, gilt weiterhin: keine
 produktive TradingView-Integration, kein Sprint 1C, keine
 `TradingViewMarketDataProvider`-Implementierung.
+
+### 4.1 Bewusste Übernahme der übrigen Gate-G2-Limitierungen
+
+Unabhängig von den Strängen A und B bleiben aus dem Gate-G2-Spikebericht
+zwei weitere Einschränkungen bestehen, die kein eigener Entscheidungsstrang
+sind (sie sind bereits technisch geklärt, nicht offen), aber ausdrücklich
+als verbindliche Rahmenbedingung in die Gate-G3-Freigabe übernommen werden
+müssen, nicht stillschweigend vorausgesetzt werden dürfen:
+
+| # | Übernommene Limitierung | Bindende Konsequenz für eine Produktivintegration |
+|---|---|---|
+| L1 | Watchlist ist über die untersuchten internen APIs nicht lesbar (REPORT.md, Abschnitt 5) | Eine Produktivintegration braucht einen noch nicht gefundenen Weg oder eine manuell gepflegte/exportierte Symbolliste als Ersatz — **keine** Watchlist-Abfrage über die interne API wird eingeplant |
+| L2 | Study-Indizes sind empirisch als instabil bestätigt (REPORT.md, Abschnitte 8, 14, 15) | Ein produktiver Adapter muss Studies **ausschließlich dynamisch** über Titel/Laengenparameter auflösen, niemals über einen festen, gespeicherten Index |
+
+**Diese Zeile ist Teil der Gate-G3-Freigabe-Checkliste:** Die
+Produktarchitektur-Entscheidung (siehe Spikebericht, Abschnitt 18,
+"Empfehlung für die Produktarchitektur") wird erst dann als vollständig
+freigegeben betrachtet, wenn L1 und L2 hier ausdrücklich als angenommene
+Rahmenbedingung bestätigt sind — nicht erst beim Auftreten des jeweiligen
+Fehlers während der Implementierung.
+
+| Limitierung | Status |
+|---|---|
+| L1 — Watchlist nicht über interne API | OFFEN (zu bestätigen bei G3-Freigabe) |
+| L2 — Dynamische statt feste Study-Index-Auflösung | OFFEN (zu bestätigen bei G3-Freigabe) |
