@@ -52,7 +52,9 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 Diese Punkte sind bewusst noch nicht entschieden und erhalten je ein eigenes
 ADR, sobald die nötigen Informationen vorliegen:
 
-- Anbindung an TradingView (nach dem Spike, Gate G2/G3)
+- Anbindung an TradingView (Gate G2 mit `GO_WITH_LIMITATIONS` abgeschlossen,
+  siehe `spikes/tradingview-cdp/REPORT.md`. Gate G3 offen — Entscheidungsvorlage:
+  [docs/requirements/g3-entscheidungsvorlage.md](../requirements/g3-entscheidungsvorlage.md))
 - Anbieter für historische Intraday-Kurse (F9)
 - Anbieter für Earnings-Termine (F9)
 - Anbieter für Optionsketten mit Greeks (F9)
