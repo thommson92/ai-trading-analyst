@@ -46,6 +46,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Angenommen (offener Punkt) |
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
 | [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (offener Punkt) |
+| [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -53,7 +54,8 @@ Diese Punkte sind bewusst noch nicht entschieden und erhalten je ein eigenes
 ADR, sobald die nötigen Informationen vorliegen:
 
 - Anbindung an TradingView (Gate G2 mit `GO_WITH_LIMITATIONS` abgeschlossen,
-  siehe `spikes/tradingview-cdp/REPORT.md`. Gate G3 offen — Entscheidungsvorlage:
+  siehe `spikes/tradingview-cdp/REPORT.md`. Gate G3 mit **NO_GO** entschieden
+  — siehe [ADR 0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) und
   [docs/requirements/g3-entscheidungsvorlage.md](../requirements/g3-entscheidungsvorlage.md))
 - Anbieter für historische Intraday-Kurse (F9)
 - Anbieter für Earnings-Termine (F9)

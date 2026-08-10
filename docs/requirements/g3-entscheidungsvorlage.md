@@ -1,12 +1,16 @@
 # G3-Entscheidungsvorlage — Lizenz-/Nutzungsbedingungen und R2-Betriebsmodell
 
-- Status: **Gate G3 offen.** Dieses Dokument ist die Entscheidungsvorlage,
-  nicht die Entscheidung selbst. Es enthält keine Freigabe und keine
-  Bewertung, die einer Entscheidung vorgreift.
-- Zweck: Vollständige, in sich geschlossene Grundlage für die beiden noch
-  offenen Entscheidungsstränge, die vor Gate G3 (produktive
-  TradingView-Integration) geklärt werden müssen — mit Prüfschritten,
-  Verantwortlichkeiten und Entscheidungskriterien je Strang.
+- Status: **Gate G3 entschieden — NO_GO (2026-08-10).** Strang A wurde vom
+  Projektinhaber mit NO_GO abgeschlossen, siehe
+  [ADR 0012](../adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md) für
+  Vertragszitat, technische Subsumtion, Entscheidung und Begründung. Dieses
+  Dokument bleibt als Aufzeichnung des durchgeführten Prüfprozesses und der
+  bewusst nicht weiter verfolgten Prüfschritte erhalten; es ist keine offene
+  Entscheidungsvorlage mehr.
+- Zweck: Vollständige, in sich geschlossene Grundlage für die beiden
+  Entscheidungsstränge, die vor Gate G3 (produktive TradingView-Integration)
+  geklärt werden mussten — mit Prüfschritten, Verantwortlichkeiten und
+  Entscheidungskriterien je Strang.
 - Herkunft: konsolidiert aus dem Gate-G2-Spikebericht
   (`spikes/tradingview-cdp/REPORT.md`, Branch `spike/tradingview-cdp`,
   Abschnitte 16 und 18) und Doc 10, Paragraph 3 der Aufgabenstellung
@@ -14,7 +18,7 @@
   Zulässigkeit").
 - **Ausdrücklich außerhalb des Umfangs dieses Dokuments:** jede Änderung am
   Spike-Branch, jede Implementierung, jede TradingView-Automatisierung. Dies
-  ist reine Entscheidungsvorbereitung.
+  ist reine Entscheidungsvorbereitung bzw. -dokumentation.
 
 ## Kennzeichnung in diesem Dokument
 
@@ -52,6 +56,15 @@ A ersetzt kein GO in Strang B, und umgekehrt. Gate G3 braucht ein GO in
 ---
 
 ## 2. Strang A — Lizenz-/Nutzungsbedingungen
+
+**Status: entschieden — NO_GO (2026-08-10).** Der geplante CDP-Adapter fällt
+unter das Non-Display-Nutzungsverbot aus Abschnitt 3 der TradingView Terms of
+Use ("Ownership of information; license to use TradingView; redistribution
+of data; non-display usage"). Vertragszitat, technische Subsumtion und
+Begründung stehen in
+[ADR 0012](../adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md). Die
+folgenden Abschnitte 2.1–2.4 dokumentieren den durchgeführten Prüfprozess und
+bleiben unverändert als Grundlage der Entscheidung stehen.
 
 ### 2.1 Kontext
 
@@ -94,16 +107,16 @@ Prüfung in Abschnitt 2.2 gegen die tatsächlich geltenden Bedingungen.
 
 | # | Schritt | Status |
 |---|---|---|
-| A1 | Aktuelle TradingView-Nutzungsbedingungen (Website, allgemeine ToS) beschaffen und Datum/Version notieren | OFFEN |
-| A1a | Separate Markt­daten-/Exchange-Vereinbarungen beschaffen: TradingView reicht Kursdaten typischerweise im Auftrag der Börsen/Datenlieferanten unter eigenen Nutzungsauflagen weiter (Market Data Agreements, Exchange Agreements, Real-Time-Data-Zustimmungserklärungen) — diese sind oft eigenständige Dokumente, keine Unterabschnitte der allgemeinen ToS | OFFEN |
-| A1b | Bedingungen des konkret genutzten Abonnements/Plans beschaffen (z. B. Einschränkungen zu Datenweitergabe, Anzahl gleichzeitiger Sitzungen, gestattete Verwendungszwecke je Tarif) | OFFEN |
-| A2 | Separate Lizenzbedingungen/EULA der Desktop-App (Microsoft-Store-Eintrag) beschaffen, falls abweichend von A1 | OFFEN |
-| A2a | Eigenständige Richtlinien zu automatisierter Nutzung/API-Zugriff beschaffen, falls TradingView solche getrennt von den allgemeinen ToS führt (z. B. Acceptable-Use-Policy, Entwickler-/API-Richtlinien) | OFFEN |
-| A3 | Alle unter A1/A1a/A1b/A2/A2a beschafften Dokumente gezielt auf folgende Punkte durchsehen: Verbote von "automated access" / "scraping" / Bots; Verbote oder Einschränkungen zur Nutzung von Debugging-/Automatisierungsschnittstellen; Einschränkungen aus Markt­daten-/Exchange-Vereinbarungen (insbesondere Weiterverarbeitung, Speicherung, Ableitung eigener Werte aus Echtzeit-/verzögerten Kursdaten); tarifspezifische Nutzungsauflagen des Abonnements; Unterscheidung privater vs. kommerzieller Nutzung; Bestimmungen zu Speicherung/Weiterverarbeitung bezogener Daten; Kündigungs- und Sperrungsklauseln bei Verstößen | OFFEN |
-| A4 | Fundstellen wörtlich zitieren und einer laienverständlichen Einschätzung gegenüberstellen (nicht nur "passt"/"passt nicht", sondern die zitierte Klausel plus Begründung) | OFFEN |
-| A5 | Bei verbleibender Unsicherheit: Entscheidung, ob externe Rechtsberatung eingeholt wird, abhängig von Risikotoleranz und geplanter Tragweite (rein privates Tool vs. spätere kommerzielle Nutzung) | OFFEN |
-| A6 | Ergebnis als eigenständiges ADR dokumentieren, mit Datum/Version der geprüften Nutzungsbedingungen (ToS ändern sich — das ADR gilt nur für den geprüften Stand) | OFFEN |
-| A7 | Wiedervorlage festlegen: erneute Prüfung bei jeder wesentlichen TradingView-Vertragsänderung oder spätestens jährlich | OFFEN |
+| A1 | Aktuelle TradingView-Nutzungsbedingungen (Website, allgemeine ToS) beschaffen und Datum/Version notieren | ERLEDIGT (2026-08-10) — Terms of Use, Abschnitt 3 ("Ownership of information; license to use TradingView; redistribution of data; non-display usage"), siehe ADR 0012 |
+| A1a | Separate Markt­daten-/Exchange-Vereinbarungen beschaffen: TradingView reicht Kursdaten typischerweise im Auftrag der Börsen/Datenlieferanten unter eigenen Nutzungsauflagen weiter (Market Data Agreements, Exchange Agreements, Real-Time-Data-Zustimmungserklärungen) — diese sind oft eigenständige Dokumente, keine Unterabschnitte der allgemeinen ToS | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde (A1) |
+| A1b | Bedingungen des konkret genutzten Abonnements/Plans beschaffen (z. B. Einschränkungen zu Datenweitergabe, Anzahl gleichzeitiger Sitzungen, gestattete Verwendungszwecke je Tarif) | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde (A1) |
+| A2 | Separate Lizenzbedingungen/EULA der Desktop-App (Microsoft-Store-Eintrag) beschaffen, falls abweichend von A1 | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde (A1) |
+| A2a | Eigenständige Richtlinien zu automatisierter Nutzung/API-Zugriff beschaffen, falls TradingView solche getrennt von den allgemeinen ToS führt (z. B. Acceptable-Use-Policy, Entwickler-/API-Richtlinien) | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde (A1) |
+| A3 | Alle unter A1/A1a/A1b/A2/A2a beschafften Dokumente gezielt auf folgende Punkte durchsehen: Verbote von "automated access" / "scraping" / Bots; Verbote oder Einschränkungen zur Nutzung von Debugging-/Automatisierungsschnittstellen; Einschränkungen aus Markt­daten-/Exchange-Vereinbarungen (insbesondere Weiterverarbeitung, Speicherung, Ableitung eigener Werte aus Echtzeit-/verzögerten Kursdaten); tarifspezifische Nutzungsauflagen des Abonnements; Unterscheidung privater vs. kommerzieller Nutzung; Bestimmungen zu Speicherung/Weiterverarbeitung bezogener Daten; Kündigungs- und Sperrungsklauseln bei Verstößen | TEILWEISE ERLEDIGT — für das unter A1 beschaffte Dokument durchgeführt, explizite Non-Display-/Automatisierungs-/Verarbeitungsklausel gefunden (ADR 0012); Durchsicht der unter A1a/A1b/A2/A2a vorgesehenen weiteren Dokumente NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde |
+| A4 | Fundstellen wörtlich zitieren und einer laienverständlichen Einschätzung gegenüberstellen (nicht nur "passt"/"passt nicht", sondern die zitierte Klausel plus Begründung) | ERLEDIGT — Zitate, technische Subsumtion und Einschätzung in ADR 0012 |
+| A5 | Bei verbleibender Unsicherheit: Entscheidung, ob externe Rechtsberatung eingeholt wird, abhängig von Risikotoleranz und geplanter Tragweite (rein privates Tool vs. spätere kommerzielle Nutzung) | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel gefunden wurde — keine verbleibende Unsicherheit, die eine Risikoakzeptanz nach 2.4(b) und damit die Abwägung externer Rechtsberatung nahelegen würde |
+| A6 | Ergebnis als eigenständiges ADR dokumentieren, mit Datum/Version der geprüften Nutzungsbedingungen (ToS ändern sich — das ADR gilt nur für den geprüften Stand) | ERLEDIGT — [ADR 0012](../adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md) |
+| A7 | Wiedervorlage festlegen: erneute Prüfung bei jeder wesentlichen TradingView-Vertragsänderung oder spätestens jährlich | ERSETZT durch die in ADR 0012 ("Konsequenzen") festgelegte, engere Neubewertungsbedingung: nur bei ausdrücklicher schriftlicher Erlaubnis/Lizenzvereinbarung mit TradingView bzw. den Datenanbietern oder einem grundlegend anderen, zulässigen Datenzugriffsweg |
 
 ### 2.3 Verantwortlichkeiten
 
@@ -162,9 +175,21 @@ Verbots ist ein Prüfergebnis, keine Entscheidungsgrundlage für sich.
 - Der Nutzer ist nach Prüfung nicht bereit, das verbleibende
   Auslegungsrisiko zu tragen.
 
+**Ergebnis (2026-08-10): NO_GO.** Es wurde ein ausdrückliches Verbot
+gefunden (Non-Display-Nutzung, Abschnitt 3 der Terms of Use), das den
+geprüften Zugriffsweg erkennbar einschließt. Details, Zitat und Begründung:
+[ADR 0012](../adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md).
+
 ---
 
 ## 3. Strang B — R2-Betriebsmodell/Autologon
+
+**Status: zurückgestellt, nicht geprüft (2026-08-10).** Strang A blockiert
+Gate G3 bereits eigenständig mit NO_GO (siehe ADR 0012). Die Prüfschritte
+B1–B6 wurden deshalb nicht durchgeführt. Es wird kein Autologon eingerichtet
+und es werden keine weiteren R2-Tests vorgenommen. Dieser Abschnitt bleibt
+als Dokumentation des Prüfrahmens erhalten, falls Strang B bei einer
+künftigen Neubewertung (siehe ADR 0012, "Konsequenzen") wieder relevant wird.
 
 ### 3.1 Kontext
 
@@ -191,12 +216,12 @@ Zugriff auf den Server extrahierbares Geheimnis.
 
 | # | Schritt | Status |
 |---|---|---|
-| B1 | Bedrohungsmodell des Windows-Servers aktualisieren: wer hat physischen und administrativen Zugriff, ist der Server ausschließlich für dieses Projekt reserviert oder Mehrzwecksystem, wie ist er netzwerkseitig abgesichert | OFFEN |
-| B2 | Autologon-Optionen technisch gegenüberstellen: Windows-Bordmittel (Klartext-Passwort in Registry) vs. Sysinternals-Autologon (LSA-Secret, nicht klartextlesbar für normale Registry-Einsicht) vs. sonstige Alternativen | OFFEN |
-| B3 | Kompensierende Maßnahmen festlegen: dediziertes, rechte-minimiertes Betriebskonto statt Administrator-Konto; Datenträgerverschlüsselung (BitLocker), damit ein gestohlener/kopierter Datenträger das Geheimnis nicht trivial preisgibt; Netzwerksegmentierung/Firewall (Server nicht von außen erreichbar); Login-Monitoring/Alerting bei unerwarteten An-/Abmeldungen; Passwortrotation | OFFEN |
-| B4 | Erneut gegenprüfen, ob eine Alternative ohne Autologon technisch tragfähig ist (z. B. ein dauerhaft angemeldeter, nie abgemeldeter, nur gesperrter Zustand ohne Neustart — deckt aber keinen Windows-Neustart ab, siehe REPORT.md Abschnitt 11/12) — Ergebnis: trägt nur, solange kein Neustart nötig wird, kein vollwertiger Ersatz | OFFEN |
-| B5 | Gewählte Konfiguration auf einem Test-/Kopie-System einrichten und per echtem Server-Neustart verifizieren (Debug-Port automatisch erreichbar, ohne manuelle Anmeldung) — analog zum in REPORT.md Abschnitt 11 dokumentierten Testmuster | OFFEN |
-| B6 | Entscheidung inkl. Restrisikobewertung als eigenständiges ADR dokumentieren | OFFEN |
+| B1 | Bedrohungsmodell des Windows-Servers aktualisieren: wer hat physischen und administrativen Zugriff, ist der Server ausschließlich für dieses Projekt reserviert oder Mehrzwecksystem, wie ist er netzwerkseitig abgesichert | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) |
+| B2 | Autologon-Optionen technisch gegenüberstellen: Windows-Bordmittel (Klartext-Passwort in Registry) vs. Sysinternals-Autologon (LSA-Secret, nicht klartextlesbar für normale Registry-Einsicht) vs. sonstige Alternativen | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) |
+| B3 | Kompensierende Maßnahmen festlegen: dediziertes, rechte-minimiertes Betriebskonto statt Administrator-Konto; Datenträgerverschlüsselung (BitLocker), damit ein gestohlener/kopierter Datenträger das Geheimnis nicht trivial preisgibt; Netzwerksegmentierung/Firewall (Server nicht von außen erreichbar); Login-Monitoring/Alerting bei unerwarteten An-/Abmeldungen; Passwortrotation | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) |
+| B4 | Erneut gegenprüfen, ob eine Alternative ohne Autologon technisch tragfähig ist (z. B. ein dauerhaft angemeldeter, nie abgemeldeter, nur gesperrter Zustand ohne Neustart — deckt aber keinen Windows-Neustart ab, siehe REPORT.md Abschnitt 11/12) — Ergebnis: trägt nur, solange kein Neustart nötig wird, kein vollwertiger Ersatz | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) |
+| B5 | Gewählte Konfiguration auf einem Test-/Kopie-System einrichten und per echtem Server-Neustart verifizieren (Debug-Port automatisch erreichbar, ohne manuelle Anmeldung) — analog zum in REPORT.md Abschnitt 11 dokumentierten Testmuster | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) — kein Autologon wird eingerichtet |
+| B6 | Entscheidung inkl. Restrisikobewertung als eigenständiges ADR dokumentieren | NICHT WEITER VERFOLGT, weil bereits eine entscheidungserhebliche Ausschlussklausel in Strang A gefunden wurde (Gate G3 unabhängig davon NO_GO, siehe ADR 0012) |
 
 ### 3.3 Verantwortlichkeiten
 
@@ -240,36 +265,41 @@ Anweisung.
 
 | Strang | Status |
 |---|---|
-| A — Lizenz-/Nutzungsbedingungen | OFFEN |
-| B — R2-Betriebsmodell/Autologon | OFFEN |
+| A — Lizenz-/Nutzungsbedingungen | **NO_GO** (2026-08-10, [ADR 0012](../adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)) |
+| B — R2-Betriebsmodell/Autologon | ZURÜCKGESTELLT, NICHT GEPRÜFT — Strang A blockiert Gate G3 bereits eigenständig |
 
-**Gate G3 ist erst freigegeben, wenn beide Stränge unabhängig voneinander
-GO erreicht haben.** Ein GO in nur einem Strang genügt nicht. Solange
-mindestens ein Strang OFFEN oder NO_GO ist, gilt weiterhin: keine
-produktive TradingView-Integration, kein Sprint 1C, keine
-`TradingViewMarketDataProvider`-Implementierung.
+**Gate G3 wäre erst freigegeben, wenn beide Stränge unabhängig voneinander
+GO erreicht hätten.** Ein GO in nur einem Strang genügt nicht. Da Strang A
+mit NO_GO abgeschlossen ist, gilt: **Gate G3: NO_GO.** Keine produktive
+TradingView-Integration, kein Sprint 1C, keine
+`TradingViewMarketDataProvider`-Implementierung. Eine Neubewertung erfolgt
+ausschließlich unter den in ADR 0012 ("Konsequenzen") genannten Bedingungen.
 
 ### 4.1 Bewusste Übernahme der übrigen Gate-G2-Limitierungen
 
 Unabhängig von den Strängen A und B bleiben aus dem Gate-G2-Spikebericht
 zwei weitere Einschränkungen bestehen, die kein eigener Entscheidungsstrang
-sind (sie sind bereits technisch geklärt, nicht offen), aber ausdrücklich
-als verbindliche Rahmenbedingung in die Gate-G3-Freigabe übernommen werden
-müssen, nicht stillschweigend vorausgesetzt werden dürfen:
+sind (sie sind bereits technisch geklärt, nicht offen). Da Gate G3 mit
+NO_GO abgeschlossen ist und keine Produktivintegration genehmigt wird, sind
+L1 und L2 **nicht** als Produktionsbedingungen freigegeben — sie bleiben
+ausschließlich als dokumentierte technische Erkenntnisse aus Gate G2
+bestehen und wären erst bei einer künftigen Neubewertung (siehe ADR 0012)
+erneut als verbindliche Rahmenbedingung zu bestätigen:
 
 | # | Übernommene Limitierung | Bindende Konsequenz für eine Produktivintegration |
 |---|---|---|
 | L1 | Watchlist ist über die untersuchten internen APIs nicht lesbar (REPORT.md, Abschnitt 5) | Eine Produktivintegration braucht einen noch nicht gefundenen Weg oder eine manuell gepflegte/exportierte Symbolliste als Ersatz — **keine** Watchlist-Abfrage über die interne API wird eingeplant |
 | L2 | Study-Indizes sind empirisch als instabil bestätigt (REPORT.md, Abschnitte 8, 14, 15) | Ein produktiver Adapter muss Studies **ausschließlich dynamisch** über Titel/Laengenparameter auflösen, niemals über einen festen, gespeicherten Index |
 
-**Diese Zeile ist Teil der Gate-G3-Freigabe-Checkliste:** Die
-Produktarchitektur-Entscheidung (siehe Spikebericht, Abschnitt 18,
-"Empfehlung für die Produktarchitektur") wird erst dann als vollständig
-freigegeben betrachtet, wenn L1 und L2 hier ausdrücklich als angenommene
-Rahmenbedingung bestätigt sind — nicht erst beim Auftreten des jeweiligen
-Fehlers während der Implementierung.
+**Diese Zeile bleibt Teil der Gate-G3-Freigabe-Checkliste für eine
+etwaige künftige Neubewertung:** Die Produktarchitektur-Entscheidung (siehe
+Spikebericht, Abschnitt 18, "Empfehlung für die Produktarchitektur") würde
+erst dann als vollständig freigegeben gelten, wenn L1 und L2 hier
+ausdrücklich als angenommene Rahmenbedingung bestätigt sind. Da aktuell
+keine Produktivintegration genehmigt ist, ist diese Bestätigung derzeit
+gegenstandslos, nicht erledigt.
 
 | Limitierung | Status |
 |---|---|
-| L1 — Watchlist nicht über interne API | OFFEN (zu bestätigen bei G3-Freigabe) |
-| L2 — Dynamische statt feste Study-Index-Auflösung | OFFEN (zu bestätigen bei G3-Freigabe) |
+| L1 — Watchlist nicht über interne API | GEGENSTANDSLOS — keine Produktivintegration genehmigt (Gate G3: NO_GO, ADR 0012); technische Erkenntnis bleibt dokumentiert |
+| L2 — Dynamische statt feste Study-Index-Auflösung | GEGENSTANDSLOS — keine Produktivintegration genehmigt (Gate G3: NO_GO, ADR 0012); technische Erkenntnis bleibt dokumentiert |
