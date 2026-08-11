@@ -47,7 +47,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
 | [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (offener Punkt) |
 | [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
-| [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Produktivintegration weiterhin gesperrt) |
+| [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Schritt 4 freigegeben durch ADR 0014) |
+| [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -59,19 +60,22 @@ ADR, sobald die nötigen Informationen vorliegen:
   entschieden — siehe [ADR 0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md)
   und [docs/requirements/g3-entscheidungsvorlage.md](../requirements/g3-entscheidungsvorlage.md).
   TradingView ist damit als Datenquelle erledigt.
-- Marktdaten-/Screening-Anbindung anstelle von TradingView: Interactive
-  Brokers als Kandidat mit GO freigegeben, Spike unter
-  `spikes/ibkr-marketdata/` abgeschlossen (2026-08-11) mit Empfehlung
-  GO_WITH_LIMITATIONS auf technischer Ebene — siehe
-  [ADR 0013](0013-interactive-brokers-kandidat-vorschlag.md). Produktive
-  Integration (Schritt 4) bleibt weiterhin ein eigenes, noch zu
-  entscheidendes Gate.
+- Marktdaten-/Screening-Anbindung anstelle von TradingView — **entschieden.**
+  Interactive Brokers ist über [ADR 0014](0014-ibkr-produktivintegration-freigegeben.md)
+  als produktive Marktdaten-Grundlage freigegeben (technisch
+  GO_WITH_LIMITATIONS, vertraglich GO). Schritt 4 aus
+  [ADR 0013](0013-interactive-brokers-kandidat-vorschlag.md) ist damit
+  abgeschlossen; die akzeptierten Einschränkungen, Annahmen und Restrisiken
+  stehen in ADR 0014.
 - Anbieter für historische Intraday-Kurse (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 3/4: 195-Minuten-Aggregation und historische
   Abdeckung bis 2 Jahre live bestätigt).
 - Anbieter für Earnings-Termine (F9) — **weiterhin offen.** IBKR
   (`reqFundamentalData`, `CalendarReport`) liefert keine nutzbaren Daten
-  (ADR 0013, Spike-Frage 6); separater Anbieter noch zu evaluieren.
+  (ADR 0013, Spike-Frage 6); separater Anbieter noch zu evaluieren. Als
+  Einschränkung E1 in [ADR 0014](0014-ibkr-produktivintegration-freigegeben.md)
+  bewusst akzeptiert — eigener Workstream, kein Blocker für die
+  IBKR-Anbindung.
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live

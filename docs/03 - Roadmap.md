@@ -23,17 +23,27 @@ Projektgrundlage
 
 Marktdaten & Screener
 
-- Marktdatenanbindung -- TradingView per [ADR 0012](adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)
-  mit NO_GO entschieden (Non-Display-Nutzungsverbot der TradingView-Nutzungsbedingungen);
-  Interactive Brokers als Kandidat mit GO freigegeben, Spike unter
-  `spikes/ibkr-marketdata/` abgeschlossen mit GO_WITH_LIMITATIONS (technische
-  Ebene), siehe [ADR 0013](adr/0013-interactive-brokers-kandidat-vorschlag.md)
-  -- produktive Integration (`IbkrMarketDataProvider`) bleibt bis zur
-  gesonderten Freigabe von Schritt 4 gesperrt
-- Watchlisten importieren -- Quelle IBKR (vorbehaltlich Schritt-4-Freigabe), nicht mehr TradingView
-- Earnings-Termine -- nicht über IBKR verfügbar (ADR 0013), separater Anbieter noch zu evaluieren (F9)
-- 195-Minuten-Kerzen verarbeiten
-- technische Signale implementieren
+Marktdatenquelle ist **Interactive Brokers (TWS API)** --
+[ADR 0014](adr/0014-ibkr-produktivintegration-freigegeben.md) hat die
+produktive Integration freigegeben (technisch GO_WITH_LIMITATIONS,
+vertraglich GO). Sprint 2 ist damit nicht mehr gegated. TradingView ist per
+[ADR 0012](adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md) mit NO_GO
+ausgeschieden.
+
+- `IbkrMarketDataProvider` -- Verbindung zur TWS, historische Bars, Fehler-
+  und Nichtverfügbarkeitsverhalten (akzeptierte Einschränkung E2: manueller
+  Start nach Neustart)
+- 195-Minuten-Kerzen verarbeiten -- Aggregation aus nativen 15-Minuten-Bars,
+  ausschließlich abgeschlossene Kerzen
+- Indikatorberechnung (RSI, RSI-MA, EMA5, EMA20) nach den in
+  [ADR 0010](adr/0010-gate-g1-freigegeben.md) freigegebenen Parametern --
+  bisher liefert nur der Fixture-Provider fertige Indikatorwerte
+- Watchlisten importieren -- Quelle IBKR, nicht mehr TradingView
+- historischer Backfill als resumierbarer Batch-Job mit Chunking und Pacing
+  (akzeptierte Einschränkung E3)
+- Earnings-Termine -- nicht über IBKR verfügbar (akzeptierte Einschränkung
+  E1), separater Anbieter mit eigenem ADR noch zu evaluieren (F9); eigener
+  Workstream, kein Blocker für Sprint 2
 
 ---
 
