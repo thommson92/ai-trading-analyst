@@ -222,16 +222,21 @@ spätere Produktivintegration relevante Präzisierungen vorgenommen:
    eigenständige, weiterhin offene und bewusst nicht getroffene
    Entscheidung -- unverändert gegenüber Gate G3/Strang B des
    TradingView-Spikes.
-2. **Koexistenz mit der bestehenden Anwendung.** Dieselbe TWS-Instanz wird
-   bereits von einer anderen, dauerhaft laufenden Anwendung über die API
-   genutzt. Der Projektinhaber hat ausdrücklich vorgegeben, dass diese
-   Anwendung durch den Analyzer-Spike **nicht beeinträchtigt oder
-   umkonfiguriert** werden darf. Details, Optionen (geteilte TWS-Sitzung
-   mit eigener Client-ID vs. separates IB Gateway) und die noch von ihm zu
-   beantwortenden offenen Punkte (Client-ID-Kollision, Marktdaten-
-   Zeilen-Kontingent, Benutzername) stehen in REPORT.md, Frage 8. Diese
-   Frage ist offen und blockiert keine der bisherigen Freigaben, muss aber
-   vor einer produktiven Integration (Schritt 4) geklärt sein.
+2. **Koexistenz mit der bestehenden Anwendung -- geklärt.** Dieselbe
+   TWS-Instanz (Port 7496) wird bereits von der Trade Automation Toolbox
+   (TAT, Client-ID 99) für automatisierten Optionshandel genutzt. Der
+   Analyzer (Client-ID 17) koexistiert als weiterer, unabhängiger,
+   rein lesender API-Client an derselben TWS-Sitzung -- keine Kollision,
+   kein zweiter Login, keine Änderung an TAT oder der bestehenden
+   TWS-Konfiguration (Details und Beleg: REPORT.md, Frage 8).
+
+   **Wichtige Korrektur:** Die ursprüngliche Empfehlung dieses Spikes,
+   "Read-Only API" zu aktivieren, wurde zurückgenommen -- dieser Schalter
+   gilt TWS-weit, nicht pro Client-ID, und hätte auch TAT an echten
+   Order-Übermittlungen gehindert. Er war zu keinem Zeitpunkt aktiviert;
+   TAT war dadurch nie gefährdet. Die Lesebeschränkung des Analyzers ist
+   stattdessen im Code verankert (keine ordererzeugenden API-Aufrufe in
+   `ibkr_client.py`), nicht über diesen globalen Schalter.
 
 ## Begründung
 
