@@ -26,8 +26,12 @@ Marktdaten & Screener
 - Marktdatenanbindung -- TradingView per [ADR 0012](adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)
   mit NO_GO entschieden (Non-Display-Nutzungsverbot der TradingView-Nutzungsbedingungen);
   Interactive Brokers als Kandidat mit GO freigegeben, Spike unter
-  `spikes/ibkr-marketdata/` gestartet, siehe [ADR 0013](adr/0013-interactive-brokers-kandidat-vorschlag.md)
-- Watchlisten importieren -- Quelle abhängig vom Ausgang des IBKR-Spikes, nicht mehr TradingView
+  `spikes/ibkr-marketdata/` abgeschlossen mit GO_WITH_LIMITATIONS (technische
+  Ebene), siehe [ADR 0013](adr/0013-interactive-brokers-kandidat-vorschlag.md)
+  -- produktive Integration (`IbkrMarketDataProvider`) bleibt bis zur
+  gesonderten Freigabe von Schritt 4 gesperrt
+- Watchlisten importieren -- Quelle IBKR (vorbehaltlich Schritt-4-Freigabe), nicht mehr TradingView
+- Earnings-Termine -- nicht über IBKR verfügbar (ADR 0013), separater Anbieter noch zu evaluieren (F9)
 - 195-Minuten-Kerzen verarbeiten
 - technische Signale implementieren
 
