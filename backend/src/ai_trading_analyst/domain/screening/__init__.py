@@ -6,7 +6,9 @@ ausschliesslich ``docs/requirements/g1-pruefvorlage.md``.
 
 from .candidate import CandidateRuleParameters, evaluate_candidate
 from .candle_aggregation import (
+    AggregationResult,
     CandleAggregationError,
+    IncompleteCandle,
     IntradayBar,
     SessionParameters,
     aggregate_intraday_bars,
@@ -35,11 +37,13 @@ from .values import (
 
 __all__ = [
     "SIGNAL_RULE_VERSION",
+    "AggregationResult",
     "CandidateRuleParameters",
     "Candle",
     "CandleAggregationError",
     "CandleSeries",
     "DataIncompleteError",
+    "IncompleteCandle",
     "IndicatorParameters",
     "IndicatorValues",
     "IntradayBar",

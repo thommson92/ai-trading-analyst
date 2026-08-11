@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from ai_trading_analyst.domain.analysis import MarketDataProvider, MarketDataProviderError, Stock
 from ai_trading_analyst.domain.screening import (
+    AggregationResult,
     CandleAggregationError,
     CandleSeries,
     IndicatorParameters,
@@ -94,13 +95,16 @@ class IbkrMarketDataProvider(MarketDataProvider):
             raise MarketDataProviderError(str(error)) from error
 
         try:
-            candles = aggregate_intraday_bars(
+            aggregated = aggregate_intraday_bars(
                 bars, self._native_bar_minutes, self._session_parameters
             )
         except CandleAggregationError as error:
             raise MarketDataProviderError(
                 f"Die Bars fuer '{stock.symbol}' ergeben keine gueltigen Kerzen: {error}"
             ) from error
+
+        candles = aggregated.candles
+        self._reject_gaps(stock.symbol, aggregated)
 
         if not candles:
             raise MarketDataProviderError(
@@ -113,3 +117,32 @@ class IbkrMarketDataProvider(MarketDataProvider):
             [candle.close for candle in candles], self._indicator_parameters
         )
         return CandleSeries(candles=candles, indicators=indicators)
+
+    def close(self) -> None:
+        """Gibt die TWS-Verbindung frei -- beim Herunterfahren der Anwendung."""
+        self._bar_source.close()
+
+    @staticmethod
+    def _reject_gaps(symbol: str, aggregated: AggregationResult) -> None:
+        """Laesst eine unvollstaendige Kerze nur am Ende der Reihe durchgehen.
+
+        Am Ende ist sie die laufende Kerze und damit der Normalfall. Weiter
+        vorn ist sie eine Datenluecke: Die verbleibenden Kerzen waeren nicht
+        mehr zusammenhaengend, und RSI und EMA wuerden ueber Kurse gerechnet,
+        die in Wirklichkeit nicht aufeinander folgen -- ohne dass an den
+        Ergebniswerten irgendetwas darauf hindeutet. Deshalb scheitert die
+        Aktie hier ehrlich, statt eine plausibel aussehende Reihe zu liefern.
+        """
+        if not aggregated.candles:
+            return
+        last_candle_at = aggregated.candles[-1].timestamp
+        gaps = [gap for gap in aggregated.incomplete if gap.timestamp < last_candle_at]
+        if not gaps:
+            return
+        erste = gaps[0]
+        raise MarketDataProviderError(
+            f"IBKR hat fuer '{symbol}' eine lueckenhafte Historie geliefert: zur Kerze "
+            f"{erste.timestamp.isoformat()} fehlen Bars ({erste.received_bars} von "
+            f"{erste.expected_bars}), insgesamt {len(gaps)} betroffene Kerzen vor dem Ende "
+            "der Reihe. Eine Kerzenreihe mit Loechern wuerde falsche Indikatorwerte ergeben."
+        )

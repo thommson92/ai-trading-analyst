@@ -40,9 +40,11 @@ market_data:
     # 195 Minuten teilen sich ohne Rest durch 15 -- eine Kerze besteht damit
     # aus genau 13 nativen Bars.
     native_bar_minutes: 15
-    # Zeitraum je Abruf in IBKR-Schreibweise. Der 5-Jahres-Backfill laeuft
-    # spaeter als eigener Batch-Job mit Chunking (ADR 0014, E3).
-    history_duration: 10 D
+    # Zeitraum je Abruf in IBKR-Schreibweise. Muss den Warm-up von 250 Kerzen
+    # (= 125 Handelstage) abdecken, sonst bleibt jede Aktie dauerhaft
+    # UNKNOWN_DATA_INCOMPLETE. Der 5-Jahres-Backfill laeuft spaeter als
+    # eigener Batch-Job mit Chunking (ADR 0014, E3).
+    history_duration: 1 Y
     # Bis zum Watchlist-Import aus IBKR steht die Liste hier. Leer bedeutet:
     # der Provider meldet keine Aktien -- kein stillschweigender Ersatz.
     watchlist: []

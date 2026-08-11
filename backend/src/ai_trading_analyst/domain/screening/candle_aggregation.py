@@ -11,10 +11,17 @@ darum im Domain Layer:
   12:45--16:00 Ortszeit der Boerse.
 * **Nur vollstaendig abgeschlossene Kerzen.** Eine Kerze gilt genau dann als
   abgeschlossen, wenn alle erwarteten nativen Bars vorliegen. Eine laufende
-  Kerze fliesst nie in ein Signal ein (Doc 10) -- sie wird hier nicht
-  zurueckgegeben, statt sie zu kennzeichnen und spaeter filtern zu muessen.
-  Dieselbe Regel greift an einem verkuerzten Handelstag: die zweite Kerze
-  bleibt dort unvollstaendig und entfaellt.
+  Kerze fliesst nie in ein Signal ein (Doc 10). Dieselbe Regel greift an einem
+  verkuerzten Handelstag: die zweite Kerze bleibt dort unvollstaendig.
+* **Unvollstaendige Kerzen werden gemeldet, nicht verschwiegen.** Sie stehen
+  nicht in ``candles``, aber in ``incomplete`` -- denn die beiden Faelle sind
+  fachlich verschieden: Am Ende der Reihe ist eine unvollstaendige Kerze der
+  Normalfall (die laufende Kerze), mitten in der Reihe ist sie eine
+  Datenluecke. Wuerde sie stillschweigend entfallen, waeren die verbleibenden
+  Kerzen nicht mehr zusammenhaengend und jede darauf berechnete
+  Indikatorreihe waere falsch, ohne dass es irgendwo auffiele
+  (G1-Pruefvorlage, Abschnitt 1.5: eine Luecke wird nie stillschweigend
+  behandelt). Ueber den Umgang damit entscheidet der Aufrufer.
 
 Zeitstempel-Konvention: sowohl die eingehenden Bars als auch die erzeugten
 Kerzen sind mit ihrem **Beginn** datiert (die 09:30-Kerze traegt 09:30, nicht
@@ -49,6 +56,24 @@ class IntradayBar:
 
 
 @dataclass(frozen=True, slots=True)
+class IncompleteCandle:
+    """Ein Zeitfenster, in dem nicht alle erwarteten Bars vorlagen."""
+
+    timestamp: datetime
+    daily_candle_index: int
+    received_bars: int
+    expected_bars: int
+
+
+@dataclass(frozen=True, slots=True)
+class AggregationResult:
+    """Abgeschlossene Kerzen und die dabei uebergangenen Zeitfenster."""
+
+    candles: tuple[Candle, ...]
+    incomplete: tuple[IncompleteCandle, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SessionParameters:
     """Zuschnitt der Handelssitzung -- aus ``MarketConfig`` aufgebaut."""
 
@@ -67,11 +92,14 @@ class SessionParameters:
 
 def aggregate_intraday_bars(
     bars: Sequence[IntradayBar], native_bar_minutes: int, parameters: SessionParameters
-) -> tuple[Candle, ...]:
-    """Bildet aus nativen Bars die abgeschlossenen Kerzen der regulaeren Sitzung.
+) -> AggregationResult:
+    """Bildet aus nativen Bars die Kerzen der regulaeren Sitzung.
 
     Bars ausserhalb der regulaeren Sitzung werden verworfen -- auch dann, wenn
     der Anbieter sie trotz angeforderter Beschraenkung mitliefert.
+
+    Zeitfenster, in denen Bars fehlen, erscheinen nicht in ``candles``, aber
+    vollstaendig in ``incomplete``.
 
     Raises:
         CandleAggregationError: bei einer nicht teilbaren Bar-Groesse, einem
@@ -119,14 +147,25 @@ def aggregate_intraday_bars(
         buckets.setdefault((session_start, bucket_index), []).append(bar)
 
     candles: list[Candle] = []
+    incomplete: list[IncompleteCandle] = []
     for (session_start, bucket_index), bucket_bars in sorted(buckets.items()):
+        timestamp = session_start + timedelta(
+            minutes=bucket_index * parameters.timeframe_minutes
+        )
         if len(bucket_bars) != expected_bars:
+            incomplete.append(
+                IncompleteCandle(
+                    timestamp=timestamp,
+                    daily_candle_index=bucket_index + 1,
+                    received_bars=len(bucket_bars),
+                    expected_bars=expected_bars,
+                )
+            )
             continue
         bucket_bars.sort(key=lambda bar: bar.start)
         candles.append(
             Candle(
-                timestamp=session_start
-                + timedelta(minutes=bucket_index * parameters.timeframe_minutes),
+                timestamp=timestamp,
                 daily_candle_index=bucket_index + 1,
                 open=bucket_bars[0].open,
                 high=max(bar.high for bar in bucket_bars),
@@ -136,4 +175,4 @@ def aggregate_intraday_bars(
             )
         )
 
-    return tuple(candles)
+    return AggregationResult(candles=tuple(candles), incomplete=tuple(incomplete))

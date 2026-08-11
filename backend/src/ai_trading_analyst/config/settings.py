@@ -14,9 +14,17 @@ docs/adr/0010-gate-g1-freigegeben.md fachlich freigegeben. Siehe
 
 from __future__ import annotations
 
+from datetime import time
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
@@ -48,6 +56,32 @@ class MarketConfig(_Section):
     regular_session_minutes: PositiveInt = 390
     timeframe_minutes: PositiveInt = 195
     daily_candle_index: PositiveInt = 1
+
+    def session_open_time(self) -> time:
+        """Der Sitzungsbeginn als Uhrzeit.
+
+        Die Gueltigkeit ist bereits beim Laden geprueft, dieser Aufruf kann
+        deshalb nicht mehr scheitern.
+        """
+        hours, minutes = (int(part) for part in self.regular_session_open.split(":"))
+        return time(hours, minutes)
+
+    @field_validator("regular_session_open")
+    @classmethod
+    def _session_open_must_be_a_time(cls, value: str) -> str:
+        """Prueft das Format sofort beim Laden.
+
+        Ein "09:30:00" oder "9.30" wuerde sonst erst spaeter und an einer
+        Stelle auffallen, die den Konfigurationsschluessel nicht mehr kennt.
+        """
+        try:
+            hours, minutes = (int(part) for part in value.split(":"))
+            time(hours, minutes)
+        except ValueError as error:
+            raise ValueError(
+                f"regular_session_open muss die Form 'HH:MM' haben, ist aber '{value}'"
+            ) from error
+        return value
 
     @model_validator(mode="after")
     def _timeframe_must_divide_session(self) -> MarketConfig:
@@ -118,10 +152,18 @@ class IbkrConfig(_Section):
     connect_timeout_seconds: PositiveInt = 15
     native_bar_minutes: PositiveInt = 15
     """Native Bar-Groesse, aus der die 195-Minuten-Kerzen gebildet werden."""
-    history_duration: str = "10 D"
-    """Zeitraum je Abruf in IBKR-Schreibweise. Der 5-Jahres-Backfill laeuft
-    nicht ueber diesen Wert, sondern als eigener Batch-Job mit Chunking
-    (ADR 0014, Einschraenkung E3)."""
+    history_duration: str = "1 Y"
+    """Zeitraum je Abruf in IBKR-Schreibweise.
+
+    Der Wert muss den Warm-up von ``indicators.warmup_candles`` abdecken: Bei
+    250 Kerzen und zwei Kerzen je Handelstag sind das 125 Handelstage, also
+    rund ein halbes Jahr allein fuer den Vorlauf. Ein zu kurzer Zeitraum
+    fuehrt nicht zu einem Fehler, sondern dazu, dass jede Aktie dauerhaft als
+    ``UNKNOWN_DATA_INCOMPLETE`` mit dem Grund ``warmup_insufficient``
+    zurueckkommt -- der Standard ist deshalb bewusst grosszuegig.
+
+    Der 5-Jahres-Backfill laeuft nicht ueber diesen Wert, sondern als eigener
+    Batch-Job mit Chunking (ADR 0014, Einschraenkung E3)."""
     watchlist: tuple[IbkrWatchlistEntryConfig, ...] = ()
 
 

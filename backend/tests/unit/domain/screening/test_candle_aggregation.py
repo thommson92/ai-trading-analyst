@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from ai_trading_analyst.domain.screening import Candle
 from ai_trading_analyst.domain.screening.candle_aggregation import (
     CandleAggregationError,
     IntradayBar,
@@ -27,6 +28,13 @@ PARAMETERS = SessionParameters(
     timeframe_minutes=195,
 )
 BARS_PER_CANDLE = 13
+
+
+def aggregate(
+    bars: list[IntradayBar], native_bar_minutes: int, parameters: SessionParameters
+) -> tuple[Candle, ...]:
+    """Kurzform fuer die Faelle, in denen nur die fertigen Kerzen zaehlen."""
+    return aggregate_intraday_bars(bars, native_bar_minutes, parameters).candles
 
 
 def bars_for_session(
@@ -49,18 +57,18 @@ def bars_for_session(
 
 class TestVollstaendigeSitzung:
     def test_ein_voller_handelstag_ergibt_genau_zwei_kerzen(self) -> None:
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS)
         assert len(candles) == 2
         assert [candle.daily_candle_index for candle in candles] == [1, 2]
 
     def test_die_kerze_traegt_den_zeitstempel_ihres_beginns(self) -> None:
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS)
         assert candles[0].timestamp == datetime(2026, 3, 10, 9, 30, tzinfo=NEW_YORK)
         assert candles[1].timestamp == datetime(2026, 3, 10, 12, 45, tzinfo=NEW_YORK)
 
     def test_ohlcv_wird_korrekt_zusammengefasst(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
-        candle = aggregate_intraday_bars(bars, 15, PARAMETERS)[0]
+        candle = aggregate(bars, 15, PARAMETERS)[0]
         assert candle.open == bars[0].open
         assert candle.close == bars[-1].close
         assert candle.high == max(bar.high for bar in bars)
@@ -69,8 +77,8 @@ class TestVollstaendigeSitzung:
 
     def test_die_reihenfolge_der_eingehenden_bars_ist_egal(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
-        aus_reihenfolge = aggregate_intraday_bars(list(reversed(bars)), 15, PARAMETERS)
-        assert aus_reihenfolge == aggregate_intraday_bars(bars, 15, PARAMETERS)
+        aus_reihenfolge = aggregate(list(reversed(bars)), 15, PARAMETERS)
+        assert aus_reihenfolge == aggregate(bars, 15, PARAMETERS)
 
     def test_bars_in_utc_werden_in_die_boersenzeitzone_umgerechnet(self) -> None:
         lokal = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
@@ -85,7 +93,7 @@ class TestVollstaendigeSitzung:
             )
             for bar in lokal
         ]
-        assert aggregate_intraday_bars(in_utc, 15, PARAMETERS) == aggregate_intraday_bars(
+        assert aggregate(in_utc, 15, PARAMETERS) == aggregate(
             lokal, 15, PARAMETERS
         )
 
@@ -93,22 +101,55 @@ class TestVollstaendigeSitzung:
 class TestNurAbgeschlosseneKerzen:
     def test_eine_laufende_kerze_wird_nicht_geliefert(self) -> None:
         # Zwoelf statt dreizehn Bars: die Kerze laeuft noch.
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 12), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 3, 10), 12), 15, PARAMETERS)
         assert candles == ()
 
     def test_die_erste_kerze_bleibt_erhalten_waehrend_die_zweite_noch_laeuft(self) -> None:
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS)
         assert [candle.daily_candle_index for candle in candles] == [1]
 
     def test_ein_verkuerzter_handelstag_liefert_nur_die_vollstaendige_kerze(self) -> None:
         # Frueher Schluss um 13:00 -- die zweite Kerze wird nie vollstaendig.
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 11, 27), 14), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 11, 27), 14), 15, PARAMETERS)
         assert [candle.daily_candle_index for candle in candles] == [1]
 
     def test_eine_luecke_mitten_in_der_kerze_verhindert_sie(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
         del bars[5]
-        assert aggregate_intraday_bars(bars, 15, PARAMETERS) == ()
+        assert aggregate(bars, 15, PARAMETERS) == ()
+
+
+class TestUnvollstaendigeKerzenWerdenGemeldet:
+    """Ohne diese Meldung waere eine Datenluecke von einer laufenden Kerze
+    nicht mehr zu unterscheiden -- und die verbleibenden Kerzen waeren
+    scheinbar zusammenhaengend."""
+
+    def test_die_laufende_kerze_wird_als_unvollstaendig_ausgewiesen(self) -> None:
+        ergebnis = aggregate_intraday_bars(
+            bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS
+        )
+        assert len(ergebnis.candles) == 1
+        assert len(ergebnis.incomplete) == 1
+        assert ergebnis.incomplete[0].daily_candle_index == 2
+        assert ergebnis.incomplete[0].received_bars == 7
+        assert ergebnis.incomplete[0].expected_bars == 13
+
+    def test_eine_luecke_mitten_in_der_historie_wird_ausgewiesen(self) -> None:
+        bars = bars_for_session(date(2026, 3, 10), 26) + bars_for_session(date(2026, 3, 11), 26)
+        del bars[3]
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+
+        assert len(ergebnis.candles) == 3
+        assert len(ergebnis.incomplete) == 1
+        luecke = ergebnis.incomplete[0]
+        assert luecke.timestamp == datetime(2026, 3, 10, 9, 30, tzinfo=NEW_YORK)
+        assert luecke.timestamp < ergebnis.candles[-1].timestamp
+
+    def test_eine_lueckenlose_historie_meldet_nichts(self) -> None:
+        ergebnis = aggregate_intraday_bars(
+            bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS
+        )
+        assert ergebnis.incomplete == ()
 
 
 class TestSitzungsgrenzen:
@@ -122,7 +163,7 @@ class TestSitzungsgrenzen:
             volume=1.0,
         )
         bars = [vorboerslich, *bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)]
-        candles = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        candles = aggregate(bars, 15, PARAMETERS)
         assert len(candles) == 1
         assert candles[0].low > 1.0
 
@@ -136,11 +177,11 @@ class TestSitzungsgrenzen:
             volume=1.0,
         )
         bars = [*bars_for_session(date(2026, 3, 10), 26), nachboerslich]
-        assert len(aggregate_intraday_bars(bars, 15, PARAMETERS)) == 2
+        assert len(aggregate(bars, 15, PARAMETERS)) == 2
 
     def test_mehrere_handelstage_bleiben_getrennt_und_chronologisch(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), 26) + bars_for_session(date(2026, 3, 11), 26)
-        candles = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        candles = aggregate(bars, 15, PARAMETERS)
         assert len(candles) == 4
         assert [candle.daily_candle_index for candle in candles] == [1, 2, 1, 2]
         assert list(candles) == sorted(candles, key=lambda candle: candle.timestamp)
@@ -148,7 +189,7 @@ class TestSitzungsgrenzen:
     def test_die_zeitumstellung_verschiebt_den_sitzungsbeginn_nicht(self) -> None:
         # 2026-03-08 ist der Umstellungstag; der Montag danach beginnt
         # weiterhin um 09:30 Ortszeit, nicht um 08:30.
-        candles = aggregate_intraday_bars(bars_for_session(date(2026, 3, 9), 26), 15, PARAMETERS)
+        candles = aggregate(bars_for_session(date(2026, 3, 9), 26), 15, PARAMETERS)
         assert candles[0].timestamp.utcoffset() == timedelta(hours=-4)
         assert len(candles) == 2
 
@@ -164,20 +205,20 @@ class TestFehlerhafteEingaben:
             volume=1.0,
         )
         with pytest.raises(CandleAggregationError, match="Zeitzone"):
-            aggregate_intraday_bars([naiv], 15, PARAMETERS)
+            aggregate([naiv], 15, PARAMETERS)
 
     def test_doppelt_gelieferter_bar_wird_abgelehnt(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
         with pytest.raises(CandleAggregationError, match="doppelt"):
-            aggregate_intraday_bars([*bars, bars[0]], 15, PARAMETERS)
+            aggregate([*bars, bars[0]], 15, PARAMETERS)
 
     def test_nicht_teilbare_bar_groesse_wird_abgelehnt(self) -> None:
         with pytest.raises(CandleAggregationError, match="ohne Rest"):
-            aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 4), 30, PARAMETERS)
+            aggregate(bars_for_session(date(2026, 3, 10), 4), 30, PARAMETERS)
 
     def test_bar_groesse_null_wird_abgelehnt(self) -> None:
         with pytest.raises(CandleAggregationError, match="groesser als 0"):
-            aggregate_intraday_bars([], 0, PARAMETERS)
+            aggregate([], 0, PARAMETERS)
 
     def test_sitzung_die_nicht_in_kerzen_aufgeht_wird_abgelehnt(self) -> None:
         with pytest.raises(CandleAggregationError, match="Vielfaches"):

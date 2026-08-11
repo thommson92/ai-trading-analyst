@@ -59,6 +59,7 @@ class FakeBarSource:
         self._bars_by_symbol = bars_by_symbol or {}
         self._error = error
         self.calls: list[tuple[str, str, str]] = []
+        self.closed = 0
 
     def fetch_intraday_bars(
         self, symbol: str, exchange: str, currency: str
@@ -67,6 +68,9 @@ class FakeBarSource:
         if self._error is not None:
             raise self._error
         return self._bars_by_symbol.get(symbol, ())
+
+    def close(self) -> None:
+        self.closed += 1
 
 
 def trading_days(count: int, first_day: date = date(2026, 3, 2)) -> list[IntradayBar]:
@@ -184,3 +188,37 @@ class TestFehlerverhalten:
         fremde = Stock(id=provider.list_stocks()[0].id, symbol="TSLA", exchange="SMART")
         with pytest.raises(MarketDataProviderError, match="Watchlist"):
             provider.get_candle_series(fremde)
+
+
+class TestLueckenInDerHistorie:
+    """Eine fehlende Kerze mitten in der Reihe darf nicht stillschweigend
+    herausfallen: RSI und EMA wuerden sonst ueber Kurse gerechnet, die gar
+    nicht aufeinander folgen."""
+
+    def test_eine_fehlende_kerze_mitten_in_der_historie_wird_zum_fehler(self) -> None:
+        bars = trading_days(20)
+        del bars[3]  # ein Bar aus der ersten Kerze des ersten Tages
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        with pytest.raises(MarketDataProviderError, match="lueckenhafte Historie"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_die_fehlermeldung_benennt_die_betroffene_kerze(self) -> None:
+        bars = trading_days(20)
+        del bars[3]
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        with pytest.raises(MarketDataProviderError, match="12 von 13"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_eine_laufende_kerze_am_ende_ist_keine_luecke(self) -> None:
+        bars = trading_days(20)[:-6]  # letzte Kerze unvollstaendig
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        series = provider.get_candle_series(provider.list_stocks()[0])
+        assert len(series) == 39
+
+
+class TestVerbindungsfreigabe:
+    def test_close_reicht_bis_zur_barquelle_durch(self) -> None:
+        bar_source = FakeBarSource()
+        provider = build_provider(bar_source)
+        provider.close()
+        assert bar_source.closed == 1

@@ -23,6 +23,9 @@ Orderuebermittlungen hindern wuerde.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -31,6 +34,29 @@ from ai_trading_analyst.domain.screening import IntradayBar
 
 SUPPORTED_BAR_MINUTES = (1, 3, 5, 15)
 """Bar-Groessen, die IBKR anbietet **und** die 195 Minuten ohne Rest teilen."""
+
+
+def _ensure_event_loop_exists() -> None:
+    """Stellt sicher, dass der aktuelle Thread einen Event-Loop hat.
+
+    ``ib_async`` ist im Kern asynchron und erwartet auch fuer seine
+    synchronen Aufrufe einen Event-Loop im aufrufenden Thread. FastAPI fuehrt
+    synchrone Endpunkte in Worker-Threads aus, die keinen haben -- ohne diese
+    Vorbereitung scheitert bereits ``IB()`` mit "There is no current event
+    loop in thread". Denselben Effekt hat ab Python 3.14 auch der Import
+    selbst (Spike-Fund, REPORT.md, Frage 1).
+    """
+    with warnings.catch_warnings():
+        # Ohne gesetzten Loop warnt Python 3.12 an dieser Stelle, ab 3.14
+        # scheitert der Aufruf. Beides ist hier kein Problem, sondern genau
+        # die Information, die gebraucht wird: Es gibt noch keinen Loop.
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            asyncio.get_event_loop()
+            return
+        except RuntimeError:
+            pass
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 class IbkrBarSourceError(RuntimeError):
@@ -84,6 +110,10 @@ class HistoricalBarSource(Protocol):
         """
         ...
 
+    def close(self) -> None:
+        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
+        ...
+
 
 class IbAsyncBarSource:
     """``HistoricalBarSource`` gegen eine laufende TWS-Instanz.
@@ -92,6 +122,18 @@ class IbAsyncBarSource:
     Symbole offengehalten: Der Spike hat gezeigt, dass ein Watchlist-Durchlauf
     ueber eine einzige Verbindung deutlich schneller ist und die Pacing-Limits
     der API schont (REPORT.md, Frage 7).
+
+    Zwei Eigenheiten von ``ib_async`` bestimmen den Zuschnitt dieser Klasse:
+
+    * Eine ``IB``-Instanz haengt am Event-Loop des Threads, in dem sie
+      entstanden ist, und ist von einem anderen Thread aus nicht benutzbar.
+      FastAPI fuehrt synchrone Endpunkte in wechselnden Worker-Threads aus --
+      die Verbindung wird deshalb an ihren Thread gebunden und bei einem
+      Wechsel sauber neu aufgebaut, statt eine tote Verbindung
+      weiterzuverwenden.
+    * IBKR laesst je Client-ID genau eine Verbindung zu. Zwei gleichzeitige
+      Laeufe wuerden sich gegenseitig verdraengen; ein Lock serialisiert sie
+      deshalb, statt das der Gegenstelle zu ueberlassen.
     """
 
     def __init__(
@@ -103,13 +145,19 @@ class IbAsyncBarSource:
         self._settings = settings
         self._bar_size = ibkr_bar_size(native_bar_minutes)
         self._duration = duration
+        self._lock = threading.Lock()
         self._ib: Any | None = None
+        self._owner_thread: int | None = None
 
     def fetch_intraday_bars(
         self, symbol: str, exchange: str, currency: str
     ) -> Sequence[IntradayBar]:
-        ib = self._connection()
+        with self._lock:
+            return self._fetch(symbol, exchange, currency)
+
+    def _fetch(self, symbol: str, exchange: str, currency: str) -> Sequence[IntradayBar]:
         try:
+            ib = self._connection()
             from ib_async import Stock
 
             contracts = ib.qualifyContracts(Stock(symbol, exchange, currency))
@@ -150,17 +198,20 @@ class IbAsyncBarSource:
         )
 
     def close(self) -> None:
-        if self._ib is not None:
-            self._ib.disconnect()
-            self._ib = None
+        """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""
+        with self._lock:
+            self._drop_connection()
 
     def _connection(self) -> Any:
-        if self._ib is not None and self._ib.isConnected():
-            return self._ib
+        if self._ib is not None:
+            if self._owner_thread == threading.get_ident() and self._ib.isConnected():
+                return self._ib
+            self._drop_connection()
 
-        # ib_async wird bewusst erst hier importiert: Der Import baut einen
-        # Event-Loop auf und ist damit ein Seiteneffekt, den weder ein Testlauf
+        # ib_async wird bewusst erst hier importiert: Der Import legt einen
+        # Event-Loop an und ist damit ein Seiteneffekt, den weder ein Testlauf
         # noch ein Anwendungsstart ohne IBKR-Betrieb ausloesen soll.
+        _ensure_event_loop_exists()
         from ib_async import IB
 
         # ib_async.IB.__init__ ist selbst unannotiert -- die Ausnahme bleibt
@@ -180,4 +231,16 @@ class IbAsyncBarSource:
                 "muss die TWS manuell gestartet und angemeldet werden (ADR 0014, E2)."
             ) from error
         self._ib = ib
+        self._owner_thread = threading.get_ident()
         return ib
+
+    def _drop_connection(self) -> None:
+        ib, self._ib, self._owner_thread = self._ib, None, None
+        if ib is None:
+            return
+        try:
+            ib.disconnect()
+        except Exception:
+            # Eine Verbindung, die sich nicht sauber trennen laesst, ist
+            # bereits verloren. Der Abruf darf daran nicht scheitern.
+            pass

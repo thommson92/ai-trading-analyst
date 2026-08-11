@@ -10,7 +10,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
-from datetime import time
+from collections.abc import Callable
 
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -53,7 +53,6 @@ def build_market_data_provider(
         return FixtureMarketDataProvider()
 
     ibkr = config.market_data.ibkr
-    hours, minutes = (int(part) for part in config.market.regular_session_open.split(":"))
     bar_source = IbAsyncBarSource(
         IbkrConnectionSettings(
             host=ibkr.host,
@@ -72,7 +71,7 @@ def build_market_data_provider(
         ),
         session_parameters=SessionParameters(
             timezone=config.market.timezone,
-            session_open=time(hours, minutes),
+            session_open=config.market.session_open_time(),
             session_minutes=config.market.regular_session_minutes,
             timeframe_minutes=config.market.timeframe_minutes,
         ),
@@ -119,4 +118,17 @@ def build_app() -> FastAPI:
     app.state.run_analysis_use_case = use_case
     app.state.uow_factory = uow_factory
     app.state.check_database_ready = check_database_ready
+
+    if isinstance(market_data_provider, IbkrMarketDataProvider):
+        # Die TWS laesst je Client-ID nur eine Verbindung zu. Wird sie beim
+        # Herunterfahren nicht getrennt, blockiert sie den naechsten Start bis
+        # zum Timeout der Gegenstelle.
+        app.router.on_shutdown.append(bar_source_closer(market_data_provider))
     return app
+
+
+def bar_source_closer(provider: IbkrMarketDataProvider) -> Callable[[], None]:
+    def close_bar_source() -> None:
+        provider.close()
+
+    return close_bar_source
