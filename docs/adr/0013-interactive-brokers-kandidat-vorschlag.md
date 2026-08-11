@@ -202,6 +202,42 @@ beginnen. Schritt 4 (eigenes Gate/ADR für die produktive Integration nach
 Abschluss des Spikes) bleibt unverändert bestehen -- diese Freigabe ist
 keine Freigabe für Produktivcode.
 
+## Nachtrag: Betriebsmodell und Koexistenz (2026-08-11)
+
+Während der Spike-Durchführung (Schritt 3, Frage 2 in
+`spikes/ibkr-marketdata/REPORT.md`) hat der Projektinhaber zwei für die
+spätere Produktivintegration relevante Präzisierungen vorgenommen:
+
+1. **Kein Windows-Autologon, auch nicht über IB Gateway/IBC.** IB Gateway
+   und IBC lösen -- anders als in diesem ADR unter "Für unbeaufsichtigten
+   Betrieb ausgelegt" zunächst zu optimistisch dargestellt -- nur die
+   IBKR-seitige Login-Automatisierung *innerhalb* einer bereits
+   angemeldeten Windows-Sitzung, nicht die Windows-Session-0-Isolation
+   nach einem echten Host-Neustart. Der Projektinhaber sieht für den
+   Analyzer vorerst denselben **manuellen Montags-Neustart** vor, den er
+   bereits für eine andere, bestehende IBKR-Anwendung auf demselben
+   Server praktiziert (Windows-Update-bedingter Neustart sonntags 23:55
+   Uhr). IB Gateway/IBC werden deshalb im Spike nicht weiter verfolgt;
+   der Analyzer läuft direkt über TWS. Windows-Autologon bleibt eine
+   eigenständige, weiterhin offene und bewusst nicht getroffene
+   Entscheidung -- unverändert gegenüber Gate G3/Strang B des
+   TradingView-Spikes.
+2. **Koexistenz mit der bestehenden Anwendung -- geklärt.** Dieselbe
+   TWS-Instanz (Port 7496) wird bereits von der Trade Automation Toolbox
+   (TAT, Client-ID 99) für automatisierten Optionshandel genutzt. Der
+   Analyzer (Client-ID 17) koexistiert als weiterer, unabhängiger,
+   rein lesender API-Client an derselben TWS-Sitzung -- keine Kollision,
+   kein zweiter Login, keine Änderung an TAT oder der bestehenden
+   TWS-Konfiguration (Details und Beleg: REPORT.md, Frage 8).
+
+   **Wichtige Korrektur:** Die ursprüngliche Empfehlung dieses Spikes,
+   "Read-Only API" zu aktivieren, wurde zurückgenommen -- dieser Schalter
+   gilt TWS-weit, nicht pro Client-ID, und hätte auch TAT an echten
+   Order-Übermittlungen gehindert. Er war zu keinem Zeitpunkt aktiviert;
+   TAT war dadurch nie gefährdet. Die Lesebeschränkung des Analyzers ist
+   stattdessen im Code verankert (keine ordererzeugenden API-Aufrufe in
+   `ibkr_client.py`), nicht über diesen globalen Schalter.
+
 ## Begründung
 
 Die Lehre aus Gate G2/G3 ist nicht "keine Spikes mehr", sondern
