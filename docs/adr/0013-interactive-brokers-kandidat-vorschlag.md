@@ -1,7 +1,7 @@
 # ADR 0013: Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen
 
-- Status: Angenommen -- Vorprüfung mit GO abgeschlossen, Spike-Start freigegeben (2026-08-11)
-- Datum: 2026-08-10 (Vorschlag), 2026-08-11 (Freigabe)
+- Status: Angenommen -- Spike abgeschlossen, Empfehlung GO_WITH_LIMITATIONS (technische Dimension); Schritt 4 (Produktivintegration) weiterhin gesperrt
+- Datum: 2026-08-10 (Vorschlag), 2026-08-11 (Freigabe und Spike-Abschluss)
 
 ## Kontext
 
@@ -238,6 +238,48 @@ spätere Produktivintegration relevante Präzisierungen vorgenommen:
    stattdessen im Code verankert (keine ordererzeugenden API-Aufrufe in
    `ibkr_client.py`), nicht über diesen globalen Schalter.
 
+## Nachtrag: Spike abgeschlossen -- GO_WITH_LIMITATIONS (2026-08-11)
+
+Schritt 3 (Spike unter `spikes/ibkr-marketdata/`) ist abgeschlossen. Alle
+sieben ursprünglich in Schritt 3 genannten Fragen sowie die während des
+Spikes zusätzlich aufgetretene Koexistenzfrage mit der bestehenden
+Anwendung TAT sind live gegen die TWS des Nutzers beantwortet. Vollständiger
+Bericht mit Executive Summary, allen Einzelergebnissen, der konsolidierten
+Risikoliste und der Begründung: `spikes/ibkr-marketdata/REPORT.md`
+(Branch `spike/ibkr-marketdata`, nicht nach `dev` gemergt, analog zum
+TradingView-Spike).
+
+**Empfehlung des Spikes: GO_WITH_LIMITATIONS**, ausschließlich für die
+**technische Dimension**. Die **lizenzrechtliche Dimension** war bereits vor
+Spike-Beginn mit GO entschieden (siehe "Freigabe des Projektinhabers" oben)
+und wird hier nicht erneut bewertet.
+
+Kurzfassung der Einschränkungen (Details in REPORT.md, Abschnitt 12):
+
+1. Unbeaufsichtigter Wiederanlauf nach einem echten Windows-Neustart ist
+   nicht technisch gelöst, sondern bewusst durch dasselbe manuelle
+   Betriebsmodell ersetzt, das der Nutzer bereits für die bestehende
+   Anwendung TAT praktiziert (siehe Nachtrag oben, Betriebsmodell). Windows-
+   Autologon bleibt eine eigenständige, weiterhin offene Entscheidung.
+2. Earnings-Termine sind über IBKR (`reqFundamentalData`, `CalendarReport`)
+   nicht nutzbar -- für F9 bleibt hierfür ein eigenes ADR zur Anbieterwahl
+   nötig. Analystenschätzungen, Optionsketten-Struktur und (nach Aktivierung
+   eines zusätzlichen IBKR-Optionsmarktdaten-Abos) Options-Greeks sind
+   dagegen über IBKR verfügbar und decken den entsprechenden Teil von F9 ab.
+3. Historischer Backfill über 15-Minuten-Bars für 5 Jahre benötigt
+   Chunking in kleinere Zeitfenster -- eine einzelne Großanfrage scheitert
+   am Client-seitigen Timeout der verwendeten Bibliothek, nicht an einem
+   IBKR-seitigen Limit.
+4. Die in der Vorprüfung offen gelassenen Restpunkte (konkrete IBKR-
+   Rechtsträgerschaft des Kontos, ggf. börsenspezifische
+   Zusatzvereinbarungen) bleiben unverändert bestehen.
+
+**Schritt 4 (eigenes Gate/ADR für die produktive Integration) bleibt
+weiterhin gesperrt.** Dieser Nachtrag ist keine Freigabe für Produktivcode
+oder für einen `IbkrMarketDataProvider` -- dafür ist eine gesonderte,
+ausdrückliche Entscheidung des Projektinhabers erforderlich, analog zu
+Gate G3 bei TradingView.
+
 ## Begründung
 
 Die Lehre aus Gate G2/G3 ist nicht "keine Spikes mehr", sondern
@@ -251,16 +293,16 @@ Schritt 1 diesmal *vor* dem Spike stehen, nicht danach.
 
 ## Konsequenzen
 
-- Vorprüfung (Schritt 1) und Spike-Start-Freigabe (Schritt 2) sind erteilt
-  (2026-08-11). Der Spike unter `spikes/ibkr-marketdata/` (Schritt 3) darf
-  beginnen -- isoliert, kein Import in/aus `backend/src` oder `frontend`,
-  kein Produktivcode.
+- Vorprüfung (Schritt 1), Spike-Start-Freigabe (Schritt 2) und der Spike
+  selbst (Schritt 3, `spikes/ibkr-marketdata/`) sind abgeschlossen
+  (2026-08-11), Empfehlung GO_WITH_LIMITATIONS auf technischer Ebene (siehe
+  Nachtrag oben).
 - Schritt 4 (eigenes Gate/ADR für die produktive Integration, mit
-  getrennter technischer und vertraglicher Bewertung) bleibt gesperrt, bis
-  der Spike abgeschlossen ist -- diese Freigabe deckt ausdrücklich keine
-  Produktivintegration ab.
+  getrennter technischer und vertraglicher Bewertung) bleibt weiterhin
+  gesperrt, bis der Projektinhaber ihn ausdrücklich freigibt -- der
+  Spike-Abschluss selbst ist keine Freigabe für Produktivcode.
 - `docs/03 - Roadmap.md` (Sprint 2) und `docs/adr/README.md` sind
-  entsprechend als "IBKR-Spike gestartet" statt "in Prüfung" zu
-  aktualisieren.
+  entsprechend als "IBKR-Spike abgeschlossen, GO_WITH_LIMITATIONS,
+  Produktivintegration weiterhin gesperrt" zu aktualisieren.
 - Gate G3 (TradingView, NO_GO) bleibt von diesem ADR unberührt und wird
   durch den IBKR-Spike nicht wieder geöffnet.
