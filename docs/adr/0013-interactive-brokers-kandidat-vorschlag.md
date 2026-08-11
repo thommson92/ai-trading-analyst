@@ -202,6 +202,37 @@ beginnen. Schritt 4 (eigenes Gate/ADR für die produktive Integration nach
 Abschluss des Spikes) bleibt unverändert bestehen -- diese Freigabe ist
 keine Freigabe für Produktivcode.
 
+## Nachtrag: Betriebsmodell und Koexistenz (2026-08-11)
+
+Während der Spike-Durchführung (Schritt 3, Frage 2 in
+`spikes/ibkr-marketdata/REPORT.md`) hat der Projektinhaber zwei für die
+spätere Produktivintegration relevante Präzisierungen vorgenommen:
+
+1. **Kein Windows-Autologon, auch nicht über IB Gateway/IBC.** IB Gateway
+   und IBC lösen -- anders als in diesem ADR unter "Für unbeaufsichtigten
+   Betrieb ausgelegt" zunächst zu optimistisch dargestellt -- nur die
+   IBKR-seitige Login-Automatisierung *innerhalb* einer bereits
+   angemeldeten Windows-Sitzung, nicht die Windows-Session-0-Isolation
+   nach einem echten Host-Neustart. Der Projektinhaber sieht für den
+   Analyzer vorerst denselben **manuellen Montags-Neustart** vor, den er
+   bereits für eine andere, bestehende IBKR-Anwendung auf demselben
+   Server praktiziert (Windows-Update-bedingter Neustart sonntags 23:55
+   Uhr). IB Gateway/IBC werden deshalb im Spike nicht weiter verfolgt;
+   der Analyzer läuft direkt über TWS. Windows-Autologon bleibt eine
+   eigenständige, weiterhin offene und bewusst nicht getroffene
+   Entscheidung -- unverändert gegenüber Gate G3/Strang B des
+   TradingView-Spikes.
+2. **Koexistenz mit der bestehenden Anwendung.** Dieselbe TWS-Instanz wird
+   bereits von einer anderen, dauerhaft laufenden Anwendung über die API
+   genutzt. Der Projektinhaber hat ausdrücklich vorgegeben, dass diese
+   Anwendung durch den Analyzer-Spike **nicht beeinträchtigt oder
+   umkonfiguriert** werden darf. Details, Optionen (geteilte TWS-Sitzung
+   mit eigener Client-ID vs. separates IB Gateway) und die noch von ihm zu
+   beantwortenden offenen Punkte (Client-ID-Kollision, Marktdaten-
+   Zeilen-Kontingent, Benutzername) stehen in REPORT.md, Frage 8. Diese
+   Frage ist offen und blockiert keine der bisherigen Freigaben, muss aber
+   vor einer produktiven Integration (Schritt 4) geklärt sein.
+
 ## Begründung
 
 Die Lehre aus Gate G2/G3 ist nicht "keine Spikes mehr", sondern
