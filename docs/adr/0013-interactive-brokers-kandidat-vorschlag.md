@@ -1,7 +1,7 @@
 # ADR 0013: Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen
 
-- Status: Vorgeschlagen
-- Datum: 2026-08-10
+- Status: Angenommen -- Vorprüfung mit GO abgeschlossen, Spike-Start freigegeben (2026-08-11)
+- Datum: 2026-08-10 (Vorschlag), 2026-08-11 (Freigabe)
 
 ## Kontext
 
@@ -175,6 +175,33 @@ weiterhin eine Entscheidung des Projektinhabers**, nicht von Claude Code --
 analog zur Verantwortlichkeitsregelung in Abschnitt 2.3 der
 Gate-G3-Entscheidungsvorlage.
 
+## Freigabe des Projektinhabers (2026-08-11)
+
+Der Projektinhaber hat die Vorprüfung ausdrücklich mit **GO** entschieden:
+"Basierend auf der aktuellen Lizenz-Situation ist IBKR für mich ein GO."
+Damit ist Schritt 1 (Vorprüfung) abgeschlossen -- Grundlage ist Variante (a)
+("dokumentierte tragfähige Grundlage") aus dem Entscheidungsraster: die
+Klausel "perform analytics [...] exclusively in connection with
+Subscriber's brokerage account(s)" aus dem Market Data API Supplement
+erlaubt den geplanten Verwendungszweck ausdrücklich, statt ihn zu verbieten.
+
+Zusätzlich hat der Projektinhaber ausdrücklich den **Spike-Start
+freigegeben** (Schritt 2): "Hiermit bekommst du meine offizielle Freigabe
+für den Spike-Start zum Thema Interactive Brokers."
+
+Die unter "Offene Punkte" genannten Restfragen (konkrete IBKR-
+Rechtsträgerschaft des Kontos, ggf. börsenspezifische
+Zusatzvereinbarungen) sind mit dieser Freigabe nicht als rechtlich
+irrelevant erklärt, sondern bewusst vom Projektinhaber im Rahmen seiner
+Risikoeinschätzung mitgetragen -- sie bleiben im Blick, blockieren den
+Spike-Start aber nicht mehr.
+
+**Damit sind Schritt 1 und Schritt 2 aus dem "Entscheidung"-Abschnitt oben
+erfüllt.** Schritt 3 (Spike isoliert unter `spikes/ibkr-marketdata/`) kann
+beginnen. Schritt 4 (eigenes Gate/ADR für die produktive Integration nach
+Abschluss des Spikes) bleibt unverändert bestehen -- diese Freigabe ist
+keine Freigabe für Produktivcode.
+
 ## Begründung
 
 Die Lehre aus Gate G2/G3 ist nicht "keine Spikes mehr", sondern
@@ -188,11 +215,16 @@ Schritt 1 diesmal *vor* dem Spike stehen, nicht danach.
 
 ## Konsequenzen
 
-- Kein Implementierungs- oder Spike-Code entsteht durch dieses ADR selbst.
-- Nächster konkreter Schritt liegt beim Nutzer: Ergebnis der kurzen
-  Vorprüfung (Schritt 1) und die ausdrückliche Freigabe für den Spike-Start
-  (Schritt 2).
+- Vorprüfung (Schritt 1) und Spike-Start-Freigabe (Schritt 2) sind erteilt
+  (2026-08-11). Der Spike unter `spikes/ibkr-marketdata/` (Schritt 3) darf
+  beginnen -- isoliert, kein Import in/aus `backend/src` oder `frontend`,
+  kein Produktivcode.
+- Schritt 4 (eigenes Gate/ADR für die produktive Integration, mit
+  getrennter technischer und vertraglicher Bewertung) bleibt gesperrt, bis
+  der Spike abgeschlossen ist -- diese Freigabe deckt ausdrücklich keine
+  Produktivintegration ab.
 - `docs/03 - Roadmap.md` (Sprint 2) und `docs/adr/README.md` sind
-  entsprechend als "in Prüfung" statt "TradingView Integration" markiert.
+  entsprechend als "IBKR-Spike gestartet" statt "in Prüfung" zu
+  aktualisieren.
 - Gate G3 (TradingView, NO_GO) bleibt von diesem ADR unberührt und wird
-  durch einen möglichen IBKR-Spike nicht wieder geöffnet.
+  durch den IBKR-Spike nicht wieder geöffnet.
