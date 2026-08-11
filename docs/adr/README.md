@@ -47,7 +47,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
 | [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (offener Punkt) |
 | [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
-| [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Vorgeschlagen |
+| [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Vorprüfung GO, Spike-Start freigegeben) |
 
 ## Offene Entscheidungen
 
@@ -60,7 +60,8 @@ ADR, sobald die nötigen Informationen vorliegen:
   und [docs/requirements/g3-entscheidungsvorlage.md](../requirements/g3-entscheidungsvorlage.md).
   TradingView ist damit als Datenquelle erledigt.
 - Marktdaten-/Screening-Anbindung anstelle von TradingView: Interactive
-  Brokers als Kandidat vorgeschlagen, Spike noch nicht gestartet — siehe
+  Brokers als Kandidat mit GO freigegeben, Spike unter
+  `spikes/ibkr-marketdata/` gestartet (2026-08-11) — siehe
   [ADR 0013](0013-interactive-brokers-kandidat-vorschlag.md)
 - Anbieter für historische Intraday-Kurse (F9) — ggf. durch ADR 0013 (IBKR)
   mitbeantwortet, falls der Spike das abdeckt
