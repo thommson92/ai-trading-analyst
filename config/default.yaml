@@ -18,6 +18,35 @@ market:
   # Analysiert wird nach Abschluss der ersten Kerze (12:45 ET).
   daily_candle_index: 1
 
+market_data:
+  # Marktdatenanbieter. "fixture" liefert deterministische Testdaten ohne
+  # externe Abhaengigkeit, "ibkr" die produktive TWS-Anbindung
+  # (docs/adr/0014-ibkr-produktivintegration-freigegeben.md).
+  #
+  # Der Standard bleibt bewusst "fixture": Die produktive Quelle wird
+  # ausdruecklich eingeschaltet und nicht stillschweigend vorausgesetzt --
+  # ohne laufende, angemeldete TWS liefert sie keine Daten (ADR 0014, E2).
+  provider: fixture
+  ibkr:
+    # Die TWS-API kennt keinen Schluessel; die Berechtigung haengt an der
+    # angemeldeten TWS-Sitzung. Hier stehen deshalb keine Geheimnisse.
+    host: 127.0.0.1
+    # TWS Live 7496, TWS Paper 7497, IB Gateway Live 4001, Paper 4002.
+    port: 7496
+    # Muss sich von der Client-ID jeder anderen Anwendung an derselben
+    # TWS-Instanz unterscheiden (Trade Automation Toolbox: 99).
+    client_id: 17
+    connect_timeout_seconds: 15
+    # 195 Minuten teilen sich ohne Rest durch 15 -- eine Kerze besteht damit
+    # aus genau 13 nativen Bars.
+    native_bar_minutes: 15
+    # Zeitraum je Abruf in IBKR-Schreibweise. Der 5-Jahres-Backfill laeuft
+    # spaeter als eigener Batch-Job mit Chunking (ADR 0014, E3).
+    history_duration: 10 D
+    # Bis zum Watchlist-Import aus IBKR steht die Liste hier. Leer bedeutet:
+    # der Provider meldet keine Aktien -- kein stillschweigender Ersatz.
+    watchlist: []
+
 screening:
   # Kandidatenregel: mindestens 2 der 3 Signale innerhalb eines
   # Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige). Unabhaengig von

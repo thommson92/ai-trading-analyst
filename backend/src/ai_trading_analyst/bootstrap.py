@@ -10,15 +10,28 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
+from datetime import time
+
 from fastapi import FastAPI
 from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.config.loader import load_config, load_secrets
-from ai_trading_analyst.domain.analysis import UnitOfWork
-from ai_trading_analyst.domain.screening import CandidateRuleParameters
+from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig
+from ai_trading_analyst.domain.analysis import MarketDataProvider, UnitOfWork
+from ai_trading_analyst.domain.screening import (
+    CandidateRuleParameters,
+    IndicatorParameters,
+    SessionParameters,
+)
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
+)
+from ai_trading_analyst.infrastructure.ibkr import (
+    IbAsyncBarSource,
+    IbkrConnectionSettings,
+    IbkrMarketDataProvider,
+    WatchlistEntry,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
     build_engine,
@@ -26,6 +39,53 @@ from ai_trading_analyst.infrastructure.persistence.session import (
 )
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ai_trading_analyst.presentation.api.app import create_app
+
+
+def build_market_data_provider(
+    config: AppConfig, indicators: IndicatorConfig
+) -> MarketDataProvider:
+    """Waehlt den Marktdatenanbieter anhand der Konfiguration.
+
+    ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
+    Start ohne laufende TWS; ``ibkr`` ist die produktive Quelle (ADR 0014).
+    """
+    if config.market_data.provider == "fixture":
+        return FixtureMarketDataProvider()
+
+    ibkr = config.market_data.ibkr
+    hours, minutes = (int(part) for part in config.market.regular_session_open.split(":"))
+    bar_source = IbAsyncBarSource(
+        IbkrConnectionSettings(
+            host=ibkr.host,
+            port=ibkr.port,
+            client_id=ibkr.client_id,
+            connect_timeout_seconds=float(ibkr.connect_timeout_seconds),
+        ),
+        native_bar_minutes=ibkr.native_bar_minutes,
+        duration=ibkr.history_duration,
+    )
+    return IbkrMarketDataProvider(
+        bar_source=bar_source,
+        watchlist=tuple(
+            WatchlistEntry(symbol=entry.symbol, exchange=entry.exchange, currency=entry.currency)
+            for entry in ibkr.watchlist
+        ),
+        session_parameters=SessionParameters(
+            timezone=config.market.timezone,
+            session_open=time(hours, minutes),
+            session_minutes=config.market.regular_session_minutes,
+            timeframe_minutes=config.market.timeframe_minutes,
+        ),
+        indicator_parameters=IndicatorParameters(
+            rsi_length=indicators.rsi_length,
+            rsi_method=indicators.rsi_method,
+            rsi_ma_length=indicators.rsi_ma_length,
+            rsi_ma_type=indicators.rsi_ma_type,
+            fast_ema_length=indicators.fast_ema_length,
+            slow_ema_length=indicators.slow_ema_length,
+        ),
+        native_bar_minutes=ibkr.native_bar_minutes,
+    )
 
 
 def build_app() -> FastAPI:
@@ -44,7 +104,8 @@ def build_app() -> FastAPI:
         signal_lookback_previous_candles=loaded.config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
-    use_case = RunAnalysisUseCase(FixtureMarketDataProvider(), uow_factory, candidate_rule_params)
+    market_data_provider = build_market_data_provider(loaded.config, indicators)
+    use_case = RunAnalysisUseCase(market_data_provider, uow_factory, candidate_rule_params)
 
     def check_database_ready() -> bool:
         try:

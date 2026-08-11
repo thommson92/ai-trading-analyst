@@ -89,6 +89,54 @@ class IndicatorConfig(_Section):
     warmup_candles: PositiveInt
 
 
+class IbkrWatchlistEntryConfig(_Section):
+    """Eine ueberwachte Aktie mit ihrem IBKR-Kontraktzuschnitt.
+
+    ``SMART`` ist IBKRs Smart-Routing-Ziel und fuer US-Aktien der Normalfall;
+    beide Werte bleiben trotzdem konfigurierbar, damit eine Aktie an einer
+    bestimmten Boerse angefordert werden kann.
+    """
+
+    symbol: str = Field(min_length=1)
+    exchange: str = "SMART"
+    currency: str = "USD"
+
+
+class IbkrConfig(_Section):
+    """Zugang zur TWS-API (ADR 0014).
+
+    Enthaelt keine Geheimnisse: Die TWS-API kennt keinen Schluessel, die
+    Berechtigung haengt an der angemeldeten TWS-Sitzung selbst.
+    """
+
+    host: str = "127.0.0.1"
+    port: PositiveInt = 7496
+    client_id: PositiveInt = 17
+    """Muss sich von der Client-ID jeder anderen Anwendung an derselben
+    TWS-Instanz unterscheiden (ADR 0013, Koexistenz mit der Trade Automation
+    Toolbox: dort Client-ID 99)."""
+    connect_timeout_seconds: PositiveInt = 15
+    native_bar_minutes: PositiveInt = 15
+    """Native Bar-Groesse, aus der die 195-Minuten-Kerzen gebildet werden."""
+    history_duration: str = "10 D"
+    """Zeitraum je Abruf in IBKR-Schreibweise. Der 5-Jahres-Backfill laeuft
+    nicht ueber diesen Wert, sondern als eigener Batch-Job mit Chunking
+    (ADR 0014, Einschraenkung E3)."""
+    watchlist: tuple[IbkrWatchlistEntryConfig, ...] = ()
+
+
+class MarketDataConfig(_Section):
+    """Auswahl des Marktdatenanbieters.
+
+    Der Standard bleibt bewusst ``fixture``: Ein Start ohne laufende TWS soll
+    weiterhin funktionieren, und die produktive Anbindung wird ausdruecklich
+    eingeschaltet, nicht stillschweigend vorausgesetzt.
+    """
+
+    provider: Literal["fixture", "ibkr"] = "fixture"
+    ibkr: IbkrConfig = IbkrConfig()
+
+
 class ScreeningConfig(_Section):
     """Kandidatenregel.
 
@@ -195,6 +243,7 @@ class AppConfig(_Section):
     """Wurzel der fachlichen Konfiguration."""
 
     market: MarketConfig = MarketConfig()
+    market_data: MarketDataConfig = MarketDataConfig()
     screening: ScreeningConfig = ScreeningConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
@@ -203,6 +252,22 @@ class AppConfig(_Section):
     scoring: ScoringConfig = ScoringConfig()
     logging: LoggingConfig = LoggingConfig()
     indicators: IndicatorConfig | None = None
+
+    @model_validator(mode="after")
+    def _native_bars_must_form_whole_candles(self) -> AppConfig:
+        """Die native Bar-Groesse muss die Kerze ohne Rest fuellen.
+
+        Sonst waere keine 195-Minuten-Kerze je vollstaendig, und der Screener
+        haette dauerhaft keine einzige auswertbare Kerze -- ein Fehler, der
+        erst im Betrieb auffiele.
+        """
+        native = self.market_data.ibkr.native_bar_minutes
+        if self.market.timeframe_minutes % native != 0:
+            raise ValueError(
+                f"native_bar_minutes ({native}) muss timeframe_minutes "
+                f"({self.market.timeframe_minutes}) ohne Rest teilen"
+            )
+        return self
 
     def require_indicators(self) -> IndicatorConfig:
         """Liefert die Indikator-Parameter oder bricht mit einem eindeutigen Hinweis ab.

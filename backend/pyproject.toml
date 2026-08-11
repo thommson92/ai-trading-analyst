@@ -12,6 +12,13 @@ dependencies = [
     "SQLAlchemy>=2.0,<3",
     "alembic>=1.13,<2",
     "psycopg[binary]>=3.2,<4",
+    # Offizielle TWS-API von Interactive Brokers, gekapselt von ib_async
+    # (gepflegter Nachfolger von ib_insync). Freigegeben in ADR 0014.
+    "ib_async>=1.0,<2",
+    # Windows liefert keine System-Zeitzonendatenbank; ohne dieses Paket
+    # scheitert dort jede ZoneInfo("America/New_York") -- im IBKR-Spike auf
+    # dem Zielserver aufgetreten (REPORT.md, Frage 3).
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +80,14 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+# ib_async ist nicht durchgaengig typannotiert. Die Ausnahme gilt bewusst nur
+# fuer die Bibliothek selbst -- der eigene Adapter darum herum bleibt strikt
+# geprueft.
+[[tool.mypy.overrides]]
+module = "ib_async.*"
+ignore_missing_imports = true
+follow_untyped_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

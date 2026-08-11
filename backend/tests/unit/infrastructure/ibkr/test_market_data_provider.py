@@ -1,0 +1,186 @@
+"""Der IBKR-Provider gegen eine eingesetzte Barquelle.
+
+Kein Test hier braucht eine laufende TWS, ein IBKR-Konto oder Netzwerk: Der
+Provider haengt nur an ``HistoricalBarSource``, und genau diese Naht wird
+besetzt. Geprueft wird das Zusammenspiel -- Bars rein, Kerzen mit Indikatoren
+raus -- und vor allem das Verhalten im Fehlerfall, der im Betrieb der
+Normalfall ist (TWS nach einem Neustart nicht angemeldet).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from ai_trading_analyst.domain.analysis import MarketDataProviderError, Stock
+from ai_trading_analyst.domain.screening import (
+    IndicatorParameters,
+    IntradayBar,
+    SessionParameters,
+)
+from ai_trading_analyst.infrastructure.ibkr.bar_source import IbkrBarSourceError
+from ai_trading_analyst.infrastructure.ibkr.market_data_provider import (
+    IbkrMarketDataProvider,
+    WatchlistEntry,
+)
+
+NEW_YORK = ZoneInfo("America/New_York")
+SESSION = SessionParameters(
+    timezone="America/New_York",
+    session_open=time(9, 30),
+    session_minutes=390,
+    timeframe_minutes=195,
+)
+INDICATORS = IndicatorParameters(
+    rsi_length=14,
+    rsi_method="wilder",
+    rsi_ma_length=14,
+    rsi_ma_type="sma",
+    fast_ema_length=5,
+    slow_ema_length=20,
+)
+WATCHLIST = (
+    WatchlistEntry(symbol="AAPL", exchange="SMART", currency="USD"),
+    WatchlistEntry(symbol="MSFT", exchange="SMART", currency="USD"),
+)
+
+
+class FakeBarSource:
+    """Liefert vorbereitete Bars oder scheitert kontrolliert."""
+
+    def __init__(
+        self,
+        bars_by_symbol: dict[str, Sequence[IntradayBar]] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._bars_by_symbol = bars_by_symbol or {}
+        self._error = error
+        self.calls: list[tuple[str, str, str]] = []
+
+    def fetch_intraday_bars(
+        self, symbol: str, exchange: str, currency: str
+    ) -> Sequence[IntradayBar]:
+        self.calls.append((symbol, exchange, currency))
+        if self._error is not None:
+            raise self._error
+        return self._bars_by_symbol.get(symbol, ())
+
+
+def trading_days(count: int, first_day: date = date(2026, 3, 2)) -> list[IntradayBar]:
+    """Vollstaendige Handelstage zu je zwei Kerzen, mit steigendem Kurs."""
+    bars: list[IntradayBar] = []
+    price = 100.0
+    for day_offset in range(count):
+        session_start = datetime.combine(
+            first_day + timedelta(days=day_offset), time(9, 30), tzinfo=NEW_YORK
+        )
+        for index in range(26):
+            price += 0.5
+            bars.append(
+                IntradayBar(
+                    start=session_start + timedelta(minutes=15 * index),
+                    open=price,
+                    high=price + 0.25,
+                    low=price - 0.25,
+                    close=price,
+                    volume=1_000.0,
+                )
+            )
+    return bars
+
+
+def build_provider(bar_source: FakeBarSource) -> IbkrMarketDataProvider:
+    return IbkrMarketDataProvider(
+        bar_source=bar_source,
+        watchlist=WATCHLIST,
+        session_parameters=SESSION,
+        indicator_parameters=INDICATORS,
+        native_bar_minutes=15,
+    )
+
+
+class TestListStocks:
+    def test_liefert_die_konfigurierte_watchlist(self) -> None:
+        stocks = build_provider(FakeBarSource()).list_stocks()
+        assert [stock.symbol for stock in stocks] == ["AAPL", "MSFT"]
+
+    def test_dieselbe_aktie_erhaelt_ueber_laeufe_hinweg_dieselbe_id(self) -> None:
+        erste = build_provider(FakeBarSource()).list_stocks()
+        zweite = build_provider(FakeBarSource()).list_stocks()
+        assert [stock.id for stock in erste] == [stock.id for stock in zweite]
+
+    def test_leere_watchlist_liefert_keine_aktien_statt_eines_platzhalters(self) -> None:
+        provider = IbkrMarketDataProvider(
+            bar_source=FakeBarSource(),
+            watchlist=(),
+            session_parameters=SESSION,
+            indicator_parameters=INDICATORS,
+            native_bar_minutes=15,
+        )
+        assert provider.list_stocks() == ()
+
+
+class TestGetCandleSeries:
+    def test_bars_werden_zu_kerzen_mit_indikatoren(self) -> None:
+        provider = build_provider(FakeBarSource({"AAPL": trading_days(20)}))
+        stock = provider.list_stocks()[0]
+
+        series = provider.get_candle_series(stock)
+
+        assert len(series) == 40
+        assert len(series.indicators) == 40
+        letzte = series.indicator(len(series) - 1)
+        assert letzte.rsi is not None
+        assert letzte.rsi_ma is not None
+        assert letzte.ema5 is not None
+        assert letzte.ema20 is not None
+
+    def test_der_kontraktzuschnitt_der_watchlist_wird_durchgereicht(self) -> None:
+        bar_source = FakeBarSource({"AAPL": trading_days(20)})
+        provider = build_provider(bar_source)
+        provider.get_candle_series(provider.list_stocks()[0])
+        assert bar_source.calls == [("AAPL", "SMART", "USD")]
+
+    def test_am_anfang_der_reihe_fehlen_indikatorwerte_statt_geraten_zu_werden(self) -> None:
+        provider = build_provider(FakeBarSource({"AAPL": trading_days(20)}))
+        erste = provider.get_candle_series(provider.list_stocks()[0]).indicator(0)
+        assert (erste.rsi, erste.rsi_ma, erste.ema5, erste.ema20) == (None, None, None, None)
+
+    def test_eine_laufende_kerze_kommt_nicht_in_die_reihe(self) -> None:
+        bars = trading_days(1)[:20]  # erste Kerze vollstaendig, zweite laeuft
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        series = provider.get_candle_series(provider.list_stocks()[0])
+        assert len(series) == 1
+        assert series.candle(0).daily_candle_index == 1
+
+
+class TestFehlerverhalten:
+    def test_nicht_erreichbare_tws_wird_als_providerfehler_gemeldet(self) -> None:
+        bar_source = FakeBarSource(
+            error=IbkrBarSourceError("Keine Verbindung zur TWS auf 127.0.0.1:7496")
+        )
+        provider = build_provider(bar_source)
+        with pytest.raises(MarketDataProviderError, match="Keine Verbindung zur TWS"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_ohne_abgeschlossene_kerze_gibt_es_keine_leere_reihe_sondern_einen_fehler(
+        self,
+    ) -> None:
+        provider = build_provider(FakeBarSource({"AAPL": trading_days(1)[:5]}))
+        with pytest.raises(MarketDataProviderError, match="keine einzige abgeschlossene"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_unbrauchbare_bars_werden_als_providerfehler_gemeldet(self) -> None:
+        bars = trading_days(1)
+        provider = build_provider(FakeBarSource({"AAPL": [*bars, bars[0]]}))
+        with pytest.raises(MarketDataProviderError, match="keine gueltigen Kerzen"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_aktie_ausserhalb_der_watchlist_wird_abgelehnt(self) -> None:
+        provider = build_provider(FakeBarSource())
+        fremde = Stock(id=provider.list_stocks()[0].id, symbol="TSLA", exchange="SMART")
+        with pytest.raises(MarketDataProviderError, match="Watchlist"):
+            provider.get_candle_series(fremde)

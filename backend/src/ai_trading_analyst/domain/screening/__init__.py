@@ -5,6 +5,21 @@ ausschliesslich ``docs/requirements/g1-pruefvorlage.md``.
 """
 
 from .candidate import CandidateRuleParameters, evaluate_candidate
+from .candle_aggregation import (
+    CandleAggregationError,
+    IntradayBar,
+    SessionParameters,
+    aggregate_intraday_bars,
+)
+from .indicators import (
+    IndicatorParameters,
+    UnsupportedSmoothingMethodError,
+    compute_indicator_values,
+    exponential_moving_average,
+    relative_strength_index,
+    simple_moving_average,
+    wilder_moving_average,
+)
 from .signals import ema5_ema20_cross, price_ema20_breakout, rsi_cross
 from .values import (
     SIGNAL_RULE_VERSION,
@@ -22,15 +37,26 @@ __all__ = [
     "SIGNAL_RULE_VERSION",
     "CandidateRuleParameters",
     "Candle",
+    "CandleAggregationError",
     "CandleSeries",
     "DataIncompleteError",
+    "IndicatorParameters",
     "IndicatorValues",
+    "IntradayBar",
     "ScreeningResult",
     "ScreeningStatus",
+    "SessionParameters",
     "SignalEvent",
     "SignalType",
+    "UnsupportedSmoothingMethodError",
+    "aggregate_intraday_bars",
+    "compute_indicator_values",
     "ema5_ema20_cross",
     "evaluate_candidate",
+    "exponential_moving_average",
     "price_ema20_breakout",
+    "relative_strength_index",
     "rsi_cross",
+    "simple_moving_average",
+    "wilder_moving_average",
 ]

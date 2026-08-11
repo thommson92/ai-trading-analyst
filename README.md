@@ -2,7 +2,7 @@
 
 Persönliches, KI-gestütztes Analyse-System für Long-Swing-Trades auf US-Aktien.
 
-Das System screent täglich TradingView-Watchlisten nach definierten technischen
+Das System screent täglich Watchlisten nach definierten technischen
 Kaufsignalen, reduziert sie auf wenige Kandidaten und analysiert diese vertieft
 — technisch, fundamental, nachrichtenseitig und im Hinblick auf
 Cash-Secured-Put-Strategien. Ergebnis ist eine begründete Entscheidungsgrundlage
@@ -27,23 +27,31 @@ getrennt.
 
 ## Projektstand
 
-**Sprint 1B — Backend Walking Skeleton.** Toolchain, Konfiguration, Logging,
-Schichtstruktur und CI stehen (Sprint 0 Teil A). Gate G1 ist fachlich
-freigegeben ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei
-Signalregeln und die 2-aus-3-Kandidatenregel sind als reiner Domain-Code
-implementiert (`backend/src/ai_trading_analyst/domain/screening`, Tag
-`sprint-1a-baseline`). Eine dünne, durchgehend lauffähige Kette mit
-Fixture-Daten steht: `FixtureMarketDataProvider` → Application Use Case →
-Screener → PostgreSQL → REST API (`/api/v1`). Noch kein produktiver
-Scheduler, keine echten Marktdaten, kein Frontend-Ausbau.
+**Sprint 2 — Marktdaten.** Toolchain, Konfiguration, Logging, Schichtstruktur
+und CI stehen (Sprint 0 Teil A). Gate G1 ist fachlich freigegeben
+([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei Signalregeln und
+die 2-aus-3-Kandidatenregel sind als reiner Domain-Code implementiert
+(`backend/src/ai_trading_analyst/domain/screening`, Tag `sprint-1a-baseline`).
+Die durchgehend lauffähige Kette aus Sprint 1B steht: Marktdatenanbieter →
+Application Use Case → Screener → PostgreSQL → REST API (`/api/v1`).
+
+Als Datenquelle ist **Interactive Brokers** freigegeben
+([ADR 0014](docs/adr/0014-ibkr-produktivintegration-freigegeben.md), technisch
+`GO_WITH_LIMITATIONS`, vertraglich `GO`); TradingView ist mit **NO_GO**
+ausgeschieden ([ADR 0012](docs/adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)).
+Der `IbkrMarketDataProvider` baut aus nativen 15-Minuten-Bars abgeschlossene
+195-Minuten-Kerzen und berechnet RSI, RSI-MA, EMA5 und EMA20 selbst. Welcher
+Anbieter läuft, entscheidet `market_data.provider` in `config/default.yaml`;
+der Standard bleibt `fixture`.
+
+Noch offen: Watchlist-Import aus IBKR, historischer Backfill, Scheduler,
+Frontend-Ausbau.
 
 Bewusst noch nicht begonnen:
 
 | Thema | Blockiert durch |
 |---|---|
-| TradingView-Spike | Gate G2 — gesonderte Freigabe erforderlich |
-| Produktive TradingView-Integration | Gate G3 — Entscheidung nach Spike-Bericht |
-| Produktive Datenprovider | ADR ausstehend |
+| Earnings-Termine | Anbieterwahl offen — IBKR liefert sie nicht (ADR 0014, E1) |
 | KI-Integration | ADR ausstehend |
 
 ## Struktur
@@ -52,11 +60,13 @@ Bewusst noch nicht begonnen:
 backend/          Python 3.12, FastAPI-Anwendung
   src/ai_trading_analyst/
     domain/         Fachregeln, Provider-Schnittstellen (ohne Infrastruktur)
-      screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1)
+      screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1),
+                      Indikatorberechnung, 195-Minuten-Kerzenbildung
       analysis/       AnalysisRun/Stock-Modelle, Provider-Ports
     application/    Use Cases, Orchestrierung (run_analysis.py)
     infrastructure/ Repositories, Adapter
       fixtures/       FixtureMarketDataProvider, versionierte JSON-Fixtures
+      ibkr/           IbkrMarketDataProvider, TWS-Anbindung (ADR 0014)
       persistence/    SQLAlchemy-Modelle, Repositories, UnitOfWork
     presentation/   API-Endpunkte, Schemas (/api/v1)
     config/         Konfiguration und Geheimnisse
@@ -114,6 +124,34 @@ npm ci
 `npm ci` installiert exakt die in `package-lock.json` festgeschriebenen
 Versionen und bricht ab, wenn `package.json` und die Lock-Datei
 auseinanderlaufen — im Gegensatz zu `npm install` also reproduzierbar.
+
+### Marktdaten über Interactive Brokers
+
+Der produktive Anbieter wird ausdrücklich eingeschaltet — der Standard bleibt
+`fixture`:
+
+```yaml
+market_data:
+  provider: ibkr
+  ibkr:
+    watchlist:
+      - symbol: AAPL
+```
+
+Voraussetzung ist eine laufende, **manuell angemeldete** TWS mit aktiviertem
+API-Zugriff (Einstellungen → API → Settings → "Enable ActiveX and Socket
+Clients"). Zwei Punkte aus [ADR 0014](docs/adr/0014-ibkr-produktivintegration-freigegeben.md)
+gelten dabei verbindlich:
+
+- **Die Client-ID muss frei sein.** Läuft an derselben TWS-Instanz eine
+  weitere Anwendung, braucht jede ihre eigene ID.
+- **"Read-Only API" nicht aktivieren**, solange eine andere Anwendung über
+  dieselbe TWS echte Orders überträgt — der Schalter gilt TWS-weit und würde
+  auch sie blockieren. Dass der Analyzer nur liest, ist in seinem Code
+  verankert, nicht in dieser Einstellung.
+
+Ohne erreichbare TWS meldet der Provider einen klaren Fehler; erfundene oder
+zwischengespeicherte Kurse gibt es nicht.
 
 ### Geheimnisse
 
