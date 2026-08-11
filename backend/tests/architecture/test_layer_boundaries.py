@@ -46,6 +46,10 @@ FORBIDDEN_IN_DOMAIN = (
     "redis",
     "yaml",
     "uvicorn",
+    # Marktdatenanbieter: Die Domain kennt nur den Port ``MarketDataProvider``,
+    # nie die TWS-Bibliothek dahinter (ADR 0014).
+    "ib_async",
+    "ib_insync",
 )
 
 
