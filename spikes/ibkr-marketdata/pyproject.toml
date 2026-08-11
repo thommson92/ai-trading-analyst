@@ -1,0 +1,49 @@
+[project]
+name = "ibkrspike"
+version = "0.1.0"
+description = "IBKR-Marktdaten-Spike (ADR 0013) -- technische Machbarkeitspruefung, kein Produktivcode."
+requires-python = ">=3.11"
+dependencies = [
+    "ib_async>=1.0,<2",
+    "click>=8.1,<9",
+    # zoneinfo braucht unter Windows (kein System-Tzdata wie macOS/Linux)
+    # dieses Zusatzpaket -- siehe REPORT.md, Frage 3, "Windows-Fund".
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9",
+    "ruff>=0.5,<1",
+    "mypy>=1.10,<2",
+]
+
+[project.scripts]
+ibkrspike = "ibkrspike.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "RUF", "DTZ"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "ib_async.*"
+ignore_missing_imports = true
