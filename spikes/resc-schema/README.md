@@ -85,9 +85,16 @@ Zusammenfassung die Struktur vollständig zeigt und dabei keinen Inhalt
 durchlässt. Der TWS-Abruf braucht eine laufende TWS und ist nicht Gegenstand
 der Tests.
 
-## Status
+## Status: beantwortet (2026-08-12)
 
-Offen — wartet auf den Lauf gegen die TWS. Das Ergebnis geht in ein ADR zur
-F9-Datenquelle und, falls RESC einen Berichtstermin enthält, in eine
-Neubewertung von E1 aus ADR 0014. Ein ADR wird durch diesen Spike **nicht**
-geändert; eine Neubewertung wäre ein neues ADR.
+Siehe **[RESULT.md](RESULT.md)**. Kurz:
+
+- **Ratings und Kursziele liegen vor** (`TARGETPRICE`, `BUY`…`SELL` mit
+  Analystenzahl) — ein eigener Anbieter dafür entfällt. Nicht jedes Symbol
+  hat Empfehlungen; bei `WMT` ist der Block leer.
+- **Berichtstermine liegen nicht vor.** Einschränkung E1 aus ADR 0014 bleibt
+  gültig, der Earnings-Workstream bleibt nötig.
+
+Ein ADR wird durch diesen Spike **nicht** geändert; die Folgerungen gehören
+in ein neues ADR zur F9-Datenquelle, einschließlich der noch offenen
+Lizenzfrage.
