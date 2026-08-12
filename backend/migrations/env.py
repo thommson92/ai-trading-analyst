@@ -11,7 +11,12 @@ from ai_trading_analyst.infrastructure.persistence.orm import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False ist hier entscheidend: Der Standardwert
+    # True schaltet jeden bereits erzeugten Logger dauerhaft ab, der nicht in
+    # alembic.ini steht -- also saemtliche Anwendungs-Logger im selben
+    # Prozess. Aufgefallen ist das in der Testsuite, wo nach einem
+    # Migrationstest keine Anwendungsmeldung mehr ankam.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
