@@ -21,11 +21,8 @@ from ai_trading_analyst.domain.screening import (
     IntradayBar,
     SessionParameters,
 )
-from ai_trading_analyst.infrastructure.ibkr.bar_source import IbkrBarSourceError
-from ai_trading_analyst.infrastructure.ibkr.market_data_provider import (
-    IbkrMarketDataProvider,
-    WatchlistEntry,
-)
+from ai_trading_analyst.infrastructure.ibkr.bar_source import ContractSpec, IbkrBarSourceError
+from ai_trading_analyst.infrastructure.ibkr.market_data_provider import IbkrMarketDataProvider
 
 NEW_YORK = ZoneInfo("America/New_York")
 SESSION = SessionParameters(
@@ -43,8 +40,8 @@ INDICATORS = IndicatorParameters(
     slow_ema_length=20,
 )
 WATCHLIST = (
-    WatchlistEntry(symbol="AAPL", exchange="SMART", currency="USD"),
-    WatchlistEntry(symbol="MSFT", exchange="SMART", currency="USD"),
+    ContractSpec(symbol="AAPL", primary_exchange="NASDAQ"),
+    ContractSpec(symbol="MSFT", primary_exchange="NASDAQ"),
 )
 
 
@@ -58,16 +55,14 @@ class FakeBarSource:
     ) -> None:
         self._bars_by_symbol = bars_by_symbol or {}
         self._error = error
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls: list[ContractSpec] = []
         self.closed = 0
 
-    def fetch_intraday_bars(
-        self, symbol: str, exchange: str, currency: str
-    ) -> Sequence[IntradayBar]:
-        self.calls.append((symbol, exchange, currency))
+    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+        self.calls.append(contract)
         if self._error is not None:
             raise self._error
-        return self._bars_by_symbol.get(symbol, ())
+        return self._bars_by_symbol.get(contract.symbol, ())
 
     def close(self) -> None:
         self.closed += 1
@@ -146,7 +141,7 @@ class TestGetCandleSeries:
         bar_source = FakeBarSource({"AAPL": trading_days(20)})
         provider = build_provider(bar_source)
         provider.get_candle_series(provider.list_stocks()[0])
-        assert bar_source.calls == [("AAPL", "SMART", "USD")]
+        assert bar_source.calls == [ContractSpec(symbol="AAPL", primary_exchange="NASDAQ")]
 
     def test_am_anfang_der_reihe_fehlen_indikatorwerte_statt_geraten_zu_werden(self) -> None:
         provider = build_provider(FakeBarSource({"AAPL": trading_days(20)}))

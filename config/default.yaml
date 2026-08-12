@@ -45,9 +45,17 @@ market_data:
     # UNKNOWN_DATA_INCOMPLETE. Der 5-Jahres-Backfill laeuft spaeter als
     # eigener Batch-Job mit Chunking (ADR 0014, E3).
     history_duration: 1 Y
-    # Bis zum Watchlist-Import aus IBKR steht die Liste hier. Leer bedeutet:
-    # der Provider meldet keine Aktien -- kein stillschweigender Ersatz.
-    watchlist: []
+    # Verzeichnis mit den exportierten Watchlisten (*.txt), relativ zum
+    # Projektwurzelverzeichnis. Alle Dateien darin werden eingelesen,
+    # Mehrfachnennungen zusammengefasst. Fehlt das Verzeichnis oder ist es
+    # leer, bricht der Start ab -- ein Lauf ohne einen einzigen geprueften
+    # Titel soll nicht wie ein Erfolg aussehen.
+    watchlist_directory: watchlists
+    # IBKR laesst 60 Historienanfragen je zehn Minuten zu und sperrt bei
+    # Ueberschreitung die ganze Verbindung. 11 Sekunden Abstand bleiben
+    # sicher darunter; bei rund 180 Symbolen dauert ein Lauf damit gut
+    # 30 Minuten.
+    minimum_request_interval_seconds: 11.0
 
 screening:
   # Kandidatenregel: mindestens 2 der 3 Signale innerhalb eines

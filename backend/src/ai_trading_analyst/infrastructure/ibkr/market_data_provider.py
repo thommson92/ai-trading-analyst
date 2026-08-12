@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from ai_trading_analyst.domain.analysis import MarketDataProvider, MarketDataProviderError, Stock
 from ai_trading_analyst.domain.screening import (
@@ -33,7 +32,7 @@ from ai_trading_analyst.domain.screening import (
     compute_indicator_values,
 )
 
-from .bar_source import HistoricalBarSource, IbkrBarSourceError
+from .bar_source import ContractSpec, HistoricalBarSource, IbkrBarSourceError
 
 _STOCK_NAMESPACE = uuid.UUID("a1c0d3e5-0000-4000-8000-000000000002")
 """Erzeugt zu einem Symbol immer dieselbe Aktien-ID, damit wiederholte Laeufe
@@ -41,20 +40,11 @@ dieselbe Aktie treffen. Die Repositories sind zusaetzlich ueber das Symbol
 idempotent."""
 
 
-@dataclass(frozen=True, slots=True)
-class WatchlistEntry:
-    """Eine ueberwachte Aktie und ihr IBKR-Kontraktzuschnitt."""
-
-    symbol: str
-    exchange: str
-    currency: str
-
-
 class IbkrMarketDataProvider(MarketDataProvider):
     def __init__(
         self,
         bar_source: HistoricalBarSource,
-        watchlist: Sequence[WatchlistEntry],
+        watchlist: Sequence[ContractSpec],
         session_parameters: SessionParameters,
         indicator_parameters: IndicatorParameters,
         native_bar_minutes: int,
@@ -73,24 +63,26 @@ class IbkrMarketDataProvider(MarketDataProvider):
         """
         return tuple(
             Stock(
-                id=uuid.uuid5(_STOCK_NAMESPACE, entry.symbol),
-                symbol=entry.symbol,
-                exchange=entry.exchange,
+                id=uuid.uuid5(_STOCK_NAMESPACE, contract.symbol),
+                symbol=contract.symbol,
+                # Die Heimatboerse ist die aussagekraeftigere Angabe; "SMART"
+                # ist nur der Weg zur Abfrage, keine Boerse.
+                exchange=contract.primary_exchange or contract.exchange,
             )
-            for entry in self._watchlist
+            for contract in self._watchlist
         )
 
     def get_candle_series(self, stock: Stock) -> CandleSeries:
-        entry = next((item for item in self._watchlist if item.symbol == stock.symbol), None)
-        if entry is None:
+        contract = next(
+            (item for item in self._watchlist if item.symbol == stock.symbol), None
+        )
+        if contract is None:
             raise MarketDataProviderError(
                 f"'{stock.symbol}' steht nicht auf der konfigurierten IBKR-Watchlist."
             )
 
         try:
-            bars = self._bar_source.fetch_intraday_bars(
-                entry.symbol, entry.exchange, entry.currency
-            )
+            bars = self._bar_source.fetch_intraday_bars(contract)
         except IbkrBarSourceError as error:
             raise MarketDataProviderError(str(error)) from error
 
