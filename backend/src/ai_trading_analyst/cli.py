@@ -32,6 +32,7 @@ from pathlib import Path
 
 from ai_trading_analyst.bootstrap import build_market_data_provider, project_root
 from ai_trading_analyst.config.loader import load_config
+from ai_trading_analyst.config.settings import LoggingConfig
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
@@ -48,6 +49,7 @@ from ai_trading_analyst.infrastructure.watchlists import (
     describe_sources,
     load_watchlist_directory,
 )
+from ai_trading_analyst.observability.logging_setup import configure_logging
 
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
@@ -139,6 +141,11 @@ def command_screen(args: argparse.Namespace) -> int:
     loaded = load_config(args.config)
     config = loaded.config
     indicators = config.require_indicators()
+
+    # Lesbare Zeilen statt JSON: Diese Ausgabe liest ein Mensch waehrend des
+    # Laufs. Sichtbar wird dadurch unter anderem, an welchen Tagen die Sitzung
+    # frueher endete und deshalb nur eine Kerze entstand.
+    configure_logging(LoggingConfig(level="INFO", format="console"))
 
     if args.provider is not None:
         market_data = config.market_data.model_copy(update={"provider": args.provider})

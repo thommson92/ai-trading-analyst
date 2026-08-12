@@ -57,12 +57,32 @@ class IntradayBar:
 
 @dataclass(frozen=True, slots=True)
 class IncompleteCandle:
-    """Ein Zeitfenster, in dem nicht alle erwarteten Bars vorlagen."""
+    """Ein Zeitfenster, in dem nicht alle erwarteten Bars vorlagen.
+
+    ``ends_session`` unterscheidet die beiden Ursachen, die von aussen gleich
+    aussehen, fachlich aber gegensaetzlich sind:
+
+    * ``True`` -- die Sitzung endete hier. Entweder war es ein **verkuerzter
+      Handelstag** (der 28.11.2025 nach Thanksgiving schloss um 13:00 statt
+      16:00, die zweite Kerze bekam genau einen Bar), oder es ist die
+      **laufende Kerze** am Ende der Reihe. In beiden Faellen fehlt nichts:
+      Es hat schlicht nicht mehr Handel gegeben. Die Kerze entsteht nicht,
+      die uebrigen bleiben unbeschaedigt.
+    * ``False`` -- mitten in einer Sitzung fehlen Bars, obwohl danach noch
+      gehandelt wurde. Das ist eine echte Datenluecke.
+
+    Erkannt wird das ohne Boersenkalender: an einem verkuerzten Tag folgt auf
+    das Loch nichts mehr, und die vorhandenen Bars schliessen luecklos an den
+    Kerzenbeginn an. Was diese Pruefung nicht erkennen kann, ist ein
+    **vollstaendig fehlender Handelstag** -- dafuer braeuchte es einen
+    Kalender.
+    """
 
     timestamp: datetime
     daily_candle_index: int
     received_bars: int
     expected_bars: int
+    ends_session: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +108,36 @@ class SessionParameters:
                 f"session_minutes ({self.session_minutes}) muss ein Vielfaches von "
                 f"timeframe_minutes ({self.timeframe_minutes}) sein"
             )
+
+
+def _ends_session(
+    buckets: dict[tuple[datetime, int], list[IntradayBar]],
+    session_start: datetime,
+    bucket_index: int,
+    candle_start: datetime,
+    bucket_bars: list[IntradayBar],
+    native_bar_minutes: int,
+) -> bool:
+    """Endete die Sitzung in dieser Kerze, oder fehlen mittendrin Bars?
+
+    Zwei Bedingungen muessen zusammenkommen, damit es ein verkuerzter
+    Handelstag (oder die laufende Kerze) ist:
+
+    1. Danach wurde an diesem Tag nicht mehr gehandelt -- es gibt keine
+       spaetere Kerze desselben Datums.
+    2. Die vorhandenen Bars beginnen mit dem Kerzenbeginn und folgen luecklos
+       aufeinander. Sonst fehlt etwas *innerhalb* des bereits gehandelten
+       Zeitraums, und das ist eine Luecke, auch wenn danach nichts mehr kommt.
+    """
+    if any(index > bucket_index for start, index in buckets if start == session_start):
+        return False
+
+    erwarteter_beginn = candle_start
+    for bar in bucket_bars:
+        if bar.start != erwarteter_beginn:
+            return False
+        erwarteter_beginn = bar.start + timedelta(minutes=native_bar_minutes)
+    return True
 
 
 def aggregate_intraday_bars(
@@ -152,6 +202,7 @@ def aggregate_intraday_bars(
         timestamp = session_start + timedelta(
             minutes=bucket_index * parameters.timeframe_minutes
         )
+        bucket_bars.sort(key=lambda bar: bar.start)
         if len(bucket_bars) != expected_bars:
             incomplete.append(
                 IncompleteCandle(
@@ -159,10 +210,17 @@ def aggregate_intraday_bars(
                     daily_candle_index=bucket_index + 1,
                     received_bars=len(bucket_bars),
                     expected_bars=expected_bars,
+                    ends_session=_ends_session(
+                        buckets,
+                        session_start,
+                        bucket_index,
+                        timestamp,
+                        bucket_bars,
+                        native_bar_minutes,
+                    ),
                 )
             )
             continue
-        bucket_bars.sort(key=lambda bar: bar.start)
         candles.append(
             Candle(
                 timestamp=timestamp,

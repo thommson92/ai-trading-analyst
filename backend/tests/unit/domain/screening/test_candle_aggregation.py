@@ -152,6 +152,59 @@ class TestUnvollstaendigeKerzenWerdenGemeldet:
         assert ergebnis.incomplete == ()
 
 
+class TestVerkuerzterHandelstagIstKeineLuecke:
+    """Der 28.11.2025 (Tag nach Thanksgiving) schloss um 13:00 statt 16:00.
+
+    Die zweite Kerze bekam genau einen Bar. Das sah zunaechst wie eine
+    Datenluecke aus, ist aber das Gegenteil: Es hat schlicht nicht mehr
+    Handel gegeben. Live gegen die TWS aufgetreten, siehe ADR 0014.
+    """
+
+    @staticmethod
+    def _thanksgiving_freitag() -> list[IntradayBar]:
+        # 09:30-13:00 = 14 Bars: 13 fuer die erste Kerze, einer fuer die zweite.
+        return bars_for_session(date(2025, 11, 28), 14)
+
+    def test_die_zweite_kerze_gilt_als_sitzungsende(self) -> None:
+        ergebnis = aggregate_intraday_bars(self._thanksgiving_freitag(), 15, PARAMETERS)
+        assert len(ergebnis.candles) == 1
+        assert len(ergebnis.incomplete) == 1
+        assert ergebnis.incomplete[0].ends_session is True
+        assert ergebnis.incomplete[0].received_bars == 1
+
+    def test_auch_mitten_in_der_historie(self) -> None:
+        bars = (
+            bars_for_session(date(2025, 11, 26), 26)
+            + self._thanksgiving_freitag()
+            + bars_for_session(date(2025, 12, 1), 26)
+        )
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert len(ergebnis.candles) == 5
+        assert [gap.ends_session for gap in ergebnis.incomplete] == [True]
+
+    def test_fehlende_bars_mit_weiterem_handel_danach_gelten_nicht_als_sitzungsende(
+        self,
+    ) -> None:
+        bars = bars_for_session(date(2026, 3, 10), 26)
+        del bars[5]  # mitten in der ersten Kerze, der Tag lief weiter
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert [gap.ends_session for gap in ergebnis.incomplete] == [False]
+
+    def test_ein_loch_kurz_vor_sitzungsende_ist_kein_sitzungsende(self) -> None:
+        # Bars bis 13:00, aber der Bar um 12:45 fehlt: Die vorhandenen Bars
+        # schliessen nicht an den Kerzenbeginn an -- da fehlt wirklich etwas.
+        bars = bars_for_session(date(2025, 11, 28), 16)
+        del bars[13]
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert [gap.ends_session for gap in ergebnis.incomplete] == [False]
+
+    def test_die_laufende_kerze_am_ende_gilt_ebenfalls_als_sitzungsende(self) -> None:
+        ergebnis = aggregate_intraday_bars(
+            bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS
+        )
+        assert ergebnis.incomplete[0].ends_session is True
+
+
 class TestSitzungsgrenzen:
     def test_bars_vor_sitzungsbeginn_werden_verworfen(self) -> None:
         vorboerslich = IntradayBar(

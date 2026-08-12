@@ -210,6 +210,23 @@ class TestLueckenInDerHistorie:
         series = provider.get_candle_series(provider.list_stocks()[0])
         assert len(series) == 39
 
+    def test_ein_verkuerzter_handelstag_mitten_in_der_historie_ist_keine_luecke(self) -> None:
+        """Der Fall vom 28.11.2025, live gegen die TWS aufgetreten.
+
+        An einem verkuerzten Handelstag kann die zweite Kerze nicht
+        vollstaendig werden. Sie entfaellt, die Reihe bleibt gueltig -- ein
+        Fehler waere hier falsch und haette die gesamte Watchlist blockiert.
+        """
+        bars = trading_days(20)
+        # Vom fuenften Handelstag nur die ersten 14 Bars behalten: 09:30-13:00.
+        del bars[4 * 26 + 14 : 5 * 26]
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        series = provider.get_candle_series(provider.list_stocks()[0])
+
+        assert len(series) == 39  # 40 minus die zweite Kerze des kurzen Tages
+        assert series.indicator(len(series) - 1).ema20 is not None
+
 
 class TestVerbindungsfreigabe:
     def test_close_reicht_bis_zur_barquelle_durch(self) -> None:
