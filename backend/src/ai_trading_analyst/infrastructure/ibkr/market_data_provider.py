@@ -133,10 +133,13 @@ class IbkrMarketDataProvider(MarketDataProvider):
             return
         letzte_kerze = aggregated.candles[-1].timestamp
         gemeldet = {
-            IncompleteReason.SESSION_ENDED: "verkuerzte Handelstage",
-            IncompleteReason.SESSION_STARTED_LATE: "Handelstage mit spaetem Beginn",
+            IncompleteReason.SESSION_ENDED: ("verkuerzter Handelstag", "verkuerzte Handelstage"),
+            IncompleteReason.SESSION_STARTED_LATE: (
+                "Handelstag mit spaetem Beginn",
+                "Handelstage mit spaetem Beginn",
+            ),
         }
-        for grund, bezeichnung in gemeldet.items():
+        for grund, (einzahl, mehrzahl) in gemeldet.items():
             betroffen = [
                 gap
                 for gap in aggregated.incomplete
@@ -145,11 +148,11 @@ class IbkrMarketDataProvider(MarketDataProvider):
             if not betroffen:
                 continue
             _logger.info(
-                "%s: %d %s in der Historie -- die jeweilige Kerze entfaellt "
+                "%s: %d %s in der Historie -- dort entfaellt jeweils eine Kerze "
                 "(frueheste: %s)",
                 symbol,
                 len(betroffen),
-                bezeichnung,
+                einzahl if len(betroffen) == 1 else mehrzahl,
                 betroffen[0].timestamp.date().isoformat(),
             )
 
