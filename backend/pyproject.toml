@@ -8,7 +8,14 @@ dependencies = [
     "pydantic-settings>=2.3,<3",
     "PyYAML>=6.0,<7",
     "fastapi>=0.115,<1",
-    "uvicorn[standard]>=0.30,<1",
+    # Ohne das Extra "standard": Es zieht uvloop nach, und uvloop gibt es
+    # fuer Windows nicht -- die Anwendung laeuft aber genau dort, auf
+    # demselben Server wie die TWS. pip-compile loest die Lock-Datei auf
+    # einem Rechner auf und verliert dabei den Plattform-Marker von uvloop,
+    # sodass die Installation unter Windows scheitert statt das Paket zu
+    # ueberspringen. Die uebrigen Bestandteile des Extras (httptools,
+    # watchfiles, websockets) sind fuer den Betrieb nicht noetig.
+    "uvicorn>=0.30,<1",
     "SQLAlchemy>=2.0,<3",
     "alembic>=1.13,<2",
     "psycopg[binary]>=3.2,<4",
