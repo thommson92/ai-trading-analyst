@@ -30,14 +30,24 @@ möglicherweise Anbieter für Daten, die bereits vorliegen.
 
 ## Was die Sonde ausgibt — und was nicht
 
-Ausgegeben werden nur **Struktur und Wertformen**: Elementpfade,
-Attributnamen, Häufigkeiten und Muster wie `9999-99-99` statt `2026-07-30`.
-Kein einziger Originalwert erscheint in der Ausgabe; ein Test hält das fest.
+Die Sonde unterscheidet zwei Arten von Angaben, und die Grenze verläuft
+zwischen **Schema** und **Inhalt**:
 
-Zwei Gründe: Die Daten stammen von einem Drittanbieter und sind
-lizenzgebunden, und eine Antwort kann Kennungen enthalten, die nicht in ein
-Protokoll gehören. Für die Frage „gibt es ein Feld mit dem Berichtstermin"
-genügt die Struktur vollständig.
+| Ausgabe | Was erscheint | Beispiel |
+|---|---|---|
+| `@type = EPS \| REV` | Attribute aus `SCHEMA_ATTRIBUTES` — sie sagen, *welche* Kennzahlen es gibt | `type`, `periodType`, `code`, `unit`, `dateType`, `desc` |
+| `@updated ~ 9999-99-99` | alle übrigen Attribute, nur als Wertform | `updated`, `endCalYear`, `ticker` |
+| `Wertform: 9.99` | Elementtexte, nur als Wertform | Schätzwerte, Namen, Kurse |
+
+Dass ein Feld `type="PRICE_TGT"` heißt, ist die Antwort auf unsere Frage und
+keine Analystenaussage. Der Wert `350` dagegen ist genau die lizenzgebundene
+Aussage — er erscheint als `999`. Ein Test hält fest, dass kein
+Originalinhalt durchrutscht.
+
+Zwei Gründe für diese Trennung: Die Daten stammen von einem Drittanbieter
+und sind lizenzgebunden, und eine Antwort kann Kennungen enthalten, die
+nicht in ein Protokoll gehören. Für die Frage „gibt es ein Feld mit dem
+Berichtstermin" genügt die Struktur vollständig.
 
 Das komplette XML landet unter `results/` und ist **nicht versioniert**, damit
 gezielte Rückfragen ohne einen zweiten TWS-Abruf beantwortet werden können.

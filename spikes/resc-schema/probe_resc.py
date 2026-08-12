@@ -48,6 +48,34 @@ MAX_SHAPES_PER_PATH = 3
 """Mehr Formbeispiele je Pfad bringen keinen Erkenntnisgewinn und blaehen die
 Ausgabe auf."""
 
+MAX_SCHEMA_VALUES = 12
+
+SCHEMA_ATTRIBUTES = frozenset(
+    {
+        "type",
+        "periodType",
+        "periodUnit",
+        "periodNum",
+        "periodLength",
+        "set",
+        "code",
+        "unit",
+        "dateType",
+        "desc",
+        "currCode",
+        "fyem",
+        "fyNum",
+    }
+)
+"""Attribute, deren Werte das **Schema** beschreiben und nicht die Daten.
+
+``type="EPS"`` sagt, welche Kennzahl es gibt -- das ist die Frage, um die es
+hier geht, und keine lizenzgebundene Analystenaussage. Bei diesen Attributen
+werden die vorkommenden Werte aufgezaehlt; bei allen uebrigen (etwa
+``updated`` oder ``endCalYear``) bleibt es bei der Wertform, denn dort steht
+Inhalt.
+"""
+
 
 def value_shape(text: str) -> str:
     """Ersetzt Inhalt durch sein Muster: ``2026-07-30`` wird ``9999-99-99``.
@@ -73,12 +101,16 @@ def summarize(xml_text: str) -> list[str]:
     wurzel = ElementTree.fromstring(xml_text)
 
     anzahl: dict[str, int] = {}
-    attribute: dict[str, set[str]] = {}
+    attribute: dict[str, dict[str, set[str]]] = {}
     formen: dict[str, set[str]] = {}
 
     def besuche(element: ElementTree.Element, pfad: str) -> None:
         anzahl[pfad] = anzahl.get(pfad, 0) + 1
-        attribute.setdefault(pfad, set()).update(element.attrib)
+        je_attribut = attribute.setdefault(pfad, {})
+        for name, wert in element.attrib.items():
+            gezeigt = wert.strip() if name in SCHEMA_ATTRIBUTES else value_shape(wert)
+            if gezeigt:
+                je_attribut.setdefault(name, set()).add(gezeigt)
         form = value_shape(element.text or "")
         if form:
             formen.setdefault(pfad, set()).add(form)
@@ -90,8 +122,12 @@ def summarize(xml_text: str) -> list[str]:
     zeilen = []
     for pfad in sorted(anzahl):
         teile = [f"{pfad}  (x{anzahl[pfad]})"]
-        if attribute[pfad]:
-            teile.append("  Attribute: " + ", ".join(sorted(attribute[pfad])))
+        for name in sorted(attribute[pfad]):
+            werte = sorted(attribute[pfad][name])
+            grenze = MAX_SCHEMA_VALUES if name in SCHEMA_ATTRIBUTES else MAX_SHAPES_PER_PATH
+            rest = f"  (+{len(werte) - grenze} weitere)" if len(werte) > grenze else ""
+            beschriftung = "=" if name in SCHEMA_ATTRIBUTES else "~"
+            teile.append(f"  @{name} {beschriftung} " + " | ".join(werte[:grenze]) + rest)
         if pfad in formen:
             beispiele = sorted(formen[pfad])[:MAX_SHAPES_PER_PATH]
             teile.append("  Wertform: " + " | ".join(beispiele))

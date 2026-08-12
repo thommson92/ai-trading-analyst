@@ -66,12 +66,32 @@ class TestZusammenfassung:
         assert len(treffer) == 1
         assert "(x2)" in treffer[0]
 
-    def test_attributnamen_erscheinen_ohne_ihre_werte(self) -> None:
+    def test_ein_inhaltliches_attribut_erscheint_nur_als_wertform(self) -> None:
+        """``ticker`` steht nicht in ``SCHEMA_ATTRIBUTES`` -- der Wert bleibt
+        verdeckt."""
         zeile = next(z for z in summarize(BEISPIEL) if z.startswith("REScreport/Company "))
-        assert "Attribute: ticker" in zeile
+        assert "@ticker ~ AAAA" in zeile
         assert "AAPL" not in zeile
 
-    def test_kein_einziger_originalwert_steht_in_der_ausgabe(self) -> None:
+    def test_ein_schema_attribut_zeigt_seine_werte(self) -> None:
+        """``type="High"`` sagt, welche Kennzahlen es gibt. Genau das ist die
+        Frage -- und keine lizenzgebundene Analystenaussage."""
+        zeile = next(
+            z
+            for z in summarize(BEISPIEL)
+            if z.startswith("REScreport/EPSRecord/EPSEstimate/ConsEstimate ")
+        )
+        assert "@type = High | Low" in zeile
+
+    def test_ein_datumsattribut_bleibt_eine_wertform(self) -> None:
+        """Der entscheidende Fall: Ein Attribut mit einem Datum verraet seine
+        Form, nicht sein Datum."""
+        xml = '<r><Actual updated="2026-07-30">1.0</Actual></r>'
+        zeile = next(z for z in summarize(xml) if z.startswith("r/Actual "))
+        assert "@updated ~ 9999-99-99" in zeile
+        assert "2026" not in zeile
+
+    def test_kein_einziger_inhaltswert_steht_in_der_ausgabe(self) -> None:
         """Der eigentliche Zweck der Wertformen -- die Daten sind
         lizenzgebunden und gehoeren nicht in ein Protokoll."""
         ausgabe = "\n".join(summarize(BEISPIEL))
