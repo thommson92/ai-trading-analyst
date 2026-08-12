@@ -26,6 +26,7 @@ from ai_trading_analyst.domain.screening import (
     AggregationResult,
     CandleAggregationError,
     CandleSeries,
+    IncompleteReason,
     IndicatorParameters,
     SessionParameters,
     aggregate_intraday_bars,
@@ -120,7 +121,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
 
     @staticmethod
     def _report_short_sessions(symbol: str, aggregated: AggregationResult) -> None:
-        """Protokolliert verkuerzte Handelstage, statt sie zu verschweigen.
+        """Protokolliert unvollstaendige Handelstage, statt sie zu verschweigen.
 
         Die Kerze entfaellt zu Recht, aber die Reihe hat an dieser Stelle
         einen Handelstag mit nur einer statt zwei Kerzen. Wer spaeter ein
@@ -131,38 +132,47 @@ class IbkrMarketDataProvider(MarketDataProvider):
         if not aggregated.candles:
             return
         letzte_kerze = aggregated.candles[-1].timestamp
-        verkuerzt = [
-            gap
-            for gap in aggregated.incomplete
-            if gap.ends_session and gap.timestamp < letzte_kerze
-        ]
-        if not verkuerzt:
-            return
-        _logger.info(
-            "%s: %d verkuerzte Handelstage in der Historie -- die jeweils zweite Kerze "
-            "entfaellt (frueheste: %s)",
-            symbol,
-            len(verkuerzt),
-            verkuerzt[0].timestamp.date().isoformat(),
-        )
+        gemeldet = {
+            IncompleteReason.SESSION_ENDED: "verkuerzte Handelstage",
+            IncompleteReason.SESSION_STARTED_LATE: "Handelstage mit spaetem Beginn",
+        }
+        for grund, bezeichnung in gemeldet.items():
+            betroffen = [
+                gap
+                for gap in aggregated.incomplete
+                if gap.reason is grund and gap.timestamp < letzte_kerze
+            ]
+            if not betroffen:
+                continue
+            _logger.info(
+                "%s: %d %s in der Historie -- die jeweilige Kerze entfaellt "
+                "(frueheste: %s)",
+                symbol,
+                len(betroffen),
+                bezeichnung,
+                betroffen[0].timestamp.date().isoformat(),
+            )
 
     @staticmethod
     def _reject_gaps(symbol: str, aggregated: AggregationResult) -> None:
         """Trennt echte Datenluecken von Kerzen, die es nie geben konnte.
 
-        Unbedenklich ist eine unvollstaendige Kerze genau dann, wenn die
-        Sitzung dort endete (``ends_session``): ein verkuerzter Handelstag
-        oder die noch laufende Kerze am Ende der Reihe. Dann fehlt nichts, es
-        hat nur nicht mehr Handel gegeben.
+        Unbedenklich ist eine unvollstaendige Kerze, wenn die Sitzung dort
+        endete (verkuerzter Handelstag, laufende Kerze am Ende der Reihe) oder
+        erst dort begann (erster Handelstag nach einem Boersengang,
+        Eroeffnungsunterbrechung). In beiden Faellen fehlt nichts, es hat nur
+        nicht mehr oder noch nicht Handel gegeben.
 
-        Alles andere ist eine Luecke mitten in einem gehandelten Tag. Sie
+        Alles andere ist eine Luecke mitten in einem gehandelten Zeitraum. Sie
         stillschweigend zu uebergehen waere der gefaehrlichere Weg: Die
         verbleibenden Kerzen waeren nicht mehr zusammenhaengend, und RSI und
         EMA wuerden ueber Kurse gerechnet, die in Wirklichkeit nicht
         aufeinander folgen -- ohne dass an den Ergebniswerten irgendetwas
         darauf hindeutet.
         """
-        gaps = [gap for gap in aggregated.incomplete if not gap.ends_session]
+        gaps = [
+            gap for gap in aggregated.incomplete if gap.reason is IncompleteReason.DATA_GAP
+        ]
         if not gaps:
             return
 
@@ -170,7 +180,8 @@ class IbkrMarketDataProvider(MarketDataProvider):
         raise MarketDataProviderError(
             f"IBKR hat fuer '{symbol}' eine lueckenhafte Historie geliefert: zur Kerze "
             f"{erste.timestamp.isoformat()} fehlen Bars ({erste.received_bars} von "
-            f"{erste.expected_bars}), obwohl an diesem Tag danach weiter gehandelt wurde; "
-            f"insgesamt {len(gaps)} betroffene Kerzen. Eine Kerzenreihe mit Loechern wuerde "
-            "falsche Indikatorwerte ergeben."
+            f"{erste.expected_bars}), der erste ab {erste.first_missing_bar.isoformat()}, "
+            f"obwohl davor und danach an diesem Tag gehandelt wurde; insgesamt "
+            f"{len(gaps)} betroffene Kerzen. Eine Kerzenreihe mit Loechern wuerde falsche "
+            "Indikatorwerte ergeben."
         )

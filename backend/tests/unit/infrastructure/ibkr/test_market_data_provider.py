@@ -210,6 +210,29 @@ class TestLueckenInDerHistorie:
         series = provider.get_candle_series(provider.list_stocks()[0])
         assert len(series) == 39
 
+    def test_die_fehlermeldung_benennt_den_ersten_fehlenden_bar(self) -> None:
+        bars = trading_days(20)
+        del bars[3]
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        with pytest.raises(MarketDataProviderError, match="ab 2026-03-02T10:15:00"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_ein_spaeter_handelsbeginn_ist_keine_luecke(self) -> None:
+        """Der Fall SPCX vom 12.06.2026, live gegen die TWS aufgetreten.
+
+        Am ersten Handelstag nach einem Boersengang beginnt der Handel erst
+        mittags. Die erste Kerze des Tages entfaellt, die Reihe bleibt
+        gueltig -- ein Fehler haette die Aktie dauerhaft aus dem Screening
+        genommen.
+        """
+        bars = trading_days(20)
+        del bars[:9]  # Handel beginnt erst um 11:45 statt 09:30
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        series = provider.get_candle_series(provider.list_stocks()[0])
+
+        assert len(series) == 39  # 40 minus die erste Kerze des ersten Tages
+
     def test_ein_verkuerzter_handelstag_mitten_in_der_historie_ist_keine_luecke(self) -> None:
         """Der Fall vom 28.11.2025, live gegen die TWS aufgetreten.
 

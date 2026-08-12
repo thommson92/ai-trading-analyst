@@ -34,6 +34,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from .values import Candle
@@ -55,34 +56,56 @@ class IntradayBar:
     volume: float
 
 
+class IncompleteReason(StrEnum):
+    """Warum ein Zeitfenster keine vollstaendige Kerze ergeben hat.
+
+    Von aussen sehen die drei Faelle gleich aus -- es fehlen Bars --, fachlich
+    sind sie gegensaetzlich: zwei davon sind unbedenklich, der dritte macht die
+    ganze Reihe unbrauchbar.
+    """
+
+    SESSION_ENDED = "session_ended"
+    """Die Sitzung endete in diesem Fenster. Entweder ein **verkuerzter
+    Handelstag** (der 28.11.2025 nach Thanksgiving schloss um 13:00 statt
+    16:00, die zweite Kerze bekam genau einen Bar) oder die **laufende Kerze**
+    am Ende der Reihe. Es fehlt nichts, es hat nur nicht mehr Handel
+    gegeben."""
+
+    SESSION_STARTED_LATE = "session_started_late"
+    """Der Handel begann an diesem Tag erst mitten im Fenster und lief dann bis
+    zum Fensterende durch. Typisch am **ersten Handelstag nach einem
+    Boersengang** (die Eroeffnungsauktion findet Stunden nach 09:30 statt) und
+    nach einer **Eroeffnungsunterbrechung**. Auch hier fehlt nichts: Vorher gab
+    es diesen Kurs nicht."""
+
+    DATA_GAP = "data_gap"
+    """Innerhalb eines gehandelten Zeitraums fehlen Bars. Eine echte
+    Datenluecke."""
+
+
 @dataclass(frozen=True, slots=True)
 class IncompleteCandle:
     """Ein Zeitfenster, in dem nicht alle erwarteten Bars vorlagen.
 
-    ``ends_session`` unterscheidet die beiden Ursachen, die von aussen gleich
-    aussehen, fachlich aber gegensaetzlich sind:
+    Unterschieden wird ohne Boersenkalender, allein an der Lage der
+    vorhandenen Bars im Fenster: Sie muessen luecklos aufeinanderfolgen und
+    entweder am Fensteranfang beginnen (dann endete die Sitzung dort) oder am
+    Fensterende schliessen (dann begann der Handel spaeter). Alles andere ist
+    eine Luecke.
 
-    * ``True`` -- die Sitzung endete hier. Entweder war es ein **verkuerzter
-      Handelstag** (der 28.11.2025 nach Thanksgiving schloss um 13:00 statt
-      16:00, die zweite Kerze bekam genau einen Bar), oder es ist die
-      **laufende Kerze** am Ende der Reihe. In beiden Faellen fehlt nichts:
-      Es hat schlicht nicht mehr Handel gegeben. Die Kerze entsteht nicht,
-      die uebrigen bleiben unbeschaedigt.
-    * ``False`` -- mitten in einer Sitzung fehlen Bars, obwohl danach noch
-      gehandelt wurde. Das ist eine echte Datenluecke.
-
-    Erkannt wird das ohne Boersenkalender: an einem verkuerzten Tag folgt auf
-    das Loch nichts mehr, und die vorhandenen Bars schliessen luecklos an den
-    Kerzenbeginn an. Was diese Pruefung nicht erkennen kann, ist ein
-    **vollstaendig fehlender Handelstag** -- dafuer braeuchte es einen
-    Kalender.
+    Was diese Pruefung nicht erkennen kann, ist ein **vollstaendig fehlender
+    Handelstag** -- dafuer braeuchte es einen Kalender.
     """
 
     timestamp: datetime
     daily_candle_index: int
     received_bars: int
     expected_bars: int
-    ends_session: bool
+    reason: IncompleteReason
+    first_missing_bar: datetime
+    """Beginn des ersten fehlenden nativen Bars -- ohne diese Angabe laesst
+    sich aus einem Protokoll nicht erkennen, ob der Handel spaet begann oder
+    ob mitten im Fenster etwas fehlt."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,34 +133,48 @@ class SessionParameters:
             )
 
 
-def _ends_session(
+def _expected_bar_starts(
+    candle_start: datetime, native_bar_minutes: int, expected_bars: int
+) -> list[datetime]:
+    return [
+        candle_start + timedelta(minutes=native_bar_minutes * offset)
+        for offset in range(expected_bars)
+    ]
+
+
+def _classify(
     buckets: dict[tuple[datetime, int], list[IntradayBar]],
     session_start: datetime,
     bucket_index: int,
-    candle_start: datetime,
     bucket_bars: list[IntradayBar],
+    expected_starts: list[datetime],
     native_bar_minutes: int,
-) -> bool:
-    """Endete die Sitzung in dieser Kerze, oder fehlen mittendrin Bars?
+) -> IncompleteReason:
+    """Fehlte hier Handel oder fehlen hier Daten?
 
-    Zwei Bedingungen muessen zusammenkommen, damit es ein verkuerzter
-    Handelstag (oder die laufende Kerze) ist:
-
-    1. Danach wurde an diesem Tag nicht mehr gehandelt -- es gibt keine
-       spaetere Kerze desselben Datums.
-    2. Die vorhandenen Bars beginnen mit dem Kerzenbeginn und folgen luecklos
-       aufeinander. Sonst fehlt etwas *innerhalb* des bereits gehandelten
-       Zeitraums, und das ist eine Luecke, auch wenn danach nichts mehr kommt.
+    Grundbedingung fuer beide unbedenklichen Faelle ist, dass die vorhandenen
+    Bars **luecklos aufeinanderfolgen**: Ein Loch zwischen zwei vorhandenen
+    Bars laesst sich durch keinen Sitzungsverlauf erklaeren. Dazu muss der
+    Block an einem der beiden Fensterraender anliegen, und auf der anderen
+    Seite darf es an diesem Tag keinen Handel gegeben haben.
     """
-    if any(index > bucket_index for start, index in buckets if start == session_start):
-        return False
+    lueckenlos = all(
+        bar.start == bucket_bars[0].start + timedelta(minutes=native_bar_minutes * offset)
+        for offset, bar in enumerate(bucket_bars)
+    )
+    if not lueckenlos:
+        return IncompleteReason.DATA_GAP
 
-    erwarteter_beginn = candle_start
-    for bar in bucket_bars:
-        if bar.start != erwarteter_beginn:
-            return False
-        erwarteter_beginn = bar.start + timedelta(minutes=native_bar_minutes)
-    return True
+    indizes_des_tages = [index for start, index in buckets if start == session_start]
+    if bucket_bars[0].start == expected_starts[0] and not any(
+        index > bucket_index for index in indizes_des_tages
+    ):
+        return IncompleteReason.SESSION_ENDED
+    if bucket_bars[-1].start == expected_starts[-1] and not any(
+        index < bucket_index for index in indizes_des_tages
+    ):
+        return IncompleteReason.SESSION_STARTED_LATE
+    return IncompleteReason.DATA_GAP
 
 
 def aggregate_intraday_bars(
@@ -204,19 +241,28 @@ def aggregate_intraday_bars(
         )
         bucket_bars.sort(key=lambda bar: bar.start)
         if len(bucket_bars) != expected_bars:
+            expected_starts = _expected_bar_starts(
+                timestamp, native_bar_minutes, expected_bars
+            )
+            vorhanden = {bar.start for bar in bucket_bars}
             incomplete.append(
                 IncompleteCandle(
                     timestamp=timestamp,
                     daily_candle_index=bucket_index + 1,
                     received_bars=len(bucket_bars),
                     expected_bars=expected_bars,
-                    ends_session=_ends_session(
+                    reason=_classify(
                         buckets,
                         session_start,
                         bucket_index,
-                        timestamp,
                         bucket_bars,
+                        expected_starts,
                         native_bar_minutes,
+                    ),
+                    # Es liegen weniger Bars vor als Plaetze im Fenster, also
+                    # bleibt mindestens einer davon unbesetzt.
+                    first_missing_bar=next(
+                        start for start in expected_starts if start not in vorhanden
                     ),
                 )
             )
