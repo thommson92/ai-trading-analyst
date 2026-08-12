@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Rohergebnisse eines Testlaufs sind lokale Artefakte, kein Repository-Inhalt.
+results/*
+!results/.gitkeep
