@@ -1,0 +1,83 @@
+# RESC-Inhaltsprüfung
+
+Eine einzelne offene Frage, klar abgegrenzt.
+
+## Warum
+
+Der IBKR-Spike hat belegt, dass `reqFundamentalData(reportType='RESC')` einen
+substantiellen Datensatz liefert — 325 KB XML für AAPL, live bestätigt. Was
+darin steht, wurde nicht geprüft. Deshalb steht in der
+[ADR-Übersicht](../../docs/adr/README.md) bis heute als offen:
+
+> Anbieter für Analystenratings und Kursziele (F9) — IBKR liefert über
+> `reqFundamentalData(reportType='RESC')` einen substantiellen
+> Analystenschätzungen-Datensatz; Inhalt/Schema wurde im Spike nicht im
+> Detail geprüft.
+
+Die Frage hat zwei Konsequenzen, und die zweite ist die interessantere:
+
+1. **Analystenratings und Kursziele (F9).** Deckt RESC sie ab, braucht es
+   dafür keinen zweiten Anbieter.
+2. **Earnings-Termine.** [ADR 0014](../../docs/adr/0014-ibkr-produktivintegration-freigegeben.md)
+   führt unter E1, dass IBKR keine Earnings-Termine liefert — belegt für
+   `CalendarReport`, nicht für `RESC`. Analystenschätzungen enthalten
+   üblicherweise den erwarteten Berichtstermin, denn ohne ihn ist eine
+   Schätzung für ein Quartal nicht einzuordnen. Trifft das hier zu,
+   schrumpft der Earnings-Workstream erheblich oder entfällt.
+
+Deshalb steht diese Prüfung **vor** der Anbieterauswahl. Sonst evaluieren wir
+möglicherweise Anbieter für Daten, die bereits vorliegen.
+
+## Was die Sonde ausgibt — und was nicht
+
+Ausgegeben werden nur **Struktur und Wertformen**: Elementpfade,
+Attributnamen, Häufigkeiten und Muster wie `9999-99-99` statt `2026-07-30`.
+Kein einziger Originalwert erscheint in der Ausgabe; ein Test hält das fest.
+
+Zwei Gründe: Die Daten stammen von einem Drittanbieter und sind
+lizenzgebunden, und eine Antwort kann Kennungen enthalten, die nicht in ein
+Protokoll gehören. Für die Frage „gibt es ein Feld mit dem Berichtstermin"
+genügt die Struktur vollständig.
+
+Das komplette XML landet unter `results/` und ist **nicht versioniert**, damit
+gezielte Rückfragen ohne einen zweiten TWS-Abruf beantwortet werden können.
+
+## Ausführen
+
+Auf dem Windows-Server, aus `backend/` heraus — dessen venv enthält `ib_async`
+bereits, ein eigenes Setup ist nicht nötig:
+
+```powershell
+.venv\Scripts\python.exe ..\spikes\resc-schema\probe_resc.py AAPL
+```
+
+Client-ID 18: nicht die des Analyzers (17) und nicht die der Trade Automation
+Toolbox (99) — eine doppelt vergebene ID wirft die bestehende Verbindung aus
+der TWS.
+
+Ein zweites Symbol lohnt sich, um Zufälligkeiten auszuschließen. Sinnvoll ist
+eine Aktie mit anderem Berichtsrhythmus, etwa `MSFT` oder `WMT`.
+
+Ohne TWS lässt sich eine gespeicherte Antwort erneut auswerten:
+
+```bash
+python probe_resc.py AAPL --from-file results/AAPL_resc.xml
+```
+
+## Tests
+
+```bash
+backend/.venv/bin/python -m pytest spikes/resc-schema/tests
+```
+
+Geprüft sind die reinen Auswertungsfunktionen — insbesondere, dass die
+Zusammenfassung die Struktur vollständig zeigt und dabei keinen Inhalt
+durchlässt. Der TWS-Abruf braucht eine laufende TWS und ist nicht Gegenstand
+der Tests.
+
+## Status
+
+Offen — wartet auf den Lauf gegen die TWS. Das Ergebnis geht in ein ADR zur
+F9-Datenquelle und, falls RESC einen Berichtstermin enthält, in eine
+Neubewertung von E1 aus ADR 0014. Ein ADR wird durch diesen Spike **nicht**
+geändert; eine Neubewertung wäre ein neues ADR.
