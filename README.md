@@ -116,18 +116,29 @@ Die Installation läuft ausschließlich über die Lock-Datei mit Hash-Verifikati
 — keine Versionsauflösung auf dem jeweiligen Rechner. Siehe
 [ADR 0008](docs/adr/0008-reproduzierbare-installation.md).
 
-Deshalb muss jede Abhängigkeit auf **beiden** Plattformen installierbar sein:
-`pip-compile` löst die Lock-Datei auf einem Rechner auf und verliert dabei
-Plattform-Marker. `uvicorn` wird aus diesem Grund ohne das Extra `standard`
-geführt — es zieht `uvloop` nach, das es für Windows nicht gibt.
+Damit dieselbe Lock-Datei auf macOS, Linux und Windows funktioniert, wird sie
+plattformunabhängig erzeugt (siehe unten und
+[ADR 0015](docs/adr/0015-plattformunabhaengige-lock-dateien.md)). `uvicorn`
+wird ohne das Extra `standard` geführt — es zieht `uvloop` nach, das es für
+Windows nicht gibt und das dieses Projekt nicht braucht.
 
-Ändert sich `pyproject.toml`, werden die Lock-Dateien neu erzeugt:
+Ändert sich `pyproject.toml`, werden die Lock-Dateien neu erzeugt — mit `uv`
+und **immer** mit `--universal`, siehe
+[ADR 0015](docs/adr/0015-plattformunabhaengige-lock-dateien.md):
 
 ```bash
-.venv/bin/pip install "pip-tools>=7.4,<8"
-.venv/bin/pip-compile --generate-hashes --output-file=requirements.lock.txt pyproject.toml
-.venv/bin/pip-compile --generate-hashes --extra=dev --output-file=requirements-dev.lock.txt pyproject.toml
+cd backend
+uv pip compile --universal --generate-hashes \
+    --output-file requirements.lock.txt pyproject.toml
+uv pip compile --universal --generate-hashes --extra dev \
+    --output-file requirements-dev.lock.txt pyproject.toml
 ```
+
+`--universal` schreibt die Umgebungsmarker in die Datei, statt sie auf dem
+erzeugenden Rechner auszuwerten (`colorama==0.4.6 ; sys_platform == 'win32'`).
+Ohne das entsteht eine Lock-Datei, die nur auf der Plattform funktioniert, auf
+der sie erzeugt wurde — der Fehler zeigt sich dann erst auf dem Zielsystem.
+`uv` ist nur zum Erzeugen nötig; installiert wird weiterhin mit `pip`.
 
 ### Frontend
 
