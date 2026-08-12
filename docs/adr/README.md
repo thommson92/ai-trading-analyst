@@ -85,16 +85,20 @@ ADR, sobald die nötigen Informationen vorliegen:
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
-- Anbieter für Analystenratings und Kursziele (F9) — **inhaltlich geklärt
-  am 2026-08-12**: `reqFundamentalData(reportType='RESC')` liefert Kursziele
+- Anbieter für Analystenratings und Kursziele (F9) — **weiterhin offen,
+  aber eingegrenzt.** Strukturell geklärt am 2026-08-12:
+  `reqFundamentalData(reportType='RESC')` liefert Kursziele
   (`NPEstimate[@type=TARGETPRICE]` mit High/Low/Mean/Median) und
-  Empfehlungen (`BUY`…`SELL` mit Zahl der Analysten je Stufe). Ein
-  separater Anbieter entfällt. Belege in
+  Empfehlungen (`BUY`…`SELL` mit Zahl der Analysten je Stufe); Belege in
   [`spikes/resc-schema/RESULT.md`](../../spikes/resc-schema/RESULT.md).
-  Offen bleibt allein die **lizenzrechtliche** Prüfung, ob diese
-  Reuters-Daten für die geplante Verarbeitung genutzt werden dürfen —
-  dieselbe Frage, an der TradingView gescheitert ist (ADR 0012). Gehört in
-  ein ADR zur F9-Datenquelle.
+  **RESC ist bis auf Weiteres nicht einplanbar**: Ob die Vertragslage die
+  geplante Verarbeitung dieser Reuters-Inhalte deckt, ist ungeprüft —
+  dieselbe Frage, an der TradingView gescheitert ist (ADR 0012). Prüfliste:
+  [`docs/requirements/resc-lizenzpruefung.md`](../requirements/resc-lizenzpruefung.md).
+  Fällt sie negativ aus, werden Ratings und Kursziele wie die
+  Earnings-Termine extern zugekauft. Das ADR zur F9-Datenquelle entsteht
+  erst, wenn Lizenzprüfung, fachliche Inhaltsprüfung und Anbieterbewertung
+  vorliegen.
 - Benachrichtigungskanal (F10)
 - KI-Anbieter und Modellprofile (F11)
 - Externer Zugriff auf das Dashboard (F12)

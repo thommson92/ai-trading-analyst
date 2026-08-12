@@ -1,5 +1,16 @@
 # Ergebnis der RESC-Inhaltsprüfung
 
+> **RESC ist bis auf Weiteres keine einplanbare Datenquelle.** Ob die
+> Vertragslage die geplante Verarbeitung deckt, ist ungeprüft — siehe
+> [Prüfliste](../../docs/requirements/resc-lizenzpruefung.md). Bis zur
+> Klärung wird RESC nicht implementiert und nicht in Sprint-Planungen
+> eingeplant. Das hier festgehaltene Ergebnis beschreibt, **was** RESC
+> enthält, nicht, dass es verwendet werden darf.
+>
+> Der `IbkrMarketDataProvider` und die übrigen Sprint-2-Arbeiten sind davon
+> nicht betroffen: Sie nutzen ausschließlich Marktdaten, deren Bewertung in
+> ADR 0014 getroffen ist.
+
 Erhoben am 2026-08-12 gegen die TWS des Projektinhabers, Symbole `AAPL`
 (325.325 Zeichen) und `WMT` (323.706 Zeichen). Ausgewertet mit
 `probe_resc.py`; die vollständigen XML-Antworten liegen unversioniert unter
