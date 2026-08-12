@@ -1,8 +1,10 @@
 name: CI
 
+# Auch auf Feature-Branches, nicht erst im Pull Request: Ein PR entsteht in
+# diesem Projekt erst nach der Abnahme durch den Projektinhaber -- ohne diesen
+# Ausloeser gaebe es bis dahin keine einzige Pruefung auf fremder Hardware.
 on:
   push:
-    branches: [main, dev]
   pull_request:
     branches: [main, dev]
 
@@ -16,11 +18,19 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (lint, typecheck, test)
+    name: Backend (lint, typecheck, test, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+
+    # Beide von pyproject.toml zugelassenen Versionen: Auf 3.12 laeuft die
+    # Entwicklung, auf 3.13 der Zielserver. Was "requires-python" verspricht,
+    # soll auch geprueft sein.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
 
     # Fuer Persistenz- und Migrationstests: echtes PostgreSQL, kein SQLite-
     # Ersatz (Sprint 1B). Die Tests lesen die Verbindung ueber
@@ -45,7 +55,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: backend/requirements-dev.lock.txt
 
@@ -68,6 +78,48 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+psycopg://ata:ata@localhost:5432/ata_test
         run: python -m pytest
+
+  # Der Zielserver ist ein Windows-Rechner (dort laeuft die TWS). Zwei
+  # Installationsfehler sind dort bereits aufgetreten und auf macOS und Linux
+  # beide unsichtbar geblieben: uvloop ohne Plattform-Marker in der
+  # Lock-Datei und ein unter Windows fehlendes colorama (ADR 0015). Dieser
+  # Job prueft deshalb genau das, was dort schiefgehen kann -- die
+  # Installation aus der Lock-Datei und den Start des Codes.
+  #
+  # Ohne Datenbank: Service-Container gibt es auf Windows-Runnern nicht. Die
+  # Persistenz ist plattformunabhaengig und im Linux-Job vollstaendig
+  # abgedeckt.
+  backend-windows:
+    name: Backend unter Windows (Installation, Tests ohne Datenbank)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Dieselbe Version wie auf dem Zielserver.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.lock.txt
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements-dev.lock.txt
+          python -m pip install --no-deps -e .
+
+      - name: Pytest (Unit und Architektur)
+        run: python -m pytest tests/unit tests/architecture
+
+      # Beweist, dass das installierte Paket unter Windows startet und die
+      # Watchlisten lesbar sind -- ohne TWS, ohne Netzwerk.
+      - name: Watchlist einlesen
+        run: python -m ai_trading_analyst.cli watchlist
 
   frontend:
     name: Frontend (lint, typecheck, build)
