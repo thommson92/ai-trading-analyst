@@ -27,6 +27,7 @@ PARAMETERS = SessionParameters(
     session_open=time(9, 30),
     session_minutes=390,
     timeframe_minutes=195,
+    early_close=time(13, 0),
 )
 BARS_PER_CANDLE = 13
 
@@ -309,6 +310,36 @@ class TestSitzungsgrenzen:
 
 
 class TestFehlerhafteEingaben:
+    def test_ein_bar_neben_dem_zeitraster_wird_abgelehnt(self) -> None:
+        """Sonst entstuende eine Kerze mit richtiger Bar-Anzahl, falschem
+        Eroeffnungskurs und falschem Zeitraster -- und niemand saehe es."""
+        bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
+        bars[0] = IntradayBar(
+            start=datetime(2026, 3, 10, 9, 37, tzinfo=NEW_YORK),
+            open=999.0,
+            high=999.0,
+            low=999.0,
+            close=999.0,
+            volume=1.0,
+        )
+        with pytest.raises(CandleAggregationError, match="Raster"):
+            aggregate(bars, 15, PARAMETERS)
+
+    def test_ein_zusaetzlicher_bar_neben_dem_raster_wird_ebenfalls_abgelehnt(self) -> None:
+        bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
+        bars.append(
+            IntradayBar(
+                start=datetime(2026, 3, 10, 9, 37, tzinfo=NEW_YORK),
+                open=999.0,
+                high=999.0,
+                low=999.0,
+                close=999.0,
+                volume=1.0,
+            )
+        )
+        with pytest.raises(CandleAggregationError, match="Raster"):
+            aggregate(bars, 15, PARAMETERS)
+
     def test_naiver_zeitstempel_wird_abgelehnt(self) -> None:
         naiv = IntradayBar(
             start=datetime(2026, 3, 10, 9, 30),  # noqa: DTZ001 -- genau das ist der Testfall
@@ -341,4 +372,5 @@ class TestFehlerhafteEingaben:
                 session_open=time(9, 30),
                 session_minutes=400,
                 timeframe_minutes=195,
+                early_close=time(13, 0),
             )

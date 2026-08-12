@@ -32,7 +32,7 @@ Datenstand, aus dem aggregiert wird.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
@@ -66,14 +66,14 @@ class IncompleteReason(StrEnum):
 
     SESSION_ENDED = "session_ended"
     """Die Sitzung endete in diesem Fenster. Entweder ein **verkuerzter
-    Handelstag** (der 28.11.2025 nach Thanksgiving schloss um 13:00 statt
-    16:00, die zweite Kerze bekam genau einen Bar) oder die **laufende Kerze**
-    am Ende der Reihe. Es fehlt nichts, es hat nur nicht mehr Handel
-    gegeben."""
+    Handelstag** -- der Handel endete dann genau zur konfigurierten
+    Schlusszeit verkuerzter Tage (US-Aktienmaerkte: 13:00 Ortszeit, so am
+    28.11.2025 nach Thanksgiving) -- oder die **laufende Kerze** am letzten Tag
+    der Reihe. Es fehlt nichts, es hat nur nicht mehr Handel gegeben."""
 
     SESSION_STARTED_LATE = "session_started_late"
-    """Der Handel begann an diesem Tag erst mitten im Fenster und lief dann bis
-    zum Fensterende durch. Typisch am **ersten Handelstag nach einem
+    """Der Handel begann an diesem Tag erst spaeter und lief dann bis zum
+    regulaeren Schluss durch. Typisch am **ersten Handelstag nach einem
     Boersengang** (die Eroeffnungsauktion findet Stunden nach 09:30 statt) und
     nach einer **Eroeffnungsunterbrechung**. Auch hier fehlt nichts: Vorher gab
     es diesen Kurs nicht."""
@@ -88,13 +88,13 @@ class IncompleteCandle:
     """Ein Zeitfenster, in dem nicht alle erwarteten Bars vorlagen.
 
     Unterschieden wird ohne Boersenkalender, allein an der Lage der
-    vorhandenen Bars im Fenster: Sie muessen luecklos aufeinanderfolgen und
-    entweder am Fensteranfang beginnen (dann endete die Sitzung dort) oder am
-    Fensterende schliessen (dann begann der Handel spaeter). Alles andere ist
-    eine Luecke.
+    vorhandenen Bars im Tagesverlauf -- siehe ``_classify``.
 
     Was diese Pruefung nicht erkennen kann, ist ein **vollstaendig fehlender
-    Handelstag** -- dafuer braeuchte es einen Kalender.
+    Handelstag**: Liefert der Anbieter zu einem Datum gar keinen Bar, gibt es
+    nichts, woran sich der fehlende Tag festmachen liesse. Dafuer braeuchte es
+    einen Boersenkalender. Innerhalb eines Tages, zu dem ueberhaupt Daten
+    vorliegen, bleibt dagegen kein fehlendes Fenster unbemerkt.
     """
 
     timestamp: datetime
@@ -124,6 +124,8 @@ class SessionParameters:
     session_open: time
     session_minutes: int
     timeframe_minutes: int
+    early_close: time
+    """Schlusszeit an verkuerzten Handelstagen (US-Aktienmaerkte: 13:00)."""
 
     def __post_init__(self) -> None:
         if self.session_minutes % self.timeframe_minutes != 0:
@@ -131,6 +133,10 @@ class SessionParameters:
                 f"session_minutes ({self.session_minutes}) muss ein Vielfaches von "
                 f"timeframe_minutes ({self.timeframe_minutes}) sein"
             )
+
+    @property
+    def candles_per_day(self) -> int:
+        return self.session_minutes // self.timeframe_minutes
 
 
 def _expected_bar_starts(
@@ -142,37 +148,99 @@ def _expected_bar_starts(
     ]
 
 
-def _classify(
+@dataclass(frozen=True, slots=True)
+class _TradingDay:
+    """Was an einem Handelstag tatsaechlich geliefert wurde.
+
+    Alle Zeitstempel in der Zeitzone der Boerse -- die Schlusszeit verkuerzter
+    Tage ist eine Ortszeit und nur dort vergleichbar.
+    """
+
+    erster_bar: datetime
+    letzter_bar_ende: datetime
+    hat_vollstaendige_kerze: bool
+    ist_letzter_tag_der_reihe: bool
+
+
+def _trading_days(
     buckets: dict[tuple[datetime, int], list[IntradayBar]],
-    session_start: datetime,
-    bucket_index: int,
+    expected_bars: int,
+    native_bar_minutes: int,
+) -> dict[datetime, _TradingDay]:
+    """Fasst je Handelstag zusammen, was der Anbieter geliefert hat."""
+    tage: dict[datetime, list[list[IntradayBar]]] = {}
+    for (session_start, _), bucket_bars in buckets.items():
+        tage.setdefault(session_start, []).append(bucket_bars)
+
+    letzter_tag = max(tage)
+    ergebnis: dict[datetime, _TradingDay] = {}
+    for session_start, tagesfenster in tage.items():
+        alle_bars = [bar for fenster in tagesfenster for bar in fenster]
+        ergebnis[session_start] = _TradingDay(
+            erster_bar=min(bar.start for bar in alle_bars),
+            letzter_bar_ende=max(bar.start for bar in alle_bars)
+            + timedelta(minutes=native_bar_minutes),
+            hat_vollstaendige_kerze=any(
+                len(fenster) == expected_bars for fenster in tagesfenster
+            ),
+            ist_letzter_tag_der_reihe=session_start == letzter_tag,
+        )
+    return ergebnis
+
+
+def _classify(
     bucket_bars: list[IntradayBar],
     expected_starts: list[datetime],
     native_bar_minutes: int,
+    tag: _TradingDay,
+    parameters: SessionParameters,
 ) -> IncompleteReason:
     """Fehlte hier Handel oder fehlen hier Daten?
 
-    Grundbedingung fuer beide unbedenklichen Faelle ist, dass die vorhandenen
-    Bars **luecklos aufeinanderfolgen**: Ein Loch zwischen zwei vorhandenen
-    Bars laesst sich durch keinen Sitzungsverlauf erklaeren. Dazu muss der
-    Block an einem der beiden Fensterraender anliegen, und auf der anderen
-    Seite darf es an diesem Tag keinen Handel gegeben haben.
+    Beide sehen im Datenstrom gleich aus, deshalb entscheidet der
+    **Tagesverlauf**, nicht das einzelne Fenster:
+
+    1. Die vorhandenen Bars muessen luecklos aufeinanderfolgen und auf dem
+       Zeitraster liegen. Ein Loch zwischen zwei vorhandenen Bars laesst sich
+       durch keinen Sitzungsverlauf erklaeren.
+    2. Liegt das Fenster am **Ende** der Tagesdaten, ist es nur dann
+       unbedenklich, wenn der Handel zur Schlusszeit verkuerzter Tage endete
+       (US-Maerkte: 13:00) oder es der letzte Tag der Reihe ist -- dann ist es
+       die laufende Kerze. Ein Feed, der um 10:45 abreisst, sieht genauso aus,
+       endet aber zu keiner boerslichen Schlusszeit.
+    3. Liegt das Fenster am **Anfang** der Tagesdaten, ist es nur dann
+       unbedenklich, wenn der Tag danach mindestens eine vollstaendige Kerze
+       hergibt. Ein Tag, der ueberhaupt keine vollstaendige Kerze liefert, ist
+       kein spaeter Handelsbeginn, sondern ein Datenausfall.
+
+    Alles andere ist eine Luecke.
     """
+    vorhanden = [bar.start for bar in bucket_bars]
     lueckenlos = all(
-        bar.start == bucket_bars[0].start + timedelta(minutes=native_bar_minutes * offset)
-        for offset, bar in enumerate(bucket_bars)
+        start == vorhanden[0] + timedelta(minutes=native_bar_minutes * offset)
+        for offset, start in enumerate(vorhanden)
     )
     if not lueckenlos:
         return IncompleteReason.DATA_GAP
 
-    indizes_des_tages = [index for start, index in buckets if start == session_start]
-    if bucket_bars[0].start == expected_starts[0] and not any(
-        index > bucket_index for index in indizes_des_tages
+    fensterende = expected_starts[-1] + timedelta(minutes=native_bar_minutes)
+    # Das Fenster schliesst die Tagesdaten ab: Es ist von seinem Beginn an
+    # gefuellt (oder leer) und danach kam an diesem Tag nichts mehr.
+    schliesst_den_tag_ab = tag.letzter_bar_ende <= fensterende and (
+        not vorhanden or vorhanden[0] == expected_starts[0]
+    )
+    # Das Fenster eroeffnet die Tagesdaten: Es ist bis zu seinem Ende gefuellt
+    # (oder leer) und davor gab es an diesem Tag nichts.
+    eroeffnet_den_tag = tag.erster_bar >= expected_starts[0] and (
+        not vorhanden or vorhanden[-1] == expected_starts[-1]
+    )
+
+    if schliesst_den_tag_ab and (
+        tag.ist_letzter_tag_der_reihe
+        or tag.letzter_bar_ende.time() == parameters.early_close
     ):
         return IncompleteReason.SESSION_ENDED
-    if bucket_bars[-1].start == expected_starts[-1] and not any(
-        index < bucket_index for index in indizes_des_tages
-    ):
+    if eroeffnet_den_tag and tag.hat_vollstaendige_kerze:
         return IncompleteReason.SESSION_STARTED_LATE
     return IncompleteReason.DATA_GAP
 
@@ -229,9 +297,31 @@ def aggregate_intraday_bars(
         minutes_into_session = (local_start - session_start).total_seconds() / 60
         if not 0 <= minutes_into_session < parameters.session_minutes:
             continue
+        if minutes_into_session % native_bar_minutes != 0:
+            # Ein Bar zwischen den Rasterplaetzen gehoert in kein Fenster. Er
+            # wuerde die Anzahl stimmen lassen und trotzdem eine Kerze mit
+            # falschem Eroeffnungskurs ergeben.
+            raise CandleAggregationError(
+                f"Der Bar um {local_start.isoformat()} liegt nicht auf dem "
+                f"{native_bar_minutes}-Minuten-Raster der Sitzung"
+            )
 
         bucket_index = int(minutes_into_session // parameters.timeframe_minutes)
-        buckets.setdefault((session_start, bucket_index), []).append(bar)
+        # Ab hier in Boersenzeit rechnen: Die Schlusszeit verkuerzter Tage ist
+        # eine Ortszeit, und der Anbieter darf seine Bars in jeder Zeitzone
+        # liefern.
+        buckets.setdefault((session_start, bucket_index), []).append(
+            replace(bar, start=local_start)
+        )
+
+    # Fenster ohne einen einzigen Bar sollen ebenfalls auffallen. Sie entstehen
+    # nicht beim Einsortieren -- und blieben sonst als einzige Luecke
+    # unsichtbar, obwohl fuer den Tag Daten vorliegen.
+    for session_start in {tag for tag, _ in buckets}:
+        for bucket_index in range(parameters.candles_per_day):
+            buckets.setdefault((session_start, bucket_index), [])
+
+    tage = _trading_days(buckets, expected_bars, native_bar_minutes)
 
     candles: list[Candle] = []
     incomplete: list[IncompleteCandle] = []
@@ -240,27 +330,24 @@ def aggregate_intraday_bars(
             minutes=bucket_index * parameters.timeframe_minutes
         )
         bucket_bars.sort(key=lambda bar: bar.start)
-        if len(bucket_bars) != expected_bars:
-            expected_starts = _expected_bar_starts(
-                timestamp, native_bar_minutes, expected_bars
-            )
-            vorhanden = {bar.start for bar in bucket_bars}
+        expected_starts = _expected_bar_starts(timestamp, native_bar_minutes, expected_bars)
+        vorhanden = {bar.start for bar in bucket_bars}
+        if vorhanden != set(expected_starts):
             incomplete.append(
                 IncompleteCandle(
                     timestamp=timestamp,
                     daily_candle_index=bucket_index + 1,
-                    received_bars=len(bucket_bars),
+                    # Nur die Bars, die auf einem Rasterplatz sitzen -- ein
+                    # Bar um 09:37 fuellt keinen davon.
+                    received_bars=len(vorhanden & set(expected_starts)),
                     expected_bars=expected_bars,
                     reason=_classify(
-                        buckets,
-                        session_start,
-                        bucket_index,
                         bucket_bars,
                         expected_starts,
                         native_bar_minutes,
+                        tage[session_start],
+                        parameters,
                     ),
-                    # Es liegen weniger Bars vor als Plaetze im Fenster, also
-                    # bleibt mindestens einer davon unbesetzt.
                     first_missing_bar=next(
                         start for start in expected_starts if start not in vorhanden
                     ),

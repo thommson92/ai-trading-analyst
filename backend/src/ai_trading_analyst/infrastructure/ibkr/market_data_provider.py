@@ -148,7 +148,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
             if not betroffen:
                 continue
             _logger.info(
-                "%s: %d %s in der Historie -- dort entfaellt jeweils eine Kerze "
+                "%s: %d %s in der Historie -- dort entfaellt je eine Kerze "
                 "(frueheste: %s)",
                 symbol,
                 len(betroffen),
@@ -183,8 +183,8 @@ class IbkrMarketDataProvider(MarketDataProvider):
         raise MarketDataProviderError(
             f"IBKR hat fuer '{symbol}' eine lueckenhafte Historie geliefert: zur Kerze "
             f"{erste.timestamp.isoformat()} fehlen Bars ({erste.received_bars} von "
-            f"{erste.expected_bars}), der erste ab {erste.first_missing_bar.isoformat()}, "
-            f"obwohl davor und danach an diesem Tag gehandelt wurde; insgesamt "
-            f"{len(gaps)} betroffene Kerzen. Eine Kerzenreihe mit Loechern wuerde falsche "
-            "Indikatorwerte ergeben."
+            f"{erste.expected_bars}), der erste ab {erste.first_missing_bar.isoformat()}. "
+            "Weder ein verkuerzter Handelstag noch ein spaeter Handelsbeginn erklaeren das; "
+            f"insgesamt {len(gaps)} betroffene Kerzen. Eine Kerzenreihe mit Loechern wuerde "
+            "falsche Indikatorwerte ergeben."
         )

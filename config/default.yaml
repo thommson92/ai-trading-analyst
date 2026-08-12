@@ -17,6 +17,11 @@ market:
   timeframe_minutes: 195
   # Analysiert wird nach Abschluss der ersten Kerze (12:45 ET).
   daily_candle_index: 1
+  # Schlusszeit an verkuerzten Handelstagen -- feste Konvention der
+  # US-Aktienmaerkte (Tag nach Thanksgiving, 24.12., 3.7.). Kein Kalender:
+  # Nur an dieser Uhrzeit laesst sich ein regulaer verkuerzter Handelstag von
+  # einem abgerissenen Datenstrom unterscheiden.
+  early_session_close: "13:00"
 
 market_data:
   # Marktdatenanbieter. "fixture" liefert deterministische Testdaten ohne
