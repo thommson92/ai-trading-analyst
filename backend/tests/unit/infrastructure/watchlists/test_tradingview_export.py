@@ -47,8 +47,11 @@ class TestParseWatchlist:
         assert contract.symbol == "AAPL"
         assert contract.primary_exchange is None
 
-    def test_eine_unbekannte_boerse_wird_nicht_geraten(self) -> None:
-        assert parse_watchlist("XETR:SAP")[0].primary_exchange is None
+    def test_eine_unbekannte_boerse_wird_abgelehnt_statt_ignoriert(self) -> None:
+        # Wegzulassen waere gefaehrlich: SAP wuerde dann als US-Papier ueber
+        # SMART/USD angefragt, und IBKR loeste womoeglich das ADR auf.
+        with pytest.raises(WatchlistError, match="XETR"):
+            parse_watchlist("XETR:SAP")
 
     def test_zeilenumbrueche_und_leerraum_stoeren_nicht(self) -> None:
         symbols = [contract.symbol for contract in parse_watchlist("NASDAQ:NVDA,\n NYSE:JPM ,\n")]
@@ -112,6 +115,14 @@ class TestLoadWatchlistDirectory:
         (tmp_path / "a.txt").write_text("###NUR EINE UEBERSCHRIFT", encoding="utf-8")
         with pytest.raises(WatchlistError, match="kein einziges Symbol"):
             load_watchlist_directory(tmp_path)
+
+    def test_die_endung_wird_unabhaengig_von_der_schreibweise_erkannt(
+        self, tmp_path: Path
+    ) -> None:
+        # Der Windows-Explorer speichert Textdateien gelegentlich als .TXT.
+        (tmp_path / "a.TXT").write_text("NASDAQ:NVDA", encoding="utf-8")
+        assert [contract.symbol for contract in load_watchlist_directory(tmp_path)] == ["NVDA"]
+        assert describe_sources(tmp_path) == ("a.TXT",)
 
     def test_die_quellen_werden_benannt(self, tmp_path: Path) -> None:
         (tmp_path / "b.txt").write_text("NYSE:JPM", encoding="utf-8")

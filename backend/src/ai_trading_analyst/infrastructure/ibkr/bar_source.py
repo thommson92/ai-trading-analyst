@@ -204,9 +204,13 @@ class IbAsyncBarSource:
             )
             contracts = ib.qualifyContracts(stock)
             if not contracts:
+                # Die Heimatboerse gehoert in die Meldung: Sie stammt aus der
+                # Watchlist, und eine Abweichung zwischen deren Bezeichnung
+                # und der von IBKR ist die wahrscheinlichste Ursache.
                 raise IbkrBarSourceError(
                     f"IBKR kennt keinen Kontrakt fuer '{symbol}' an "
-                    f"'{contract.exchange}' ({contract.currency})"
+                    f"'{contract.exchange}' ({contract.currency}, Heimatboerse "
+                    f"{contract.primary_exchange or 'nicht angegeben'})"
                 )
             self._wait_for_pacing()
             bars = ib.reqHistoricalData(

@@ -46,8 +46,22 @@ class WatchlistError(RuntimeError):
     """Eine Watchlist-Datei oder ein Verzeichnis war nicht verwertbar."""
 
 
+def _is_watchlist_file(path: Path) -> bool:
+    """Gross-/Kleinschreibung der Endung ist egal -- Windows schreibt gern .TXT."""
+    return path.suffix.lower() == WATCHLIST_FILE_SUFFIX
+
+
 def _to_contract(entry: str) -> ContractSpec | None:
-    """Uebersetzt einen Eintrag; ``None`` fuer Ueberschriften und Leerstellen."""
+    """Uebersetzt einen Eintrag; ``None`` fuer Ueberschriften und Leerstellen.
+
+    Raises:
+        WatchlistError: bei einem Boersenkuerzel, das dieses Projekt nicht
+            kennt. Es einfach wegzulassen waere gefaehrlich: Der Eintrag
+            wuerde als US-Papier ueber ``SMART``/``USD`` angefragt, und IBKR
+            loeste dann womoeglich ein anderes Instrument auf (etwa das ADR
+            statt der Originalaktie) -- ohne dass irgendwo ein Fehler
+            entstuende.
+    """
     entry = entry.strip()
     if not entry or entry.startswith(SECTION_PREFIX):
         return None
@@ -60,10 +74,15 @@ def _to_contract(entry: str) -> ContractSpec | None:
     if not symbol:
         return None
 
-    return ContractSpec(
-        symbol=symbol,
-        primary_exchange=_PRIMARY_EXCHANGES.get(exchange_prefix.strip().upper()),
-    )
+    exchange_prefix = exchange_prefix.strip().upper()
+    if exchange_prefix and exchange_prefix not in _PRIMARY_EXCHANGES:
+        raise WatchlistError(
+            f"Unbekanntes Boersenkuerzel '{exchange_prefix}' bei '{entry}'. Bekannt sind: "
+            f"{', '.join(sorted(_PRIMARY_EXCHANGES))}. Andere Handelsplaetze brauchen erst "
+            "eine gepruefte Zuordnung zur IBKR-Schreibweise."
+        )
+
+    return ContractSpec(symbol=symbol, primary_exchange=_PRIMARY_EXCHANGES.get(exchange_prefix))
 
 
 def parse_watchlist(text: str) -> tuple[ContractSpec, ...]:
@@ -102,7 +121,7 @@ def load_watchlist_directory(directory: Path) -> tuple[ContractSpec, ...]:
     if not directory.is_dir():
         raise WatchlistError(f"Watchlist-Verzeichnis existiert nicht: {directory}")
 
-    files = sorted(path for path in directory.iterdir() if path.suffix == WATCHLIST_FILE_SUFFIX)
+    files = sorted(path for path in directory.iterdir() if _is_watchlist_file(path))
     if not files:
         raise WatchlistError(
             f"Im Watchlist-Verzeichnis {directory} liegt keine {WATCHLIST_FILE_SUFFIX}-Datei"
@@ -126,6 +145,4 @@ def load_watchlist_directory(directory: Path) -> tuple[ContractSpec, ...]:
 
 def describe_sources(directory: Path) -> Sequence[str]:
     """Namen der eingelesenen Dateien -- fuer Protokoll und Bericht."""
-    return tuple(
-        path.name for path in sorted(directory.iterdir()) if path.suffix == WATCHLIST_FILE_SUFFIX
-    )
+    return tuple(path.name for path in sorted(directory.iterdir()) if _is_watchlist_file(path))

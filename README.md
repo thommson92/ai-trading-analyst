@@ -152,6 +152,15 @@ cd backend
 damit API und Tests ohne TWS auskommen; `--provider ibkr` schaltet für den
 einzelnen Lauf um.
 
+Scheitert der Aufruf unter macOS mit `ModuleNotFoundError: ai_trading_analyst`,
+obwohl die Installation lief: Python überspringt `.pth`-Dateien mit gesetztem
+`hidden`-Flag, und manche Werkzeuge setzen es. `pytest` merkt davon nichts,
+weil es `src` selbst auf den Pfad legt.
+
+```bash
+chflags nohidden .venv/lib/python3.12/site-packages/*.pth
+```
+
 **Zur Laufzeit:** IBKR lässt 60 Historienanfragen je zehn Minuten zu und
 sperrt bei Überschreitung die Verbindung. Zwischen zwei Anfragen liegen
 deshalb 11 Sekunden (`minimum_request_interval_seconds`) — bei rund 190

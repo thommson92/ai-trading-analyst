@@ -49,6 +49,10 @@ from ai_trading_analyst.infrastructure.watchlists import (
     load_watchlist_directory,
 )
 
+PACING_FREE_LIMIT = 20
+"""So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
+unter IBKRs Grenze von 60 Anfragen je zehn Minuten."""
+
 
 @dataclass(frozen=True, slots=True)
 class SymbolOutcome:
@@ -157,12 +161,17 @@ def command_screen(args: argparse.Namespace) -> int:
         config = config.model_copy(update={"market_data": market_data})
 
     watchlist: tuple[ContractSpec, ...] | None = None
-    if args.symbols:
+    if args.symbols is not None:
         watchlist = tuple(
             ContractSpec(symbol=symbol.strip().upper())
             for symbol in args.symbols.split(",")
             if symbol.strip()
         )
+        if not watchlist:
+            # Sonst laeuft ein Screening ueber null Aktien durch und meldet
+            # Erfolg -- dieselbe Falle, die der Watchlist-Import ausschliesst.
+            print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+            return 2
 
     provider = build_market_data_provider(
         config, indicators, project_root(loaded.source_path), watchlist
@@ -178,6 +187,18 @@ def command_screen(args: argparse.Namespace) -> int:
         stocks = stocks[: args.limit]
 
     interval = config.market_data.ibkr.minimum_request_interval_seconds
+    if interval <= 0 and len(stocks) > PACING_FREE_LIMIT:
+        # Ohne Abstand loest ein solcher Lauf genau die Sperre aus, gegen die
+        # der Abstand eingebaut wurde -- und trifft dann auch die parallel
+        # laufende Fremdanwendung an derselben TWS.
+        print(
+            f"--no-pacing ist fuer {len(stocks)} Aktien nicht zulaessig: IBKR sperrt die "
+            f"Verbindung ab 60 Anfragen je zehn Minuten. Hoechstens {PACING_FREE_LIMIT} "
+            "Symbole (--symbols oder --limit) oder den Lauf mit Abstand starten.",
+            file=sys.stderr,
+        )
+        return 2
+
     print(
         f"{len(stocks)} Aktien, TWS {config.market_data.ibkr.host}:"
         f"{config.market_data.ibkr.port} (Client-ID {config.market_data.ibkr.client_id}), "
@@ -186,19 +207,27 @@ def command_screen(args: argparse.Namespace) -> int:
 
     started = datetime.now(UTC)
     outcomes: list[SymbolOutcome] = []
+    abgebrochen = False
     try:
         for index, stock in enumerate(stocks, start=1):
             outcome = _screen_symbol(provider, stock, rule)
             outcomes.append(outcome)
             _print_outcome(index, len(stocks), outcome)
     except KeyboardInterrupt:
+        abgebrochen = True
         print("\nAbgebrochen -- die bis dahin geprueften Aktien stehen oben.", file=sys.stderr)
     finally:
         if isinstance(provider, IbkrMarketDataProvider):
             provider.close()
 
     _print_summary(outcomes, started)
-    return 0
+
+    # Der Rueckgabewert muss unterscheidbar machen, ob der Lauf durchlief:
+    # Bei nicht gestarteter TWS scheitern alle Aktien, und ein Skript, das
+    # nur auf den Rueckgabewert schaut, haette das sonst nicht bemerkt.
+    if abgebrochen:
+        return 130
+    return 1 if any(outcome.error is not None for outcome in outcomes) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

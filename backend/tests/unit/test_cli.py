@@ -106,12 +106,16 @@ class TestScreenKommando:
         )
 
         ausgabe = capsys.readouterr().out
-        assert exit_code == 0
+        # Rueckgabewert 1: Ein Skript, das nur darauf schaut, soll den
+        # Totalausfall der TWS nicht fuer einen erfolgreichen Lauf halten.
+        assert exit_code == 1
         assert "FEHLER" in ausgabe
         assert "Keine Verbindung zur TWS" in ausgabe
 
     def test_provider_kann_fuer_einen_lauf_uebersteuert_werden(self, projekt: Path) -> None:
         config = write_config(projekt, provider="fixture")
+        # Ohne TWS scheitert der Abruf (Rueckgabewert 1); entscheidend ist,
+        # dass die Umstellung ueberhaupt angenommen wurde (kein 2).
         assert (
             main(
                 [
@@ -125,8 +129,27 @@ class TestScreenKommando:
                     "--no-pacing",
                 ]
             )
-            == 0
+            == 1
         )
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+        assert main(["--config", str(config), "screen", "--symbols", ",", "--no-pacing"]) == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_ohne_abstand_und_mit_voller_watchlist_wird_der_lauf_verweigert(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst laeuft genau die Sperre auf, gegen die der Abstand da ist --
+        und sie traefe auch die Fremdanwendung an derselben TWS."""
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "screen", "--no-pacing"]) == 2
+        assert "--no-pacing ist fuer 25 Aktien nicht zulaessig" in capsys.readouterr().err
 
 
 class TestArgumente:
