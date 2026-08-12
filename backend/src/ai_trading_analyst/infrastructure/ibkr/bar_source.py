@@ -24,9 +24,11 @@ Orderuebermittlungen hindern wuerde.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
+import time
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -57,6 +59,19 @@ def _ensure_event_loop_exists() -> None:
         except RuntimeError:
             pass
     asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+def _silence_account_logging() -> None:
+    """Haelt die Protokollierung von ``ib_async`` auf Warnungen und Fehler.
+
+    Beim Verbindungsaufbau synchronisiert ``ib_async.IB`` Konto- und
+    Positionsdaten und protokolliert sie auf INFO-Ebene im Klartext -- im
+    Spike ein echter Sicherheitsfund (REPORT.md, Frage 1, "Sicherheitsfund").
+    Dieses Projekt braucht keine einzige dieser Angaben: Es liest Kurse.
+    Warnungen und Fehler bleiben sichtbar, damit ein Problem an der
+    Schnittstelle nicht stillschweigend verschwindet.
+    """
+    logging.getLogger("ib_async").setLevel(logging.WARNING)
 
 
 class IbkrBarSourceError(RuntimeError):
@@ -99,12 +114,27 @@ def ibkr_bar_size(native_bar_minutes: int) -> str:
     return "1 min" if native_bar_minutes == 1 else f"{native_bar_minutes} mins"
 
 
+@dataclass(frozen=True, slots=True)
+class ContractSpec:
+    """Der Kontrakt, den IBKR fuer ein Symbol aufloesen soll.
+
+    ``exchange`` ist der Weg zur Ausfuehrung (``SMART`` ist IBKRs
+    Smart-Routing und fuer US-Aktien der Normalfall), ``primary_exchange`` die
+    Heimatboerse. Letztere macht mehrdeutige Symbole eindeutig -- ohne sie
+    liefert IBKR bei manchen Tickern mehrere Kontrakte zurueck, und die Wahl
+    des ersten waere geraten.
+    """
+
+    symbol: str
+    exchange: str = "SMART"
+    currency: str = "USD"
+    primary_exchange: str | None = None
+
+
 class HistoricalBarSource(Protocol):
     """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst."""
 
-    def fetch_intraday_bars(
-        self, symbol: str, exchange: str, currency: str
-    ) -> Sequence[IntradayBar]:
+    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
         """Raises:
         IbkrBarSourceError: wenn die Bars nicht beschafft werden konnten.
         """
@@ -141,30 +171,48 @@ class IbAsyncBarSource:
         settings: IbkrConnectionSettings,
         native_bar_minutes: int,
         duration: str,
+        minimum_request_interval_seconds: float = 0.0,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
         self._bar_size = ibkr_bar_size(native_bar_minutes)
         self._duration = duration
+        self._minimum_request_interval = minimum_request_interval_seconds
+        self._sleep = sleep
+        self._monotonic = monotonic
         self._lock = threading.Lock()
         self._ib: Any | None = None
         self._owner_thread: int | None = None
+        self._last_request_at: float | None = None
 
-    def fetch_intraday_bars(
-        self, symbol: str, exchange: str, currency: str
-    ) -> Sequence[IntradayBar]:
+    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
         with self._lock:
-            return self._fetch(symbol, exchange, currency)
+            return self._fetch(contract)
 
-    def _fetch(self, symbol: str, exchange: str, currency: str) -> Sequence[IntradayBar]:
+    def _fetch(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+        symbol = contract.symbol
         try:
             ib = self._connection()
             from ib_async import Stock
 
-            contracts = ib.qualifyContracts(Stock(symbol, exchange, currency))
+            stock = Stock(
+                symbol,
+                contract.exchange,
+                contract.currency,
+                primaryExchange=contract.primary_exchange or "",
+            )
+            contracts = ib.qualifyContracts(stock)
             if not contracts:
+                # Die Heimatboerse gehoert in die Meldung: Sie stammt aus der
+                # Watchlist, und eine Abweichung zwischen deren Bezeichnung
+                # und der von IBKR ist die wahrscheinlichste Ursache.
                 raise IbkrBarSourceError(
-                    f"IBKR kennt keinen Kontrakt fuer '{symbol}' an '{exchange}' ({currency})"
+                    f"IBKR kennt keinen Kontrakt fuer '{symbol}' an "
+                    f"'{contract.exchange}' ({contract.currency}, Heimatboerse "
+                    f"{contract.primary_exchange or 'nicht angegeben'})"
                 )
+            self._wait_for_pacing()
             bars = ib.reqHistoricalData(
                 contracts[0],
                 endDateTime="",
@@ -202,6 +250,25 @@ class IbAsyncBarSource:
         with self._lock:
             self._drop_connection()
 
+    def _wait_for_pacing(self) -> None:
+        """Haelt den Mindestabstand zwischen zwei Historienanfragen ein.
+
+        IBKR begrenzt historische Anfragen auf 60 innerhalb von zehn Minuten.
+        Wer das ueberschreitet, bekommt keine Fehlermeldung pro Anfrage,
+        sondern eine Pacing-Sperre fuer die ganze Verbindung -- bei einer
+        Watchlist mit dreistelliger Symbolzahl faellt der Lauf sonst
+        mittendrin aus. Der Abstand wird deshalb hier eingehalten und nicht
+        der Gegenstelle ueberlassen.
+        """
+        if self._minimum_request_interval <= 0:
+            return
+        now = self._monotonic()
+        if self._last_request_at is not None:
+            wait = self._minimum_request_interval - (now - self._last_request_at)
+            if wait > 0:
+                self._sleep(wait)
+        self._last_request_at = self._monotonic()
+
     def _connection(self) -> Any:
         if self._ib is not None:
             if self._owner_thread == threading.get_ident() and self._ib.isConnected():
@@ -212,6 +279,7 @@ class IbAsyncBarSource:
         # Event-Loop an und ist damit ein Seiteneffekt, den weder ein Testlauf
         # noch ein Anwendungsstart ohne IBKR-Betrieb ausloesen soll.
         _ensure_event_loop_exists()
+        _silence_account_logging()
         from ib_async import IB
 
         # ib_async.IB.__init__ ist selbst unannotiert -- die Ausnahme bleibt

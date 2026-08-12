@@ -127,16 +127,45 @@ auseinanderlaufen — im Gegensatz zu `npm install` also reproduzierbar.
 
 ### Marktdaten über Interactive Brokers
 
-Der produktive Anbieter wird ausdrücklich eingeschaltet — der Standard bleibt
-`fixture`:
+Die Watchlist kommt aus `watchlists/` — allen `*.txt` darin, im
+TradingView-Exportformat (`NASDAQ:NVDA,NYSE:BRK.B,…`, `###Abschnitt` als
+Überschrift). Mehrfachnennungen über mehrere Listen werden zusammengefasst,
+`BRK.B` wird in IBKRs Schreibweise `BRK B` übersetzt.
 
-```yaml
-market_data:
-  provider: ibkr
-  ibkr:
-    watchlist:
-      - symbol: AAPL
+Für einen manuellen Lauf gegen die TWS gibt es eine Kommandozeile — ohne
+Datenbank, ohne API, nur lesend:
+
+```bash
+cd backend
+# Was würde gescreent? Ohne jede Verbindung zur TWS:
+.venv/bin/python -m ai_trading_analyst.cli watchlist
+
+# Einzelne Symbole, ohne Wartezeit zwischen den Anfragen:
+.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr \
+    --symbols AAPL,MSFT --no-pacing
+
+# Die vollständige Watchlist:
+.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr
 ```
+
+`market_data.provider` bleibt in `config/default.yaml` bewusst auf `fixture`,
+damit API und Tests ohne TWS auskommen; `--provider ibkr` schaltet für den
+einzelnen Lauf um.
+
+Scheitert der Aufruf unter macOS mit `ModuleNotFoundError: ai_trading_analyst`,
+obwohl die Installation lief: Python überspringt `.pth`-Dateien mit gesetztem
+`hidden`-Flag, und manche Werkzeuge setzen es. `pytest` merkt davon nichts,
+weil es `src` selbst auf den Pfad legt.
+
+```bash
+chflags nohidden .venv/lib/python3.12/site-packages/*.pth
+```
+
+**Zur Laufzeit:** IBKR lässt 60 Historienanfragen je zehn Minuten zu und
+sperrt bei Überschreitung die Verbindung. Zwischen zwei Anfragen liegen
+deshalb 11 Sekunden (`minimum_request_interval_seconds`) — bei rund 190
+Symbolen dauert ein vollständiger Lauf gut eine halbe Stunde. `--no-pacing`
+schaltet das ab und ist nur für eine Handvoll Symbole gedacht.
 
 Voraussetzung ist eine laufende, **manuell angemeldete** TWS mit aktiviertem
 API-Zugriff (Einstellungen → API → Settings → "Enable ActiveX and Socket

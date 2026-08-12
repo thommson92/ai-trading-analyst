@@ -14,6 +14,7 @@ import pytest
 
 from ai_trading_analyst.infrastructure.ibkr.bar_source import (
     SUPPORTED_BAR_MINUTES,
+    ContractSpec,
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
@@ -23,6 +24,7 @@ from ai_trading_analyst.infrastructure.ibkr.bar_source import (
 UNBESETZTER_PORT = IbkrConnectionSettings(
     host="127.0.0.1", port=1, client_id=17, connect_timeout_seconds=1.0
 )
+AAPL = ContractSpec(symbol="AAPL", primary_exchange="NASDAQ")
 
 
 class TestBarGroesse:
@@ -52,7 +54,7 @@ class TestVerhaltenOhneErreichbareTws:
     def test_der_abruf_meldet_einen_klaren_verbindungsfehler(self) -> None:
         quelle = IbAsyncBarSource(UNBESETZTER_PORT, native_bar_minutes=15, duration="1 D")
         with pytest.raises(IbkrBarSourceError, match="Keine Verbindung zur TWS"):
-            quelle.fetch_intraday_bars("AAPL", "SMART", "USD")
+            quelle.fetch_intraday_bars(AAPL)
 
     def test_auch_aus_einem_worker_thread_heraus(self) -> None:
         """FastAPI fuehrt synchrone Endpunkte in Worker-Threads aus.
@@ -64,7 +66,7 @@ class TestVerhaltenOhneErreichbareTws:
         """
         quelle = IbAsyncBarSource(UNBESETZTER_PORT, native_bar_minutes=15, duration="1 D")
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(quelle.fetch_intraday_bars, "AAPL", "SMART", "USD")
+            future = pool.submit(quelle.fetch_intraday_bars, AAPL)
             with pytest.raises(IbkrBarSourceError, match="Keine Verbindung zur TWS"):
                 future.result()
 
@@ -72,3 +74,55 @@ class TestVerhaltenOhneErreichbareTws:
         quelle = IbAsyncBarSource(UNBESETZTER_PORT, native_bar_minutes=15, duration="1 D")
         quelle.close()
         quelle.close()
+
+
+class TestPacing:
+    """IBKR sperrt bei mehr als 60 Historienanfragen je zehn Minuten die
+    gesamte Verbindung. Der Abstand wird deshalb selbst eingehalten."""
+
+    @staticmethod
+    def _quelle(interval: float, uhr: list[float], geschlafen: list[float]) -> IbAsyncBarSource:
+        def sleep(seconds: float) -> None:
+            geschlafen.append(seconds)
+            uhr[0] += seconds
+
+        return IbAsyncBarSource(
+            UNBESETZTER_PORT,
+            native_bar_minutes=15,
+            duration="1 D",
+            minimum_request_interval_seconds=interval,
+            sleep=sleep,
+            monotonic=lambda: uhr[0],
+        )
+
+    def test_die_erste_anfrage_wartet_nicht(self) -> None:
+        uhr: list[float] = [100.0]
+        geschlafen: list[float] = []
+        quelle = self._quelle(11.0, uhr, geschlafen)
+        quelle._wait_for_pacing()
+        assert geschlafen == []
+
+    def test_eine_unmittelbar_folgende_anfrage_wartet_den_vollen_abstand(self) -> None:
+        uhr: list[float] = [100.0]
+        geschlafen: list[float] = []
+        quelle = self._quelle(11.0, uhr, geschlafen)
+        quelle._wait_for_pacing()
+        quelle._wait_for_pacing()
+        assert geschlafen == [11.0]
+
+    def test_eine_ohnehin_verstrichene_wartezeit_wird_nicht_nachgeholt(self) -> None:
+        uhr: list[float] = [100.0]
+        geschlafen: list[float] = []
+        quelle = self._quelle(11.0, uhr, geschlafen)
+        quelle._wait_for_pacing()
+        uhr[0] += 30.0  # der Abruf selbst hat laenger gedauert als der Abstand
+        quelle._wait_for_pacing()
+        assert geschlafen == []
+
+    def test_abstand_null_schaltet_die_bremse_ab(self) -> None:
+        uhr: list[float] = [100.0]
+        geschlafen: list[float] = []
+        quelle = self._quelle(0.0, uhr, geschlafen)
+        quelle._wait_for_pacing()
+        quelle._wait_for_pacing()
+        assert geschlafen == []

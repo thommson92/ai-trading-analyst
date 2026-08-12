@@ -10,7 +10,8 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -28,26 +29,38 @@ from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
 from ai_trading_analyst.infrastructure.ibkr import (
+    ContractSpec,
     IbAsyncBarSource,
     IbkrConnectionSettings,
     IbkrMarketDataProvider,
-    WatchlistEntry,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
     build_engine,
     build_session_factory,
 )
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from ai_trading_analyst.infrastructure.watchlists import load_watchlist_directory
 from ai_trading_analyst.presentation.api.app import create_app
 
 
+def project_root(config_path: Path) -> Path:
+    """Das Verzeichnis ueber ``config/`` -- Bezugspunkt fuer relative Pfade."""
+    return config_path.resolve().parent.parent
+
+
 def build_market_data_provider(
-    config: AppConfig, indicators: IndicatorConfig
+    config: AppConfig,
+    indicators: IndicatorConfig,
+    root: Path,
+    watchlist: Sequence[ContractSpec] | None = None,
 ) -> MarketDataProvider:
     """Waehlt den Marktdatenanbieter anhand der Konfiguration.
 
     ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
     Start ohne laufende TWS; ``ibkr`` ist die produktive Quelle (ADR 0014).
+
+    ``watchlist`` uebersteuert die Dateien -- gedacht fuer einen gezielten
+    Einzelabruf ueber die Kommandozeile, nicht fuer den regulaeren Lauf.
     """
     if config.market_data.provider == "fixture":
         return FixtureMarketDataProvider()
@@ -62,12 +75,14 @@ def build_market_data_provider(
         ),
         native_bar_minutes=ibkr.native_bar_minutes,
         duration=ibkr.history_duration,
+        minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
     )
     return IbkrMarketDataProvider(
         bar_source=bar_source,
-        watchlist=tuple(
-            WatchlistEntry(symbol=entry.symbol, exchange=entry.exchange, currency=entry.currency)
-            for entry in ibkr.watchlist
+        watchlist=(
+            watchlist
+            if watchlist is not None
+            else load_watchlist_directory(root / ibkr.watchlist_directory)
         ),
         session_parameters=SessionParameters(
             timezone=config.market.timezone,
@@ -103,7 +118,9 @@ def build_app() -> FastAPI:
         signal_lookback_previous_candles=loaded.config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
-    market_data_provider = build_market_data_provider(loaded.config, indicators)
+    market_data_provider = build_market_data_provider(
+        loaded.config, indicators, project_root(loaded.source_path)
+    )
     use_case = RunAnalysisUseCase(market_data_provider, uow_factory, candidate_rule_params)
 
     def check_database_ready() -> bool:

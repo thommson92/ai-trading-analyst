@@ -28,6 +28,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeFloat = Annotated[float, Field(ge=0)]
 
 
 class GateNotClearedError(RuntimeError):
@@ -123,19 +124,6 @@ class IndicatorConfig(_Section):
     warmup_candles: PositiveInt
 
 
-class IbkrWatchlistEntryConfig(_Section):
-    """Eine ueberwachte Aktie mit ihrem IBKR-Kontraktzuschnitt.
-
-    ``SMART`` ist IBKRs Smart-Routing-Ziel und fuer US-Aktien der Normalfall;
-    beide Werte bleiben trotzdem konfigurierbar, damit eine Aktie an einer
-    bestimmten Boerse angefordert werden kann.
-    """
-
-    symbol: str = Field(min_length=1)
-    exchange: str = "SMART"
-    currency: str = "USD"
-
-
 class IbkrConfig(_Section):
     """Zugang zur TWS-API (ADR 0014).
 
@@ -164,7 +152,18 @@ class IbkrConfig(_Section):
 
     Der 5-Jahres-Backfill laeuft nicht ueber diesen Wert, sondern als eigener
     Batch-Job mit Chunking (ADR 0014, Einschraenkung E3)."""
-    watchlist: tuple[IbkrWatchlistEntryConfig, ...] = ()
+    watchlist_directory: str = "watchlists"
+    """Verzeichnis mit den exportierten Watchlisten (``*.txt``), relativ zum
+    Projektwurzelverzeichnis. Alle Dateien darin werden eingelesen und
+    Mehrfachnennungen zusammengefasst."""
+    minimum_request_interval_seconds: NonNegativeFloat = 11.0
+    """Mindestabstand zwischen zwei Historienanfragen.
+
+    IBKR laesst 60 Anfragen je zehn Minuten zu und sperrt bei Ueberschreitung
+    die Verbindung, nicht nur die einzelne Anfrage. 11 Sekunden bleiben mit
+    Sicherheitsabstand darunter. Bei einer dreistelligen Symbolzahl bestimmt
+    dieser Wert die Laufzeit -- 0 schaltet die Bremse ab und ist nur fuer
+    kurze Einzelabfragen sinnvoll."""
 
 
 class MarketDataConfig(_Section):
