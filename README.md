@@ -102,9 +102,24 @@ python3.12 -m venv .venv
 .venv/bin/pip install --no-deps -e .
 ```
 
+Auf dem Windows-Server — dort läuft die TWS, also auch das Backend:
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.lock.txt
+.venv\Scripts\python.exe -m pip install --no-deps -e .
+```
+
 Die Installation läuft ausschließlich über die Lock-Datei mit Hash-Verifikation
 — keine Versionsauflösung auf dem jeweiligen Rechner. Siehe
 [ADR 0008](docs/adr/0008-reproduzierbare-installation.md).
+
+Deshalb muss jede Abhängigkeit auf **beiden** Plattformen installierbar sein:
+`pip-compile` löst die Lock-Datei auf einem Rechner auf und verliert dabei
+Plattform-Marker. `uvicorn` wird aus diesem Grund ohne das Extra `standard`
+geführt — es zieht `uvloop` nach, das es für Windows nicht gibt.
 
 Ändert sich `pyproject.toml`, werden die Lock-Dateien neu erzeugt:
 
