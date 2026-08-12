@@ -15,6 +15,7 @@ import pytest
 from ai_trading_analyst.domain.screening import Candle
 from ai_trading_analyst.domain.screening.candle_aggregation import (
     CandleAggregationError,
+    IncompleteReason,
     IntradayBar,
     SessionParameters,
     aggregate_intraday_bars,
@@ -26,6 +27,7 @@ PARAMETERS = SessionParameters(
     session_open=time(9, 30),
     session_minutes=390,
     timeframe_minutes=195,
+    early_close=time(13, 0),
 )
 BARS_PER_CANDLE = 13
 
@@ -152,6 +154,119 @@ class TestUnvollstaendigeKerzenWerdenGemeldet:
         assert ergebnis.incomplete == ()
 
 
+class TestVerkuerzterHandelstagIstKeineLuecke:
+    """Der 28.11.2025 (Tag nach Thanksgiving) schloss um 13:00 statt 16:00.
+
+    Die zweite Kerze bekam genau einen Bar. Das sah zunaechst wie eine
+    Datenluecke aus, ist aber das Gegenteil: Es hat schlicht nicht mehr
+    Handel gegeben. Live gegen die TWS aufgetreten, siehe ADR 0014.
+    """
+
+    @staticmethod
+    def _thanksgiving_freitag() -> list[IntradayBar]:
+        # 09:30-13:00 = 14 Bars: 13 fuer die erste Kerze, einer fuer die zweite.
+        return bars_for_session(date(2025, 11, 28), 14)
+
+    def test_die_zweite_kerze_gilt_als_sitzungsende(self) -> None:
+        ergebnis = aggregate_intraday_bars(self._thanksgiving_freitag(), 15, PARAMETERS)
+        assert len(ergebnis.candles) == 1
+        assert len(ergebnis.incomplete) == 1
+        assert ergebnis.incomplete[0].reason is IncompleteReason.SESSION_ENDED
+        assert ergebnis.incomplete[0].received_bars == 1
+
+    def test_auch_mitten_in_der_historie(self) -> None:
+        bars = (
+            bars_for_session(date(2025, 11, 26), 26)
+            + self._thanksgiving_freitag()
+            + bars_for_session(date(2025, 12, 1), 26)
+        )
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert len(ergebnis.candles) == 5
+        assert [gap.reason for gap in ergebnis.incomplete] == [
+            IncompleteReason.SESSION_ENDED
+        ]
+
+    def test_fehlende_bars_mit_weiterem_handel_danach_gelten_nicht_als_sitzungsende(
+        self,
+    ) -> None:
+        bars = bars_for_session(date(2026, 3, 10), 26)
+        del bars[5]  # mitten in der ersten Kerze, der Tag lief weiter
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.DATA_GAP]
+
+    def test_ein_loch_kurz_vor_sitzungsende_ist_kein_sitzungsende(self) -> None:
+        # Bars bis 13:00, aber der Bar um 12:45 fehlt: Die vorhandenen Bars
+        # liegen weder am Anfang noch am Ende des Fensters an -- da fehlt
+        # wirklich etwas.
+        bars = bars_for_session(date(2025, 11, 28), 16)
+        del bars[13]
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.DATA_GAP]
+
+    def test_die_laufende_kerze_am_ende_gilt_ebenfalls_als_sitzungsende(self) -> None:
+        ergebnis = aggregate_intraday_bars(
+            bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS
+        )
+        assert ergebnis.incomplete[0].reason is IncompleteReason.SESSION_ENDED
+
+
+class TestSpaeterHandelsbeginnIstKeineLuecke:
+    """Der erste Handelstag nach einem Boersengang beginnt nicht um 09:30.
+
+    Die Eroeffnungsauktion findet Stunden spaeter statt; davor gibt es den
+    Kurs schlicht nicht. Live gegen die TWS aufgetreten (SPCX, 12.06.2026:
+    4 von 13 Bars in der ersten Kerze) und ebenso nach einer
+    Eroeffnungsunterbrechung.
+    """
+
+    @staticmethod
+    def _erster_handelstag(erster_bar_index: int) -> list[IntradayBar]:
+        return bars_for_session(date(2026, 6, 12), 26)[erster_bar_index:]
+
+    def test_die_erste_kerze_des_tages_gilt_als_spaeter_beginn(self) -> None:
+        # Handel ab 11:45: vier Bars bis 12:45, danach der volle Nachmittag.
+        ergebnis = aggregate_intraday_bars(self._erster_handelstag(9), 15, PARAMETERS)
+
+        assert len(ergebnis.candles) == 1  # die zweite Kerze des Tages
+        assert [gap.reason for gap in ergebnis.incomplete] == [
+            IncompleteReason.SESSION_STARTED_LATE
+        ]
+        assert ergebnis.incomplete[0].received_bars == 4
+
+    def test_auch_wenn_nur_ein_einziger_bar_fehlt(self) -> None:
+        """Der Fall LKQ vom 26.01.2026: 12 von 13 Bars, Handelsbeginn 09:45."""
+        ergebnis = aggregate_intraday_bars(self._erster_handelstag(1), 15, PARAMETERS)
+        assert [gap.reason for gap in ergebnis.incomplete] == [
+            IncompleteReason.SESSION_STARTED_LATE
+        ]
+
+    def test_ein_spaeter_beginn_an_einem_folgetag_bleibt_eine_luecke(self) -> None:
+        """Die zweite Kerze eines Tages kann nicht 'spaet beginnen'.
+
+        Wenn am selben Tag vormittags gehandelt wurde, ist ein fehlender Bar
+        um 12:45 kein Handelsbeginn, sondern ein Loch zwischen zwei
+        gehandelten Zeitraeumen.
+        """
+        bars = bars_for_session(date(2026, 3, 10), 26)
+        del bars[13]
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.DATA_GAP]
+
+    def test_der_erste_fehlende_bar_wird_benannt(self) -> None:
+        ergebnis = aggregate_intraday_bars(self._erster_handelstag(9), 15, PARAMETERS)
+        assert ergebnis.incomplete[0].first_missing_bar == datetime(
+            2026, 6, 12, 9, 30, tzinfo=NEW_YORK
+        )
+
+    def test_der_erste_fehlende_bar_wird_auch_mitten_im_fenster_benannt(self) -> None:
+        bars = bars_for_session(date(2026, 3, 10), 26)
+        del bars[5]
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+        assert ergebnis.incomplete[0].first_missing_bar == datetime(
+            2026, 3, 10, 10, 45, tzinfo=NEW_YORK
+        )
+
+
 class TestSitzungsgrenzen:
     def test_bars_vor_sitzungsbeginn_werden_verworfen(self) -> None:
         vorboerslich = IntradayBar(
@@ -195,6 +310,36 @@ class TestSitzungsgrenzen:
 
 
 class TestFehlerhafteEingaben:
+    def test_ein_bar_neben_dem_zeitraster_wird_abgelehnt(self) -> None:
+        """Sonst entstuende eine Kerze mit richtiger Bar-Anzahl, falschem
+        Eroeffnungskurs und falschem Zeitraster -- und niemand saehe es."""
+        bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
+        bars[0] = IntradayBar(
+            start=datetime(2026, 3, 10, 9, 37, tzinfo=NEW_YORK),
+            open=999.0,
+            high=999.0,
+            low=999.0,
+            close=999.0,
+            volume=1.0,
+        )
+        with pytest.raises(CandleAggregationError, match="Raster"):
+            aggregate(bars, 15, PARAMETERS)
+
+    def test_ein_zusaetzlicher_bar_neben_dem_raster_wird_ebenfalls_abgelehnt(self) -> None:
+        bars = bars_for_session(date(2026, 3, 10), BARS_PER_CANDLE)
+        bars.append(
+            IntradayBar(
+                start=datetime(2026, 3, 10, 9, 37, tzinfo=NEW_YORK),
+                open=999.0,
+                high=999.0,
+                low=999.0,
+                close=999.0,
+                volume=1.0,
+            )
+        )
+        with pytest.raises(CandleAggregationError, match="Raster"):
+            aggregate(bars, 15, PARAMETERS)
+
     def test_naiver_zeitstempel_wird_abgelehnt(self) -> None:
         naiv = IntradayBar(
             start=datetime(2026, 3, 10, 9, 30),  # noqa: DTZ001 -- genau das ist der Testfall
@@ -227,4 +372,5 @@ class TestFehlerhafteEingaben:
                 session_open=time(9, 30),
                 session_minutes=400,
                 timeframe_minutes=195,
+                early_close=time(13, 0),
             )

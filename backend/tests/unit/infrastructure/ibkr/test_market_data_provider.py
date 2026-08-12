@@ -9,7 +9,8 @@ Normalfall ist (TWS nach einem Neustart nicht angemeldet).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Iterator, Sequence
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -30,6 +31,7 @@ SESSION = SessionParameters(
     session_open=time(9, 30),
     session_minutes=390,
     timeframe_minutes=195,
+    early_close=time(13, 0),
 )
 INDICATORS = IndicatorParameters(
     rsi_length=14,
@@ -209,6 +211,157 @@ class TestLueckenInDerHistorie:
         provider = build_provider(FakeBarSource({"AAPL": bars}))
         series = provider.get_candle_series(provider.list_stocks()[0])
         assert len(series) == 39
+
+    def test_die_fehlermeldung_benennt_den_ersten_fehlenden_bar(self) -> None:
+        bars = trading_days(20)
+        del bars[3]
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+        with pytest.raises(MarketDataProviderError, match="ab 2026-03-02T10:15:00"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_ein_spaeter_handelsbeginn_ist_keine_luecke(self) -> None:
+        """Der Fall SPCX vom 12.06.2026, live gegen die TWS aufgetreten.
+
+        Am ersten Handelstag nach einem Boersengang beginnt der Handel erst
+        mittags. Die erste Kerze des Tages entfaellt, die Reihe bleibt
+        gueltig -- ein Fehler haette die Aktie dauerhaft aus dem Screening
+        genommen.
+        """
+        bars = trading_days(20)
+        del bars[:9]  # Handel beginnt erst um 11:45 statt 09:30
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        series = provider.get_candle_series(provider.list_stocks()[0])
+
+        assert len(series) == 39  # 40 minus die erste Kerze des ersten Tages
+
+    def test_ein_verkuerzter_handelstag_mitten_in_der_historie_ist_keine_luecke(self) -> None:
+        """Der Fall vom 28.11.2025, live gegen die TWS aufgetreten.
+
+        An einem verkuerzten Handelstag kann die zweite Kerze nicht
+        vollstaendig werden. Sie entfaellt, die Reihe bleibt gueltig -- ein
+        Fehler waere hier falsch und haette die gesamte Watchlist blockiert.
+        """
+        bars = trading_days(20)
+        # Vom fuenften Handelstag nur die ersten 14 Bars behalten: 09:30-13:00.
+        del bars[4 * 26 + 14 : 5 * 26]
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        series = provider.get_candle_series(provider.list_stocks()[0])
+
+        assert len(series) == 39  # 40 minus die zweite Kerze des kurzen Tages
+        assert series.indicator(len(series) - 1).ema20 is not None
+
+
+class TestAbgerissenerDatenstrom:
+    """Ein Feed, der mitten am Tag aufhoert, sieht aus wie ein verkuerzter
+    Handelstag -- ist aber das Gegenteil.
+
+    Unterschieden wird an der Uhrzeit: Ein regulaer verkuerzter US-Handelstag
+    endet um 13:00 Ortszeit. Ein Abbruch um 10:45 oder 14:00 endet zu keiner
+    boerslichen Schlusszeit. Wuerde er als Sitzungsende durchgehen, fielen
+    beide Kerzen des Tages lautlos aus der Reihe, und RSI und EMA rechneten
+    ueber die Luecke hinweg.
+    """
+
+    @staticmethod
+    def _mit_luecke(von: int, bis: int) -> FakeBarSource:
+        """Loescht Bars des fuenften von zwanzig Handelstagen."""
+        bars = trading_days(20)
+        del bars[4 * 26 + von : 4 * 26 + bis]
+        return FakeBarSource({"AAPL": bars})
+
+    def test_abbruch_am_vormittag_ist_kein_sitzungsende(self) -> None:
+        # Nach 09:30-10:45 kommt nichts mehr an diesem Tag.
+        provider = build_provider(self._mit_luecke(5, 26))
+        with pytest.raises(MarketDataProviderError, match="lueckenhafte Historie"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_abbruch_am_nachmittag_ist_kein_sitzungsende(self) -> None:
+        # Erste Kerze vollstaendig, dann Schluss um 14:00 statt 16:00.
+        provider = build_provider(self._mit_luecke(18, 26))
+        with pytest.raises(MarketDataProviderError, match="lueckenhafte Historie"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_ein_tag_ohne_eine_einzige_vollstaendige_kerze_ist_kein_spaeter_beginn(
+        self,
+    ) -> None:
+        # Nur 14:00-16:00 geliefert: kein Fenster wird voll.
+        provider = build_provider(self._mit_luecke(0, 18))
+        with pytest.raises(MarketDataProviderError, match="lueckenhafte Historie"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_ein_fehlender_nachmittag_ist_kein_sitzungsende(self) -> None:
+        # Vormittag vollstaendig, Nachmittag fehlt ganz -- ohne die
+        # nachtraeglich ergaenzten Leerfenster bliebe das voellig unbemerkt.
+        provider = build_provider(self._mit_luecke(13, 26))
+        with pytest.raises(MarketDataProviderError, match="lueckenhafte Historie"):
+            provider.get_candle_series(provider.list_stocks()[0])
+
+    def test_am_letzten_tag_der_reihe_bleibt_der_abbruch_die_laufende_kerze(self) -> None:
+        """Am Ende der Reihe ist eine unfertige Kerze der Normalfall -- dort
+        laesst sich nicht unterscheiden, ob noch Daten kommen."""
+        bars = trading_days(20)[: -26 + 5]  # letzter Tag bricht um 10:45 ab
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        series = provider.get_candle_series(provider.list_stocks()[0])
+
+        assert len(series) == 38  # die 19 vollen Tage
+
+
+class _Mitschnitt(logging.Handler):
+    """Haengt direkt am Modul-Logger.
+
+    ``caplog`` waere hier unzuverlaessig: ``configure_logging`` raeumt alle
+    Root-Handler ab, und sobald ein anderer Test das aufgerufen hat, faenge
+    ``caplog`` nichts mehr -- je nach Testreihenfolge.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.meldungen: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.meldungen.append(record.getMessage())
+
+
+@pytest.fixture
+def mitschnitt() -> Iterator[_Mitschnitt]:
+    logger = logging.getLogger("ai_trading_analyst.infrastructure.ibkr.market_data_provider")
+    aufzeichnung = _Mitschnitt()
+    vorher = logger.level
+    logger.addHandler(aufzeichnung)
+    logger.setLevel(logging.INFO)
+    yield aufzeichnung
+    logger.removeHandler(aufzeichnung)
+    logger.setLevel(vorher)
+
+
+class TestMeldungUnvollstaendigerTage:
+    def test_verkuerzte_tage_und_spaete_beginne_werden_getrennt_gemeldet(
+        self, mitschnitt: _Mitschnitt
+    ) -> None:
+        bars = trading_days(20)
+        # Von hinten nach vorne loeschen, sonst verschieben sich die Indizes.
+        del bars[9 * 26 : 9 * 26 + 9]  # Tag 10 beginnt erst um 11:45
+        del bars[4 * 26 + 14 : 5 * 26]  # Tag 5 schliesst um 13:00
+        provider = build_provider(FakeBarSource({"AAPL": bars}))
+
+        provider.get_candle_series(provider.list_stocks()[0])
+
+        assert any("1 verkuerzter Handelstag" in text for text in mitschnitt.meldungen)
+        assert any("1 Handelstag mit spaetem Beginn" in text for text in mitschnitt.meldungen)
+
+    def test_die_laufende_kerze_am_ende_wird_nicht_gemeldet(
+        self, mitschnitt: _Mitschnitt
+    ) -> None:
+        """Sie ist der Normalfall jedes Laufs -- eine Meldung dazu waere
+        Rauschen, das die echten Hinweise zudeckt."""
+        provider = build_provider(FakeBarSource({"AAPL": trading_days(20)[:-6]}))
+
+        provider.get_candle_series(provider.list_stocks()[0])
+
+        assert mitschnitt.meldungen == []
 
 
 class TestVerbindungsfreigabe:

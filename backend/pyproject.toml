@@ -37,11 +37,10 @@ dev = [
     "types-PyYAML>=6.0,<7",
     "httpx>=0.27,<1",
 ]
-# Nur zum Regenerieren der Lock-Dateien (requirements*.lock.txt), keine
-# Laufzeit- oder Testabhaengigkeit. Siehe ADR 0008.
-lock = [
-    "pip-tools>=7.4,<8",
-]
+# Die Lock-Dateien werden mit "uv pip compile --universal" erzeugt (ADR 0015).
+# uv ist ein eigenstaendiges Programm und keine Python-Abhaengigkeit dieses
+# Projekts -- deshalb steht hier kein Extra mehr dafuer. Installation z. B.
+# mit "brew install uv" oder "pipx install uv".
 
 [build-system]
 requires = ["setuptools>=69"]

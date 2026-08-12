@@ -26,13 +26,17 @@ from ai_trading_analyst.domain.screening import (
     AggregationResult,
     CandleAggregationError,
     CandleSeries,
+    IncompleteReason,
     IndicatorParameters,
     SessionParameters,
     aggregate_intraday_bars,
     compute_indicator_values,
 )
+from ai_trading_analyst.observability.logging_setup import get_logger
 
 from .bar_source import ContractSpec, HistoricalBarSource, IbkrBarSourceError
+
+_logger = get_logger(__name__)
 
 _STOCK_NAMESPACE = uuid.UUID("a1c0d3e5-0000-4000-8000-000000000002")
 """Erzeugt zu einem Symbol immer dieselbe Aktien-ID, damit wiederholte Laeufe
@@ -97,6 +101,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
 
         candles = aggregated.candles
         self._reject_gaps(stock.symbol, aggregated)
+        self._report_short_sessions(stock.symbol, aggregated)
 
         if not candles:
             raise MarketDataProviderError(
@@ -115,26 +120,71 @@ class IbkrMarketDataProvider(MarketDataProvider):
         self._bar_source.close()
 
     @staticmethod
-    def _reject_gaps(symbol: str, aggregated: AggregationResult) -> None:
-        """Laesst eine unvollstaendige Kerze nur am Ende der Reihe durchgehen.
+    def _report_short_sessions(symbol: str, aggregated: AggregationResult) -> None:
+        """Protokolliert unvollstaendige Handelstage, statt sie zu verschweigen.
 
-        Am Ende ist sie die laufende Kerze und damit der Normalfall. Weiter
-        vorn ist sie eine Datenluecke: Die verbleibenden Kerzen waeren nicht
-        mehr zusammenhaengend, und RSI und EMA wuerden ueber Kurse gerechnet,
-        die in Wirklichkeit nicht aufeinander folgen -- ohne dass an den
-        Ergebniswerten irgendetwas darauf hindeutet. Deshalb scheitert die
-        Aktie hier ehrlich, statt eine plausibel aussehende Reihe zu liefern.
+        Die Kerze entfaellt zu Recht, aber die Reihe hat an dieser Stelle
+        einen Handelstag mit nur einer statt zwei Kerzen. Wer spaeter ein
+        Ergebnis nachvollzieht, soll das sehen koennen, ohne es aus den
+        Rohdaten zu rekonstruieren. Die laufende Kerze am Ende der Reihe ist
+        der Normalfall und bleibt unerwaehnt.
         """
         if not aggregated.candles:
             return
-        last_candle_at = aggregated.candles[-1].timestamp
-        gaps = [gap for gap in aggregated.incomplete if gap.timestamp < last_candle_at]
+        letzte_kerze = aggregated.candles[-1].timestamp
+        gemeldet = {
+            IncompleteReason.SESSION_ENDED: ("verkuerzter Handelstag", "verkuerzte Handelstage"),
+            IncompleteReason.SESSION_STARTED_LATE: (
+                "Handelstag mit spaetem Beginn",
+                "Handelstage mit spaetem Beginn",
+            ),
+        }
+        for grund, (einzahl, mehrzahl) in gemeldet.items():
+            betroffen = [
+                gap
+                for gap in aggregated.incomplete
+                if gap.reason is grund and gap.timestamp < letzte_kerze
+            ]
+            if not betroffen:
+                continue
+            _logger.info(
+                "%s: %d %s in der Historie -- dort entfaellt je eine Kerze "
+                "(frueheste: %s)",
+                symbol,
+                len(betroffen),
+                einzahl if len(betroffen) == 1 else mehrzahl,
+                betroffen[0].timestamp.date().isoformat(),
+            )
+
+    @staticmethod
+    def _reject_gaps(symbol: str, aggregated: AggregationResult) -> None:
+        """Trennt echte Datenluecken von Kerzen, die es nie geben konnte.
+
+        Unbedenklich ist eine unvollstaendige Kerze, wenn die Sitzung dort
+        endete (verkuerzter Handelstag, laufende Kerze am Ende der Reihe) oder
+        erst dort begann (erster Handelstag nach einem Boersengang,
+        Eroeffnungsunterbrechung). In beiden Faellen fehlt nichts, es hat nur
+        nicht mehr oder noch nicht Handel gegeben.
+
+        Alles andere ist eine Luecke mitten in einem gehandelten Zeitraum. Sie
+        stillschweigend zu uebergehen waere der gefaehrlichere Weg: Die
+        verbleibenden Kerzen waeren nicht mehr zusammenhaengend, und RSI und
+        EMA wuerden ueber Kurse gerechnet, die in Wirklichkeit nicht
+        aufeinander folgen -- ohne dass an den Ergebniswerten irgendetwas
+        darauf hindeutet.
+        """
+        gaps = [
+            gap for gap in aggregated.incomplete if gap.reason is IncompleteReason.DATA_GAP
+        ]
         if not gaps:
             return
+
         erste = gaps[0]
         raise MarketDataProviderError(
             f"IBKR hat fuer '{symbol}' eine lueckenhafte Historie geliefert: zur Kerze "
             f"{erste.timestamp.isoformat()} fehlen Bars ({erste.received_bars} von "
-            f"{erste.expected_bars}), insgesamt {len(gaps)} betroffene Kerzen vor dem Ende "
-            "der Reihe. Eine Kerzenreihe mit Loechern wuerde falsche Indikatorwerte ergeben."
+            f"{erste.expected_bars}), der erste ab {erste.first_missing_bar.isoformat()}. "
+            "Weder ein verkuerzter Handelstag noch ein spaeter Handelsbeginn erklaeren das; "
+            f"insgesamt {len(gaps)} betroffene Kerzen. Eine Kerzenreihe mit Loechern wuerde "
+            "falsche Indikatorwerte ergeben."
         )

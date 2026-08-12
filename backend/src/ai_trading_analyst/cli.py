@@ -32,6 +32,7 @@ from pathlib import Path
 
 from ai_trading_analyst.bootstrap import build_market_data_provider, project_root
 from ai_trading_analyst.config.loader import load_config
+from ai_trading_analyst.config.settings import LoggingConfig
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
@@ -39,6 +40,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
+    IndicatorValues,
     ScreeningStatus,
     evaluate_candidate,
 )
@@ -48,6 +50,7 @@ from ai_trading_analyst.infrastructure.watchlists import (
     describe_sources,
     load_watchlist_directory,
 )
+from ai_trading_analyst.observability.logging_setup import configure_logging
 
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
@@ -65,6 +68,8 @@ class SymbolOutcome:
     reason: str | None = None
     signals: tuple[str, ...] = ()
     error: str | None = None
+    close: float | None = None
+    indicators: IndicatorValues | None = None
 
 
 def _watchlist_path(config_path: Path) -> Path:
@@ -80,18 +85,30 @@ def _screen_symbol(
     except MarketDataProviderError as error:
         return SymbolOutcome(symbol=stock.symbol, error=str(error))
 
-    result = evaluate_candidate(series, len(series) - 1, rule)
+    letzter = len(series) - 1
+    result = evaluate_candidate(series, letzter, rule)
     return SymbolOutcome(
         symbol=stock.symbol,
         candles=len(series),
-        last_candle=series.candle(len(series) - 1).timestamp,
+        last_candle=series.candle(letzter).timestamp,
         status=result.status,
         reason=result.reason,
         signals=tuple(sorted(signal.value for signal in result.fired_signal_types)),
+        close=series.candle(letzter).close,
+        indicators=series.indicator(letzter),
     )
 
 
-def _print_outcome(index: int, total: int, outcome: SymbolOutcome) -> None:
+def _format_value(value: float | None) -> str:
+    """Ungerundete Werte sind die Rechengrundlage (G1-Pruefvorlage 1.4).
+
+    Vier Nachkommastellen reichen fuer den Abgleich mit einem Chart und
+    zeigen zugleich, dass hier nicht auf zwei Stellen gerundet gerechnet wird.
+    """
+    return "-" if value is None else f"{value:.4f}"
+
+
+def _print_outcome(index: int, total: int, outcome: SymbolOutcome, details: bool) -> None:
     prefix = f"[{index:>3}/{total}] {outcome.symbol:<8}"
     if outcome.error is not None:
         print(f"{prefix} FEHLER   {outcome.error}", flush=True)
@@ -105,6 +122,14 @@ def _print_outcome(index: int, total: int, outcome: SymbolOutcome) -> None:
         f"letzte={last}  Signale={signals}",
         flush=True,
     )
+    if details and outcome.indicators is not None:
+        werte = outcome.indicators
+        print(
+            f"{'':>10} Schluss={_format_value(outcome.close)}  "
+            f"RSI={_format_value(werte.rsi)}  RSI-MA={_format_value(werte.rsi_ma)}  "
+            f"EMA5={_format_value(werte.ema5)}  EMA20={_format_value(werte.ema20)}",
+            flush=True,
+        )
 
 
 def _print_summary(outcomes: Sequence[SymbolOutcome], started: datetime) -> None:
@@ -139,6 +164,11 @@ def command_screen(args: argparse.Namespace) -> int:
     loaded = load_config(args.config)
     config = loaded.config
     indicators = config.require_indicators()
+
+    # Lesbare Zeilen statt JSON: Diese Ausgabe liest ein Mensch waehrend des
+    # Laufs. Sichtbar wird dadurch unter anderem, an welchen Tagen die Sitzung
+    # frueher endete und deshalb nur eine Kerze entstand.
+    configure_logging(LoggingConfig(level="INFO", format="console"))
 
     if args.provider is not None:
         market_data = config.market_data.model_copy(update={"provider": args.provider})
@@ -212,7 +242,7 @@ def command_screen(args: argparse.Namespace) -> int:
         for index, stock in enumerate(stocks, start=1):
             outcome = _screen_symbol(provider, stock, rule)
             outcomes.append(outcome)
-            _print_outcome(index, len(stocks), outcome)
+            _print_outcome(index, len(stocks), outcome, args.details)
     except KeyboardInterrupt:
         abgebrochen = True
         print("\nAbgebrochen -- die bis dahin geprueften Aktien stehen oben.", file=sys.stderr)
@@ -265,6 +295,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     screen.add_argument(
         "--limit", type=int, default=None, help="Nur die ersten N Aktien der Watchlist."
+    )
+    screen.add_argument(
+        "--details",
+        action="store_true",
+        help=(
+            "Zeigt zusaetzlich Schlusskurs und Indikatorwerte der letzten Kerze -- "
+            "zum Abgleich mit dem Chart."
+        ),
     )
     screen.add_argument(
         "--no-pacing",

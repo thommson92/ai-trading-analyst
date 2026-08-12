@@ -12,6 +12,15 @@
   (`backend/src/ai_trading_analyst/domain/screening`, Sprint 1A, Tag
   `sprint-1a-baseline`). Die Backtesting-Regeln aus Abschnitt 4 sind weiterhin
   unimplementiert und bleiben bis Sprint 3 verbindliche Grundlage.
+- **Die Indikatorberechnung ist am 2026-08-12 gegen das reale
+  TradingView-Layout bestätigt** (Sprint 2): Für AAPL stimmten Schlusskurs,
+  RSI, RSI-MA, EMA5 und EMA20 der 195-Minuten-Kerze vom 2026-08-11, 12:45 ET
+  — berechnet aus 15-Minuten-Bars von Interactive Brokers — mit den im Chart
+  abgelesenen Werten überein. Damit ist Abschnitt 1.2 („reproduziert
+  TradingViews RSI-Berechnung") nicht nur gegen selbst gerechnete
+  Referenzfälle, sondern gegen die Anzeige geprüft, auf die sich die
+  Freigabe bezieht. Nachvollziehbar mit
+  `python -m ai_trading_analyst.cli screen --provider ibkr --symbols AAPL --details`.
 
 ## Kennzeichnung in diesem Dokument
 

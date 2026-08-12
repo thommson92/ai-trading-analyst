@@ -89,6 +89,7 @@ def build_market_data_provider(
             session_open=config.market.session_open_time(),
             session_minutes=config.market.regular_session_minutes,
             timeframe_minutes=config.market.timeframe_minutes,
+            early_close=config.market.early_close_time(),
         ),
         indicator_parameters=IndicatorParameters(
             rsi_length=indicators.rsi_length,

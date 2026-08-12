@@ -8,11 +8,22 @@ ausdruecklich nicht Gegenstand dieser Tests.
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from ai_trading_analyst.cli import build_parser, main
+from ai_trading_analyst.domain.analysis import Stock
+from ai_trading_analyst.domain.screening import (
+    Candle,
+    CandleSeries,
+    IndicatorParameters,
+    compute_indicator_values,
+)
 
 CONFIG_TEMPLATE = """
 market_data:
@@ -150,6 +161,224 @@ class TestScreenKommando:
 
         assert main(["--config", str(config), "screen", "--no-pacing"]) == 2
         assert "--no-pacing ist fuer 25 Aktien nicht zulaessig" in capsys.readouterr().err
+
+
+NEW_YORK = ZoneInfo("America/New_York")
+INDIKATOREN = IndicatorParameters(
+    rsi_length=14,
+    rsi_method="wilder",
+    rsi_ma_length=14,
+    rsi_ma_type="sma",
+    fast_ema_length=5,
+    slow_ema_length=20,
+)
+
+
+def steigende_preise(count: int) -> list[float]:
+    return [100.0 + index * 0.5 for index in range(count)]
+
+
+def wendepreise() -> list[float]:
+    """Lange fallend, am Ende steil steigend -- so kreuzen EMA5 und EMA20, der
+    Kurs durchbricht die EMA20 und der RSI kreuzt seine Glaettung, alles
+    innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten."""
+    return [300.0 - index for index in range(254)] + [50.0 + index * 25.0 for index in range(6)]
+
+
+def kerzenreihe(preise: Sequence[float]) -> CandleSeries:
+    beginn = datetime(2026, 1, 5, 9, 30, tzinfo=NEW_YORK)
+    candles = []
+    for index, preis in enumerate(preise):
+        tag, position = divmod(index, 2)
+        candles.append(
+            Candle(
+                timestamp=beginn + timedelta(days=tag, minutes=195 * position),
+                daily_candle_index=position + 1,
+                open=preis,
+                high=preis + 1.0,
+                low=preis - 1.0,
+                close=preis,
+                volume=1_000.0,
+            )
+        )
+    return CandleSeries(
+        candles=tuple(candles),
+        indicators=compute_indicator_values([candle.close for candle in candles], INDIKATOREN),
+    )
+
+
+class FakeProvider:
+    """Steht an der Stelle des IBKR-Adapters -- ohne TWS, ohne Netzwerk."""
+
+    def __init__(
+        self,
+        series: CandleSeries,
+        symbole: Sequence[str] = ("AAPL",),
+        abbruch_bei: int | None = None,
+    ) -> None:
+        self._series = series
+        self._symbole = symbole
+        self._abbruch_bei = abbruch_bei
+        self.abgefragt: list[str] = []
+
+    def list_stocks(self) -> Sequence[Stock]:
+        return tuple(
+            Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ")
+            for symbol in self._symbole
+        )
+
+    def get_candle_series(self, stock: Stock) -> CandleSeries:
+        self.abgefragt.append(stock.symbol)
+        if self._abbruch_bei is not None and len(self.abgefragt) == self._abbruch_bei:
+            raise KeyboardInterrupt
+        return self._series
+
+
+class TestAusgabeEinesErfolgreichenLaufs:
+    """Der Weg, den die TWS-Tests nicht erreichen: eine Aktie laeuft durch.
+
+    Ohne diese Tests waere die einzige Probe der Ausgabe der Live-Lauf auf dem
+    Windows-Server gewesen -- und ein Formatfehler waere erst dort aufgefallen.
+    """
+
+    @staticmethod
+    def lauf(
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        candles: int = 260,
+        preise: Sequence[float] | None = None,
+        provider: FakeProvider | None = None,
+        weitere_argumente: Sequence[str] = (),
+    ) -> int:
+        config = write_config(projekt, provider="ibkr")
+        eingesetzt = provider or FakeProvider(
+            kerzenreihe(preise if preise is not None else steigende_preise(candles))
+        )
+        monkeypatch.setattr(
+            "ai_trading_analyst.cli.build_market_data_provider",
+            lambda *args, **kwargs: eingesetzt,
+        )
+        return main(
+            [
+                "--config",
+                str(config),
+                "screen",
+                "--no-pacing",
+                *weitere_argumente,
+            ]
+        )
+
+    def test_eine_durchgelaufene_aktie_ergibt_rueckgabewert_null(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert self.lauf(projekt, monkeypatch) == 0
+
+        ausgabe = capsys.readouterr().out
+        assert "AAPL" in ausgabe
+        assert "Kerzen=260" in ausgabe
+        assert "FEHLER" not in ausgabe
+
+    def test_ohne_details_stehen_keine_indikatorwerte_in_der_ausgabe(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self.lauf(projekt, monkeypatch)
+        assert "RSI=" not in capsys.readouterr().out
+
+    def test_mit_details_stehen_schlusskurs_und_alle_vier_indikatoren_da(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self.lauf(projekt, monkeypatch, weitere_argumente=["--details"])
+
+        ausgabe = capsys.readouterr().out
+        assert "Schluss=229.5000" in ausgabe  # 100.0 + 259 * 0.5
+        for kennzahl in ("RSI=", "RSI-MA=", "EMA5=", "EMA20="):
+            assert kennzahl in ausgabe
+
+    def test_indikatorwerte_erscheinen_ungerundet_mit_vier_stellen(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """G1-Pruefvorlage 1.4: gerechnet wird ungerundet. Zwei Nachkommastellen
+        wuerden einen Abgleich mit dem Chart unmoeglich machen."""
+        self.lauf(projekt, monkeypatch, weitere_argumente=["--details"])
+        werte = [
+            teil for teil in capsys.readouterr().out.split() if teil.startswith("EMA20=")
+        ]
+        assert werte and len(werte[0].split("=")[1].split(".")[1]) == 4
+
+    def test_eine_zu_kurze_historie_wird_als_unbekannt_ausgewiesen(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Fall SPCX: 81 Kerzen reichen fuer den Warm-up nicht. Es wird
+        keine Kandidatenentscheidung getroffen, und der Grund steht dabei."""
+        assert self.lauf(projekt, monkeypatch, candles=81) == 0
+
+        ausgabe = capsys.readouterr().out
+        assert "UNKNOWN_DATA_INCOMPLETE" in ausgabe
+        assert "warmup_insufficient" in ausgabe
+
+    def test_fehlende_indikatorwerte_erscheinen_als_strich_statt_als_null(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Am Anfang einer Reihe gibt es noch keinen RSI. Eine 0 an dieser
+        Stelle waere ein erfundener Wert."""
+        self.lauf(projekt, monkeypatch, candles=3, weitere_argumente=["--details"])
+        assert "RSI=-" in capsys.readouterr().out
+
+    def test_die_zusammenfassung_zaehlt_und_nennt_die_kandidaten(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self.lauf(projekt, monkeypatch)
+
+        ausgabe = capsys.readouterr().out
+        assert "1 Aktien in" in ausgabe
+        # Gleichmaessig steigend: EMA5 ueber EMA20, kein Kreuzen, kein
+        # Durchbruch -- hoechstens ein Signaltyp, also kein Kandidat.
+        assert "NOT_CANDIDATE" in ausgabe
+        assert "Kandidaten:" not in ausgabe
+
+    def test_ein_kandidat_wird_am_ende_namentlich_aufgefuehrt(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Kandidatenliste ist das Ergebnis des Laufs -- bei knapp 200
+        Aktien ist sie die einzige Zeile, die man wirklich liest."""
+        self.lauf(projekt, monkeypatch, preise=wendepreise())
+
+        ausgabe = capsys.readouterr().out
+        assert "CANDIDATE" in ausgabe
+        assert "Kandidaten: AAPL" in ausgabe
+
+    def test_limit_kuerzt_die_liste_vor_dem_ersten_abruf(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wichtig fuer den Probelauf: Die Begrenzung muss greifen, bevor
+        Anfragen an die TWS gehen, nicht erst bei der Ausgabe."""
+        provider = FakeProvider(
+            kerzenreihe(steigende_preise(260)), symbole=("AAPL", "MSFT", "NVDA")
+        )
+        exit_code = self.lauf(
+            projekt, monkeypatch, provider=provider, weitere_argumente=["--limit", "2"]
+        )
+
+        assert exit_code == 0
+        assert provider.abgefragt == ["AAPL", "MSFT"]
+
+    def test_abbruch_per_strg_c_behaelt_die_bisherigen_ergebnisse(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ein Lauf ueber die volle Watchlist dauert ueber eine Stunde. Wer
+        ihn abbricht, soll die bis dahin geprueften Aktien behalten und am
+        Rueckgabewert erkennen, dass der Lauf nicht vollstaendig war."""
+        provider = FakeProvider(
+            kerzenreihe(steigende_preise(260)),
+            symbole=("AAPL", "MSFT", "NVDA"),
+            abbruch_bei=2,
+        )
+        assert self.lauf(projekt, monkeypatch, provider=provider) == 130
+
+        ausgabe = capsys.readouterr()
+        assert "1 Aktien in" in ausgabe.out  # die erste Aktie steht in der Bilanz
+        assert "Abgebrochen" in ausgabe.err
 
 
 class TestArgumente:

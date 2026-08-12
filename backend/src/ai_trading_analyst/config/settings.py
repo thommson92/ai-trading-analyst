@@ -22,6 +22,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -29,6 +30,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
+
+
+def _parse_time(value: str) -> time:
+    hours, minutes = (int(part) for part in value.split(":"))
+    return time(hours, minutes)
 
 
 class GateNotClearedError(RuntimeError):
@@ -57,6 +63,16 @@ class MarketConfig(_Section):
     regular_session_minutes: PositiveInt = 390
     timeframe_minutes: PositiveInt = 195
     daily_candle_index: PositiveInt = 1
+    early_session_close: str = "13:00"
+    """Uhrzeit, zu der die Boerse an verkuerzten Handelstagen schliesst.
+
+    Kein Kalender, sondern eine feste Konvention der US-Aktienmaerkte: Am Tag
+    nach Thanksgiving, am 24.12. und am 3.7. wird um 13:00 Ortszeit
+    geschlossen. Nur mit dieser Uhrzeit laesst sich ein regulaer verkuerzter
+    Handelstag von einem Datenabriss unterscheiden -- beide liefern eine
+    unvollstaendige letzte Kerze, aber nur der verkuerzte Tag endet genau
+    hier.
+    """
 
     def session_open_time(self) -> time:
         """Der Sitzungsbeginn als Uhrzeit.
@@ -64,23 +80,24 @@ class MarketConfig(_Section):
         Die Gueltigkeit ist bereits beim Laden geprueft, dieser Aufruf kann
         deshalb nicht mehr scheitern.
         """
-        hours, minutes = (int(part) for part in self.regular_session_open.split(":"))
-        return time(hours, minutes)
+        return _parse_time(self.regular_session_open)
 
-    @field_validator("regular_session_open")
+    def early_close_time(self) -> time:
+        return _parse_time(self.early_session_close)
+
+    @field_validator("regular_session_open", "early_session_close")
     @classmethod
-    def _session_open_must_be_a_time(cls, value: str) -> str:
+    def _must_be_a_time(cls, value: str, info: ValidationInfo) -> str:
         """Prueft das Format sofort beim Laden.
 
         Ein "09:30:00" oder "9.30" wuerde sonst erst spaeter und an einer
         Stelle auffallen, die den Konfigurationsschluessel nicht mehr kennt.
         """
         try:
-            hours, minutes = (int(part) for part in value.split(":"))
-            time(hours, minutes)
+            _parse_time(value)
         except ValueError as error:
             raise ValueError(
-                f"regular_session_open muss die Form 'HH:MM' haben, ist aber '{value}'"
+                f"{info.field_name} muss die Form 'HH:MM' haben, ist aber '{value}'"
             ) from error
         return value
 
