@@ -214,11 +214,16 @@ soll, ist der erste Weg vertretbar: Eine verpasste Gelegenheit kostet weniger
 als eine Position in eine Ergebnismeldung hinein. **Das ist eine Entscheidung
 für das ADR**, und die Unsicherheit gehört ans Ergebnis.
 
-**Für die Tageszeit (P8) ist das dagegen eine gute Nachricht.** Genau für die
-Titel, die uns interessieren, liegt sie in zwei von drei Fällen vor — nicht
-nur in einem von fünf, wie die Gesamtzahl vermuten ließe. Die Zuordnung
-„meldet nach Schluss, also betrifft es die Kerze des Folgetages" ist damit
-für die Mehrheit der Kandidaten möglich.
+**Die Tageszeit (P8) ist ein Nice-to-have, kein Pflichtfeld.**
+Ausdrücklich so entschieden vom Projektinhaber am 2026-08-13: Dass zu einem
+Termin nicht feststeht, ob vor oder nach Handelsbeginn gemeldet wird, ist
+toleriert; die Quote von zwei aus drei genügt.
+
+Damit gilt: Der Filter darf eine fehlende Tageszeit **nicht** zum
+Ausschlusskriterium machen und keine annehmen. Liegt sie vor — bei 64 % der
+eigenen Titel —, verfeinert sie die Zuordnung („meldet nach Schluss, also
+betrifft es die Kerze des Folgetages"). Fehlt sie, wird der ganze Handelstag
+als betroffen behandelt.
 
 ### P8 — Tageszeit als `bmo`/`amc`
 
@@ -271,9 +276,12 @@ als die Zahl:
 Das ist eine **Vermutung anhand der Namen, keine geprüfte Ursache.**
 Praktisch relevant ist die Gruppe `BDX`/`SWKS`: Ein Titel mit abweichendem
 Geschäftsjahr, dessen Termin der Filter nicht kennt, ist genau der Fall, in
-dem eine Ergebnismeldung unbemerkt trifft. Für das ADR heißt das: Ein
-fehlender Termin darf **nicht** als „keine Earnings in Sicht" gewertet
-werden, sondern muss als fehlende Information am Ergebnis stehen.
+dem eine Ergebnismeldung unbemerkt trifft.
+
+**Ausdrücklich entschieden am 2026-08-13:** Ein fehlender Termin wird
+**nicht** als „keine Earnings in Sicht" interpretiert. Er ist fehlende
+Information und steht als solche am Ergebnis — Datenabdeckung und Konfidenz
+sinken entsprechend, wie es Doc 10 für jede fehlende Kennzahl vorsieht.
 
 ## Zwei getrennte Bedarfe
 
@@ -298,25 +306,57 @@ genau das, was EDGAR prinzipiell nicht leisten kann — künftige Termine.
 Diese Idee ist hier nur festgehalten, nicht entschieden. Sie gehört mit in
 die F9-Entscheidung.
 
-## Stand und was noch fehlt
+### P7 — Empfehlungen ja, Kursziele nein
+
+Abruf am 2026-08-13 gegen `/stock/recommendation` und `/stock/price-target`
+mit dem kostenlosen Schlüssel, drei Symbole:
+
+| Endpunkt | Ergebnis |
+|---|---|
+| **Empfehlungen** | **HTTP 200 — in der Gratis-Stufe enthalten** |
+| **Kursziele** | **HTTP 403 — kostenpflichtig** |
+
+Die Empfehlungen kommen als vollständige Verteilung mit Zeitreihe: je
+Eintrag `strongBuy`, `buy`, `hold`, `sell`, `strongSell` samt `period`, und
+zwar vier Monatsstände je Symbol. Das ist mehr, als RESC geliefert hätte —
+dort lag nur der aktuelle Stand vor. Die **Veränderung** der
+Analystenmeinung über vier Monate ist ein eigenständiges Signal und liegt
+hier ohne Zusatzaufwand vor.
+
+Damit ist die Lücke aus ADR 0016 zu zwei Dritteln geschlossen: Termine und
+Ratings sind kostenlos abgedeckt, **Kursziele fehlen**.
+
+## Stand
 
 | Frage | Stand |
 |---|---|
-| Lizenz — alle fünf Nutzungsarten | **geklärt**, GO mit der Löschpflicht als Einschränkung |
+| Lizenz — alle fünf Nutzungsarten | **geklärt**, GO; Löschpflicht als Einschränkung |
 | P4 Vorlauf | **geklärt**, mindestens vier Monate |
-| P5 bestätigt/geschätzt | **geklärt** — es gibt keine Kennzeichnung, und `hour` ist kein Ersatz |
+| P5 bestätigt/geschätzt | **geklärt** — keine Kennzeichnung, kein Ersatz |
 | P6 Abdeckung | **geklärt**, 97 %, akzeptiert |
-| P8 Tageszeit | **geklärt**, für 64 % der eigenen Titel vorhanden |
+| P7 Ratings | **geklärt**, kostenlos enthalten |
+| P7 Kursziele | **kostenpflichtig — offene Entscheidung** |
+| P8 Tageszeit | **geklärt**, Nice-to-have, 64 % bei den eigenen Titeln |
 | Grenzen der Schnittstelle | **geklärt**, 1500 Treffer je Anfrage, stille Kürzung am Anfang |
-| **P7 Ratings und Kursziele** | **offen** — sind die Endpunkte in der Gratis-Stufe enthalten? |
-| Historische Termine fürs Backtesting | **offen** — EDGAR als lizenzfreier Weg |
+| Historische Termine fürs Backtesting | **offene Entscheidung** — EDGAR als lizenzfreier Weg |
 
-Für P7 genügt ein Abruf gegen die beiden Endpunkte: Eine Antwort mit Daten
-heißt enthalten, ein 403 heißt kostenpflichtig. Das ist die letzte offene
-Frage vor dem ADR.
+## Die verbleibende Entscheidung: Kursziele
 
-Für die Löschpflicht ist im ADR festzulegen, was am Ergebnis gespeichert
-wird — der Termin selbst oder nur die daraus abgeleitete Entscheidung.
+Drei Wege, keiner davon zwingend:
+
+1. **Ohne Kursziele bauen.** Die Empfehlungsverteilung samt ihrer
+   Veränderung deckt die Analystenmeinung ab; das Kursziel fügt eine
+   Größenordnung hinzu, keine neue Richtung. F9 liefe mit einer als fehlend
+   gekennzeichneten Kennzahl — der Regelfall aus Doc 10, kein Sonderfall.
+2. **Finnhub-Bezahlstufe.** Öffentliche Quellen nennen für Premium
+   11,99 bis 99,99 USD im Monat, je nach Umfang; welche Stufe die Kursziele
+   enthält, ist damit nicht belegt und wäre an der Preisseite zu prüfen.
+3. **Zweiter Anbieter nur für Kursziele.** Vermutlich der schlechteste Weg:
+   ein zweiter Vertrag, eine zweite Lizenzprüfung und eine zweite
+   Fehlerquelle für eine Kennzahl, die den Ausschlag selten gibt.
+
+Empfehlung: Weg 1 für den Anfang. Kursziele sind nachrüstbar, und die
+Entscheidung lässt sich mit echten Ergebnissen besser treffen als jetzt.
 
 ## Quellen
 
