@@ -367,7 +367,9 @@ def command_screen(args: argparse.Namespace) -> int:
         stocks = stocks[: args.limit]
 
     interval = config.market_data.ibkr.minimum_request_interval_seconds
-    if interval <= 0 and len(stocks) > PACING_FREE_LIMIT:
+    # Aus dem Bestand gelesen gibt es keine Anfrage an die TWS und damit
+    # nichts zu drosseln -- die Sperre waere hier nur im Weg.
+    if args.source == "live" and interval <= 0 and len(stocks) > PACING_FREE_LIMIT:
         # Ohne Abstand loest ein solcher Lauf genau die Sperre aus, gegen die
         # der Abstand eingebaut wurde -- und trifft dann auch die parallel
         # laufende Fremdanwendung an derselben TWS.
@@ -383,6 +385,8 @@ def command_screen(args: argparse.Namespace) -> int:
         f"{len(stocks)} Aktien, TWS {config.market_data.ibkr.host}:"
         f"{config.market_data.ibkr.port} (Client-ID {config.market_data.ibkr.client_id}), "
         f"Historie {config.market_data.ibkr.history_duration}, Abstand {interval:g} s\n"
+        if args.source == "live"
+        else f"{len(stocks)} Aktien aus dem gespeicherten Bestand -- ohne TWS\n"
     )
 
     started = datetime.now(UTC)

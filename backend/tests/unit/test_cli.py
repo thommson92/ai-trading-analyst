@@ -441,6 +441,26 @@ class TestBarquelleFuerDasScreening:
     def test_der_bestand_laesst_sich_waehlen(self) -> None:
         assert build_parser().parse_args(["screen", "--source", "stored"]).source == "stored"
 
+
+    def test_aus_dem_bestand_greift_die_pacing_sperre_nicht(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne Anfrage an die TWS gibt es nichts zu drosseln -- die Sperre
+        waere hier nur im Weg. Sie darf den Lauf nicht mit 2 abweisen."""
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(
+            ["--config", str(config), "screen", "--source", "stored", "--no-pacing"]
+        )
+
+        # 2 kommt hier nur noch von der fehlenden Datenbankadresse, nicht vom
+        # Pacing -- erkennbar an der Meldung.
+        assert exit_code == 2
+        assert "nicht zulaessig" not in capsys.readouterr().err
+
     def test_ohne_datenbankadresse_meldet_sich_der_bestand_verstaendlich(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
