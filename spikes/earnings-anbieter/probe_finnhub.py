@@ -84,6 +84,48 @@ def fetch_calendar(api_key: str, von: date, bis: date) -> dict[str, Any]:
         raise ProbeError(f"Keine Verbindung zu Finnhub: {fehler.reason}") from None
 
 
+def fetch_in_chunks(
+    api_key: str, von: date, bis: date, fenster_tage: int
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Holt einen langen Zeitraum in kurzen Fenstern.
+
+    Eine einzelne Anfrage ueber 120 Tage lieferte 1500 Eintraege -- eine
+    verdaechtig runde Zahl -- und darin ausschliesslich Termine der letzten
+    sechs Wochen des Zeitraums. Die naheliegenden Termine fehlten also
+    vollstaendig, ohne dass die Antwort das kenntlich gemacht haette. Wer
+    einen langen Zeitraum am Stueck anfragt, bekommt stillschweigend einen
+    Ausschnitt.
+
+    Kurze Fenster umgehen das. Sie kosten mehr Anfragen, aber bei 60 je
+    Minute faellt das nicht ins Gewicht.
+    """
+    eintraege: list[dict[str, Any]] = []
+    hinweise: list[str] = []
+    gesehen: set[tuple[str, str]] = set()
+
+    fenster_start = von
+    while fenster_start <= bis:
+        fenster_ende = min(fenster_start + timedelta(days=fenster_tage - 1), bis)
+        antwort = fetch_calendar(api_key, fenster_start, fenster_ende)
+        teil = list(antwort.get("earningsCalendar", []))
+        hinweise.append(
+            f"  {fenster_start} bis {fenster_ende}: {len(teil)} Eintraege"
+            + (
+                "  <-- verdaechtig runde Zahl, moeglicherweise gekuerzt"
+                if teil and len(teil) % 500 == 0
+                else ""
+            )
+        )
+        for eintrag in teil:
+            kennung = (str(eintrag.get("symbol")), str(eintrag.get("date")))
+            if kennung not in gesehen:
+                gesehen.add(kennung)
+                eintraege.append(eintrag)
+        fenster_start = fenster_ende + timedelta(days=1)
+
+    return eintraege, hinweise
+
+
 def watchlist_symbols(verzeichnis: Path) -> list[str]:
     """Liest die TradingView-Exporte, ohne den Produktivcode zu importieren.
 
@@ -254,28 +296,51 @@ def main(argv: list[str] | None = None) -> int:
         help="Verzeichnis mit den TradingView-Exporten",
     )
     parser.add_argument(
+        "--fenster",
+        type=int,
+        default=30,
+        help="Groesse der einzelnen Anfragefenster in Tagen (Standard: 30). "
+        "Lange Zeitraeume am Stueck liefern nur einen Ausschnitt.",
+    )
+    parser.add_argument(
         "--from-file", type=Path, default=None, help="Gespeicherte Antwort auswerten"
     )
     args = parser.parse_args(argv)
 
     heute = date.today()  # noqa: DTZ011 -- Kalendertag genuegt fuer eine Diagnose
+    bis = heute + timedelta(days=args.tage)
+    hinweise: list[str] = []
     try:
         if args.from_file is not None:
             antwort = json.loads(args.from_file.read_text(encoding="utf-8"))
+            eintraege = list(antwort.get("earningsCalendar", []))
             quelle = str(args.from_file)
         else:
-            antwort = fetch_calendar(read_api_key(), heute, heute + timedelta(days=args.tage))
-            quelle = f"finnhub.io, {heute} bis {heute + timedelta(days=args.tage)}"
+            eintraege, hinweise = fetch_in_chunks(
+                read_api_key(), heute, bis, args.fenster
+            )
+            antwort = {"earningsCalendar": eintraege}
+            quelle = (
+                f"finnhub.io, {heute} bis {bis} "
+                f"in Fenstern zu {args.fenster} Tagen ({len(hinweise)} Anfragen)"
+            )
     except ProbeError as fehler:
         print(str(fehler), file=sys.stderr)
         return 2
 
-    eintraege = list(antwort.get("earningsCalendar", []))
-    ziel = Path(__file__).parent / "results" / f"finnhub_{heute.isoformat()}.json"
+    ziel = (
+        Path(__file__).parent
+        / "results"
+        / f"finnhub_{heute.isoformat()}_{args.tage}t.json"
+    )
     ziel.write_text(json.dumps(antwort, indent=2), encoding="utf-8")
 
     print(f"Quelle: {quelle}")
     print(f"Antwort gespeichert: {ziel}  (nicht versioniert)")
+    if hinweise:
+        print("\nAnfragen:")
+        for zeile in hinweise:
+            print(zeile)
     print()
     if not eintraege:
         print(

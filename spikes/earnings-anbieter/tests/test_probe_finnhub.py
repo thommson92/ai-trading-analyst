@@ -17,7 +17,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from probe_finnhub import API_KEY_VARIABLE, ProbeError, read_api_key, summarize, watchlist_symbols
+from probe_finnhub import (
+    API_KEY_VARIABLE,
+    ProbeError,
+    fetch_in_chunks,
+    read_api_key,
+    summarize,
+    watchlist_symbols,
+)
 
 OHNE_KENNZEICHNUNG = [
     {"date": "2026-08-20", "symbol": "AAPL", "hour": "amc", "quarter": 3, "year": 2026},
@@ -100,6 +107,59 @@ class TestVorlaufanalyse:
     def test_ein_unlesbares_datum_bricht_die_auswertung_nicht_ab(self) -> None:
         eintraege = [{"date": "keine Angabe", "symbol": "X", "hour": "amc"}]
         assert summarize(eintraege, [])  # keine Ausnahme, Rest bleibt nutzbar
+
+
+class TestFensterweiserAbruf:
+    """Eine Anfrage ueber 120 Tage lieferte 1500 Eintraege -- und darin nur
+    Termine der letzten sechs Wochen. Kurze Fenster umgehen das."""
+
+    @staticmethod
+    def _antworten(seiten: list[list[dict[str, str]]]) -> object:
+        aufrufe: list[tuple[date, date]] = []
+
+        def falscher_abruf(_key: str, von: date, bis: date) -> dict[str, object]:
+            aufrufe.append((von, bis))
+            return {"earningsCalendar": seiten[len(aufrufe) - 1]}
+
+        falscher_abruf.aufrufe = aufrufe  # type: ignore[attr-defined]
+        return falscher_abruf
+
+    def test_der_zeitraum_wird_in_fenster_zerlegt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        abruf = self._antworten([[], [], []])
+        monkeypatch.setattr("probe_finnhub.fetch_calendar", abruf)
+
+        fetch_in_chunks("k", date(2026, 8, 13), date(2026, 10, 11), 30)
+
+        assert abruf.aufrufe == [  # type: ignore[attr-defined]
+            (date(2026, 8, 13), date(2026, 9, 11)),
+            (date(2026, 9, 12), date(2026, 10, 11)),
+        ]
+
+    def test_dubletten_ueber_fenstergrenzen_hinweg_verschwinden(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gleicher = {"symbol": "AAPL", "date": "2026-09-11"}
+        monkeypatch.setattr(
+            "probe_finnhub.fetch_calendar", self._antworten([[gleicher], [gleicher]])
+        )
+
+        eintraege, _ = fetch_in_chunks("k", date(2026, 8, 13), date(2026, 10, 11), 30)
+
+        assert len(eintraege) == 1
+
+    def test_eine_verdaechtig_runde_anzahl_wird_gemeldet(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Genau so sah die Kuerzung aus: 1500 glatte Eintraege, ohne dass
+        die Antwort es kenntlich gemacht haette."""
+        gekuerzt = [{"symbol": f"S{i}", "date": "2026-09-01"} for i in range(500)]
+        monkeypatch.setattr("probe_finnhub.fetch_calendar", self._antworten([gekuerzt]))
+
+        _, hinweise = fetch_in_chunks("k", date(2026, 8, 13), date(2026, 8, 20), 30)
+
+        assert "verdaechtig runde Zahl" in hinweise[0]
 
 
 class TestWatchlist:

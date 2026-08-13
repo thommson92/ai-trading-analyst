@@ -118,6 +118,84 @@ Festlegung ist der konsequente Weg, deutlich kürzer als der
 Beantwortet werden diese Fragen durch die Sonde unter
 [`spikes/earnings-anbieter/`](../../spikes/earnings-anbieter/).
 
+## Finnhub — fachliche Befunde
+
+Erhoben am 2026-08-13 mit einem kostenlosen Schlüssel, zwei Abrufe über
+30 und 120 Tage.
+
+### Die Antwort enthält neun Felder
+
+`date`, `symbol`, `year`, `quarter`, `hour`, `epsEstimate`,
+`revenueEstimate`, `epsActual`, `revenueActual`.
+
+Der Füllgrad ist aufschlussreich: `epsActual` und `revenueActual` sind für
+künftige Termine **durchweg leer** — sie werden erst nach der Meldung
+gefüllt. Schätzwerte liegen für etwa 60 % der Termine vor. Der Termin selbst
+ist immer da.
+
+### P4 — Der Vorlauf ist nicht die Grenze, die Trefferzahl ist es
+
+Die Gratis-Stufe liefert Termine bis mindestens vier Monate voraus, nicht
+nur einen Monat wie in Vergleichsquellen behauptet.
+
+**Aber:** Ein einzelner Abruf über 120 Tage lieferte **genau 1500
+Einträge** — eine verdächtig runde Zahl — und darin ausschließlich Termine
+der **letzten sechs Wochen** des angefragten Zeitraums. Die nahen Termine,
+also genau die, auf die es ankommt, fehlten vollständig. Die Antwort hat das
+mit keinem Feld kenntlich gemacht.
+
+Das ist der gefährlichste Befund dieser Prüfung: Wer einen langen Zeitraum
+am Stück anfragt, bekommt stillschweigend einen Ausschnitt und hält ihn für
+das Ganze. Ein Earnings-Filter auf dieser Grundlage würde die betroffenen
+Aktien wortlos durchwinken.
+
+Umgehen lässt sich das mit kurzen Anfragefenstern. Die Sonde tut das jetzt
+(`--fenster`, Standard 30 Tage) und meldet jede verdächtig runde
+Trefferzahl.
+
+### P5 — Keine Kennzeichnung, aber ein einseitiger Ersatz
+
+Es gibt kein Feld für bestätigt/geschätzt. Die Vermutung, dass eine gefüllte
+Tageszeit einen bestätigten Termin anzeigt, wird von den Daten **gestützt**:
+
+| Vorlauf | Anteil mit Tageszeit |
+|---|---|
+| diese Woche | 46 % |
+| in 1 Woche | 19 % |
+| in 2 Wochen | 12 % |
+| in 3 Wochen | 8 % |
+| in 12–17 Wochen | 6–19 % |
+
+Der Abfall von 46 % auf rund 10 % ist deutlich. **Eine gefüllte Tageszeit
+ist damit ein brauchbarer Hinweis auf einen bestätigten Termin.**
+
+Der Umkehrschluss gilt aber **nicht**: Auch bei unmittelbar bevorstehenden
+Terminen fehlt die Tageszeit in mehr als der Hälfte der Fälle. Aus einem
+leeren `hour` folgt „unbekannt", nicht „unbestätigt".
+
+Für den Filter heißt das: Ein vollständiger „nur bestätigte Termine"-Filter
+ist mit dieser Quelle nicht baubar. Bleiben zwei Wege — jeder Termin zählt,
+auch der geschätzte (vorsichtig, schließt gelegentlich zu Unrecht aus), oder
+nur bestätigte zählen (übersieht die Mehrheit). Für einen Filter, der Risiko
+vermeiden soll, ist der erste Weg der richtige: Eine verpasste Gelegenheit
+kostet weniger als eine Position in eine Ergebnismeldung hinein. **Das ist
+eine Entscheidung für das ADR, keine stillschweigende Festlegung im Code**,
+und die geringere Konfidenz gehört ans Ergebnis.
+
+### P8 — Tageszeit als `bmo`/`amc`
+
+Wo vorhanden, steht `bmo` (vor Börsenöffnung) oder `amc` (nach
+Börsenschluss). Das ist die Angabe, die ein Filter auf 195-Minuten-Kerzen
+braucht: Meldet ein Unternehmen `amc`, ist die betroffene Kerze die des
+Folgetages.
+
+### P6 — noch offen
+
+Die Abdeckung der eigenen Watchlist lässt sich aus den bisherigen Läufen
+**nicht** beantworten: Der 30-Tage-Lauf traf 31 von 192 Titeln, der
+120-Tage-Lauf 32 — aber letzterer deckte wegen der Kürzung nur sechs Wochen
+im November und Dezember ab. Nötig ist ein Lauf über mehrere kurze Fenster.
+
 ## Zwei getrennte Bedarfe
 
 Das Abrufvolumen von 10–20 pro Tag gilt für den **Live-Filter**. Das
