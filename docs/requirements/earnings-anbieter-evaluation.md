@@ -1,8 +1,9 @@
 # Anbieter für Earnings-Termine, Ratings und Kursziele
 
-Stand 2026-08-13. **Entscheidungsvorlage, kein ADR.** Das ADR zur
-F9-Datenquelle entsteht erst, wenn die unter „Was noch fehlt" genannten
-Punkte belegt sind.
+Stand 2026-08-13. **Erledigt** — die Entscheidung steht in
+[ADR 0017](../adr/0017-finnhub-fuer-earnings-und-ratings.md). Dieses
+Dokument bleibt als Beleg erhalten: Es enthält die Messungen, auf die sich
+das ADR stützt, und die Wege, die nicht gegangen wurden.
 
 Ausgangslage: IBKR ist als Research-Quelle ausgeschieden
 ([ADR 0016](../adr/0016-ibkr-keine-quelle-fuer-research-daten.md)). Gesucht
@@ -355,8 +356,16 @@ Drei Wege, keiner davon zwingend:
    ein zweiter Vertrag, eine zweite Lizenzprüfung und eine zweite
    Fehlerquelle für eine Kennzahl, die den Ausschlag selten gibt.
 
-Empfehlung: Weg 1 für den Anfang. Kursziele sind nachrüstbar, und die
-Entscheidung lässt sich mit echten Ergebnissen besser treffen als jetzt.
+**Entschieden am 2026-08-13: Weg 1.** Erst einmal ohne Kursziele bauen,
+nachrüstbar in einer späteren Ausbaustufe. Ebenso zurückgestellt: EDGAR für
+die historischen Termine — als Weg vorgemerkt, nicht jetzt.
+
+Zur Löschpflicht ist festgehalten, dass sie derzeit **nicht ausgelöst** ist:
+Die Gratis-Stufe läuft nicht ab, es gibt kein Abonnementende. Ausgelöst
+würde sie nicht durch eine Zahlung, sondern durch das Ende des Bezugs
+überhaupt — Kontoschließung, Sperrung des Schlüssels, Einstellung der
+Gratis-Stufe. Bis dahin besteht keine Pflicht, gespeicherte Daten zu
+löschen. Siehe ADR 0017, Einschränkung L6.
 
 ## Quellen
 

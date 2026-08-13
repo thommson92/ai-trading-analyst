@@ -51,6 +51,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |
 | [0015](0015-plattformunabhaengige-lock-dateien.md) | Lock-Dateien plattformunabhängig erzeugen (uv statt pip-compile) | Angenommen |
 | [0016](0016-ibkr-keine-quelle-fuer-research-daten.md) | IBKR ist keine Quelle für Research-Daten (RESC: NO_GO) | Angenommen |
+| [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -72,16 +73,15 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Anbieter für historische Intraday-Kurse (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 3/4: 195-Minuten-Aggregation und historische
   Abdeckung bis 2 Jahre live bestätigt).
-- Anbieter für Earnings-Termine sowie für Analystenratings und Kursziele
-  (F9) — **offen, aber eingegrenzt.** IBKR scheidet als Research-Quelle aus
-  ([ADR 0016](0016-ibkr-keine-quelle-fuer-research-daten.md)): `RESC`
-  enthält zwar Kursziele und Empfehlungen, aber keine künftigen
-  Berichtstermine, und die Vertragslage ließ sich nicht belastbar klären.
-  Beide Bedarfe werden deshalb gemeinsam extern abgedeckt. Bewertung:
-  [`docs/requirements/earnings-anbieter-evaluation.md`](../requirements/earnings-anbieter-evaluation.md).
-  Einschränkung E1 aus [ADR 0014](0014-ibkr-produktivintegration-freigegeben.md)
-  bleibt gültig; bis zur Anbieterentscheidung läuft F9 ohne
-  Datengrundlage.
+- Kursziele (F9) — **zurückgestellt.** Termine und Analystenratings sind
+  durch [ADR 0017](0017-finnhub-fuer-earnings-und-ratings.md) entschieden
+  (Finnhub, kostenlose Stufe); der Kursziel-Endpunkt ist dort
+  kostenpflichtig. Bewusst ohne Kursziele gebaut, nachrüstbar in einer
+  späteren Ausbaustufe.
+- Historische Berichtstermine für das Backtesting — **zurückgestellt.**
+  Vorgemerkter Weg ist SEC EDGAR (Einreichungsdatum des `8-K` mit Item
+  2.02): amtlich, kostenlos und ohne Lizenzbeschränkung. Siehe ADR 0017,
+  Einschränkung L9.
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
