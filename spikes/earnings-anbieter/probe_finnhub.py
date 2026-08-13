@@ -100,6 +100,60 @@ def watchlist_symbols(verzeichnis: Path) -> list[str]:
     return sorted(set(symbole))
 
 
+def _hat_wert(wert: Any) -> bool:
+    """``epsActual: null`` ist ein vorhandenes Feld ohne Wert.
+
+    Die Unterscheidung ist nicht kosmetisch: Ein Feld, das immer da, aber
+    fuer kuenftige Termine immer leer ist, taugt fuer nichts.
+    """
+    return wert is not None and str(wert).strip() != ""
+
+
+def _vorlaufanalyse(eintraege: Sequence[dict[str, Any]]) -> list[str]:
+    """Haengt die Angabe der Tageszeit vom Vorlauf ab?
+
+    Der Kalender kennt kein Feld ``confirmed`` (P5). Es gibt aber eine
+    naheliegende Vermutung: Boersennotierte Unternehmen bestaetigen ihren
+    Termin ueblicherweise wenige Wochen vorher, und erst dann steht auch
+    fest, ob vor oder nach Schluss gemeldet wird. Waere das so, muesste
+    ``hour`` bei nahen Terminen deutlich haeufiger gefuellt sein als bei
+    fernen -- und liesse sich als Ersatz fuer die fehlende Kennzeichnung
+    verwenden.
+
+    Verteilt sich die Luecke dagegen gleichmaessig ueber den Vorlauf, ist
+    ``hour`` einfach unvollstaendig und als Hinweis auf einen bestaetigten
+    Termin **nicht** brauchbar. Die Auswertung entscheidet das, statt es zu
+    vermuten.
+    """
+    heute = date.today()  # noqa: DTZ011 -- Kalendertag genuegt fuer eine Diagnose
+    eimer: dict[int, list[bool]] = {}
+    for eintrag in eintraege:
+        roh = str(eintrag.get("date", ""))
+        try:
+            termin = date.fromisoformat(roh)
+        except ValueError:
+            continue
+        woche = max((termin - heute).days, 0) // 7
+        eimer.setdefault(woche, []).append(_hat_wert(eintrag.get("hour")))
+
+    if not eimer:
+        return []
+
+    zeilen = ["", "  Vorlauf gegen Angabe der Tageszeit:"]
+    for woche in sorted(eimer):
+        werte = eimer[woche]
+        anteil = sum(werte) / len(werte) * 100
+        zeilen.append(
+            f"    in {woche} Woche(n): {sum(werte):>4} von {len(werte):>4} "
+            f"mit Tageszeit ({anteil:.0f} %)"
+        )
+    zeilen.append(
+        "  Faellt der Anteil mit dem Vorlauf deutlich, ist eine gefuellte "
+        "Tageszeit ein Hinweis auf einen bestaetigten Termin."
+    )
+    return zeilen
+
+
 def summarize(
     eintraege: Sequence[dict[str, Any]], watchlist: Iterable[str]
 ) -> list[str]:
@@ -111,15 +165,30 @@ def summarize(
     zeilen.append(f"Verschiedene Symbole: {len(beobachtet)}")
 
     felder: Counter[str] = Counter()
+    gefuellt: Counter[str] = Counter()
     for eintrag in eintraege:
         # Nicht ``update(eintrag)``: Ein Counter nimmt ein Mapping als
         # Element-zu-Anzahl und wuerde die Werte aufaddieren.
         felder.update(eintrag.keys())
+        gefuellt.update(name for name, wert in eintrag.items() if _hat_wert(wert))
     zeilen.append("")
-    zeilen.append("Felder je Eintrag (Fuellgrad):")
+    zeilen.append("Felder je Eintrag (vorhanden / davon mit Wert):")
     for name, anzahl in sorted(felder.items()):
-        anteil = anzahl / len(eintraege) * 100 if eintraege else 0.0
-        zeilen.append(f"  {name:<20} {anzahl:>5} von {len(eintraege)}  ({anteil:.0f} %)")
+        anteil = gefuellt[name] / len(eintraege) * 100 if eintraege else 0.0
+        zeilen.append(
+            f"  {name:<20} {anzahl:>5} vorhanden, {gefuellt[name]:>5} mit Wert "
+            f"({anteil:.0f} %)"
+        )
+
+    mehrfach = Counter(str(eintrag.get("symbol")) for eintrag in eintraege)
+    doppelte = [symbol for symbol, anzahl in mehrfach.items() if anzahl > 1]
+    if doppelte:
+        zeilen.append("")
+        zeilen.append(
+            f"{len(doppelte)} Symbole erscheinen mehrfach im Zeitraum "
+            f"(z. B. {', '.join(sorted(doppelte)[:8])}) -- zu klaeren, ob das "
+            "zwei Quartale sind oder Dubletten."
+        )
 
     zeilen.append("")
     zeilen.append("P5 -- Kennzeichnung bestaetigt/geschaetzt:")
@@ -150,6 +219,7 @@ def summarize(
             f"{wert or '(leer)'}: {anzahl}" for wert, anzahl in verteilung.most_common()
         )
         zeilen.append(f"  hour = {aufstellung}")
+        zeilen.extend(_vorlaufanalyse(eintraege))
     else:
         zeilen.append("  kein Feld zur Tageszeit vorhanden")
 

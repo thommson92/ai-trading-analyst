@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,22 @@ class TestZusammenfassung:
         eintraege = [*OHNE_KENNZEICHNUNG, {"date": "2026-08-22", "symbol": "MSFT"}]
         ausgabe = "\n".join(summarize(eintraege, []))
         assert "symbol" in ausgabe
-        assert "2 von 3" in ausgabe  # hour fehlt beim dritten Eintrag
+        assert "2 mit Wert" in ausgabe  # hour fehlt beim dritten Eintrag
+
+    def test_ein_vorhandenes_feld_ohne_wert_zaehlt_nicht_als_gefuellt(self) -> None:
+        """``epsActual: null`` ist bei kuenftigen Terminen der Normalfall --
+        ein Fuellgrad von 100 Prozent waere hier eine Luege."""
+        eintraege = [{"date": "2026-08-20", "symbol": "AAPL", "epsActual": None}]
+        ausgabe = "\n".join(summarize(eintraege, []))
+        assert "epsActual                1 vorhanden,     0 mit Wert" in ausgabe
+
+    def test_mehrfach_genannte_symbole_werden_gemeldet(self) -> None:
+        eintraege = [
+            {"date": "2026-08-20", "symbol": "AAPL"},
+            {"date": "2026-11-20", "symbol": "AAPL"},
+        ]
+        assert "AAPL" in "\n".join(summarize(eintraege, []))
+        assert "erscheinen mehrfach" in "\n".join(summarize(eintraege, []))
 
     def test_die_tageszeit_wird_ausgewertet(self) -> None:
         """Ohne sie ist ein Termin fuer einen Filter auf 195-Minuten-Kerzen
@@ -64,6 +80,26 @@ class TestZusammenfassung:
 
     def test_ohne_watchlist_entfaellt_der_abschnitt(self) -> None:
         assert "Abdeckung" not in "\n".join(summarize(OHNE_KENNZEICHNUNG, []))
+
+
+class TestVorlaufanalyse:
+    """Ob eine gefuellte Tageszeit ein bestaetigter Termin ist, entscheidet
+    die Verteilung ueber den Vorlauf -- nicht eine Vermutung."""
+
+    @staticmethod
+    def _in_tagen(tage: int, hour: str) -> dict[str, str]:
+        termin = date.today() + timedelta(days=tage)  # noqa: DTZ011
+        return {"date": termin.isoformat(), "symbol": "X", "hour": hour}
+
+    def test_der_vorlauf_wird_in_wochen_aufgeschluesselt(self) -> None:
+        eintraege = [self._in_tagen(2, "amc"), self._in_tagen(30, "")]
+        ausgabe = "\n".join(summarize(eintraege, []))
+        assert "in 0 Woche(n):    1 von    1 mit Tageszeit (100 %)" in ausgabe
+        assert "in 4 Woche(n):    0 von    1 mit Tageszeit (0 %)" in ausgabe
+
+    def test_ein_unlesbares_datum_bricht_die_auswertung_nicht_ab(self) -> None:
+        eintraege = [{"date": "keine Angabe", "symbol": "X", "hour": "amc"}]
+        assert summarize(eintraege, [])  # keine Ausnahme, Rest bleibt nutzbar
 
 
 class TestWatchlist:
