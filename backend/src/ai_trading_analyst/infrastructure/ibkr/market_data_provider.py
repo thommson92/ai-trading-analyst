@@ -21,7 +21,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from ai_trading_analyst.domain.analysis import MarketDataProvider, MarketDataProviderError, Stock
+from ai_trading_analyst.domain.analysis import (
+    ContractSpec,
+    HistoricalBarSource,
+    MarketDataProvider,
+    MarketDataProviderError,
+    Stock,
+)
 from ai_trading_analyst.domain.screening import (
     AggregationResult,
     CandleAggregationError,
@@ -34,7 +40,7 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
-from .bar_source import ContractSpec, HistoricalBarSource, IbkrBarSourceError
+from .bar_source import IbkrBarSourceError
 
 _logger = get_logger(__name__)
 

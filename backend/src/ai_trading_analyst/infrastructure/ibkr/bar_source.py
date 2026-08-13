@@ -30,8 +30,12 @@ import time
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
+from ai_trading_analyst.domain.analysis import (
+    ContractSpec,
+    MarketDataProviderError,
+)
 from ai_trading_analyst.domain.screening import IntradayBar
 
 SUPPORTED_BAR_MINUTES = (1, 3, 5, 15)
@@ -74,7 +78,7 @@ def _silence_account_logging() -> None:
     logging.getLogger("ib_async").setLevel(logging.WARNING)
 
 
-class IbkrBarSourceError(RuntimeError):
+class IbkrBarSourceError(MarketDataProviderError):
     """Die TWS war nicht erreichbar oder hat keine verwertbaren Bars geliefert.
 
     Der haeufigste Fall ist der erwartete Betriebszustand aus ADR 0014,
@@ -114,35 +118,18 @@ def ibkr_bar_size(native_bar_minutes: int) -> str:
     return "1 min" if native_bar_minutes == 1 else f"{native_bar_minutes} mins"
 
 
-@dataclass(frozen=True, slots=True)
-class ContractSpec:
-    """Der Kontrakt, den IBKR fuer ein Symbol aufloesen soll.
+def ibkr_duration(days: int) -> str:
+    """Uebersetzt eine Tagesangabe in die Zeitraumangabe der IBKR-API.
 
-    ``exchange`` ist der Weg zur Ausfuehrung (``SMART`` ist IBKRs
-    Smart-Routing und fuer US-Aktien der Normalfall), ``primary_exchange`` die
-    Heimatboerse. Letztere macht mehrdeutige Symbole eindeutig -- ohne sie
-    liefert IBKR bei manchen Tickern mehrere Kontrakte zurueck, und die Wahl
-    des ersten waere geraten.
+    Tagesangaben nimmt die API bis 365 an; darueber ist in Jahren zu rechnen.
+    Aufgerundet wird bewusst -- lieber ein paar Bars zu viel als eine Luecke,
+    zumal doppelte Bars beim Speichern ohnehin uebergangen werden.
     """
-
-    symbol: str
-    exchange: str = "SMART"
-    currency: str = "USD"
-    primary_exchange: str | None = None
-
-
-class HistoricalBarSource(Protocol):
-    """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst."""
-
-    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
-        """Raises:
-        IbkrBarSourceError: wenn die Bars nicht beschafft werden konnten.
-        """
-        ...
-
-    def close(self) -> None:
-        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
-        ...
+    if days < 1:
+        raise ValueError(f"days muss mindestens 1 sein, ist aber {days}")
+    if days <= 365:
+        return f"{days} D"
+    return f"{-(-days // 365)} Y"
 
 
 class IbAsyncBarSource:
@@ -186,11 +173,13 @@ class IbAsyncBarSource:
         self._owner_thread: int | None = None
         self._last_request_at: float | None = None
 
-    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+    def fetch_intraday_bars(
+        self, contract: ContractSpec, days: int | None = None
+    ) -> Sequence[IntradayBar]:
         with self._lock:
-            return self._fetch(contract)
+            return self._fetch(contract, days)
 
-    def _fetch(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+    def _fetch(self, contract: ContractSpec, days: int | None) -> Sequence[IntradayBar]:
         symbol = contract.symbol
         try:
             ib = self._connection()
@@ -216,7 +205,7 @@ class IbAsyncBarSource:
             bars = ib.reqHistoricalData(
                 contracts[0],
                 endDateTime="",
-                durationStr=self._duration,
+                durationStr=self._duration if days is None else ibkr_duration(days),
                 barSizeSetting=self._bar_size,
                 whatToShow="TRADES",
                 # Nur regulaere Handelszeiten -- Extended Hours fliessen nie in

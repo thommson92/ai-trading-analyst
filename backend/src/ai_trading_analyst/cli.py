@@ -30,13 +30,23 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ai_trading_analyst.bootstrap import build_market_data_provider, project_root
+from ai_trading_analyst.application.backfill_history import (
+    BackfillHistoryUseCase,
+    SymbolBackfill,
+)
+from ai_trading_analyst.bootstrap import (
+    build_ibkr_bar_source,
+    build_market_data_provider,
+    project_root,
+)
 from ai_trading_analyst.config.loader import load_config
-from ai_trading_analyst.config.settings import LoggingConfig
+from ai_trading_analyst.config.settings import AppConfig, LoggingConfig, MissingSecretError, Secrets
 from ai_trading_analyst.domain.analysis import (
+    HistoricalBarSource,
     MarketDataProvider,
     MarketDataProviderError,
     Stock,
+    UnitOfWork,
 )
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
@@ -45,6 +55,15 @@ from ai_trading_analyst.domain.screening import (
     evaluate_candidate,
 )
 from ai_trading_analyst.infrastructure.ibkr import ContractSpec, IbkrMarketDataProvider
+from ai_trading_analyst.infrastructure.persistence.repositories import (
+    SqlAlchemyIntradayBarRepository,
+)
+from ai_trading_analyst.infrastructure.persistence.session import (
+    build_engine,
+    build_session_factory,
+)
+from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
+from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ai_trading_analyst.infrastructure.watchlists import (
     WatchlistError,
     describe_sources,
@@ -160,6 +179,124 @@ def command_watchlist(args: argparse.Namespace) -> int:
     return 0
 
 
+def _watchlist_from(
+    args: argparse.Namespace, config: AppConfig, config_path: Path
+) -> tuple[ContractSpec, ...] | None:
+    """Symbole aus ``--symbols`` oder aus den Watchlist-Dateien.
+
+    ``None`` heisst: ``--symbols`` wurde angegeben, enthielt aber kein Symbol.
+    Ohne diese Unterscheidung liefe ein Screening ueber null Aktien durch und
+    meldete Erfolg.
+    """
+    if args.symbols is None:
+        return tuple(
+            load_watchlist_directory(
+                project_root(config_path) / config.market_data.ibkr.watchlist_directory
+            )
+        )
+    gewaehlt = tuple(
+        ContractSpec(symbol=symbol.strip().upper())
+        for symbol in args.symbols.split(",")
+        if symbol.strip()
+    )
+    if not gewaehlt:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return None
+    return gewaehlt
+
+
+def _print_backfill_progress(index: int, total: int, ergebnis: SymbolBackfill) -> None:
+    prefix = f"[{index:>3}/{total}] {ergebnis.symbol:<8}"
+    if ergebnis.failed:
+        print(f"{prefix} FEHLER   {ergebnis.error}", flush=True)
+        return
+    zeitraum = (
+        "Standardzeitraum"
+        if ergebnis.requested_days is None
+        else f"{ergebnis.requested_days} Tage"
+    )
+    print(
+        f"{prefix} {ergebnis.received_bars:>5} Bars empfangen, "
+        f"{ergebnis.stored_bars:>5} neu  ({zeitraum})",
+        flush=True,
+    )
+
+
+def command_backfill(args: argparse.Namespace) -> int:
+    """Fuellt den Bestand an nativen Bars auf.
+
+    Anders als ``screen`` braucht dieses Kommando die Datenbank -- es ist das
+    einzige, das etwas dauerhaft ablegt.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.no_pacing:
+        ibkr = config.market_data.ibkr.model_copy(
+            update={"minimum_request_interval_seconds": 0.0}
+        )
+        market_data = config.market_data.model_copy(update={"ibkr": ibkr})
+        config = config.model_copy(update={"market_data": market_data})
+
+    watchlist = _watchlist_from(args, config, loaded.source_path)
+    if watchlist is None:
+        return 2
+    if args.limit is not None:
+        watchlist = watchlist[: args.limit]
+
+    interval = config.market_data.ibkr.minimum_request_interval_seconds
+    if interval <= 0 and len(watchlist) > PACING_FREE_LIMIT:
+        print(
+            f"--no-pacing ist fuer {len(watchlist)} Aktien nicht zulaessig: IBKR sperrt die "
+            f"Verbindung ab 60 Anfragen je zehn Minuten. Hoechstens {PACING_FREE_LIMIT} "
+            "Symbole (--symbols oder --limit) oder den Lauf mit Abstand starten.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        engine = build_engine(Secrets().require("database_url"))
+    except MissingSecretError as error:
+        print(f"Datenbank: {error}", file=sys.stderr)
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    bar_source = build_ibkr_bar_source(config)
+    use_case = BackfillHistoryUseCase(bar_source, uow_factory)
+
+    print(
+        f"{len(watchlist)} Aktien, TWS {config.market_data.ibkr.host}:"
+        f"{config.market_data.ibkr.port} (Client-ID {config.market_data.ibkr.client_id}), "
+        f"Abstand {interval:g} s\n"
+    )
+    started = datetime.now(UTC)
+    try:
+        bericht = use_case.execute(watchlist, on_progress=_print_backfill_progress)
+    except KeyboardInterrupt:
+        # Der Bestand ist bis hierher geschrieben; ein erneuter Lauf setzt
+        # genau dort an. Aufzuraeumen gibt es nichts.
+        print(
+            "\nAbgebrochen -- der bisherige Bestand bleibt erhalten, "
+            "ein erneuter Lauf setzt dort an.",
+            file=sys.stderr,
+        )
+        return 130
+    finally:
+        bar_source.close()
+
+    dauer = (datetime.now(UTC) - started).total_seconds()
+    print(f"\n{len(bericht.results)} Aktien in {dauer:.0f} s")
+    print(f"  neue Bars                    {bericht.stored_bars}")
+    print(f"  Fehler                       {len(bericht.failures)}")
+    if bericht.failures:
+        print(f"\nOhne Daten: {', '.join(item.symbol for item in bericht.failures)}")
+    return 1 if bericht.failures else 0
+
+
 def command_screen(args: argparse.Namespace) -> int:
     loaded = load_config(args.config)
     config = loaded.config
@@ -203,8 +340,21 @@ def command_screen(args: argparse.Namespace) -> int:
             print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
             return 2
 
+    bar_source: HistoricalBarSource | None = None
+    if args.source == "stored":
+        try:
+            engine = build_engine(Secrets().require("database_url"))
+        except MissingSecretError as error:
+            print(f"Datenbank: {error}", file=sys.stderr)
+            return 2
+        # Eine eigene Session fuer den gesamten Lauf: Die Bars werden nur
+        # gelesen, es gibt nichts zu committen.
+        bar_source = StoredBarSource(
+            SqlAlchemyIntradayBarRepository(build_session_factory(engine)())
+        )
+
     provider = build_market_data_provider(
-        config, indicators, project_root(loaded.source_path), watchlist
+        config, indicators, project_root(loaded.source_path), watchlist, bar_source
     )
     rule = CandidateRuleParameters(
         required_signal_count=config.screening.required_signal_count,
@@ -305,6 +455,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     screen.add_argument(
+        "--source",
+        choices=("live", "stored"),
+        default="live",
+        help=(
+            "Woher die Bars kommen. 'live' fragt bei jedem Lauf die TWS -- rund 20 s "
+            "je Aktie. 'stored' rechnet auf dem Bestand, den 'backfill' angelegt hat: "
+            "ohne TWS, ohne Pacing, und bei wiederholtem Lauf mit demselben Ergebnis."
+        ),
+    )
+    screen.add_argument(
         "--no-pacing",
         action="store_true",
         help=(
@@ -313,6 +473,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     screen.set_defaults(handler=command_screen)
+
+    backfill = subparsers.add_parser(
+        "backfill",
+        help="Historische Bars in die Datenbank holen -- nur, was seit dem letzten Lauf fehlt.",
+    )
+    backfill.add_argument(
+        "--symbols",
+        default=None,
+        help="Kommagetrennte Symbole statt der Watchlist.",
+    )
+    backfill.add_argument(
+        "--limit", type=int, default=None, help="Nur die ersten N Aktien der Watchlist."
+    )
+    backfill.add_argument(
+        "--no-pacing",
+        action="store_true",
+        help=(
+            "Ohne Mindestabstand zwischen den Anfragen. Nur fuer wenige Symbole -- "
+            "IBKR sperrt die Verbindung bei mehr als 60 Anfragen in zehn Minuten."
+        ),
+    )
+    backfill.set_defaults(handler=command_backfill)
     return parser
 
 

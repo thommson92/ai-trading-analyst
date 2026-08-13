@@ -16,7 +16,13 @@ from uuid import UUID
 
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 
-from .models import AnalysisRun, Stock, StockProcessingError, StockScreeningOutcome
+from .models import (
+    AnalysisRun,
+    ContractSpec,
+    Stock,
+    StockProcessingError,
+    StockScreeningOutcome,
+)
 
 
 class MarketDataProviderError(Exception):
@@ -25,6 +31,36 @@ class MarketDataProviderError(Exception):
     Wird vom Application-Layer pro Aktie isoliert (Fehlerisolation) -- ein
     Fehler bei einer Aktie darf den Lauf nicht insgesamt scheitern lassen.
     """
+
+
+class HistoricalBarSource(Protocol):
+    """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst.
+
+    Bewusst getrennt von ``MarketDataProvider``: Der Provider liefert fertige
+    Kerzen samt Indikatoren, diese Quelle nur Rohbars. Der Backfill braucht
+    genau die Rohbars, und der Screener liest sie spaeter aus dem eigenen
+    Bestand -- dieselbe Schnittstelle, einmal gegen die TWS, einmal gegen die
+    Datenbank.
+    """
+
+    def fetch_intraday_bars(
+        self, contract: ContractSpec, days: int | None = None
+    ) -> Sequence[IntradayBar]:
+        """Holt Bars der letzten ``days`` Tage.
+
+        ``None`` bedeutet den konfigurierten Standardzeitraum -- den Fall des
+        allerersten Abrufs, wenn noch nichts gespeichert ist. Danach fragt der
+        Backfill nur noch die Luecke seit dem letzten bekannten Bar an.
+
+        Raises:
+            MarketDataProviderError: wenn die Bars nicht beschafft werden
+                konnten.
+        """
+        ...
+
+    def close(self) -> None:
+        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
+        ...
 
 
 class MarketDataProvider(Protocol):

@@ -88,3 +88,20 @@ class AnalysisRunSummary:
     run: AnalysisRun
     outcomes: tuple[StockScreeningOutcome, ...] = field(default_factory=tuple)
     errors: tuple[StockProcessingError, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ContractSpec:
+    """Wie eine Aktie beim Marktdatenanbieter zu finden ist.
+
+    ``exchange`` ist der Weg der Anfrage (bei IBKR ueblicherweise die
+    Sammelroute "SMART"), ``primary_exchange`` die tatsaechliche Heimatboerse.
+    Beides auseinanderzuhalten ist noetig, weil dasselbe Kuerzel an mehreren
+    Boersen gefuehrt sein kann und die Heimatboerse entscheidet, welches
+    Papier gemeint ist.
+    """
+
+    symbol: str
+    exchange: str = "SMART"
+    currency: str = "USD"
+    primary_exchange: str | None = None

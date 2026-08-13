@@ -16,13 +16,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from ai_trading_analyst.domain.analysis import MarketDataProviderError, Stock
+from ai_trading_analyst.domain.analysis import ContractSpec, MarketDataProviderError, Stock
 from ai_trading_analyst.domain.screening import (
     IndicatorParameters,
     IntradayBar,
     SessionParameters,
 )
-from ai_trading_analyst.infrastructure.ibkr.bar_source import ContractSpec, IbkrBarSourceError
+from ai_trading_analyst.infrastructure.ibkr.bar_source import IbkrBarSourceError
 from ai_trading_analyst.infrastructure.ibkr.market_data_provider import IbkrMarketDataProvider
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -60,7 +60,9 @@ class FakeBarSource:
         self.calls: list[ContractSpec] = []
         self.closed = 0
 
-    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+    def fetch_intraday_bars(
+        self, contract: ContractSpec, days: int | None = None
+    ) -> Sequence[IntradayBar]:
         self.calls.append(contract)
         if self._error is not None:
             raise self._error

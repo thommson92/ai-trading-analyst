@@ -12,13 +12,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from ai_trading_analyst.domain.analysis import ContractSpec
 from ai_trading_analyst.infrastructure.ibkr.bar_source import (
     SUPPORTED_BAR_MINUTES,
-    ContractSpec,
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
     ibkr_bar_size,
+    ibkr_duration,
 )
 
 UNBESETZTER_PORT = IbkrConnectionSettings(
@@ -126,3 +127,29 @@ class TestPacing:
         quelle._wait_for_pacing()
         quelle._wait_for_pacing()
         assert geschlafen == []
+
+
+class TestZeitraumangabe:
+    """Die Uebersetzung einer Tagesangabe in die Schreibweise der IBKR-API."""
+
+    def test_tage_bleiben_tage(self) -> None:
+        assert ibkr_duration(1) == "1 D"
+        assert ibkr_duration(30) == "30 D"
+
+    def test_bis_365_tage_sind_zulaessig(self) -> None:
+        assert ibkr_duration(365) == "365 D"
+
+    def test_darueber_wird_in_jahren_gerechnet(self) -> None:
+        """Die API nimmt Tagesangaben nur bis 365 an."""
+        assert ibkr_duration(366) == "2 Y"
+        assert ibkr_duration(730) == "2 Y"
+        assert ibkr_duration(731) == "3 Y"
+
+    def test_aufgerundet_wird_bewusst(self) -> None:
+        """Lieber ein paar Bars zu viel als eine Luecke -- doppelte werden
+        beim Speichern ohnehin uebergangen."""
+        assert ibkr_duration(400) == "2 Y"
+
+    def test_null_tage_sind_kein_gueltiger_zeitraum(self) -> None:
+        with pytest.raises(ValueError, match="mindestens 1"):
+            ibkr_duration(0)
