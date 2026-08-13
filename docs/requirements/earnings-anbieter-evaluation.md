@@ -153,34 +153,38 @@ Umgehen lässt sich das mit kurzen Anfragefenstern. Die Sonde tut das jetzt
 (`--fenster`, Standard 30 Tage) und meldet jede verdächtig runde
 Trefferzahl.
 
-### P5 — Keine Kennzeichnung, aber ein einseitiger Ersatz
+### P5 — Keine Kennzeichnung, und kein tragfähiger Ersatz
 
-Es gibt kein Feld für bestätigt/geschätzt. Die Vermutung, dass eine gefüllte
-Tageszeit einen bestätigten Termin anzeigt, wird von den Daten **gestützt**:
+Es gibt kein Feld für bestätigt/geschätzt.
 
-| Vorlauf | Anteil mit Tageszeit |
-|---|---|
-| diese Woche | 46 % |
-| in 1 Woche | 19 % |
-| in 2 Wochen | 12 % |
-| in 3 Wochen | 8 % |
-| in 12–17 Wochen | 6–19 % |
+Aus dem ersten, noch gekürzten Datensatz sah es so aus, als könne die
+Tageszeit einspringen: 46 % in der laufenden Woche, dann Abfall auf unter
+10 %. Der vollständige Datensatz widerlegt das. Der Anteil fällt nicht
+monoton, sondern **steigt in den Wochen 9 bis 11 wieder auf 26 bis 30 %** —
+und das sind genau die Wochen der Q3-Hochsaison, in denen die großen
+Unternehmen berichten.
 
-Der Abfall von 46 % auf rund 10 % ist deutlich. **Eine gefüllte Tageszeit
-ist damit ein brauchbarer Hinweis auf einen bestätigten Termin.**
+Damit gibt es eine zweite, bessere Erklärung: **Die Tageszeit ist nicht ein
+Merkmal des bestätigten Termins, sondern der Abdeckung.** Bei einem gut
+beobachteten Großunternehmen ist lange im Voraus bekannt, dass es nach
+Börsenschluss meldet — es tut das jedes Quartal. Bei einem kaum beobachteten
+Nebenwert steht es nie dabei, egal wie nah der Termin ist.
 
-Der Umkehrschluss gilt aber **nicht**: Auch bei unmittelbar bevorstehenden
-Terminen fehlt die Tageszeit in mehr als der Hälfte der Fälle. Aus einem
-leeren `hour` folgt „unbekannt", nicht „unbestätigt".
+Trifft das zu, taugt `hour` als Ersatz nicht: Es unterschiede dann große von
+kleinen Titeln, nicht bestätigte von geschätzten Terminen. Die Sonde
+entscheidet das jetzt, indem sie die eigene Watchlist — durchweg große,
+gut abgedeckte Titel — getrennt auswertet. Bleibt der Anteil dort über alle
+Vorlaufwochen hinweg hoch, ist es ein Größeneffekt.
 
-Für den Filter heißt das: Ein vollständiger „nur bestätigte Termine"-Filter
-ist mit dieser Quelle nicht baubar. Bleiben zwei Wege — jeder Termin zählt,
-auch der geschätzte (vorsichtig, schließt gelegentlich zu Unrecht aus), oder
-nur bestätigte zählen (übersieht die Mehrheit). Für einen Filter, der Risiko
-vermeiden soll, ist der erste Weg der richtige: Eine verpasste Gelegenheit
-kostet weniger als eine Position in eine Ergebnismeldung hinein. **Das ist
-eine Entscheidung für das ADR, keine stillschweigende Festlegung im Code**,
-und die geringere Konfidenz gehört ans Ergebnis.
+**Bis das geklärt ist, gilt: Der Termin steht ohne Angabe seiner
+Verlässlichkeit da.** Für den Filter bleibt es damit bei zwei Wegen — jeder
+Termin zählt, auch der geschätzte (vorsichtig, schließt gelegentlich zu
+Unrecht aus), oder es wird eine zweite Quelle zur Bestätigung
+herangezogen. Für einen Filter, der Risiko vermeiden soll, ist der erste Weg
+vertretbar: Eine verpasste Gelegenheit kostet weniger als eine Position in
+eine Ergebnismeldung hinein. **Das ist eine Entscheidung für das ADR, keine
+stillschweigende Festlegung im Code**, und die Unsicherheit gehört ans
+Ergebnis.
 
 ### P8 — Tageszeit als `bmo`/`amc`
 
@@ -210,12 +214,18 @@ Antwort vollständig ist**. Das ist zugleich der Bauplan für eine spätere
 produktive Anbindung: Nicht die Fenstergröße raten, sondern die Kürzung
 erkennen.
 
-### P6 — weiterhin nicht abschließend beantwortet
+### P6 — Abdeckung 97 %
 
-Der 120-Tage-Lauf traf 59 von 192 Titeln (31 %). Diese Zahl ist aber zu
-niedrig, weil die gekürzten Wochen 9 und 10 genau die Zeit sind, in der die
-meisten Großunternehmen mit Kalenderquartal berichten. Belastbar wird die
-Abdeckung erst mit dem Lauf, der die Kürzung auflöst.
+Mit aufgelöster Kürzung — elf Anfragen über vier Monate, 5957 Termine für
+5125 Symbole — haben **186 von 192 Watchlist-Titeln einen Termin**. Da über
+vier Monate jeder Quartalsberichterstatter mindestens einmal auftauchen
+muss, ist das faktisch Vollabdeckung.
+
+Interessant sind die sechs verbliebenen Titel. Die Sonde nennt sie jetzt
+namentlich, statt nur Beispiele der gefundenen zu zeigen — zu erwarten sind
+abweichende Schreibweisen (`BRK.B` gegenüber `BRK B` bei IBKR) oder
+Neuemissionen ohne Berichtshistorie. Das ist mit dem gespeicherten Datensatz
+zu beantworten, ohne neue Anfrage.
 
 ## Zwei getrennte Bedarfe
 

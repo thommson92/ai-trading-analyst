@@ -181,47 +181,73 @@ def _hat_wert(wert: Any) -> bool:
     return wert is not None and str(wert).strip() != ""
 
 
-def _vorlaufanalyse(eintraege: Sequence[dict[str, Any]]) -> list[str]:
-    """Haengt die Angabe der Tageszeit vom Vorlauf ab?
-
-    Der Kalender kennt kein Feld ``confirmed`` (P5). Es gibt aber eine
-    naheliegende Vermutung: Boersennotierte Unternehmen bestaetigen ihren
-    Termin ueblicherweise wenige Wochen vorher, und erst dann steht auch
-    fest, ob vor oder nach Schluss gemeldet wird. Waere das so, muesste
-    ``hour`` bei nahen Terminen deutlich haeufiger gefuellt sein als bei
-    fernen -- und liesse sich als Ersatz fuer die fehlende Kennzeichnung
-    verwenden.
-
-    Verteilt sich die Luecke dagegen gleichmaessig ueber den Vorlauf, ist
-    ``hour`` einfach unvollstaendig und als Hinweis auf einen bestaetigten
-    Termin **nicht** brauchbar. Die Auswertung entscheidet das, statt es zu
-    vermuten.
-    """
+def _eimer_nach_vorlauf(eintraege: Sequence[dict[str, Any]]) -> dict[int, list[bool]]:
     heute = date.today()  # noqa: DTZ011 -- Kalendertag genuegt fuer eine Diagnose
     eimer: dict[int, list[bool]] = {}
     for eintrag in eintraege:
-        roh = str(eintrag.get("date", ""))
         try:
-            termin = date.fromisoformat(roh)
+            termin = date.fromisoformat(str(eintrag.get("date", "")))
         except ValueError:
             continue
         woche = max((termin - heute).days, 0) // 7
         eimer.setdefault(woche, []).append(_hat_wert(eintrag.get("hour")))
+    return eimer
 
-    if not eimer:
-        return []
 
-    zeilen = ["", "  Vorlauf gegen Angabe der Tageszeit:"]
+def _tabelle(eimer: dict[int, list[bool]]) -> list[str]:
+    zeilen = []
     for woche in sorted(eimer):
         werte = eimer[woche]
         anteil = sum(werte) / len(werte) * 100
         zeilen.append(
-            f"    in {woche} Woche(n): {sum(werte):>4} von {len(werte):>4} "
+            f"    in {woche:>2} Woche(n): {sum(werte):>4} von {len(werte):>4} "
             f"mit Tageszeit ({anteil:.0f} %)"
         )
+    return zeilen
+
+
+def _vorlaufanalyse(
+    eintraege: Sequence[dict[str, Any]], watchlist: Sequence[str]
+) -> list[str]:
+    """Zeigt die Tageszeit einen bestaetigten Termin an -- oder nur Groesse?
+
+    Der Kalender kennt kein Feld ``confirmed`` (P5). Naheliegend waere:
+    Unternehmen bestaetigen ihren Termin wenige Wochen vorher, und erst dann
+    steht fest, ob vor oder nach Schluss gemeldet wird. Dann muesste ``hour``
+    bei nahen Terminen haeufiger gefuellt sein als bei fernen.
+
+    Es gibt aber eine zweite Erklaerung, die dasselbe Bild erzeugt: ``hour``
+    ist bei **gut abgedeckten grossen Titeln** eher bekannt als bei kleinen,
+    unabhaengig vom Vorlauf. Dann steigt der Anteil einfach dort, wo viele
+    Grossunternehmen berichten -- und ``hour`` taugt **nicht** als Ersatz
+    fuer die fehlende Kennzeichnung.
+
+    Unterschieden wird das an der eigenen Watchlist: Sie besteht durchweg
+    aus grossen, gut abgedeckten Titeln. Bleibt der Anteil dort ueber alle
+    Vorlaufwochen hinweg hoch, ist es ein Groesseneffekt.
+    """
+    zeilen = ["", "  Vorlauf gegen Angabe der Tageszeit (alle Titel):"]
+    zeilen.extend(_tabelle(_eimer_nach_vorlauf(eintraege)))
+
+    bekannte = set(watchlist)
+    eigene = [e for e in eintraege if str(e.get("symbol")) in bekannte]
+    if not eigene:
+        return zeilen
+
+    fremde = [e for e in eintraege if str(e.get("symbol")) not in bekannte]
+    zeilen.append("")
+    zeilen.append("  Nur die eigene Watchlist (grosse, gut abgedeckte Titel):")
+    zeilen.extend(_tabelle(_eimer_nach_vorlauf(eigene)))
+
+    anteil_eigene = sum(_hat_wert(e.get("hour")) for e in eigene) / len(eigene) * 100
+    zeilen.append("")
+    zeilen.append(f"  Anteil mit Tageszeit -- Watchlist: {anteil_eigene:.0f} %")
+    if fremde:
+        anteil_fremde = sum(_hat_wert(e.get("hour")) for e in fremde) / len(fremde) * 100
+        zeilen.append(f"  Anteil mit Tageszeit -- uebrige:   {anteil_fremde:.0f} %")
     zeilen.append(
-        "  Faellt der Anteil mit dem Vorlauf deutlich, ist eine gefuellte "
-        "Tageszeit ein Hinweis auf einen bestaetigten Termin."
+        "  Liegt die Watchlist durchgehend deutlich hoeher, ist die Tageszeit "
+        "ein Merkmal der Abdeckung und kein Hinweis auf einen bestaetigten Termin."
     )
     return zeilen
 
@@ -231,6 +257,7 @@ def summarize(
 ) -> list[str]:
     """Fasst die Antwort zusammen -- Felder und Abdeckung, keine Kennzahlen."""
     zeilen: list[str] = []
+    watchlist = sorted(set(watchlist))
     beobachtet = sorted({symbol for eintrag in eintraege if (symbol := eintrag.get("symbol"))})
 
     zeilen.append(f"Eintraege insgesamt: {len(eintraege)}")
@@ -291,13 +318,13 @@ def summarize(
             f"{wert or '(leer)'}: {anzahl}" for wert, anzahl in verteilung.most_common()
         )
         zeilen.append(f"  hour = {aufstellung}")
-        zeilen.extend(_vorlaufanalyse(eintraege))
+        zeilen.extend(_vorlaufanalyse(eintraege, watchlist))
     else:
         zeilen.append("  kein Feld zur Tageszeit vorhanden")
 
-    watchlist = sorted(set(watchlist))
     if watchlist:
         getroffen = sorted(set(beobachtet) & set(watchlist))
+        fehlend = sorted(set(watchlist) - set(beobachtet))
         zeilen.append("")
         zeilen.append("P6 -- Abdeckung der eigenen Watchlist:")
         zeilen.append(f"  Watchlist: {len(watchlist)} Symbole")
@@ -305,12 +332,13 @@ def summarize(
             f"  davon im Zeitraum mit Termin: {len(getroffen)} "
             f"({len(getroffen) / len(watchlist) * 100:.0f} %)"
         )
-        zeilen.append(
-            "  Hinweis: Ein fehlender Termin heisst nicht 'nicht abgedeckt' -- "
-            "die meisten Titel berichten schlicht nicht in diesem Fenster."
-        )
-        if getroffen:
-            zeilen.append(f"  Beispiele: {', '.join(getroffen[:12])}")
+        # Ueber vier Monate muss jeder Quartalsberichterstatter einmal
+        # auftauchen. Wer dann fehlt, ist der interessante Fall -- eine
+        # abweichende Schreibweise, ein Neuling oder eine echte Luecke.
+        if fehlend:
+            zeilen.append(f"  OHNE Termin ({len(fehlend)}): {', '.join(fehlend)}")
+        else:
+            zeilen.append("  Kein Titel ohne Termin.")
     return zeilen
 
 

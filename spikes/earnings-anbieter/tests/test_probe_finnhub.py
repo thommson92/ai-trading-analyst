@@ -86,6 +86,17 @@ class TestZusammenfassung:
         assert "Watchlist: 3 Symbole" in ausgabe
         assert "davon im Zeitraum mit Termin: 1" in ausgabe
 
+    def test_titel_ohne_termin_werden_namentlich_genannt(self) -> None:
+        """Ueber vier Monate muss jeder Quartalsberichterstatter einmal
+        auftauchen -- wer fehlt, ist der interessante Fall."""
+        ausgabe = "\n".join(summarize(OHNE_KENNZEICHNUNG, ["AAPL", "NVDA", "TSLA"]))
+        assert "OHNE Termin (2): NVDA, TSLA" in ausgabe
+
+    def test_vollstaendige_abdeckung_wird_als_solche_gemeldet(self) -> None:
+        assert "Kein Titel ohne Termin." in "\n".join(
+            summarize(OHNE_KENNZEICHNUNG, ["AAPL", "WMT"])
+        )
+
     def test_ohne_watchlist_entfaellt_der_abschnitt(self) -> None:
         assert "Abdeckung" not in "\n".join(summarize(OHNE_KENNZEICHNUNG, []))
 
@@ -102,8 +113,20 @@ class TestVorlaufanalyse:
     def test_der_vorlauf_wird_in_wochen_aufgeschluesselt(self) -> None:
         eintraege = [self._in_tagen(2, "amc"), self._in_tagen(30, "")]
         ausgabe = "\n".join(summarize(eintraege, []))
-        assert "in 0 Woche(n):    1 von    1 mit Tageszeit (100 %)" in ausgabe
-        assert "in 4 Woche(n):    0 von    1 mit Tageszeit (0 %)" in ausgabe
+        assert "in  0 Woche(n):    1 von    1 mit Tageszeit (100 %)" in ausgabe
+        assert "in  4 Woche(n):    0 von    1 mit Tageszeit (0 %)" in ausgabe
+
+    def test_die_watchlist_wird_getrennt_ausgewiesen(self) -> None:
+        """Der Unterschied entscheidet, ob die Tageszeit ein
+        Bestaetigungssignal oder ein Groesseneffekt ist."""
+        eintraege = [
+            {"date": self._in_tagen(2, "amc")["date"], "symbol": "AAPL", "hour": "amc"},
+            {"date": self._in_tagen(2, "")["date"], "symbol": "WINZIG", "hour": ""},
+        ]
+        ausgabe = "\n".join(summarize(eintraege, ["AAPL"]))
+        assert "Nur die eigene Watchlist" in ausgabe
+        assert "Watchlist: 100 %" in ausgabe
+        assert "uebrige:   0 %" in ausgabe
 
     def test_ein_unlesbares_datum_bricht_die_auswertung_nicht_ab(self) -> None:
         eintraege = [{"date": "keine Angabe", "symbol": "X", "hour": "amc"}]
