@@ -8,6 +8,7 @@ Statusuebergaenge, Fehlerisolation), nicht die Persistenz selbst (dafuer
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Self
@@ -15,6 +16,7 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    IntradayBarRepository,
     MarketDataProviderError,
     ProcessingErrorRepository,
     ScreeningResultRepository,
@@ -23,7 +25,12 @@ from ai_trading_analyst.domain.analysis import (
     StockRepository,
     StockScreeningOutcome,
 )
-from ai_trading_analyst.domain.screening import Candle, CandleSeries, IndicatorValues
+from ai_trading_analyst.domain.screening import (
+    Candle,
+    CandleSeries,
+    IndicatorValues,
+    IntradayBar,
+)
 
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
 _TIMEFRAME = timedelta(minutes=195)
@@ -153,6 +160,33 @@ class FakeProcessingErrorRepository:
         return tuple(e for e in self.added if e.analysis_run_id == run_id)
 
 
+class InMemoryIntradayBarRepository:
+    """Bar-Speicher fuer Use-Case-Tests.
+
+    Bildet die eine Eigenschaft nach, auf die es ankommt: Ein zweites Mal
+    geschriebener Bar zaehlt nicht noch einmal. Ohne sie wuerde ein Test die
+    Wiederholbarkeit des Backfills nur scheinbar pruefen.
+    """
+
+    def __init__(self) -> None:
+        self._bars: dict[str, dict[datetime, IntradayBar]] = {}
+
+    def latest_start(self, symbol: str) -> datetime | None:
+        vorhanden = self._bars.get(symbol)
+        return max(vorhanden) if vorhanden else None
+
+    def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+        bestand = self._bars.setdefault(symbol, {})
+        neu = [bar for bar in bars if bar.start not in bestand]
+        for bar in neu:
+            bestand[bar.start] = bar
+        return len(neu)
+
+    def list_for(self, symbol: str) -> Sequence[IntradayBar]:
+        bestand = self._bars.get(symbol, {})
+        return tuple(bestand[start] for start in sorted(bestand))
+
+
 class FakeUnitOfWork:
     """Keine echten Transaktionsgrenzen -- fuer Use-Case-Tests genuegt ein
     geteiltes In-Memory-Repository-Set, das jeder Aufruf der Factory wieder
@@ -167,11 +201,13 @@ class FakeUnitOfWork:
     def __init__(
         self,
         stocks: StockRepository,
+        intraday_bars: IntradayBarRepository,
         analysis_runs: AnalysisRunRepository,
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
     ) -> None:
         self.stocks = stocks
+        self.intraday_bars = intraday_bars
         self.analysis_runs = analysis_runs
         self.screening_results = screening_results
         self.processing_errors = processing_errors

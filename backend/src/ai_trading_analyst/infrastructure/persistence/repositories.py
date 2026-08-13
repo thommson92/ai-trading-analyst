@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -17,13 +18,21 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.screening import (
+    IntradayBar,
     ScreeningResult,
     ScreeningStatus,
     SignalEvent,
     SignalType,
 )
 
-from .orm import AnalysisRunOrm, ProcessingErrorOrm, ScreeningResultOrm, SignalEventOrm, StockOrm
+from .orm import (
+    AnalysisRunOrm,
+    IntradayBarOrm,
+    ProcessingErrorOrm,
+    ScreeningResultOrm,
+    SignalEventOrm,
+    StockOrm,
+)
 
 
 class SqlAlchemyStockRepository:
@@ -195,6 +204,74 @@ class SqlAlchemyProcessingErrorRepository:
                 stock_symbol=row.stock_symbol,
                 message=row.message,
                 occurred_at=row.occurred_at,
+            )
+            for row in rows
+        )
+
+
+class SqlAlchemyIntradayBarRepository:
+    """Bar-Speicher fuer den Backfill.
+
+    Alle Schreibvorgaenge sind ueber den Schluessel ``(symbol, start)``
+    idempotent. Das ist keine Bequemlichkeit, sondern die Eigenschaft, die den
+    Backfill wiederholbar macht: Ein abgebrochener Lauf wird schlicht erneut
+    gestartet, und ueberlappende Zeitraeume kosten nichts.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def latest_start(self, symbol: str) -> datetime | None:
+        return self._session.execute(
+            select(func.max(IntradayBarOrm.start)).where(IntradayBarOrm.symbol == symbol)
+        ).scalar_one_or_none()
+
+    def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+        if not bars:
+            return 0
+        statement = (
+            pg_insert(IntradayBarOrm)
+            .values(
+                [
+                    {
+                        "symbol": symbol,
+                        "start": bar.start,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                    }
+                    for bar in bars
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["symbol", "start"])
+            # Nicht ueber rowcount zaehlen: Bei einem Insert mit mehreren
+            # Zeilen liefert der Treiber dafuer -1. RETURNING gibt bei
+            # ON CONFLICT DO NOTHING ausschliesslich die tatsaechlich
+            # geschriebenen Zeilen zurueck.
+            .returning(IntradayBarOrm.start)
+        )
+        return len(self._session.execute(statement).all())
+
+    def list_for(self, symbol: str) -> Sequence[IntradayBar]:
+        rows = (
+            self._session.execute(
+                select(IntradayBarOrm)
+                .where(IntradayBarOrm.symbol == symbol)
+                .order_by(IntradayBarOrm.start)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(
+            IntradayBar(
+                start=row.start,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
             )
             for row in rows
         )

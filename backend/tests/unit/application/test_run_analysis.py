@@ -19,6 +19,7 @@ from tests.unit.application.conftest import (
     FakeScreeningResultRepository,
     FakeStockRepository,
     FakeUnitOfWork,
+    InMemoryIntradayBarRepository,
     make_incomplete_series,
     make_series,
     make_stock,
@@ -43,9 +44,10 @@ def _build_use_case(
     runs_repo = FakeAnalysisRunRepository()
     results_repo = FakeScreeningResultRepository()
     errors_repo = FakeProcessingErrorRepository()
+    bars_repo = InMemoryIntradayBarRepository()
 
     def uow_factory() -> FakeUnitOfWork:
-        return FakeUnitOfWork(stocks_repo, runs_repo, results_repo, errors_repo)
+        return FakeUnitOfWork(stocks_repo, bars_repo, runs_repo, results_repo, errors_repo)
 
     use_case = RunAnalysisUseCase(provider, uow_factory, _PARAMS)
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +17,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
+    IntradayBar,
     ScreeningResult,
     ScreeningStatus,
     SignalEvent,
@@ -269,3 +271,116 @@ class TestTransaktionsverhalten:
 
         with uow_factory() as uow:
             assert uow.stocks.get_by_symbol("EXPLICITROLLBACK") is None
+
+
+def make_bar(start: datetime, close: float = 100.0) -> IntradayBar:
+    return IntradayBar(
+        start=start, open=close, high=close + 1, low=close - 1, close=close, volume=1_000.0
+    )
+
+
+class TestIntradayBarRepository:
+    """Der Speicher, von dem der Backfill lebt. Entscheidend ist nicht das
+    Schreiben, sondern dass ein wiederholter Lauf nichts kaputt macht."""
+
+    NEW_YORK = ZoneInfo("America/New_York")
+
+    def _bars(self, anzahl: int, ab: datetime | None = None) -> list[IntradayBar]:
+        beginn = ab or datetime(2026, 3, 10, 9, 30, tzinfo=self.NEW_YORK)
+        return [make_bar(beginn + timedelta(minutes=15 * index)) for index in range(anzahl)]
+
+    def test_ohne_daten_gibt_es_keinen_letzten_stand(self, uow_factory: UowFactory) -> None:
+        """Der Fall des allerersten Laufs -- er entscheidet, ob ein ganzes Jahr
+        oder nur ein Tag geholt wird."""
+        with uow_factory() as uow:
+            assert uow.intraday_bars.latest_start("LEER") is None
+
+    def test_der_letzte_stand_ist_der_juengste_bar(self, uow_factory: UowFactory) -> None:
+        bars = self._bars(5)
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", bars)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.latest_start("AAPL") == bars[-1].start
+
+    def test_derselbe_lauf_zweimal_schreibt_nichts_doppelt(self, uow_factory: UowFactory) -> None:
+        """Die Eigenschaft, die den Backfill wiederholbar macht: Ein
+        abgebrochener Lauf wird schlicht erneut gestartet."""
+        bars = self._bars(5)
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("AAPL", bars) == 5
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("AAPL", bars) == 0
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.intraday_bars.list_for("AAPL")) == 5
+
+    def test_ueberlappende_zeitraeume_zaehlen_nur_das_neue(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Zwei Laeufe ueberlappen sich zwangslaeufig -- der zweite beginnt am
+        letzten bekannten Bar, damit keine Luecke entsteht."""
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", self._bars(5))
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("AAPL", self._bars(8)) == 3
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.intraday_bars.list_for("AAPL")) == 8
+
+    def test_bars_kommen_zeitlich_aufsteigend_zurueck(self, uow_factory: UowFactory) -> None:
+        """Die Aggregation verlaesst sich nicht darauf, aber eine falsche
+        Reihenfolge waere ein stiller Fehler."""
+        bars = self._bars(6)
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", list(reversed(bars)))
+            uow.commit()
+
+        with uow_factory() as uow:
+            gelesen = uow.intraday_bars.list_for("AAPL")
+            assert [bar.start for bar in gelesen] == [bar.start for bar in bars]
+
+    def test_zwei_aktien_teilen_sich_keinen_bestand(self, uow_factory: UowFactory) -> None:
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", self._bars(5))
+            uow.intraday_bars.add_all("MSFT", self._bars(2))
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.intraday_bars.list_for("AAPL")) == 5
+            assert len(uow.intraday_bars.list_for("MSFT")) == 2
+
+    def test_der_zeitpunkt_ueberlebt_die_datenbank(self, uow_factory: UowFactory) -> None:
+        """Naive Zeitstempel sind untersagt (Doc 10). Was hineingeht, muss
+        denselben Zeitpunkt bezeichnen, wenn es herauskommt."""
+        bar = make_bar(datetime(2026, 3, 10, 9, 30, tzinfo=self.NEW_YORK))
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", [bar])
+            uow.commit()
+
+        with uow_factory() as uow:
+            gelesen = uow.intraday_bars.list_for("AAPL")[0]
+            assert gelesen.start.tzinfo is not None
+            assert gelesen.start == bar.start
+
+    def test_eine_leere_lieferung_ist_kein_fehler(self, uow_factory: UowFactory) -> None:
+        """Kommt an einem Feiertag nichts zurueck, ist das der Normalfall."""
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("AAPL", []) == 0
+            uow.commit()
+
+    def test_werte_bleiben_unveraendert(self, uow_factory: UowFactory) -> None:
+        bar = make_bar(datetime(2026, 3, 10, 9, 30, tzinfo=self.NEW_YORK), close=123.45)
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", [bar])
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.list_for("AAPL")[0] == bar
