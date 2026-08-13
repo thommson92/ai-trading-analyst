@@ -158,8 +158,7 @@ TradingView-Exportformat (`NASDAQ:NVDA,NYSE:BRK.B,…`, `###Abschnitt` als
 Überschrift). Mehrfachnennungen über mehrere Listen werden zusammengefasst,
 `BRK.B` wird in IBKRs Schreibweise `BRK B` übersetzt.
 
-Für einen manuellen Lauf gegen die TWS gibt es eine Kommandozeile — ohne
-Datenbank, ohne API, nur lesend:
+Für einen manuellen Lauf gegen die TWS gibt es eine Kommandozeile:
 
 ```bash
 cd backend
@@ -170,9 +169,38 @@ cd backend
 .venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr \
     --symbols AAPL,MSFT --no-pacing
 
-# Die vollständige Watchlist:
+# Die vollständige Watchlist, direkt von der TWS:
 .venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr
 ```
+
+### Der tägliche Ablauf: erst holen, dann rechnen
+
+`screen` fragt in der obigen Form bei **jedem** Lauf die TWS — rund 20 s je
+Aktie, also eine gute Stunde für die volle Watchlist. Mit dem Backfill
+zerfällt das in zwei Schritte, die einander nicht brauchen:
+
+```bash
+# Holt nur, was seit dem letzten Lauf fehlt. Beim ersten Mal ein Jahr,
+# danach die Lücke -- ein Tag, ein Wochenende, drei Wochen nach einem Ausfall.
+.venv/bin/python -m ai_trading_analyst.cli backfill
+
+# Rechnet auf dem Bestand: ohne TWS, ohne Pacing.
+.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr --source stored
+```
+
+`backfill` braucht als einziges Kommando die Datenbank (`ATA_DATABASE_URL`)
+— es ist das einzige, das etwas dauerhaft ablegt. Gespeichert werden die
+**nativen 15-Minuten-Bars**, nicht die daraus gebildeten Kerzen: Ändert sich
+eine Aggregationsregel, ist das ein erneuter Lauf über lokale Daten statt
+eines Abrufs über ein Jahr und alle Symbole.
+
+Ein abgebrochener Backfill wird schlicht erneut gestartet — Schreibvorgänge
+sind über `(symbol, start)` idempotent, aufzuräumen gibt es nichts.
+
+Nebeneffekt, der wichtiger ist als die Geschwindigkeit: Der Lauf wird
+**wiederholbar**. IBKRs Ein-Jahres-Fenster wandert mit der Uhr, und schon
+zwei Läufe desselben Tages ergaben unterschiedlich viele Kerzen. Auf dem
+Bestand liefert dieselbe Analyse dasselbe Ergebnis.
 
 `market_data.provider` bleibt in `config/default.yaml` bewusst auf `fixture`,
 damit API und Tests ohne TWS auskommen; `--provider ibkr` schaltet für den
