@@ -376,6 +376,41 @@ class TestIntradayBarRepository:
             assert uow.intraday_bars.add_all("AAPL", []) == 0
             uow.commit()
 
+
+    def test_mehr_bars_als_postgres_parameter_erlaubt(self, uow_factory: UowFactory) -> None:
+        """PostgreSQL nimmt hoechstens 65.535 Parameter je Anweisung.
+
+        Bei sieben Spalten je Bar reisst ein einzelnes Insert ab 9.363 Zeilen
+        ab. Ein Jahr Fuenf-Minuten-Bars liegt darueber, ebenso der in ADR 0014
+        vorgesehene Fuenf-Jahres-Batch -- der Fall ist also nicht konstruiert,
+        sondern der naechste Ausbauschritt.
+        """
+        bars = self._bars(12_000)
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("VIELE", bars) == 12_000
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.intraday_bars.list_for("VIELE")) == 12_000
+
+    def test_auch_ueber_die_grenze_hinweg_bleibt_es_idempotent(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Die Stueckelung darf die Eigenschaft nicht aufweichen, auf der die
+        Wiederholbarkeit beruht."""
+        bars = self._bars(12_000)
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("VIELE", bars)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.add_all("VIELE", bars) == 0
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.intraday_bars.list_for("VIELE")) == 12_000
+
     def test_werte_bleiben_unveraendert(self, uow_factory: UowFactory) -> None:
         bar = make_bar(datetime(2026, 3, 10, 9, 30, tzinfo=self.NEW_YORK), close=123.45)
         with uow_factory() as uow:

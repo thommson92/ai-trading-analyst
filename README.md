@@ -197,6 +197,18 @@ eines Abrufs über ein Jahr und alle Symbole.
 Ein abgebrochener Backfill wird schlicht erneut gestartet — Schreibvorgänge
 sind über `(symbol, start)` idempotent, aufzuräumen gibt es nichts.
 
+**Was der Bestand nicht selbst merkt:** Er kennt nur seinen jüngsten Bar. Ein
+Tag, der mitten in der Historie fehlt, wird deshalb nie von allein nachgeholt
+— und die Kerzenbildung erkennt einen *vollständig* fehlenden Handelstag
+nicht, weil dafür ein Börsenkalender nötig wäre. Zwei Vorkehrungen dagegen:
+Der Backfill meldet, wenn eine Antwort deutlich weniger Historie enthält als
+angefragt (so kürzt IBKR stillschweigend), und `--from` holt einen Zeitraum
+erneut:
+
+```bash
+.venv/bin/python -m ai_trading_analyst.cli backfill --symbols AAPL --from 2026-01-01
+```
+
 Nebeneffekt, der wichtiger ist als die Geschwindigkeit: Der Lauf wird
 **wiederholbar**. IBKRs Ein-Jahres-Fenster wandert mit der Uhr, und schon
 zwei Läufe desselben Tages ergaben unterschiedlich viele Kerzen. Auf dem

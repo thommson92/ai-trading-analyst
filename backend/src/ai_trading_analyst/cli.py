@@ -27,7 +27,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from ai_trading_analyst.application.backfill_history import (
@@ -232,6 +232,17 @@ def command_backfill(args: argparse.Namespace) -> int:
     config = loaded.config
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
+    if config.market_data.provider != "ibkr":
+        # Ohne diese Pruefung baute der Backfill mit dem ausgelieferten
+        # Standard 'fixture' trotzdem eine TWS-Verbindung auf.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Backfill holt Daten von der TWS und "
+            "verlangt deshalb 'ibkr' in der Konfiguration.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.no_pacing:
         ibkr = config.market_data.ibkr.model_copy(
             update={"minimum_request_interval_seconds": 0.0}
@@ -266,7 +277,7 @@ def command_backfill(args: argparse.Namespace) -> int:
         return SqlAlchemyUnitOfWork(session_factory)
 
     bar_source = build_ibkr_bar_source(config)
-    use_case = BackfillHistoryUseCase(bar_source, uow_factory)
+    use_case = BackfillHistoryUseCase(bar_source, uow_factory, from_date=args.from_date)
 
     print(
         f"{len(watchlist)} Aktien, TWS {config.market_data.ibkr.host}:"
@@ -294,6 +305,22 @@ def command_backfill(args: argparse.Namespace) -> int:
     print(f"  Fehler                       {len(bericht.failures)}")
     if bericht.failures:
         print(f"\nOhne Daten: {', '.join(item.symbol for item in bericht.failures)}")
+    if bericht.truncated:
+        # Kein Fehler: Eine Neuemission hat schlicht keine laengere Historie.
+        # Bei einem lange notierten Titel ist es dagegen der Hinweis darauf,
+        # dass IBKR die Antwort gekuerzt hat -- dann mit "--from" nachholen.
+        print(
+            "\nDeutlich weniger Historie als angefragt "
+            f"({len(bericht.truncated)}): "
+            + ", ".join(
+                f"{item.symbol} ({item.covered_days} statt {item.requested_days} Tage)"
+                for item in bericht.truncated[:10]
+            )
+        )
+        print(
+            "  Bei einer Neuemission ist das erwartbar. Sonst hat die Gegenstelle "
+            "gekuerzt -- dann mit '--from JJJJ-MM-TT' erneut holen."
+        )
     return 1 if bericht.failures else 0
 
 
@@ -489,6 +516,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill.add_argument(
         "--limit", type=int, default=None, help="Nur die ersten N Aktien der Watchlist."
+    )
+    backfill.add_argument(
+        "--from",
+        dest="from_date",
+        type=date.fromisoformat,
+        default=None,
+        help=(
+            "Ab diesem Datum (JJJJ-MM-TT) neu holen, statt am letzten gespeicherten Bar "
+            "anzusetzen. Der Weg, einen fehlerhaft oder unvollstaendig gespeicherten "
+            "Zeitraum zu reparieren -- der Bestand kennt nur seinen juengsten Bar."
+        ),
     )
     backfill.add_argument(
         "--no-pacing",

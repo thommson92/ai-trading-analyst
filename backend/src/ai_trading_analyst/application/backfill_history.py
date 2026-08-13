@@ -25,14 +25,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
     HistoricalBarSource,
-    MarketDataProviderError,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
@@ -54,11 +54,30 @@ class SymbolBackfill:
     requested_days: int | None
     received_bars: int = 0
     stored_bars: int = 0
+    covered_days: int | None = None
     error: str | None = None
 
     @property
     def failed(self) -> bool:
         return self.error is not None
+
+    @property
+    def truncated(self) -> bool:
+        """Deckt die Antwort den angefragten Zeitraum nur zum Teil ab?
+
+        IBKR kuerzt lange Antworten stillschweigend -- beim Earnings-Kalender
+        war es dieselbe Bauart, dort fehlten die naechsten sechs Wochen ohne
+        jeden Hinweis. Beim Abruf je Lauf heilte sich das von selbst; im
+        Bestand bliebe die Luecke dauerhaft, und die Kerzenbildung kann einen
+        **vollstaendig** fehlenden Handelstag nicht erkennen.
+
+        Deshalb wird hier verglichen, was angefragt und was geliefert wurde.
+        Ein legitimer Grund ist eine kurze Boersenhistorie (Neuemission) --
+        deshalb ein Hinweis und kein Fehler.
+        """
+        if self.requested_days is None or self.covered_days is None:
+            return False
+        return self.covered_days * 2 < self.requested_days
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +91,10 @@ class BackfillReport:
     @property
     def failures(self) -> tuple[SymbolBackfill, ...]:
         return tuple(result for result in self.results if result.failed)
+
+    @property
+    def truncated(self) -> tuple[SymbolBackfill, ...]:
+        return tuple(result for result in self.results if result.truncated)
 
 
 def missing_days(
@@ -90,16 +113,25 @@ def missing_days(
     return max(abstand + overlap_days, 1)
 
 
+def _covered_days(bars: Sequence[IntradayBar], now: datetime) -> int | None:
+    """Wie weit zurueck reicht die Antwort tatsaechlich?"""
+    if not bars:
+        return None
+    return max((now - min(bar.start for bar in bars)).days, 0)
+
+
 class BackfillHistoryUseCase:
     def __init__(
         self,
         bar_source: HistoricalBarSource,
         uow_factory: Callable[[], UnitOfWork],
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        from_date: date | None = None,
     ) -> None:
         self._bar_source = bar_source
         self._uow_factory = uow_factory
         self._now = now
+        self._from_date = from_date
 
     def execute(
         self,
@@ -115,24 +147,46 @@ class BackfillHistoryUseCase:
         return BackfillReport(results=tuple(ergebnisse))
 
     def _backfill_one(self, contract: ContractSpec) -> SymbolBackfill:
+        """Eine Aktie -- und zwar so, dass nichts davon den Lauf beenden kann.
+
+        Die Isolation umfasst ausdruecklich **beide** Seiten. Ein Ausfall der
+        TWS ist der erwartete Fall, aber ein Fehler beim Speichern -- eine zu
+        grosse Lieferung, eine abgerissene Datenbankverbindung -- wuerde den
+        Lauf sonst mitsamt allen noch nicht geholten Symbolen beenden. Bei 200
+        Symbolen und einer Stunde Laufzeit waere das die schlechteste aller
+        Antworten, und der Nutzer saehe einen Traceback statt eines Berichts.
+        """
         symbol = contract.symbol
-        with self._uow_factory() as uow:
-            tage = missing_days(uow.intraday_bars.latest_start(symbol), self._now())
-
+        tage: int | None = None
         try:
+            tage = self._start_from(contract)
             bars = self._bar_source.fetch_intraday_bars(contract, tage)
-        except MarketDataProviderError as error:
-            # Systemgrenze: Ein Ausfall bei einer Aktie beendet den Lauf nicht.
-            _logger.warning("%s: Abruf fehlgeschlagen -- %s", symbol, error)
-            return SymbolBackfill(symbol=symbol, requested_days=tage, error=str(error))
-
-        with self._uow_factory() as uow:
-            neu = uow.intraday_bars.add_all(symbol, bars)
-            uow.commit()
+            with self._uow_factory() as uow:
+                neu = uow.intraday_bars.add_all(symbol, bars)
+                uow.commit()
+        except Exception as error:  # Systemgrenze: eine Aktie, nicht der Lauf
+            _logger.warning("%s: %s -- %s", symbol, type(error).__name__, error)
+            return SymbolBackfill(
+                symbol=symbol, requested_days=tage, error=f"{type(error).__name__}: {error}"
+            )
 
         return SymbolBackfill(
             symbol=symbol,
             requested_days=tage,
             received_bars=len(bars),
             stored_bars=neu,
+            covered_days=_covered_days(bars, self._now()),
         )
+
+    def _start_from(self, contract: ContractSpec) -> int | None:
+        """Wie weit zurueck gefragt wird.
+
+        ``--from`` uebersteuert den Bestand. Das ist der Weg, einen einmal
+        fehlerhaft oder unvollstaendig gespeicherten Zeitraum erneut zu holen:
+        Der Bestand allein kennt nur seinen juengsten Bar und wuerde einen
+        inneren Tag nie wieder anfragen.
+        """
+        if self._from_date is not None:
+            return max((self._now().date() - self._from_date).days, 1)
+        with self._uow_factory() as uow:
+            return missing_days(uow.intraday_bars.latest_start(contract.symbol), self._now())

@@ -8,12 +8,13 @@ dass ein zweiter Lauf nichts doppelt schreibt.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
+    BackfillReport,
     SymbolBackfill,
     missing_days,
 )
@@ -166,7 +167,11 @@ class TestFehlerisolation:
 
         bericht = use_case.execute((ContractSpec(symbol="AAPL"),))
 
-        assert bericht.failures[0].error == "Keine Verbindung zur TWS"
+        # Der Ausnahmetyp steht mit in der Meldung: Bei 200 Symbolen macht es
+        # einen Unterschied, ob die TWS fehlt oder die Datenbank.
+        assert bericht.failures[0].error == (
+            "MarketDataProviderError: Keine Verbindung zur TWS"
+        )
         assert bericht.failures[0].failed
 
     def test_eine_gescheiterte_aktie_bleibt_beim_naechsten_lauf_beim_standardzeitraum(
@@ -224,3 +229,124 @@ def test_der_bericht_unterscheidet_empfangen_von_gespeichert(
     assert ergebnis.received_bars == empfangen
     assert ergebnis.stored_bars == gespeichert
     assert not ergebnis.failed
+
+
+class TestIsolationDerSpeicherseite:
+    """Ein Fehler beim Speichern darf den Lauf ebenso wenig beenden wie einer
+    beim Abrufen -- sonst reisst er alle noch nicht geholten Symbole mit."""
+
+    class ScheiterndeAblage(InMemoryIntradayBarRepository):
+        def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+            raise RuntimeError("Verbindung zur Datenbank abgerissen")
+
+    def _use_case(self, quelle: FakeBarSource) -> BackfillHistoryUseCase:
+        bestand = self.ScheiterndeAblage()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                bestand,
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        return BackfillHistoryUseCase(quelle, uow_factory, now=lambda: JETZT)
+
+    def test_der_lauf_geht_weiter(self) -> None:
+        quelle = FakeBarSource({"AAPL": [bar(JETZT)], "MSFT": [bar(JETZT)]})
+
+        bericht = self._use_case(quelle).execute(WATCHLIST)
+
+        assert len(bericht.failures) == 2
+        assert [symbol for symbol, _ in quelle.calls] == ["AAPL", "MSFT"]
+
+    def test_der_fehler_wird_benannt_statt_durchgereicht(self) -> None:
+        bericht = self._use_case(FakeBarSource({"AAPL": [bar(JETZT)]})).execute(
+            (ContractSpec(symbol="AAPL"),)
+        )
+        assert "Verbindung zur Datenbank abgerissen" in str(bericht.failures[0].error)
+
+
+class TestReparaturZeitraum:
+    """``--from`` ist der einzige Weg, einen inneren Zeitraum erneut zu holen:
+    Der Bestand kennt nur seinen juengsten Bar."""
+
+    def _mit_from(self, quelle: FakeBarSource, ab: date) -> BackfillHistoryUseCase:
+        bestand = InMemoryIntradayBarRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                bestand,
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        return BackfillHistoryUseCase(quelle, uow_factory, now=lambda: JETZT, from_date=ab)
+
+    def test_der_bestand_wird_uebersteuert(self) -> None:
+        quelle = FakeBarSource({"AAPL": [bar(JETZT)]})
+        use_case = self._mit_from(quelle, JETZT.date() - timedelta(days=30))
+
+        use_case.execute((ContractSpec(symbol="AAPL"),))
+        use_case.execute((ContractSpec(symbol="AAPL"),))
+
+        # Auch beim zweiten Lauf derselbe Zeitraum -- nicht die Luecke.
+        assert quelle.calls == [("AAPL", 30), ("AAPL", 30)]
+
+    def test_derselbe_tag_ergibt_mindestens_einen_tag(self) -> None:
+        quelle = FakeBarSource()
+        self._mit_from(quelle, JETZT.date()).execute((ContractSpec(symbol="AAPL"),))
+        assert quelle.calls == [("AAPL", 1)]
+
+
+class TestGekuerzteAntwort:
+    """IBKR kuerzt lange Antworten stillschweigend -- beim Earnings-Kalender
+    fehlten so die naechsten sechs Wochen ohne jeden Hinweis. Beim Abruf je
+    Lauf heilte sich das; im Bestand bliebe die Luecke dauerhaft, und ein
+    vollstaendig fehlender Handelstag ist der Kerzenbildung unsichtbar."""
+
+    def _bericht(self, bars: list[IntradayBar], vorher: list[IntradayBar]) -> BackfillReport:
+        bestand = InMemoryIntradayBarRepository()
+        bestand.add_all("AAPL", vorher)
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                bestand,
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        use_case = BackfillHistoryUseCase(
+            FakeBarSource({"AAPL": bars}), uow_factory, now=lambda: JETZT
+        )
+        return use_case.execute((ContractSpec(symbol="AAPL"),))
+
+    def test_eine_deutlich_kuerzere_antwort_wird_gemeldet(self) -> None:
+        """300 Tage angefragt, 10 geliefert."""
+        vorher = [bar(JETZT - timedelta(days=300))]
+        bericht = self._bericht([bar(JETZT - timedelta(days=10))], vorher)
+
+        assert len(bericht.truncated) == 1
+        assert bericht.truncated[0].covered_days == 10
+
+    def test_eine_vollstaendige_antwort_wird_nicht_gemeldet(self) -> None:
+        vorher = [bar(JETZT - timedelta(days=300))]
+        bericht = self._bericht([bar(JETZT - timedelta(days=299))], vorher)
+        assert bericht.truncated == ()
+
+    def test_beim_ersten_lauf_gibt_es_nichts_zu_vergleichen(self) -> None:
+        """Ohne Bestand ist der angefragte Zeitraum der Standardwert der
+        Konfiguration -- der Use Case kennt ihn nicht."""
+        bericht = self._bericht([bar(JETZT - timedelta(days=5))], [])
+        assert bericht.truncated == ()
+
+    def test_eine_leere_antwort_ist_keine_kuerzung(self) -> None:
+        """An einem Feiertag kommt nichts -- das ist etwas anderes als eine
+        gekuerzte Antwort."""
+        bericht = self._bericht([], [bar(JETZT - timedelta(days=300))])
+        assert bericht.truncated == ()

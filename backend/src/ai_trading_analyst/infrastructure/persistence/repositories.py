@@ -209,6 +209,22 @@ class SqlAlchemyProcessingErrorRepository:
         )
 
 
+BARS_JE_INSERT = 1_000
+"""Zeilen je Einfuegevorgang.
+
+PostgreSQL nimmt hoechstens 65.535 Parameter je Anweisung entgegen. Bei
+sieben Spalten je Bar reisst ein einzelnes Insert deshalb ab 9.363 Zeilen ab
+-- nachgestellt und belegt. Der Standardzuschnitt (15-Minuten-Bars, ein Jahr
+Historie) liegt mit rund 6.550 Bars knapp darunter und liefe heute noch
+durch; fuenf Minuten Barbreite oder der in ADR 0014 (E3) vorgesehene
+Fuenf-Jahres-Batch scheiterten sofort.
+
+Tausend Zeilen belegen 7.000 Parameter -- reichlich Abstand, ohne die Zahl
+der Anweisungen unnoetig hochzutreiben. Alle Bloecke laufen in derselben
+Transaktion; ein Abbruch dazwischen laesst nichts halb Geschriebenes zurueck.
+"""
+
+
 class SqlAlchemyIntradayBarRepository:
     """Bar-Speicher fuer den Backfill.
 
@@ -229,6 +245,12 @@ class SqlAlchemyIntradayBarRepository:
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         if not bars:
             return 0
+        neu = 0
+        for block in range(0, len(bars), BARS_JE_INSERT):
+            neu += self._insert(symbol, bars[block : block + BARS_JE_INSERT])
+        return neu
+
+    def _insert(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         statement = (
             pg_insert(IntradayBarOrm)
             .values(
