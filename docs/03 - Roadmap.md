@@ -42,8 +42,11 @@ ausgeschieden.
 - historischer Backfill als resumierbarer Batch-Job mit Chunking und Pacing
   (akzeptierte Einschränkung E3)
 - Earnings-Termine -- nicht über IBKR verfügbar (akzeptierte Einschränkung
-  E1), separater Anbieter mit eigenem ADR noch zu evaluieren (F9); eigener
-  Workstream, kein Blocker für Sprint 2
+  E1). **Abgeschlossen:** Auch RESC scheidet aus
+  ([ADR 0016](adr/0016-ibkr-keine-quelle-fuer-research-daten.md)); Quelle für
+  Termine und Analystenratings ist Finnhub
+  ([ADR 0017](adr/0017-finnhub-fuer-earnings-und-ratings.md)). Die
+  Implementierung des Filters gehört nach Sprint 3
 
 ---
 
@@ -51,7 +54,9 @@ ausgeschieden.
 
 Filter & Backtesting
 
-- Earnings Filter
+- Earnings Filter -- Quelle und akzeptierte Einschränkungen stehen in
+  [ADR 0017](adr/0017-finnhub-fuer-earnings-und-ratings.md); historische
+  Termine für das Backtesting sind dort **nicht** abgedeckt (L9)
 - historische Signalprüfung
 - Kennzahlenberechnung
 

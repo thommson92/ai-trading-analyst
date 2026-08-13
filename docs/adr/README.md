@@ -50,6 +50,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Schritt 4 freigegeben durch ADR 0014) |
 | [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |
 | [0015](0015-plattformunabhaengige-lock-dateien.md) | Lock-Dateien plattformunabhängig erzeugen (uv statt pip-compile) | Angenommen |
+| [0016](0016-ibkr-keine-quelle-fuer-research-daten.md) | IBKR ist keine Quelle für Research-Daten (RESC: NO_GO) | Angenommen |
+| [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -71,34 +73,19 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Anbieter für historische Intraday-Kurse (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 3/4: 195-Minuten-Aggregation und historische
   Abdeckung bis 2 Jahre live bestätigt).
-- Anbieter für Earnings-Termine (F9) — **weiterhin offen.** IBKR
-  (`reqFundamentalData`, `CalendarReport`) liefert keine nutzbaren Daten
-  (ADR 0013, Spike-Frage 6). Auch `RESC` deckt das nicht ab: am 2026-08-12
-  inhaltlich geprüft, es enthält keinen künftigen Berichtstermin, feinste
-  Zeitangabe ist das Ende der Geschäftsperiode auf den Monat genau
-  ([`spikes/resc-schema/RESULT.md`](../../spikes/resc-schema/RESULT.md)).
-  Gesucht ist damit präzise eine Quelle für **künftige Berichtstermine** —
-  nicht für Schätzungen oder Ratings, die liegen vor. Als Einschränkung E1
-  in [ADR 0014](0014-ibkr-produktivintegration-freigegeben.md) bewusst
-  akzeptiert — eigener Workstream, kein Blocker für die IBKR-Anbindung.
+- Kursziele (F9) — **zurückgestellt.** Termine und Analystenratings sind
+  durch [ADR 0017](0017-finnhub-fuer-earnings-und-ratings.md) entschieden
+  (Finnhub, kostenlose Stufe); der Kursziel-Endpunkt ist dort
+  kostenpflichtig. Bewusst ohne Kursziele gebaut, nachrüstbar in einer
+  späteren Ausbaustufe.
+- Historische Berichtstermine für das Backtesting — **zurückgestellt.**
+  Vorgemerkter Weg ist SEC EDGAR (Einreichungsdatum des `8-K` mit Item
+  2.02): amtlich, kostenlos und ohne Lizenzbeschränkung. Siehe ADR 0017,
+  Einschränkung L9.
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
-- Anbieter für Analystenratings und Kursziele (F9) — **weiterhin offen,
-  aber eingegrenzt.** Strukturell geklärt am 2026-08-12:
-  `reqFundamentalData(reportType='RESC')` liefert Kursziele
-  (`NPEstimate[@type=TARGETPRICE]` mit High/Low/Mean/Median) und
-  Empfehlungen (`BUY`…`SELL` mit Zahl der Analysten je Stufe); Belege in
-  [`spikes/resc-schema/RESULT.md`](../../spikes/resc-schema/RESULT.md).
-  **RESC ist bis auf Weiteres nicht einplanbar**: Ob die Vertragslage die
-  geplante Verarbeitung dieser Reuters-Inhalte deckt, ist ungeprüft —
-  dieselbe Frage, an der TradingView gescheitert ist (ADR 0012). Prüfliste:
-  [`docs/requirements/resc-lizenzpruefung.md`](../requirements/resc-lizenzpruefung.md).
-  Fällt sie negativ aus, werden Ratings und Kursziele wie die
-  Earnings-Termine extern zugekauft. Das ADR zur F9-Datenquelle entsteht
-  erst, wenn Lizenzprüfung, fachliche Inhaltsprüfung und Anbieterbewertung
-  vorliegen.
 - Benachrichtigungskanal (F10)
 - KI-Anbieter und Modellprofile (F11)
 - Externer Zugriff auf das Dashboard (F12)
