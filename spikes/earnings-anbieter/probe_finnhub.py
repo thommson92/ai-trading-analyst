@@ -84,20 +84,60 @@ def fetch_calendar(api_key: str, von: date, bis: date) -> dict[str, Any]:
         raise ProbeError(f"Keine Verbindung zu Finnhub: {fehler.reason}") from None
 
 
+TREFFERGRENZE = 1500
+"""Beobachtete Obergrenze je Anfrage.
+
+Belegt am 2026-08-13: Ein Abruf ueber 120 Tage lieferte genau 1500
+Eintraege, und ein Abruf ueber die 30 Tage vom 12.10. bis 10.11. ebenfalls.
+Gekuerzt wird dabei **der Anfang** des Zeitraums -- im 120-Tage-Lauf fehlten
+die naechsten sechs Wochen vollstaendig, im 30-Tage-Lauf die Wochen 9 und 10.
+Die Antwort macht das mit keinem Feld kenntlich.
+"""
+
+
+def _fetch_zeitraum(
+    api_key: str, von: date, bis: date, hinweise: list[str], tiefe: int = 0
+) -> list[dict[str, Any]]:
+    """Holt einen Zeitraum und halbiert ihn, wenn die Antwort gekuerzt wurde.
+
+    Eine feste Fenstergroesse genuegt nicht: 30 Tage reichen im September,
+    laufen in der Hochsaison Ende Oktober aber in die Grenze. Statt eine
+    Groesse zu raten, wird die Kuerzung erkannt und der Zeitraum geteilt --
+    so tief, bis die Antwort vollstaendig ist.
+    """
+    antwort = fetch_calendar(api_key, von, bis)
+    teil = list(antwort.get("earningsCalendar", []))
+    einrueckung = "  " + "  " * tiefe
+
+    if len(teil) < TREFFERGRENZE or von == bis:
+        vermerk = (
+            "  <-- an der Grenze, aber nicht weiter teilbar"
+            if len(teil) >= TREFFERGRENZE
+            else ""
+        )
+        hinweise.append(f"{einrueckung}{von} bis {bis}: {len(teil)} Eintraege{vermerk}")
+        return teil
+
+    hinweise.append(
+        f"{einrueckung}{von} bis {bis}: {len(teil)} Eintraege "
+        f"<-- an der Grenze von {TREFFERGRENZE}, wird geteilt"
+    )
+    mitte = von + (bis - von) / 2
+    return [
+        *_fetch_zeitraum(api_key, von, mitte, hinweise, tiefe + 1),
+        *_fetch_zeitraum(api_key, mitte + timedelta(days=1), bis, hinweise, tiefe + 1),
+    ]
+
+
 def fetch_in_chunks(
     api_key: str, von: date, bis: date, fenster_tage: int
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Holt einen langen Zeitraum in kurzen Fenstern.
+    """Holt einen langen Zeitraum in kurzen Fenstern, ohne Kuerzungen.
 
-    Eine einzelne Anfrage ueber 120 Tage lieferte 1500 Eintraege -- eine
-    verdaechtig runde Zahl -- und darin ausschliesslich Termine der letzten
-    sechs Wochen des Zeitraums. Die naheliegenden Termine fehlten also
-    vollstaendig, ohne dass die Antwort das kenntlich gemacht haette. Wer
-    einen langen Zeitraum am Stueck anfragt, bekommt stillschweigend einen
-    Ausschnitt.
-
-    Kurze Fenster umgehen das. Sie kosten mehr Anfragen, aber bei 60 je
-    Minute faellt das nicht ins Gewicht.
+    Wer einen langen Zeitraum am Stueck anfragt, bekommt stillschweigend
+    einen Ausschnitt und haelt ihn fuer das Ganze. Kurze Fenster und die
+    Teilung bei Erreichen der Grenze verhindern das. Sie kosten mehr
+    Anfragen, aber bei 60 je Minute faellt das nicht ins Gewicht.
     """
     eintraege: list[dict[str, Any]] = []
     hinweise: list[str] = []
@@ -106,17 +146,7 @@ def fetch_in_chunks(
     fenster_start = von
     while fenster_start <= bis:
         fenster_ende = min(fenster_start + timedelta(days=fenster_tage - 1), bis)
-        antwort = fetch_calendar(api_key, fenster_start, fenster_ende)
-        teil = list(antwort.get("earningsCalendar", []))
-        hinweise.append(
-            f"  {fenster_start} bis {fenster_ende}: {len(teil)} Eintraege"
-            + (
-                "  <-- verdaechtig runde Zahl, moeglicherweise gekuerzt"
-                if teil and len(teil) % 500 == 0
-                else ""
-            )
-        )
-        for eintrag in teil:
+        for eintrag in _fetch_zeitraum(api_key, fenster_start, fenster_ende, hinweise):
             kennung = (str(eintrag.get("symbol")), str(eintrag.get("date")))
             if kennung not in gesehen:
                 gesehen.add(kennung)

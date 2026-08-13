@@ -189,12 +189,33 @@ Börsenschluss). Das ist die Angabe, die ein Filter auf 195-Minuten-Kerzen
 braucht: Meldet ein Unternehmen `amc`, ist die betroffene Kerze die des
 Folgetages.
 
-### P6 — noch offen
+### Die Treffergrenze liegt bei 1500 je Anfrage — und 30 Tage reichen nicht
 
-Die Abdeckung der eigenen Watchlist lässt sich aus den bisherigen Läufen
-**nicht** beantworten: Der 30-Tage-Lauf traf 31 von 192 Titeln, der
-120-Tage-Lauf 32 — aber letzterer deckte wegen der Kürzung nur sechs Wochen
-im November und Dezember ab. Nötig ist ein Lauf über mehrere kurze Fenster.
+Der Lauf über fünf Fenster zu 30 Tagen hat die Grenze reproduziert:
+
+| Fenster | Einträge |
+|---|---|
+| 13.08. – 11.09. | 953 |
+| 12.09. – 11.10. | 265 |
+| **12.10. – 10.11.** | **1500 — gekürzt** |
+| 11.11. – 10.12. | 1167 |
+
+Die Kürzung trifft **den Anfang** des Zeitraums: In der Vorlaufanalyse
+fehlen die Wochen 9 und 10 vollständig, also der 15. bis 28. Oktober — der
+Höhepunkt der Q3-Saison. Ein fester Fensterzuschnitt genügt damit nicht: Im
+September reichen 30 Tage, Ende Oktober nicht.
+
+Die Sonde erkennt die Kürzung jetzt und **halbiert den Zeitraum, bis die
+Antwort vollständig ist**. Das ist zugleich der Bauplan für eine spätere
+produktive Anbindung: Nicht die Fenstergröße raten, sondern die Kürzung
+erkennen.
+
+### P6 — weiterhin nicht abschließend beantwortet
+
+Der 120-Tage-Lauf traf 59 von 192 Titeln (31 %). Diese Zahl ist aber zu
+niedrig, weil die gekürzten Wochen 9 und 10 genau die Zeit sind, in der die
+meisten Großunternehmen mit Kalenderquartal berichten. Belastbar wird die
+Abdeckung erst mit dem Lauf, der die Kürzung auflöst.
 
 ## Zwei getrennte Bedarfe
 

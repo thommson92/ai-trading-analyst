@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from probe_finnhub import (
     API_KEY_VARIABLE,
+    TREFFERGRENZE,
     ProbeError,
     fetch_in_chunks,
     read_api_key,
@@ -149,17 +150,37 @@ class TestFensterweiserAbruf:
 
         assert len(eintraege) == 1
 
-    def test_eine_verdaechtig_runde_anzahl_wird_gemeldet(
+    def test_ein_gekuerztes_fenster_wird_geteilt(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Genau so sah die Kuerzung aus: 1500 glatte Eintraege, ohne dass
-        die Antwort es kenntlich gemacht haette."""
-        gekuerzt = [{"symbol": f"S{i}", "date": "2026-09-01"} for i in range(500)]
-        monkeypatch.setattr("probe_finnhub.fetch_calendar", self._antworten([gekuerzt]))
+        """Genau so sah die Kuerzung aus: exakt 1500 Eintraege, ohne dass die
+        Antwort es kenntlich gemacht haette. Eine feste Fenstergroesse
+        genuegt nicht -- 30 Tage reichen im September und laufen Ende Oktober
+        in die Grenze."""
+        gekuerzt = [{"symbol": f"S{i}", "date": "2026-09-01"} for i in range(TREFFERGRENZE)]
+        haelfte = [{"symbol": "A", "date": "2026-08-14"}]
+        abruf = self._antworten([gekuerzt, haelfte, haelfte])
+        monkeypatch.setattr("probe_finnhub.fetch_calendar", abruf)
 
-        _, hinweise = fetch_in_chunks("k", date(2026, 8, 13), date(2026, 8, 20), 30)
+        eintraege, hinweise = fetch_in_chunks("k", date(2026, 8, 13), date(2026, 8, 20), 30)
 
-        assert "verdaechtig runde Zahl" in hinweise[0]
+        assert len(abruf.aufrufe) == 3  # type: ignore[attr-defined]
+        assert "wird geteilt" in hinweise[0]
+        assert len(eintraege) == 1  # beide Haelften liefern denselben Eintrag
+
+    def test_ein_einzelner_tag_wird_nicht_weiter_geteilt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sonst liefe die Teilung endlos. Ein Tag an der Grenze ist ein
+        Befund, kein Fall fuer eine weitere Halbierung."""
+        gekuerzt = [{"symbol": f"S{i}", "date": "2026-08-13"} for i in range(TREFFERGRENZE)]
+        abruf = self._antworten([gekuerzt])
+        monkeypatch.setattr("probe_finnhub.fetch_calendar", abruf)
+
+        _, hinweise = fetch_in_chunks("k", date(2026, 8, 13), date(2026, 8, 13), 30)
+
+        assert len(abruf.aufrufe) == 1  # type: ignore[attr-defined]
+        assert "nicht weiter teilbar" in hinweise[0]
 
 
 class TestWatchlist:
