@@ -1,15 +1,26 @@
 # Prüfung: Darf RESC verwendet werden?
 
-Zu klären ist eine einzige Frage: Deckt die Vertragslage die geplante
+> **Erledigt am 2026-08-13 — die Frage ist entschieden, ohne dass diese
+> Prüfung zu Ende geführt wurde.** Der Projektinhaber hat entschieden, IBKR
+> nicht als Research-Quelle zu verwenden: `NO_GO mangels belastbarer
+> Grundlage`, siehe
+> [ADR 0016](../adr/0016-ibkr-keine-quelle-fuer-research-daten.md).
+>
+> **Die Anfrage an IBKR wird nicht abgesendet.** Der Erhebungsbogen ist nicht
+> auszufüllen. Dieses Dokument bleibt als Nachweis erhalten, wie die
+> Entscheidung zustande kam — insbesondere die Entscheidungsregel in
+> Abschnitt 4, nach der ein angenommenes Restrisiko hier nicht genügt.
+
+Zu klären war eine einzige Frage: Deckt die Vertragslage die geplante
 Verarbeitung der über `reqFundamentalData(reportType='RESC')` bezogenen
 Daten?
 
-**Status: offen.** Bis zu einer belastbaren Freigabe wird RESC **nicht** als
+**Ergebnis: keine belastbare Grundlage auffindbar.** RESC wird nicht als
 produktive Datenquelle eingeplant oder implementiert. Kein Blocker für den
 `IbkrMarketDataProvider`, den TWS-End-to-End-Test oder die übrigen
 Sprint-2-Arbeiten — diese nutzen ausschließlich Marktdaten, deren Bewertung
 in [ADR 0014](../adr/0014-ibkr-produktivintegration-freigegeben.md) getroffen
-ist.
+ist und die von ADR 0016 nicht berührt wird.
 
 Dieses Dokument ist keine Rechtsberatung. Es trennt, was **belegt** ist, von
 dem, was **noch zu erheben** ist, und trifft ausdrücklich keine Auslegung

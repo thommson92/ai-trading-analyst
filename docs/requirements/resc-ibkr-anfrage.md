@@ -1,5 +1,12 @@
 # Entwurf: Anfrage an IBKR zur RESC-Lizenzierung
 
+> **Nicht abgesendet — und nach heutigem Stand auch nicht abzusenden.** Der
+> Projektinhaber hat am 2026-08-13 entschieden, IBKR nicht als
+> Research-Quelle zu verwenden
+> ([ADR 0016](../adr/0016-ibkr-keine-quelle-fuer-research-daten.md)). Der
+> Entwurf bleibt erhalten, falls die Frage je neu aufgeworfen wird; dann
+> wäre er der Ausgangspunkt und nicht neu zu schreiben.
+
 Vom Projektinhaber aus dem eigenen Konto abzusenden — Client Portal → Help →
 **Secure Message Center**. Kategorie möglichst so wählen, dass die Anfrage
 bei der für **Market Data / Research Licensing** oder **API** zuständigen

@@ -1,15 +1,18 @@
 # Ergebnis der RESC-Inhaltsprüfung
 
-> **RESC ist bis auf Weiteres keine einplanbare Datenquelle.** Ob die
-> Vertragslage die geplante Verarbeitung deckt, ist ungeprüft — siehe
-> [Prüfliste](../../docs/requirements/resc-lizenzpruefung.md). Bis zur
-> Klärung wird RESC nicht implementiert und nicht in Sprint-Planungen
-> eingeplant. Das hier festgehaltene Ergebnis beschreibt, **was** RESC
-> enthält, nicht, dass es verwendet werden darf.
+> **RESC wird nicht verwendet.** Am 2026-08-13 entschieden: `NO_GO mangels
+> belastbarer Grundlage`, siehe
+> [ADR 0016](../../docs/adr/0016-ibkr-keine-quelle-fuer-research-daten.md).
+> Die Vertragslage für die Research-Inhalte ließ sich nicht belastbar
+> klären.
 >
-> Der `IbkrMarketDataProvider` und die übrigen Sprint-2-Arbeiten sind davon
-> nicht betroffen: Sie nutzen ausschließlich Marktdaten, deren Bewertung in
-> ADR 0014 getroffen ist.
+> Dieses Dokument bleibt als eingefrorenes Nachweisartefakt erhalten: Es
+> beschreibt, **was** RESC enthält. Sollte die Frage je neu aufgeworfen
+> werden, muss der Inhalt nicht erneut erhoben werden.
+>
+> Der `IbkrMarketDataProvider` ist davon nicht betroffen: Er nutzt
+> ausschließlich Marktdaten, deren Bewertung in ADR 0014 getroffen ist und
+> die ADR 0016 nicht berührt.
 
 Erhoben am 2026-08-12 gegen die TWS des Projektinhabers, Symbole `AAPL`
 (325.325 Zeichen) und `WMT` (323.706 Zeichen). Ausgewertet mit
