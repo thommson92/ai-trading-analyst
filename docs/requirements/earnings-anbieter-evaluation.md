@@ -52,20 +52,71 @@ in Frage — bei den übrigen ist der Kalender gar nicht enthalten, unabhängig
 vom Kontingent. Als bezahlter Rückfallweg sind EODHD (Kalenderpaket) und FMP
 die naheliegenden Kandidaten, beide im Bereich zweistelliger Monatsbeträge.
 
-## Was an Finnhub zu prüfen ist
+## Finnhub — Lizenzprüfung
 
-Kein Kandidat wird ohne diese Prüfung übernommen. Die Punkte entsprechen der
-Systematik, die sich bei der RESC-Frage bewährt hat.
+Erhoben am 2026-08-13 aus <https://finnhub.io/terms-of-service>. Die
+Abschnittsnamen der Seite lauten unter anderem *Intellectual Property*,
+*Redistribution Rights and Personal Use* und *API Limit and Access*.
+
+**Der entscheidende Unterschied zu IBKR: Die Bedingungen sind auffindbar,
+öffentlich und adressieren den Anwendungsfall überwiegend.** Bei RESC gab es
+kein auffindbares Dokument — das war der Grund für das `NO_GO`.
+
+| Nutzungsart | Ergebnis | Klausel |
+|---|---|---|
+| Abruf über die API | **GO** | „All plan listed on Finnhub website is strictly for personal use unless explicitly stated otherwise." Persönliche Nutzung ist genau unser Fall, und das Produkt **ist** eine API |
+| Automatisierte Non-Visual-Auswertung | **UNKLAR, tendenziell unproblematisch** | Keine Klausel dazu — weder Erlaubnis noch Verbot. Anders als bei TradingView, wo ein ausdrückliches Verbot stand. Die Bedingungen setzen „derived results from the data" ausdrücklich voraus, und der Dienst wird ausschließlich als API angeboten |
+| Lokale dauerhafte Speicherung | **GO_WITH_LIMITATIONS** | „All data must be deleted should your subscription to that data ends." Speicherung während des Abonnements ist nicht untersagt, die Löschung danach schon vorgeschrieben |
+| Ableitung eigener Scores und Signale | **GO (implizit)** | „…not redistribute or share access to data **or derived results from the data** obtained from Finnhub" — die Ableitung wird vorausgesetzt, untersagt ist nur ihre Weitergabe |
+| Anzeige im ausschließlich persönlichen Dashboard | **GO** | persönliche Nutzung, s. o. |
+| Keine Weitergabe an Dritte | **bestätigt — und vertraglich gefordert** | dieselbe Klausel |
+
+### Drei Punkte, die daraus folgen
+
+**Die Löschpflicht kollidiert mit Doc 10.** Abgeschlossene Analysen sollen
+unveränderlich und nachvollziehbar bleiben; endet das Abonnement, wären die
+zugrunde liegenden Termine zu löschen. Das ist kein Ausschlussgrund, aber
+eine Festlegung: Entweder wird die Konsequenz akzeptiert, oder es wird
+entschieden, was genau am Ergebnis gespeichert wird. Diese Frage gehört ins
+ADR, nicht in eine stillschweigende Implementierungsentscheidung.
+
+**F12 wird davon berührt.** Ein von außen erreichbares Dashboard, das
+Finnhub-Daten oder daraus abgeleitete Ergebnisse zeigt, wäre ohne
+schriftliche Zustimmung eine untersagte Weitergabe. Das ist beim Entwurf von
+F12 mitzudenken.
+
+**Der Personal-Plan setzt Nicht-Professionalität voraus.** Er steht laut
+Bedingungen nicht zur Verfügung für Wertpapierprofis, für geschäftliche
+Nutzung oder wenn die Kosten als Betriebsausgabe abgesetzt werden; die
+Nicht-Professionalität wird über eine Erklärung bestätigt. Das ist vom
+Projektinhaber selbst zu prüfen — voraussichtlich unkritisch, aber es ist
+eine Zusicherung, keine Formalie.
+
+### Bewertung
+
+Das ist deutlich mehr Klarheit als bei RESC. Offen bleibt allein die
+Non-Display-Frage, und dort ist die Lage sachlich anders als bei
+TradingView: Dort stand ein Verbot, hier steht nichts, und der Dienst wird
+ausschließlich maschinenlesbar ausgeliefert.
+
+Trotzdem gilt derselbe Maßstab wie bisher — Schweigen ist keine Erlaubnis.
+Die Frage lässt sich hier allerdings billig klären: Finnhub hat einen
+Support- und Vertriebskanal. Eine kurze schriftliche Anfrage vor einer
+Festlegung ist der konsequente Weg, deutlich kürzer als der
+[IBKR-Entwurf](resc-ibkr-anfrage.md), weil nur ein Punkt offen ist.
+
+## Was fachlich zu prüfen ist
 
 | # | Frage | Warum sie zählt |
 |---|---|---|
-| P1 | Erlaubt die Lizenz automatisierte, nicht-anzeigende Verarbeitung? | Der Punkt, an dem TradingView und IBKR gescheitert sind |
-| P2 | Erlaubt sie **lokale, dauerhafte Speicherung**? | Doc 10 verlangt unveränderliche, nachvollziehbare Analysen. **Hinweis: Finnhub verlangt offenbar die Löschung aller Daten am Ende des Abonnements** — das steht in direktem Konflikt mit dieser Anforderung und ist vor einer Zusage zu klären |
-| P3 | Erlaubt sie die **Ableitung eigener Signale**? | Der Earnings-Filter ist genau das |
 | P4 | Reicht ein Vorlauf von einem Monat? | Ein Filter „kein Einstieg N Tage vor Earnings" braucht nur wenige Wochen Vorlauf — vermutlich ja, aber festzulegen |
 | P5 | **Bestätigte oder geschätzte Termine?** | Ein geschätzter Termin, der als bestätigt behandelt wird, ist ein erfundener Wert |
 | P6 | Abdeckung der eigenen Watchlist | Bei RESC fehlten die Empfehlungen für `WMT` ganz — dieselbe Stichprobe ist hier zu fahren |
 | P7 | Liefert derselbe Anbieter auch **Ratings und Kursziele**? | Ein Anbieter statt zwei; seit ADR 0016 ist auch das eine offene Lücke |
+| P8 | Vor oder nach Börsenschluss? | Ein Termin ohne Tageszeit ist für einen Filter auf 195-Minuten-Kerzen unscharf — meldet ein Unternehmen nach Schluss, ist die betroffene Kerze die des Folgetages |
+
+Beantwortet werden diese Fragen durch die Sonde unter
+[`spikes/earnings-anbieter/`](../../spikes/earnings-anbieter/).
 
 ## Zwei getrennte Bedarfe
 
