@@ -122,17 +122,20 @@ Damit ist die Lizenzprüfung für Finnhub abgeschlossen: **fünf von fünf
 Nutzungsarten gedeckt**, eine davon mit der Löschpflicht als Einschränkung.
 Eine Anfrage an Finnhub ist nicht mehr nötig.
 
-## Was fachlich zu prüfen ist
+## Das fachliche Prüfraster
+
+Die Fragen, mit denen die Prüfung begonnen hat. **Alle sind beantwortet** —
+die Ergebnisse folgen im nächsten Abschnitt.
 
 | # | Frage | Warum sie zählt |
 |---|---|---|
-| P4 | Reicht ein Vorlauf von einem Monat? | Ein Filter „kein Einstieg N Tage vor Earnings" braucht nur wenige Wochen Vorlauf — vermutlich ja, aber festzulegen |
+| P4 | Wie weit reicht der Vorlauf? | Die Behauptung „ein Monat" aus Vergleichsquellen war zu prüfen |
 | P5 | **Bestätigte oder geschätzte Termine?** | Ein geschätzter Termin, der als bestätigt behandelt wird, ist ein erfundener Wert |
 | P6 | Abdeckung der eigenen Watchlist | Bei RESC fehlten die Empfehlungen für `WMT` ganz — dieselbe Stichprobe ist hier zu fahren |
 | P7 | Liefert derselbe Anbieter auch **Ratings und Kursziele**? | Ein Anbieter statt zwei; seit ADR 0016 ist auch das eine offene Lücke |
 | P8 | Vor oder nach Börsenschluss? | Ein Termin ohne Tageszeit ist für einen Filter auf 195-Minuten-Kerzen unscharf — meldet ein Unternehmen nach Schluss, ist die betroffene Kerze die des Folgetages |
 
-Beantwortet werden diese Fragen durch die Sonde unter
+Beantwortet werden sie durch die Sonden unter
 [`spikes/earnings-anbieter/`](../../spikes/earnings-anbieter/).
 
 ## Finnhub — fachliche Befunde

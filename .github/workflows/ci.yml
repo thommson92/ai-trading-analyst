@@ -79,6 +79,14 @@ jobs:
           TEST_DATABASE_URL: postgresql+psycopg://ata:ata@localhost:5432/ata_test
         run: python -m pytest
 
+      # Die beiden aktiven Sonden sind kein Produktivcode, aber auch keine
+      # eingefrorenen Artefakte: Sie werden erneut ausgefuehrt, wenn ein
+      # Anbieter sein Angebot aendert. Ihre Tests laufen deshalb mit. Sie
+      # brauchen nur die Standardbibliothek -- die Spikes mit eigenen
+      # Abhaengigkeiten (ibkr-marketdata, tradingview-cdp) bleiben aussen vor.
+      - name: Pytest (aktive Sonden)
+        run: python -m pytest ../spikes/resc-schema/tests ../spikes/earnings-anbieter/tests
+
   # Der Zielserver ist ein Windows-Rechner (dort laeuft die TWS). Zwei
   # Installationsfehler sind dort bereits aufgetreten und auf macOS und Linux
   # beide unsichtbar geblieben: uvloop ohne Plattform-Marker in der

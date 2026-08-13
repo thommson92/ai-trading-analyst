@@ -22,8 +22,8 @@ wird, wäre genau der erfundene Wert, den Doc 10 ausschließt. Die Sonde meldet
 das Fehlen einer solchen Kennzeichnung deshalb ausdrücklich als **Befund**,
 nicht als Leerstelle.
 
-P7 — Ratings und Kursziele beim selben Anbieter — betrifft andere Endpunkte
-und ist noch nicht Teil dieser Sonde.
+P7 — Ratings und Kursziele beim selben Anbieter — beantwortet die zweite
+Sonde `probe_finnhub_ratings.py`, weil es andere Endpunkte betrifft.
 
 ## Ausführen
 
@@ -57,7 +57,13 @@ python probe_finnhub.py --from-file results/finnhub_2026-08-13.json
 backend/.venv/bin/python -m pytest spikes/earnings-anbieter/tests
 ```
 
-## Status
+## Status: beantwortet (2026-08-13)
 
-Offen — wartet auf den Lauf mit einem Schlüssel. Das Ergebnis geht in die
-Anbieterevaluation, nicht direkt in ein ADR.
+Alle Fragen sind gelaufen; die Ergebnisse stehen in der
+[Anbieterevaluation](../../docs/requirements/earnings-anbieter-evaluation.md)
+und die Entscheidung in
+[ADR 0017](../../docs/adr/0017-finnhub-fuer-earnings-und-ratings.md).
+
+Die Sonden bleiben erhalten und werden **nicht eingefroren**: Sie sind der
+Weg, eine Aussage nachzuprüfen, wenn Finnhub sein Angebot ändert. Ihre Tests
+laufen in der CI mit.
