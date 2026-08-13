@@ -42,7 +42,7 @@ geprüft, nicht an einer Vergleichstabelle.
 
 | Anbieter | Earnings-Kalender gratis? | Kontingent gratis | Reicht für 10–20/Tag | Anmerkung |
 |---|---|---|---|---|
-| **Finnhub** | **ja** | 60 Anfragen/Minute | deutlich | Vorlauf in der Gratis-Stufe auf etwa **einen Monat** begrenzt; Gratis-Stufe ausdrücklich persönlich und nicht-kommerziell |
+| **Finnhub** | **ja** | 60 Anfragen/Minute | deutlich | Gratis-Stufe ausdrücklich persönlich und nicht-kommerziell. Der behauptete Vorlauf von einem Monat hat sich als falsch erwiesen — siehe fachliche Befunde |
 | **Financial Modeling Prep** | **nein** — kostenpflichtiger Endpunkt | 250 Anfragen/Tag | ja, aber Endpunkt fehlt | Kalender erst im Bezahlplan; Preise je nach Quelle 29–79 USD/Monat |
 | **Alpha Vantage** | **nein** — Gratis liefert Demodaten | 25 Anfragen/Tag | knapp, aber Endpunkt fehlt | `EARNINGS_CALENDAR` erst ab den großen Premium-Stufen (600+/Min.) |
 | **EODHD** | **nein** | 20 Anfragen/Tag, nur Tagesschluss | Endpunkt fehlt | Kalenderpaket als Zusatz, etwa 19,99 €/Monat |
@@ -65,7 +65,7 @@ kein auffindbares Dokument — das war der Grund für das `NO_GO`.
 | Nutzungsart | Ergebnis | Klausel |
 |---|---|---|
 | Abruf über die API | **GO** | „All plan listed on Finnhub website is strictly for personal use unless explicitly stated otherwise." Persönliche Nutzung ist genau unser Fall, und das Produkt **ist** eine API |
-| Automatisierte Non-Visual-Auswertung | **UNKLAR, tendenziell unproblematisch** | Keine Klausel dazu — weder Erlaubnis noch Verbot. Anders als bei TradingView, wo ein ausdrückliches Verbot stand. Die Bedingungen setzen „derived results from the data" ausdrücklich voraus, und der Dienst wird ausschließlich als API angeboten |
+| Automatisierte Non-Visual-Auswertung | **GO** — Entscheidung des Projektinhabers vom 2026-08-13 | Keine Klausel dazu — weder Erlaubnis noch Verbot. Anders als bei TradingView, wo ein ausdrückliches Verbot stand. Die Bedingungen setzen „derived results from the data" ausdrücklich voraus, und der Dienst wird ausschließlich als API angeboten |
 | Lokale dauerhafte Speicherung | **GO_WITH_LIMITATIONS** | „All data must be deleted should your subscription to that data ends." Speicherung während des Abonnements ist nicht untersagt, die Löschung danach schon vorgeschrieben |
 | Ableitung eigener Scores und Signale | **GO (implizit)** | „…not redistribute or share access to data **or derived results from the data** obtained from Finnhub" — die Ableitung wird vorausgesetzt, untersagt ist nur ihre Weitergabe |
 | Anzeige im ausschließlich persönlichen Dashboard | **GO** | persönliche Nutzung, s. o. |
@@ -92,18 +92,34 @@ Nicht-Professionalität wird über eine Erklärung bestätigt. Das ist vom
 Projektinhaber selbst zu prüfen — voraussichtlich unkritisch, aber es ist
 eine Zusicherung, keine Formalie.
 
-### Bewertung
+### Die Non-Display-Frage: GO durch den Projektinhaber
 
-Das ist deutlich mehr Klarheit als bei RESC. Offen bleibt allein die
-Non-Display-Frage, und dort ist die Lage sachlich anders als bei
-TradingView: Dort stand ein Verbot, hier steht nichts, und der Dienst wird
-ausschließlich maschinenlesbar ausgeliefert.
+**Entschieden am 2026-08-13.** Die Begründung des Projektinhabers, wörtlich
+festgehalten: Die nicht-anzeigende Verarbeitung wird in den Bedingungen
+**nicht ausdrücklich erwähnt**, und der **private Gebrauch wird ausdrücklich
+toleriert**.
 
-Trotzdem gilt derselbe Maßstab wie bisher — Schweigen ist keine Erlaubnis.
-Die Frage lässt sich hier allerdings billig klären: Finnhub hat einen
-Support- und Vertriebskanal. Eine kurze schriftliche Anfrage vor einer
-Festlegung ist der konsequente Weg, deutlich kürzer als der
-[IBKR-Entwurf](resc-ibkr-anfrage.md), weil nur ein Punkt offen ist.
+Warum das hier trägt und bei den beiden anderen Quellen nicht — der
+Unterschied ist der Kern der Sache:
+
+| Quelle | Lage | Ergebnis |
+|---|---|---|
+| TradingView | **ausdrückliches Verbot** der Non-Display-Nutzung | `NO_GO` (ADR 0012) |
+| IBKR RESC | **kein auffindbares Dokument**, weder Erlaubnis noch Verbot | `NO_GO mangels belastbarer Grundlage` (ADR 0016) |
+| **Finnhub** | **Dokument vorhanden und öffentlich**, erlaubt private Nutzung ausdrücklich, schweigt zur Non-Display-Frage | **`GO`** |
+
+Der Maßstab „Schweigen ist keine Erlaubnis" bleibt damit unangetastet: Bei
+RESC fehlte der Vertrag als Ganzes. Hier liegt er vor, gewährt private
+Nutzung ausdrücklich und regelt nur diesen einen Nebenaspekt nicht.
+
+Diese Bewertung ist eine **Entscheidung des Projektinhabers, keine
+Rechtsberatung** durch das Projekt oder durch Claude Code — dieselbe
+Einordnung wie bei der Marktdatenbewertung in
+[ADR 0014](../adr/0014-ibkr-produktivintegration-freigegeben.md).
+
+Damit ist die Lizenzprüfung für Finnhub abgeschlossen: **fünf von fünf
+Nutzungsarten gedeckt**, eine davon mit der Löschpflicht als Einschränkung.
+Eine Anfrage an Finnhub ist nicht mehr nötig.
 
 ## Was fachlich zu prüfen ist
 
@@ -170,21 +186,39 @@ beobachteten Großunternehmen ist lange im Voraus bekannt, dass es nach
 Börsenschluss meldet — es tut das jedes Quartal. Bei einem kaum beobachteten
 Nebenwert steht es nie dabei, egal wie nah der Termin ist.
 
-Trifft das zu, taugt `hour` als Ersatz nicht: Es unterschiede dann große von
-kleinen Titeln, nicht bestätigte von geschätzten Terminen. Die Sonde
-entscheidet das jetzt, indem sie die eigene Watchlist — durchweg große,
-gut abgedeckte Titel — getrennt auswertet. Bleibt der Anteil dort über alle
-Vorlaufwochen hinweg hoch, ist es ein Größeneffekt.
+**Die Gegenprobe bestätigt das.** Wertet man nur die eigene Watchlist aus —
+durchweg große, gut abgedeckte Titel — ergibt sich:
 
-**Bis das geklärt ist, gilt: Der Termin steht ohne Angabe seiner
-Verlässlichkeit da.** Für den Filter bleibt es damit bei zwei Wegen — jeder
-Termin zählt, auch der geschätzte (vorsichtig, schließt gelegentlich zu
-Unrecht aus), oder es wird eine zweite Quelle zur Bestätigung
-herangezogen. Für einen Filter, der Risiko vermeiden soll, ist der erste Weg
-vertretbar: Eine verpasste Gelegenheit kostet weniger als eine Position in
-eine Ergebnismeldung hinein. **Das ist eine Entscheidung für das ADR, keine
-stillschweigende Festlegung im Code**, und die Unsicherheit gehört ans
-Ergebnis.
+| | Anteil mit Tageszeit |
+|---|---|
+| Watchlist (192 große Titel) | **64 %** |
+| alle übrigen | **20 %** |
+
+Und innerhalb der Watchlist bleibt der Anteil über **alle** Vorlaufwochen
+hoch: 83 % in der laufenden Woche, 71 % in Woche 10, 67 % in Woche 16. Kein
+Abfall mit dem Vorlauf. Die Ausreißer nach unten (Woche 3 mit 14 %, Woche 15
+mit 25 %) betreffen sieben beziehungsweise acht Einträge und tragen nicht.
+
+**Damit ist die erste Lesart widerlegt.** `hour` ist ein Merkmal der
+Abdeckung, nicht der Bestätigung. Ein großer Titel hat die Angabe auch vier
+Monate im Voraus, ein kleiner nie.
+
+Zwei Folgerungen:
+
+**Für die Verlässlichkeit der Termine (P5) bleibt es beim Befund: Es gibt
+keine.** Der Termin steht ohne Angabe, ob er bestätigt oder geschätzt ist.
+Für den Filter bleiben zwei Wege — jeder Termin zählt, auch der geschätzte
+(vorsichtig, schließt gelegentlich zu Unrecht aus), oder es wird eine zweite
+Quelle zur Bestätigung herangezogen. Für einen Filter, der Risiko vermeiden
+soll, ist der erste Weg vertretbar: Eine verpasste Gelegenheit kostet weniger
+als eine Position in eine Ergebnismeldung hinein. **Das ist eine Entscheidung
+für das ADR**, und die Unsicherheit gehört ans Ergebnis.
+
+**Für die Tageszeit (P8) ist das dagegen eine gute Nachricht.** Genau für die
+Titel, die uns interessieren, liegt sie in zwei von drei Fällen vor — nicht
+nur in einem von fünf, wie die Gesamtzahl vermuten ließe. Die Zuordnung
+„meldet nach Schluss, also betrifft es die Kerze des Folgetages" ist damit
+für die Mehrheit der Kandidaten möglich.
 
 ### P8 — Tageszeit als `bmo`/`amc`
 
@@ -221,11 +255,25 @@ Mit aufgelöster Kürzung — elf Anfragen über vier Monate, 5957 Termine für
 vier Monate jeder Quartalsberichterstatter mindestens einmal auftauchen
 muss, ist das faktisch Vollabdeckung.
 
-Interessant sind die sechs verbliebenen Titel. Die Sonde nennt sie jetzt
-namentlich, statt nur Beispiele der gefundenen zu zeigen — zu erwarten sind
-abweichende Schreibweisen (`BRK.B` gegenüber `BRK B` bei IBKR) oder
-Neuemissionen ohne Berichtshistorie. Das ist mit dem gespeicherten Datensatz
-zu beantworten, ohne neue Anfrage.
+**Vom Projektinhaber am 2026-08-13 akzeptiert.**
+
+Ohne Termin bleiben sechs Titel: `BDX`, `BRK.B`, `MGA`, `NVO`, `SPCX`,
+`SWKS`. Sie zerfallen erkennbar in Gruppen, und die sind aufschlussreicher
+als die Zahl:
+
+| Titel | Vermutete Ursache |
+|---|---|
+| `BRK.B` | Schreibweise — bei IBKR `BRK B`, hier `BRK.B`; zusätzlich ein Unternehmen ohne Analystenkonferenz |
+| `NVO`, `MGA` | ausländische Emittenten (Dänemark, Kanada), oft unter der Heimatnotierung geführt |
+| `SPCX` | Börsengang im Juni 2026, noch keine Berichtshistorie |
+| `BDX`, `SWKS` | Geschäftsjahr endet im September/Oktober — echte Lücke oder Nebenwirkung des abweichenden Rhythmus |
+
+Das ist eine **Vermutung anhand der Namen, keine geprüfte Ursache.**
+Praktisch relevant ist die Gruppe `BDX`/`SWKS`: Ein Titel mit abweichendem
+Geschäftsjahr, dessen Termin der Filter nicht kennt, ist genau der Fall, in
+dem eine Ergebnismeldung unbemerkt trifft. Für das ADR heißt das: Ein
+fehlender Termin darf **nicht** als „keine Earnings in Sicht" gewertet
+werden, sondern muss als fehlende Information am Ergebnis stehen.
 
 ## Zwei getrennte Bedarfe
 
@@ -250,17 +298,25 @@ genau das, was EDGAR prinzipiell nicht leisten kann — künftige Termine.
 Diese Idee ist hier nur festgehalten, nicht entschieden. Sie gehört mit in
 die F9-Entscheidung.
 
-## Was noch fehlt
+## Stand und was noch fehlt
 
-1. Prüfung von P1 bis P3 an Finnhubs tatsächlichen Nutzungsbedingungen —
-   dieselbe Sorgfalt wie bei RESC, mit wörtlichen Klauseln und Fundstellen.
-2. Ein Probeabruf mit kostenlosem Schlüssel für eine Handvoll Symbole:
-   P4 bis P7, insbesondere ob Termine als bestätigt gekennzeichnet sind.
-3. Dasselbe für den bezahlten Rückfallweg, falls Finnhub an P1–P3 scheitert.
-4. Kosten und Anfragegrenzen gegengerechnet auf 10–20 Symbole täglich sowie
-   auf den einmaligen historischen Bedarf des Backtestings.
+| Frage | Stand |
+|---|---|
+| Lizenz — alle fünf Nutzungsarten | **geklärt**, GO mit der Löschpflicht als Einschränkung |
+| P4 Vorlauf | **geklärt**, mindestens vier Monate |
+| P5 bestätigt/geschätzt | **geklärt** — es gibt keine Kennzeichnung, und `hour` ist kein Ersatz |
+| P6 Abdeckung | **geklärt**, 97 %, akzeptiert |
+| P8 Tageszeit | **geklärt**, für 64 % der eigenen Titel vorhanden |
+| Grenzen der Schnittstelle | **geklärt**, 1500 Treffer je Anfrage, stille Kürzung am Anfang |
+| **P7 Ratings und Kursziele** | **offen** — sind die Endpunkte in der Gratis-Stufe enthalten? |
+| Historische Termine fürs Backtesting | **offen** — EDGAR als lizenzfreier Weg |
 
-Erst danach entsteht das ADR zur F9-Datenquelle.
+Für P7 genügt ein Abruf gegen die beiden Endpunkte: Eine Antwort mit Daten
+heißt enthalten, ein 403 heißt kostenpflichtig. Das ist die letzte offene
+Frage vor dem ADR.
+
+Für die Löschpflicht ist im ADR festzulegen, was am Ergebnis gespeichert
+wird — der Termin selbst oder nur die daraus abgeleitete Entscheidung.
 
 ## Quellen
 
