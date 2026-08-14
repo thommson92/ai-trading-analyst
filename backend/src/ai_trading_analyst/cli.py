@@ -59,8 +59,10 @@ from ai_trading_analyst.infrastructure.persistence.repositories import (
     SqlAlchemyIntradayBarRepository,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
+    DatabaseUnavailableError,
     build_engine,
     build_session_factory,
+    verify_connection,
 )
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
@@ -272,8 +274,20 @@ def command_backfill(args: argparse.Namespace) -> int:
 
     try:
         engine = build_engine(Secrets().require("database_url"))
+        verify_connection(engine)
     except MissingSecretError as error:
         print(f"Datenbank: {error}", file=sys.stderr)
+        return 2
+    except DatabaseUnavailableError as error:
+        # Vor dem Lauf, nicht waehrend: Sonst quittiert jede der 192 Aktien
+        # denselben Fehler. Die Adresse selbst wird nicht ausgegeben -- sie
+        # enthaelt das Passwort.
+        print(
+            f"Datenbank nicht erreichbar: {error}\n"
+            "Geprueft wird ATA_DATABASE_URL aus der Umgebung oder aus der .env "
+            "im Projektwurzelverzeichnis.",
+            file=sys.stderr,
+        )
         return 2
     session_factory = build_session_factory(engine)
 
@@ -375,8 +389,17 @@ def command_screen(args: argparse.Namespace) -> int:
     if args.source == "stored":
         try:
             engine = build_engine(Secrets().require("database_url"))
+            verify_connection(engine)
         except MissingSecretError as error:
             print(f"Datenbank: {error}", file=sys.stderr)
+            return 2
+        except DatabaseUnavailableError as error:
+            print(
+                f"Datenbank nicht erreichbar: {error}\n"
+                "Geprueft wird ATA_DATABASE_URL aus der Umgebung oder aus der .env "
+                "im Projektwurzelverzeichnis.",
+                file=sys.stderr,
+            )
             return 2
         # Eine eigene Session fuer den gesamten Lauf: Die Bars werden nur
         # gelesen, es gibt nichts zu committen.

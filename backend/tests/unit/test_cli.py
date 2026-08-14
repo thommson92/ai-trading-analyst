@@ -408,6 +408,22 @@ class TestBackfillKommando:
         assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
         assert "Datenbank" in capsys.readouterr().err
 
+    def test_eine_unerreichbare_datenbank_beendet_den_lauf_vor_der_ersten_aktie(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Sonst quittiert jede Aktie einzeln denselben Anmeldefehler."""
+        monkeypatch.setenv("ATA_DATABASE_URL", "postgresql+psycopg://ata:geheim@127.0.0.1:1/ata")
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
+        ausgabe = capsys.readouterr().err
+        assert "nicht erreichbar" in ausgabe
+        assert "ATA_DATABASE_URL" in ausgabe
+        assert "geheim" not in ausgabe  # die Adresse enthaelt das Passwort
+
     def test_eine_leere_symbolliste_wird_abgelehnt(
         self, projekt: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
