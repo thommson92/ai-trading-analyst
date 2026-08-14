@@ -15,6 +15,7 @@ docs/adr/0010-gate-g1-freigegeben.md fachlich freigegeben. Siehe
 from __future__ import annotations
 
 from datetime import time
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -348,18 +349,38 @@ class AppConfig(_Section):
         return self.indicators
 
 
-class Secrets(BaseSettings):
-    """Geheimnisse ausschliesslich aus Umgebungsvariablen (Doc 10, Paragraph 13).
+def project_env_file() -> Path:
+    """Pfad zur ``.env`` im Projektwurzelverzeichnis.
 
-    Alle Felder sind optional, weil in Sprint 0 noch kein externer Dienst
-    angebunden ist. Sobald ein Adapter ein Geheimnis braucht, fordert er es
+    Absolut, nicht relativ: Die Kommandos werden aus ``backend/`` gestartet,
+    die Datei liegt eine Ebene darueber. Ein relativer Name haette je nach
+    Arbeitsverzeichnis mal gegriffen und mal nicht.
+    """
+    # settings.py -> config -> ai_trading_analyst -> src -> backend -> Wurzel
+    return Path(__file__).resolve().parents[4] / ".env"
+
+
+class Secrets(BaseSettings):
+    """Geheimnisse aus der Umgebung, ersatzweise aus einer lokalen ``.env``.
+
+    Doc 10, Paragraph 13 verlangt, dass Geheimnisse nicht im Repository
+    stehen. Eine ``.env`` erfuellt das: Sie ist ueber ``.gitignore``
+    ausgeschlossen, ``.env.example`` enthaelt nur Platzhalter. Ohne sie muesste
+    auf dem Windows-Server vor jedem Lauf von Hand
+    ``$env:ATA_DATABASE_URL`` gesetzt werden -- eine Fehlerquelle bei einem
+    Betrieb, der nach jedem Neustart ohnehin von Hand angestossen wird
+    (ADR 0018).
+
+    Eine gesetzte echte Umgebungsvariable gewinnt gegenueber der Datei. Alle
+    Felder sind optional; benoetigt ein Adapter ein Geheimnis, fordert er es
     ueber ``require`` an und erhaelt bei Fehlen einen klaren Fehler statt einer
     stillen ``None``.
     """
 
     model_config = SettingsConfigDict(
         env_prefix="ATA_",
-        env_file=None,
+        env_file=project_env_file(),
+        env_file_encoding="utf-8",
         extra="ignore",
         frozen=True,
     )

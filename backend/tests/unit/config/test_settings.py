@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -16,6 +18,7 @@ from ai_trading_analyst.config import (
     MissingSecretError,
     Secrets,
 )
+from ai_trading_analyst.config.settings import project_env_file
 
 
 class TestMarketConfig:
@@ -115,19 +118,59 @@ class TestGateG1:
 class TestSecrets:
     def test_missing_secret_names_the_expected_environment_variable(self) -> None:
         with pytest.raises(MissingSecretError, match="ATA_DATABASE_URL"):
-            Secrets().require("database_url")
+            Secrets(_env_file=None).require("database_url")
 
     def test_unknown_secret_field_is_rejected(self) -> None:
         with pytest.raises(KeyError):
-            Secrets().require("does_not_exist")
+            Secrets(_env_file=None).require("does_not_exist")
 
     def test_secret_is_read_from_the_environment(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("ATA_SESSION_SECRET", "s3cret")
-        assert Secrets().require("session_secret") == "s3cret"
+        assert Secrets(_env_file=None).require("session_secret") == "s3cret"
 
     def test_secret_is_not_exposed_by_repr(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Ein versehentlich geloggtes Settings-Objekt darf nichts verraten."""
         monkeypatch.setenv("ATA_SESSION_SECRET", "s3cret")
-        assert "s3cret" not in repr(Secrets())
+        assert "s3cret" not in repr(Secrets(_env_file=None))
+
+
+class TestSecretsAusDatei:
+    """Ohne die ``.env`` bleibt der Backfill auf dem Server unbedienbar.
+
+    Der erste Inbetriebnahmeversuch scheiterte genau hier: ``.env.example``
+    ist eingecheckt und weist das Kopieren an, gelesen hat die Datei aber
+    niemand.
+    """
+
+    def test_die_datei_wird_gelesen(self, tmp_path: Path) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("ATA_DATABASE_URL=postgresql+psycopg://a:b@localhost:5432/ata\n")
+
+        secrets = Secrets(_env_file=env_file)
+
+        assert secrets.require("database_url").endswith("/ata")
+
+    def test_die_echte_umgebungsvariable_gewinnt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sonst liesse sich ein Lauf nicht mehr gezielt umlenken."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("ATA_SESSION_SECRET=aus-der-datei\n")
+        monkeypatch.setenv("ATA_SESSION_SECRET", "aus-der-umgebung")
+
+        assert Secrets(_env_file=env_file).require("session_secret") == "aus-der-umgebung"
+
+    def test_gesucht_wird_im_projektwurzelverzeichnis(self) -> None:
+        """Nicht in ``backend/`` -- dort wird gestartet, dort liegt sie nicht."""
+        pfad = project_env_file()
+
+        assert pfad.name == ".env"
+        assert (pfad.parent / "config" / "default.yaml").exists()
+        assert (pfad.parent / ".env.example").exists()
+
+    def test_eine_fehlende_datei_ist_kein_fehler(self, tmp_path: Path) -> None:
+        """Auf Entwicklungsrechnern und in der CI gibt es keine ``.env``."""
+        with pytest.raises(MissingSecretError):
+            Secrets(_env_file=tmp_path / "gibt-es-nicht").require("database_url")

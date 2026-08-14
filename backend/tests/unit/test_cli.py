@@ -433,6 +433,35 @@ class TestBackfillKommando:
         assert args.limit == 5
         assert args.no_pacing is True
 
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Standard 'fixture' darf nie stillschweigend zur TWS greifen."""
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_der_provider_laesst_sich_je_lauf_uebersteuern(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Wie bei ``screen``: Die Konfiguration im Repository bleibt auf
+        'fixture', damit ein 'git pull' auf dem Server keinen lokalen Diff
+        vorfindet."""
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="fixture")
+
+        code = main(
+            ["--config", str(config), "backfill", "--provider", "ibkr", "--symbols", "AAPL"]
+        )
+
+        # Bis zur Datenbank kommt der Lauf -- die Provider-Sperre ist passiert.
+        assert code == 2
+        assert "Datenbank" in capsys.readouterr().err
+
 
 class TestBarquelleFuerDasScreening:
     def test_standard_ist_der_direkte_abruf(self) -> None:

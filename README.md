@@ -182,14 +182,16 @@ zerfällt das in zwei Schritte, die einander nicht brauchen:
 ```bash
 # Holt nur, was seit dem letzten Lauf fehlt. Beim ersten Mal ein Jahr,
 # danach die Lücke -- ein Tag, ein Wochenende, drei Wochen nach einem Ausfall.
-.venv/bin/python -m ai_trading_analyst.cli backfill
+.venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr
 
 # Rechnet auf dem Bestand: ohne TWS, ohne Pacing.
 .venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr --source stored
 ```
 
 `backfill` braucht als einziges Kommando die Datenbank (`ATA_DATABASE_URL`)
-— es ist das einzige, das etwas dauerhaft ablegt. Gespeichert werden die
+— es ist das einzige, das etwas dauerhaft ablegt. Die Adresse steht entweder
+in der Umgebung oder in einer `.env` im Projektwurzelverzeichnis (Vorlage:
+`.env.example`); die Umgebungsvariable gewinnt. Gespeichert werden die
 **nativen 15-Minuten-Bars**, nicht die daraus gebildeten Kerzen: Ändert sich
 eine Aggregationsregel, ist das ein erneuter Lauf über lokale Daten statt
 eines Abrufs über ein Jahr und alle Symbole.
@@ -206,7 +208,8 @@ angefragt (so kürzt IBKR stillschweigend), und `--from` holt einen Zeitraum
 erneut:
 
 ```bash
-.venv/bin/python -m ai_trading_analyst.cli backfill --symbols AAPL --from 2026-01-01
+.venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr \
+    --symbols AAPL --from 2026-01-01
 ```
 
 Nebeneffekt, der wichtiger ist als die Geschwindigkeit: Der Lauf wird

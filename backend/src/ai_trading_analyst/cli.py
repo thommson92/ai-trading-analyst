@@ -232,13 +232,17 @@ def command_backfill(args: argparse.Namespace) -> int:
     config = loaded.config
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
     if config.market_data.provider != "ibkr":
         # Ohne diese Pruefung baute der Backfill mit dem ausgelieferten
         # Standard 'fixture' trotzdem eine TWS-Verbindung auf.
         print(
             "market_data.provider steht auf "
-            f"'{config.market_data.provider}'. Der Backfill holt Daten von der TWS und "
-            "verlangt deshalb 'ibkr' in der Konfiguration.",
+            f"'{config.market_data.provider}'. Der Backfill holt Daten von der TWS -- "
+            "entweder '--provider ibkr' angeben oder die Konfiguration umstellen.",
             file=sys.stderr,
         )
         return 2
@@ -508,6 +512,16 @@ def build_parser() -> argparse.ArgumentParser:
     backfill = subparsers.add_parser(
         "backfill",
         help="Historische Bars in die Datenbank holen -- nur, was seit dem letzten Lauf fehlt.",
+    )
+    backfill.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider nur fuer diesen Lauf. Die Konfiguration "
+            "steht bewusst auf 'fixture' und wird auf dem Server nicht veraendert, "
+            "damit 'git pull' keinen lokalen Diff vorfindet."
+        ),
     )
     backfill.add_argument(
         "--symbols",
