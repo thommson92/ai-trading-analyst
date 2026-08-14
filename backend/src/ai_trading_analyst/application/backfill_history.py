@@ -45,6 +45,23 @@ uebergangen -- und verhindert den Fall, in dem ein Lauf mitten in einem
 Handelstag abbricht und der naechste genau diesen Rest ueberspringt.
 """
 
+STANDARDZEITRAUM_TAGE = 365
+"""Was ``market_data.ibkr.history_duration`` ausliefert, in Tagen.
+
+Der Backfill schickt beim ersten Lauf weiterhin den konfigurierten Zeitraum in
+IBKR-Schreibweise. Fuer die Kuerzungspruefung braucht es daneben eine Zahl --
+ohne sie bliebe ausgerechnet der lange erste Abruf ungeprueft, also der Fall,
+fuer den die Pruefung geschrieben wurde. Die CLI reicht den tatsaechlich
+konfigurierten Wert durch.
+"""
+
+MINDESTZEITRAUM_FUER_KUERZUNGSPRUEFUNG = 10
+"""Ab wievielen angefragten Tagen die Kuerzungspruefung ueberhaupt greift.
+
+Siehe ``SymbolBackfill.truncated``: Bei einem oder zwei Tagen ist eine kurze
+Antwort der Normalfall und keine Kuerzung.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class SymbolBackfill:
@@ -74,8 +91,16 @@ class SymbolBackfill:
         Deshalb wird hier verglichen, was angefragt und was geliefert wurde.
         Ein legitimer Grund ist eine kurze Boersenhistorie (Neuemission) --
         deshalb ein Hinweis und kein Fehler.
+
+        Kurze Zeitraeume bleiben ausgenommen. Eine Anfrage ueber einen Tag
+        beantwortet IBKR mit den Bars des laufenden Handelstages; die reichen
+        keine 24 Stunden zurueck, und der Vergleich meldete jeden
+        gewoehnlichen taeglichen Lauf als gekuerzt. Erst ueber mehrere Tage
+        traegt er.
         """
         if self.requested_days is None or self.covered_days is None:
+            return False
+        if self.requested_days < MINDESTZEITRAUM_FUER_KUERZUNGSPRUEFUNG:
             return False
         return self.covered_days * 2 < self.requested_days
 
@@ -127,11 +152,13 @@ class BackfillHistoryUseCase:
         uow_factory: Callable[[], UnitOfWork],
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         from_date: date | None = None,
+        default_days: int = STANDARDZEITRAUM_TAGE,
     ) -> None:
         self._bar_source = bar_source
         self._uow_factory = uow_factory
         self._now = now
         self._from_date = from_date
+        self._default_days = default_days
 
     def execute(
         self,
@@ -157,22 +184,25 @@ class BackfillHistoryUseCase:
         Antworten, und der Nutzer saehe einen Traceback statt eines Berichts.
         """
         symbol = contract.symbol
-        tage: int | None = None
+        angefragt: int | None = None
         try:
-            tage = self._start_from(contract)
-            bars = self._bar_source.fetch_intraday_bars(contract, tage)
+            # ``None`` heisst hier: der in IBKR-Schreibweise konfigurierte
+            # Standardzeitraum. So bleibt die Anfrage an die TWS unveraendert;
+            # nur der Bericht rechnet ihn zum Vergleichen in Tage um.
+            angefragt = self._start_from(contract)
+            bars = self._bar_source.fetch_intraday_bars(contract, angefragt)
             with self._uow_factory() as uow:
                 neu = uow.intraday_bars.add_all(symbol, bars)
                 uow.commit()
         except Exception as error:  # Systemgrenze: eine Aktie, nicht der Lauf
             _logger.warning("%s: %s -- %s", symbol, type(error).__name__, error)
             return SymbolBackfill(
-                symbol=symbol, requested_days=tage, error=f"{type(error).__name__}: {error}"
+                symbol=symbol, requested_days=angefragt, error=f"{type(error).__name__}: {error}"
             )
 
         return SymbolBackfill(
             symbol=symbol,
-            requested_days=tage,
+            requested_days=angefragt if angefragt is not None else self._default_days,
             received_bars=len(bars),
             stored_bars=neu,
             covered_days=_covered_days(bars, self._now()),

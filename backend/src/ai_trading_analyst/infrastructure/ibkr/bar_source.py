@@ -132,6 +132,33 @@ def ibkr_duration(days: int) -> str:
     return f"{-(-days // 365)} Y"
 
 
+_ZEITRAUMEINHEITEN = {"D": 1, "W": 7, "M": 30, "Y": 365}
+
+
+def duration_in_days(duration: str) -> int:
+    """Uebersetzt eine Zeitraumangabe der IBKR-API in Tage.
+
+    Die Umkehrung von ``ibkr_duration``, gebraucht fuer den Vergleich zwischen
+    angefragtem und geliefertem Zeitraum: Der Standardzeitraum steht in der
+    Konfiguration in IBKR-Schreibweise, die Kuerzungspruefung rechnet in Tagen.
+    Naeherungsweise -- ein Monat gilt als 30 Tage -- was fuer einen Vergleich
+    von Groessenordnungen genuegt.
+    """
+    teile = duration.split()
+    if len(teile) != 2 or teile[1] not in _ZEITRAUMEINHEITEN:
+        raise ValueError(
+            f"'{duration}' ist keine IBKR-Zeitraumangabe. Erwartet wird eine Zahl und "
+            f"eine Einheit, etwa '1 Y' oder '30 D' ({', '.join(_ZEITRAUMEINHEITEN)})."
+        )
+    try:
+        anzahl = int(teile[0])
+    except ValueError as error:
+        raise ValueError(f"'{duration}' beginnt nicht mit einer ganzen Zahl.") from error
+    if anzahl < 1:
+        raise ValueError(f"'{duration}' ergibt keinen Zeitraum.")
+    return anzahl * _ZEITRAUMEINHEITEN[teile[1]]
+
+
 class IbAsyncBarSource:
     """``HistoricalBarSource`` gegen eine laufende TWS-Instanz.
 

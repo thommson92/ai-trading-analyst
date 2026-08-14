@@ -7,6 +7,7 @@ from .bar_source import (
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
+    duration_in_days,
     ibkr_bar_size,
     ibkr_duration,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "IbkrBarSourceError",
     "IbkrConnectionSettings",
     "IbkrMarketDataProvider",
+    "duration_in_days",
     "ibkr_bar_size",
     "ibkr_duration",
 ]

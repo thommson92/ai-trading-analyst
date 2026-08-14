@@ -18,6 +18,7 @@ from ai_trading_analyst.infrastructure.ibkr.bar_source import (
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
+    duration_in_days,
     ibkr_bar_size,
     ibkr_duration,
 )
@@ -153,3 +154,36 @@ class TestZeitraumangabe:
     def test_null_tage_sind_kein_gueltiger_zeitraum(self) -> None:
         with pytest.raises(ValueError, match="mindestens 1"):
             ibkr_duration(0)
+
+
+class TestZeitraumangabeInTage:
+    """Die Gegenrichtung: Der Standardzeitraum steht in der Konfiguration in
+    IBKR-Schreibweise, die Kuerzungspruefung des Backfills rechnet in Tagen."""
+
+    def test_die_ausgelieferte_einstellung(self) -> None:
+        assert duration_in_days("1 Y") == 365
+
+    def test_alle_einheiten(self) -> None:
+        assert duration_in_days("30 D") == 30
+        assert duration_in_days("2 W") == 14
+        assert duration_in_days("6 M") == 180
+
+    def test_die_umkehrung_von_ibkr_duration(self) -> None:
+        assert duration_in_days(ibkr_duration(30)) == 30
+        assert duration_in_days(ibkr_duration(365)) == 365
+
+    def test_eine_unbekannte_einheit_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="keine IBKR-Zeitraumangabe"):
+            duration_in_days("1 Jahr")
+
+    def test_eine_angabe_ohne_einheit_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="keine IBKR-Zeitraumangabe"):
+            duration_in_days("365")
+
+    def test_eine_angabe_ohne_zahl_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="ganzen Zahl"):
+            duration_in_days("ein Y")
+
+    def test_null_ergibt_keinen_zeitraum(self) -> None:
+        with pytest.raises(ValueError, match="keinen Zeitraum"):
+            duration_in_days("0 D")

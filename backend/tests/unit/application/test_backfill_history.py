@@ -308,7 +308,12 @@ class TestGekuerzteAntwort:
     Lauf heilte sich das; im Bestand bliebe die Luecke dauerhaft, und ein
     vollstaendig fehlender Handelstag ist der Kerzenbildung unsichtbar."""
 
-    def _bericht(self, bars: list[IntradayBar], vorher: list[IntradayBar]) -> BackfillReport:
+    def _bericht(
+        self,
+        bars: list[IntradayBar],
+        vorher: list[IntradayBar],
+        default_days: int = 365,
+    ) -> BackfillReport:
         bestand = InMemoryIntradayBarRepository()
         bestand.add_all("AAPL", vorher)
 
@@ -322,7 +327,10 @@ class TestGekuerzteAntwort:
             )
 
         use_case = BackfillHistoryUseCase(
-            FakeBarSource({"AAPL": bars}), uow_factory, now=lambda: JETZT
+            FakeBarSource({"AAPL": bars}),
+            uow_factory,
+            now=lambda: JETZT,
+            default_days=default_days,
         )
         return use_case.execute((ContractSpec(symbol="AAPL"),))
 
@@ -339,11 +347,40 @@ class TestGekuerzteAntwort:
         bericht = self._bericht([bar(JETZT - timedelta(days=299))], vorher)
         assert bericht.truncated == ()
 
-    def test_beim_ersten_lauf_gibt_es_nichts_zu_vergleichen(self) -> None:
-        """Ohne Bestand ist der angefragte Zeitraum der Standardwert der
-        Konfiguration -- der Use Case kennt ihn nicht."""
-        bericht = self._bericht([bar(JETZT - timedelta(days=5))], [])
+    def test_auch_der_erste_lauf_wird_geprueft(self) -> None:
+        """Der lange erste Abruf ist der Fall, fuer den die Pruefung
+        geschrieben wurde -- ohne Bestand kennt der Use Case den angefragten
+        Zeitraum aus der Konfiguration."""
+        bericht = self._bericht([bar(JETZT - timedelta(days=5))], [], default_days=365)
+
+        assert len(bericht.truncated) == 1
+        assert bericht.truncated[0].requested_days == 365
+
+    def test_ein_vollstaendiger_erster_lauf_wird_nicht_gemeldet(self) -> None:
+        bericht = self._bericht([bar(JETZT - timedelta(days=360))], [], default_days=365)
         assert bericht.truncated == ()
+
+    def test_der_taegliche_lauf_meldet_nichts(self) -> None:
+        """Der Fehlalarm aus der Inbetriebnahme: Auf eine Anfrage ueber einen
+        Tag liefert IBKR die Bars des laufenden Handelstages. Die reichen
+        keine 24 Stunden zurueck -- gekuerzt ist daran nichts."""
+        vorher = [bar(JETZT - timedelta(hours=6))]
+        bericht = self._bericht([bar(JETZT - timedelta(hours=2))], vorher)
+
+        assert bericht.results[0].requested_days == 1
+        assert bericht.results[0].covered_days == 0
+        assert bericht.truncated == ()
+
+    def test_auch_nach_einem_langen_wochenende_nicht(self) -> None:
+        vorher = [bar(JETZT - timedelta(days=4))]
+        bericht = self._bericht([bar(JETZT - timedelta(hours=2))], vorher)
+        assert bericht.truncated == ()
+
+    def test_nach_einem_laengeren_ausfall_wieder_schon(self) -> None:
+        """Drei Wochen Stillstand: Hier traegt der Vergleich wieder."""
+        vorher = [bar(JETZT - timedelta(days=21))]
+        bericht = self._bericht([bar(JETZT - timedelta(days=2))], vorher)
+        assert len(bericht.truncated) == 1
 
     def test_eine_leere_antwort_ist_keine_kuerzung(self) -> None:
         """An einem Feiertag kommt nichts -- das ist etwas anderes als eine

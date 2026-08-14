@@ -54,7 +54,11 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
     evaluate_candidate,
 )
-from ai_trading_analyst.infrastructure.ibkr import ContractSpec, IbkrMarketDataProvider
+from ai_trading_analyst.infrastructure.ibkr import (
+    ContractSpec,
+    IbkrMarketDataProvider,
+    duration_in_days,
+)
 from ai_trading_analyst.infrastructure.persistence.repositories import (
     SqlAlchemyIntradayBarRepository,
 )
@@ -249,6 +253,14 @@ def command_backfill(args: argparse.Namespace) -> int:
         )
         return 2
 
+    try:
+        standardzeitraum = duration_in_days(config.market_data.ibkr.history_duration)
+    except ValueError as error:
+        # Vor allem anderen: Ein Tippfehler in der Konfiguration soll nicht
+        # erst nach dem Verbindungsaufbau auffallen.
+        print(f"market_data.ibkr.history_duration: {error}", file=sys.stderr)
+        return 2
+
     if args.no_pacing:
         ibkr = config.market_data.ibkr.model_copy(
             update={"minimum_request_interval_seconds": 0.0}
@@ -295,7 +307,12 @@ def command_backfill(args: argparse.Namespace) -> int:
         return SqlAlchemyUnitOfWork(session_factory)
 
     bar_source = build_ibkr_bar_source(config)
-    use_case = BackfillHistoryUseCase(bar_source, uow_factory, from_date=args.from_date)
+    use_case = BackfillHistoryUseCase(
+        bar_source,
+        uow_factory,
+        from_date=args.from_date,
+        default_days=standardzeitraum,
+    )
 
     print(
         f"{len(watchlist)} Aktien, TWS {config.market_data.ibkr.host}:"
