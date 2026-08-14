@@ -9,10 +9,12 @@ nur die eigene Annahme ueber die Bibliothek pruefen.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from ai_trading_analyst.domain.analysis import ContractSpec
+from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.infrastructure.ibkr.bar_source import (
     SUPPORTED_BAR_MINUTES,
     IbAsyncBarSource,
@@ -128,6 +130,55 @@ class TestPacing:
         quelle._wait_for_pacing()
         quelle._wait_for_pacing()
         assert geschlafen == []
+
+
+class TestLaufenderBar:
+    """Auf ``endDateTime=""`` antwortet IBKR bis zum Augenblick der Anfrage.
+
+    Der letzte Bar einer waehrend der Sitzung gestellten Anfrage ist deshalb
+    ein Zwischenstand. Fuer das Screening folgenlos -- die zugehoerige Kerze
+    ist selbst unfertig --, fuer den Bestand fatal: Ein abgelegter Bar wird
+    nie wieder ueberschrieben, der Zwischenstand bliebe fuer immer stehen.
+    """
+
+    JETZT = datetime(2026, 8, 14, 17, 7, tzinfo=UTC)  # 13:07 New Yorker Zeit
+
+    def _quelle(self) -> IbAsyncBarSource:
+        return IbAsyncBarSource(
+            UNBESETZTER_PORT, native_bar_minutes=15, duration="1 D", now=lambda: self.JETZT
+        )
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def test_der_noch_laufende_bar_faellt_weg(self) -> None:
+        """13:00 bis 13:15 ist um 13:07 noch nicht fertig."""
+        bars = [
+            self._bar(self.JETZT - timedelta(minutes=37)),  # 12:30, fertig
+            self._bar(self.JETZT - timedelta(minutes=22)),  # 12:45, fertig
+            self._bar(self.JETZT - timedelta(minutes=7)),  # 13:00, laeuft noch
+        ]
+
+        behalten = self._quelle()._without_running_bar(bars)
+
+        assert len(behalten) == 2
+        assert behalten[-1].start == self.JETZT - timedelta(minutes=22)
+
+    def test_ein_gerade_abgeschlossener_bar_bleibt(self) -> None:
+        """Die Grenze liegt genau bei einer Bar-Laenge -- 12:52 ist fertig."""
+        gerade_fertig = self._bar(self.JETZT - timedelta(minutes=15))
+
+        assert self._quelle()._without_running_bar([gerade_fertig]) == (gerade_fertig,)
+
+    def test_ausserhalb_der_sitzung_bleibt_alles_stehen(self) -> None:
+        """Nach Boersenschluss ist kein Bar mehr in Arbeit."""
+        bars = [self._bar(self.JETZT - timedelta(hours=stunden)) for stunden in (5, 4, 3)]
+
+        assert len(self._quelle()._without_running_bar(bars)) == 3
+
+    def test_eine_leere_lieferung_bleibt_leer(self) -> None:
+        assert self._quelle()._without_running_bar([]) == ()
 
 
 class TestZeitraumangabe:

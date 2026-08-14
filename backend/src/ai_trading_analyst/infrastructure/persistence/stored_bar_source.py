@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
     IntradayBarRepository,
@@ -46,7 +48,18 @@ class StoredBarSource:
         stille Stelle, an der ueber den Betrachtungszeitraum entschieden wird.
         Diese Entscheidung trifft die Kerzenbildung.
         """
-        bars = self._repository.list_for(contract.symbol)
+        try:
+            bars = self._repository.list_for(contract.symbol)
+        except SQLAlchemyError as error:
+            # Systemgrenze: Ohne diese Uebersetzung reisst ein
+            # Datenbankproblem -- abgerissene Verbindung, Neustart des
+            # Servers -- den gesamten Screening-Lauf mitsamt aller bis dahin
+            # geprueften Aktien ab. Der Live-Pfad hat dieses Loch nicht, weil
+            # dort jede Bibliotheksausnahme als IbkrBarSourceError ankommt.
+            raise MarketDataProviderError(
+                f"Der Bestand von '{contract.symbol}' ist nicht lesbar: {error}"
+            ) from error
+
         if not bars:
             # Ohne diesen Hinweis waere die Meldung "keine abgeschlossene
             # Kerze" -- richtig, aber irrefuehrend: Es fehlt nicht die Kerze,

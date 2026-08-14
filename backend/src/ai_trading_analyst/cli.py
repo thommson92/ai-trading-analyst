@@ -2,12 +2,15 @@
 
 Zweck ist die Inbetriebnahme und die Fehlersuche am realen Anbieter: Sie
 beantwortet die Frage "kommen ueber IBKR verwertbare Kerzen an, und was sagt
-der Screener dazu" **ohne Datenbank, ohne API und ohne Scheduler**. Der
-regulaere, persistierte Lauf laeuft weiterhin ueber
-``RunAnalysisUseCase``.
+der Screener dazu" **ohne API und ohne Scheduler**. Der regulaere,
+persistierte Lauf laeuft weiterhin ueber ``RunAnalysisUseCase``.
 
-Es wird ausschliesslich gelesen -- kein Schreibzugriff auf die Datenbank,
-keine ordererzeugende Schnittstelle.
+Die Datenbank braucht nur, wer sie braucht: ``watchlist`` und
+``screen --source live`` kommen ohne aus. ``backfill`` legt Bars ab,
+``screen --source stored`` liest sie.
+
+Keine ordererzeugende Schnittstelle -- die Sicherheitsgrenze aus ADR 0014
+gilt hier wie im Adapter.
 
 Liegt wie ``bootstrap.py`` bewusst ausserhalb der vier Schichten: Sie
 verdrahtet Konfiguration, Infrastruktur und Domain und ist damit selbst eine
@@ -29,6 +32,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import ArgumentError
 
 from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
@@ -80,6 +86,18 @@ from ai_trading_analyst.observability.logging_setup import configure_logging
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
 unter IBKRs Grenze von 60 Anfragen je zehn Minuten."""
+
+
+def _positive_count(value: str) -> int:
+    """``--limit`` als Anzahl, nicht als Slice-Grenze.
+
+    Ohne diese Pruefung schnitte ``--limit -1`` ueber ``watchlist[:-1]``
+    stillschweigend die *letzte* Aktie weg, statt die erste zu nehmen.
+    """
+    zahl = int(value)
+    if zahl < 1:
+        raise argparse.ArgumentTypeError(f"muss mindestens 1 sein, ist aber {zahl}")
+    return zahl
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,23 +234,50 @@ def _print_backfill_progress(index: int, total: int, ergebnis: SymbolBackfill) -
     if ergebnis.failed:
         print(f"{prefix} FEHLER   {ergebnis.error}", flush=True)
         return
-    zeitraum = (
-        "Standardzeitraum"
-        if ergebnis.requested_days is None
-        else f"{ergebnis.requested_days} Tage"
-    )
     print(
         f"{prefix} {ergebnis.received_bars:>5} Bars empfangen, "
-        f"{ergebnis.stored_bars:>5} neu  ({zeitraum})",
+        f"{ergebnis.stored_bars:>5} neu  ({ergebnis.requested_days} Tage)",
         flush=True,
     )
+
+
+def _open_database() -> Engine | None:
+    """Engine samt Anklopfversuch.
+
+    ``None`` heisst: Die Meldung ist bereits ausgegeben, der Aufrufer bricht
+    mit Rueckgabewert 2 ab. Die Datenbank-Adresse selbst steht in keiner der
+    Meldungen -- in ihr steht das Passwort.
+    """
+    try:
+        engine = build_engine(Secrets().require("database_url"))
+        verify_connection(engine)
+    except MissingSecretError as error:
+        print(f"Datenbank: {error}", file=sys.stderr)
+        return None
+    except (ArgumentError, ValueError) as error:
+        # Unlesbare Adresse, unbekannter Treiber, kein numerischer Port:
+        # ohne diesen Zweig ein Traceback statt einer Meldung.
+        print(f"ATA_DATABASE_URL ist keine gueltige Adresse: {error}", file=sys.stderr)
+        return None
+    except DatabaseUnavailableError as error:
+        # Vor dem Lauf, nicht waehrend: Sonst quittiert jede der 192 Aktien
+        # denselben Fehler.
+        print(
+            f"Datenbank nicht erreichbar: {error}\n"
+            "Geprueft wird ATA_DATABASE_URL aus der Umgebung oder aus der .env "
+            "im Projektwurzelverzeichnis.",
+            file=sys.stderr,
+        )
+        return None
+    return engine
 
 
 def command_backfill(args: argparse.Namespace) -> int:
     """Fuellt den Bestand an nativen Bars auf.
 
-    Anders als ``screen`` braucht dieses Kommando die Datenbank -- es ist das
-    einzige, das etwas dauerhaft ablegt.
+    Das einzige Kommando, das etwas dauerhaft ablegt -- und neben
+    ``screen --source stored``, das aus dem Bestand liest, eines von zweien,
+    die eine Datenbank brauchen.
     """
     loaded = load_config(args.config)
     config = loaded.config
@@ -262,11 +307,15 @@ def command_backfill(args: argparse.Namespace) -> int:
         return 2
 
     if args.no_pacing:
-        ibkr = config.market_data.ibkr.model_copy(
-            update={"minimum_request_interval_seconds": 0.0}
-        )
+        ibkr = config.market_data.ibkr.model_copy(update={"minimum_request_interval_seconds": 0.0})
         market_data = config.market_data.model_copy(update={"ibkr": ibkr})
         config = config.model_copy(update={"market_data": market_data})
+
+    if args.from_date is not None and args.from_date > datetime.now(UTC).date():
+        # Sonst wuerde daraus stillschweigend "ein Tag": Ein Tippfehler in der
+        # Jahreszahl machte aus dem Reparaturlauf einen Leerlauf.
+        print(f"--from {args.from_date.isoformat()} liegt in der Zukunft.", file=sys.stderr)
+        return 2
 
     watchlist = _watchlist_from(args, config, loaded.source_path)
     if watchlist is None:
@@ -284,22 +333,8 @@ def command_backfill(args: argparse.Namespace) -> int:
         )
         return 2
 
-    try:
-        engine = build_engine(Secrets().require("database_url"))
-        verify_connection(engine)
-    except MissingSecretError as error:
-        print(f"Datenbank: {error}", file=sys.stderr)
-        return 2
-    except DatabaseUnavailableError as error:
-        # Vor dem Lauf, nicht waehrend: Sonst quittiert jede der 192 Aktien
-        # denselben Fehler. Die Adresse selbst wird nicht ausgegeben -- sie
-        # enthaelt das Passwort.
-        print(
-            f"Datenbank nicht erreichbar: {error}\n"
-            "Geprueft wird ATA_DATABASE_URL aus der Umgebung oder aus der .env "
-            "im Projektwurzelverzeichnis.",
-            file=sys.stderr,
-        )
+    engine = _open_database()
+    if engine is None:
         return 2
     session_factory = build_session_factory(engine)
 
@@ -339,7 +374,24 @@ def command_backfill(args: argparse.Namespace) -> int:
     print(f"  neue Bars                    {bericht.stored_bars}")
     print(f"  Fehler                       {len(bericht.failures)}")
     if bericht.failures:
-        print(f"\nOhne Daten: {', '.join(item.symbol for item in bericht.failures)}")
+        print(f"\nFehlgeschlagen: {', '.join(item.symbol for item in bericht.failures)}")
+    if bericht.empty:
+        # Ohne diese Zeile bliebe eine Aktie, fuer die gar nichts ankam, in
+        # der Bilanz unsichtbar: Sie ist weder Fehler noch Kuerzung.
+        print(
+            f"\nKeine Bars erhalten ({len(bericht.empty)}): "
+            + ", ".join(item.symbol for item in bericht.empty[:10])
+        )
+        print("  An einem Feiertag erwartbar. Sonst kennt IBKR das Symbol nicht.")
+    if bericht.gaps:
+        print(
+            f"\nLuecke zum vorhandenen Bestand ({len(bericht.gaps)}): "
+            + ", ".join(item.symbol for item in bericht.gaps[:10])
+        )
+        print(
+            "  Die Antwort beginnt spaeter als der letzte gespeicherte Bar. Der Zeitraum "
+            "dazwischen wird nie von allein nachgeholt -- mit '--from JJJJ-MM-TT' holen."
+        )
     if bericht.truncated:
         # Kein Fehler: Eine Neuemission hat schlicht keine laengere Historie.
         # Bei einem lange notierten Titel ist es dagegen der Hinweis darauf,
@@ -374,18 +426,19 @@ def command_screen(args: argparse.Namespace) -> int:
         config = config.model_copy(update={"market_data": market_data})
 
     if config.market_data.provider != "ibkr":
+        # Auch fuer '--source stored': Die 195-Minuten-Kerzen entstehen im
+        # IbkrMarketDataProvider, unabhaengig davon, woher seine Bars kommen.
+        # Kontaktiert wird die TWS dabei nicht.
         print(
             "market_data.provider steht auf "
-            f"'{config.market_data.provider}'. Fuer einen Lauf gegen die TWS entweder "
+            f"'{config.market_data.provider}'. Fuer einen IBKR-Lauf entweder "
             "'--provider ibkr' angeben oder die Konfiguration umstellen.",
             file=sys.stderr,
         )
         return 2
 
     if args.no_pacing:
-        ibkr = config.market_data.ibkr.model_copy(
-            update={"minimum_request_interval_seconds": 0.0}
-        )
+        ibkr = config.market_data.ibkr.model_copy(update={"minimum_request_interval_seconds": 0.0})
         market_data = config.market_data.model_copy(update={"ibkr": ibkr})
         config = config.model_copy(update={"market_data": market_data})
 
@@ -404,19 +457,8 @@ def command_screen(args: argparse.Namespace) -> int:
 
     bar_source: HistoricalBarSource | None = None
     if args.source == "stored":
-        try:
-            engine = build_engine(Secrets().require("database_url"))
-            verify_connection(engine)
-        except MissingSecretError as error:
-            print(f"Datenbank: {error}", file=sys.stderr)
-            return 2
-        except DatabaseUnavailableError as error:
-            print(
-                f"Datenbank nicht erreichbar: {error}\n"
-                "Geprueft wird ATA_DATABASE_URL aus der Umgebung oder aus der .env "
-                "im Projektwurzelverzeichnis.",
-                file=sys.stderr,
-            )
+        engine = _open_database()
+        if engine is None:
             return 2
         # Eine eigene Session fuer den gesamten Lauf: Die Bars werden nur
         # gelesen, es gibt nichts zu committen.
@@ -519,7 +561,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Kommagetrennte Symbole statt der Watchlist -- fuer eine gezielte Einzelpruefung.",
     )
     screen.add_argument(
-        "--limit", type=int, default=None, help="Nur die ersten N Aktien der Watchlist."
+        "--limit",
+        type=_positive_count,
+        default=None,
+        help="Nur die ersten N Aktien der Watchlist.",
     )
     screen.add_argument(
         "--details",
@@ -569,7 +614,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Kommagetrennte Symbole statt der Watchlist.",
     )
     backfill.add_argument(
-        "--limit", type=int, default=None, help="Nur die ersten N Aktien der Watchlist."
+        "--limit",
+        type=_positive_count,
+        default=None,
+        help="Nur die ersten N Aktien der Watchlist.",
     )
     backfill.add_argument(
         "--from",
@@ -577,9 +625,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=date.fromisoformat,
         default=None,
         help=(
-            "Ab diesem Datum (JJJJ-MM-TT) neu holen, statt am letzten gespeicherten Bar "
-            "anzusetzen. Der Weg, einen fehlerhaft oder unvollstaendig gespeicherten "
-            "Zeitraum zu reparieren -- der Bestand kennt nur seinen juengsten Bar."
+            "Ab diesem Datum (JJJJ-MM-TT) holen, statt am letzten gespeicherten Bar "
+            "anzusetzen. Der Weg, eine Luecke zu fuellen, die der Bestand von sich aus "
+            "nie wieder anfragen wuerde -- er kennt nur seinen juengsten Bar. "
+            "Bereits gespeicherte Bars bleiben unveraendert."
         ),
     )
     backfill.add_argument(

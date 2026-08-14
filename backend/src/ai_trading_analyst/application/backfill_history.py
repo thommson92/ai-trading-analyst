@@ -73,10 +73,30 @@ class SymbolBackfill:
     stored_bars: int = 0
     covered_days: int | None = None
     error: str | None = None
+    earliest_received: datetime | None = None
+    latest_stored_before: datetime | None = None
 
     @property
     def failed(self) -> bool:
         return self.error is not None
+
+    @property
+    def gap_to_stored(self) -> bool:
+        """Setzt die Antwort am vorhandenen Bestand an -- oder klafft dazwischen?
+
+        Der genaue Gegenpart zur naeherungsweisen ``truncated``: Hier gibt es
+        nichts zu schaetzen. Lag im Bestand bereits ein Bar und beginnt die
+        Antwort **spaeter** als dieser, fehlt der Zeitraum dazwischen
+        zweifelsfrei -- und er wird nie von allein nachgeholt, weil der naechste
+        Lauf wieder nur den juengsten Bar kennt.
+
+        Der gewoehnliche Lauf loest das nicht aus: Die Anfrage reicht ueber die
+        Ueberlappung hinaus zurueck, die Antwort beginnt also vor dem letzten
+        gespeicherten Bar.
+        """
+        if self.earliest_received is None or self.latest_stored_before is None:
+            return False
+        return self.earliest_received > self.latest_stored_before
 
     @property
     def truncated(self) -> bool:
@@ -120,6 +140,22 @@ class BackfillReport:
     @property
     def truncated(self) -> tuple[SymbolBackfill, ...]:
         return tuple(result for result in self.results if result.truncated)
+
+    @property
+    def gaps(self) -> tuple[SymbolBackfill, ...]:
+        return tuple(result for result in self.results if result.gap_to_stored)
+
+    @property
+    def empty(self) -> tuple[SymbolBackfill, ...]:
+        """Aktien, fuer die ueberhaupt nichts kam.
+
+        Weder Fehler noch Kuerzung -- und deshalb bisher in keiner Zeile der
+        Bilanz sichtbar. Bei knapp 200 Symbolen ist das genau die Sorte
+        Ergebnis, die untergeht.
+        """
+        return tuple(
+            result for result in self.results if not result.failed and result.received_bars == 0
+        )
 
 
 def missing_days(
@@ -199,11 +235,14 @@ class BackfillHistoryUseCase:
         """
         symbol = contract.symbol
         angefragt: int | None = None
+        bestand_vorher: datetime | None = None
         try:
+            with self._uow_factory() as uow:
+                bestand_vorher = uow.intraday_bars.latest_start(symbol)
             # ``None`` heisst hier: der in IBKR-Schreibweise konfigurierte
             # Standardzeitraum. So bleibt die Anfrage an die TWS unveraendert;
             # nur der Bericht rechnet ihn zum Vergleichen in Tage um.
-            angefragt = self._start_from(contract)
+            angefragt = self._request_days(bestand_vorher)
             bars = self._bar_source.fetch_intraday_bars(contract, angefragt)
             with self._uow_factory() as uow:
                 neu = uow.intraday_bars.add_all(symbol, bars)
@@ -220,17 +259,23 @@ class BackfillHistoryUseCase:
             received_bars=len(bars),
             stored_bars=neu,
             covered_days=_covered_days(bars, self._now()),
+            earliest_received=min((bar.start for bar in bars), default=None),
+            latest_stored_before=bestand_vorher,
         )
 
-    def _start_from(self, contract: ContractSpec) -> int | None:
+    def _request_days(self, latest_stored: datetime | None) -> int | None:
         """Wie weit zurueck gefragt wird.
 
-        ``--from`` uebersteuert den Bestand. Das ist der Weg, einen einmal
-        fehlerhaft oder unvollstaendig gespeicherten Zeitraum erneut zu holen:
-        Der Bestand allein kennt nur seinen juengsten Bar und wuerde einen
-        inneren Tag nie wieder anfragen.
+        ``--from`` uebersteuert den Bestand. Das ist der Weg, einen Zeitraum
+        erneut zu holen, den der Bestand von sich aus nie wieder anfragen
+        wuerde -- er kennt nur seinen juengsten Bar, ein fehlender innerer Tag
+        bleibt ihm verborgen.
+
+        Was ``--from`` **nicht** kann: bereits gespeicherte Bars berichtigen.
+        Die Ablage laesst Dubletten fallen, damit ein wiederholter Lauf nichts
+        anrichtet; ein vorhandener Bar bleibt deshalb stehen, wie er ist.
+        Fuellen laesst sich damit nur, was fehlt.
         """
         if self._from_date is not None:
             return max((self._now().date() - self._from_date).days, 1)
-        with self._uow_factory() as uow:
-            return missing_days(uow.intraday_bars.latest_start(contract.symbol), self._now())
+        return missing_days(latest_stored, self._now())

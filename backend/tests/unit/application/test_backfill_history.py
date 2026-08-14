@@ -192,9 +192,7 @@ class TestFehlerisolation:
 
         # Der Ausnahmetyp steht mit in der Meldung: Bei 200 Symbolen macht es
         # einen Unterschied, ob die TWS fehlt oder die Datenbank.
-        assert bericht.failures[0].error == (
-            "MarketDataProviderError: Keine Verbindung zur TWS"
-        )
+        assert bericht.failures[0].error == ("MarketDataProviderError: Keine Verbindung zur TWS")
         assert bericht.failures[0].failed
 
     def test_eine_gescheiterte_aktie_bleibt_beim_naechsten_lauf_beim_standardzeitraum(
@@ -410,3 +408,76 @@ class TestGekuerzteAntwort:
         gekuerzte Antwort."""
         bericht = self._bericht([], [bar(JETZT - timedelta(days=300))])
         assert bericht.truncated == ()
+
+    def test_eine_leere_antwort_wird_aber_ausgewiesen(self) -> None:
+        """Weder Fehler noch Kuerzung -- und damit bisher in keiner Zeile der
+        Bilanz sichtbar. Bei knapp 200 Symbolen geht das unter."""
+        bericht = self._bericht([], [bar(JETZT - timedelta(days=300))])
+
+        assert [item.symbol for item in bericht.empty] == ["AAPL"]
+        assert bericht.failures == ()
+
+    def test_eine_gefuellte_antwort_gilt_nicht_als_leer(self) -> None:
+        bericht = self._bericht(
+            [bar(JETZT - timedelta(days=299))], [bar(JETZT - timedelta(days=300))]
+        )
+        assert bericht.empty == ()
+
+
+class TestLueckeZumBestand:
+    """Der genaue Gegenpart zur naeherungsweisen Kuerzungspruefung.
+
+    Beginnt die Antwort spaeter als der letzte gespeicherte Bar, fehlt der
+    Zeitraum dazwischen zweifelsfrei -- und er wird nie von allein nachgeholt,
+    weil der naechste Lauf wieder nur den juengsten Bar kennt.
+    """
+
+    def _bericht(self, bars: list[IntradayBar], vorher: list[IntradayBar]) -> BackfillReport:
+        bestand = InMemoryIntradayBarRepository()
+        bestand.add_all("AAPL", vorher)
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                bestand,
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        use_case = BackfillHistoryUseCase(
+            FakeBarSource({"AAPL": bars}), uow_factory, now=lambda: JETZT
+        )
+        return use_case.execute((ContractSpec(symbol="AAPL"),))
+
+    def test_eine_antwort_die_spaeter_ansetzt_wird_gemeldet(self) -> None:
+        """Bestand bis vorgestern, Antwort erst ab heute."""
+        bericht = self._bericht([bar(JETZT - timedelta(hours=2))], [bar(JETZT - timedelta(days=2))])
+
+        assert [item.symbol for item in bericht.gaps] == ["AAPL"]
+
+    def test_eine_ueberlappende_antwort_nicht(self) -> None:
+        """Der gewoehnliche Lauf: Die Anfrage reicht ueber die Ueberlappung
+        hinaus zurueck, die Antwort beginnt vor dem letzten Bar."""
+        bericht = self._bericht(
+            [bar(JETZT - timedelta(days=3)), bar(JETZT - timedelta(hours=2))],
+            [bar(JETZT - timedelta(days=2))],
+        )
+
+        assert bericht.gaps == ()
+
+    def test_eine_antwort_die_genau_am_letzten_bar_ansetzt_nicht(self) -> None:
+        letzter = JETZT - timedelta(days=2)
+        bericht = self._bericht([bar(letzter), bar(JETZT - timedelta(hours=2))], [bar(letzter)])
+
+        assert bericht.gaps == ()
+
+    def test_ohne_bestand_gibt_es_keine_luecke(self) -> None:
+        """Beim ersten Lauf gibt es nichts, woran die Antwort ansetzen muesste."""
+        bericht = self._bericht([bar(JETZT - timedelta(hours=2))], [])
+        assert bericht.gaps == ()
+
+    def test_eine_leere_antwort_ist_keine_luecke(self) -> None:
+        """Am Feiertag kommt nichts -- der Bestand bleibt, wie er ist."""
+        bericht = self._bericht([], [bar(JETZT - timedelta(days=2))])
+        assert bericht.gaps == ()

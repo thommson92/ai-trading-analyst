@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from ai_trading_analyst.domain.analysis import ContractSpec, MarketDataProviderError
 from ai_trading_analyst.domain.screening import IntradayBar
@@ -59,6 +60,38 @@ class TestLeererBestand:
         aber irrefuehrend: Es fehlt nicht die Kerze, es fehlt der Backfill."""
         quelle = StoredBarSource(InMemoryIntradayBarRepository())
         with pytest.raises(MarketDataProviderError, match="Backfill"):
+            quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
+
+
+class TestDatenbankfehler:
+    """Ein Datenbankproblem ist ein Problem *dieser* Aktie, nicht des Laufs.
+
+    Ohne die Uebersetzung liefe ein ``SQLAlchemyError`` durch die
+    Fehlerbehandlung des Screenings hindurch -- sie faengt
+    ``MarketDataProviderError`` -- und riss den gesamten Lauf mitsamt aller
+    bis dahin geprueften Aktien ab. Der Live-Pfad hat dieses Loch nicht.
+    """
+
+    class AbgerisseneVerbindung:
+        def latest_start(self, symbol: str) -> datetime | None:
+            return None
+
+        def add_all(self, symbol: str, bars: object) -> int:
+            return 0
+
+        def list_for(self, symbol: str) -> list[IntradayBar]:
+            raise OperationalError("SELECT intraday_bars", {}, Exception("server closed"))
+
+    def test_ein_datenbankfehler_kommt_als_anbieterfehler_an(self) -> None:
+        quelle = StoredBarSource(self.AbgerisseneVerbindung())
+
+        with pytest.raises(MarketDataProviderError, match="nicht lesbar"):
+            quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
+
+    def test_die_meldung_nennt_die_betroffene_aktie(self) -> None:
+        quelle = StoredBarSource(self.AbgerisseneVerbindung())
+
+        with pytest.raises(MarketDataProviderError, match="AAPL"):
             quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
 
 

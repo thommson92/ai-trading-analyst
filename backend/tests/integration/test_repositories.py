@@ -289,6 +289,48 @@ class TestIntradayBarRepository:
         beginn = ab or datetime(2026, 3, 10, 9, 30, tzinfo=self.NEW_YORK)
         return [make_bar(beginn + timedelta(minutes=15 * index)) for index in range(anzahl)]
 
+    def test_ein_naiver_zeitstempel_wird_abgewiesen(self, uow_factory: UowFactory) -> None:
+        """Doc 10 untersagt naive Zeitstempel; ``ruff`` setzt das nur im
+        eigenen Code durch, nicht an der Systemgrenze.
+
+        PostgreSQL naehme den Wert an und legte ihn in der Zeitzone der
+        Datenbanksitzung aus -- serverabhaengig. Zurueck kaeme ein
+        zeitzonenbehafteter Wert, an dem nichts mehr auf den Fehler hinweist:
+        Aus 09:30 New Yorker Zeit waere 09:30 UTC geworden, der Bar laege
+        ausserhalb des Sitzungsfensters, und der Handelstag saehe aus wie
+        einer ohne jede Lieferung.
+        """
+        naiv = make_bar(datetime(2026, 3, 10, 9, 30))  # noqa: DTZ001 -- genau darum geht es
+
+        with uow_factory() as uow, pytest.raises(ValueError, match="ohne Zeitzone"):
+            uow.intraday_bars.add_all("AAPL", [naiv])
+
+    def test_ein_naiver_zeitstempel_unter_vielen_faellt_auf(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Auch als einzelner Ausreisser in einer sonst sauberen Lieferung."""
+        bars = self._bars(10)
+        bars[7] = make_bar(datetime(2026, 3, 10, 11, 15))  # noqa: DTZ001
+
+        with uow_factory() as uow, pytest.raises(ValueError, match="ohne Zeitzone"):
+            uow.intraday_bars.add_all("AAPL", bars)
+
+    def test_nichts_wird_geschrieben_wenn_ein_zeitstempel_naiv_ist(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Sonst laege die halbe Lieferung im Bestand und der naechste Lauf
+        hielte die Luecke faelschlich fuer gefuellt."""
+        bars = self._bars(10)
+        bars[7] = make_bar(datetime(2026, 3, 10, 11, 15))  # noqa: DTZ001
+
+        with uow_factory() as uow:
+            with pytest.raises(ValueError):
+                uow.intraday_bars.add_all("AAPL", bars)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.latest_start("AAPL") is None
+
     def test_ohne_daten_gibt_es_keinen_letzten_stand(self, uow_factory: UowFactory) -> None:
         """Der Fall des allerersten Laufs -- er entscheidet, ob ein ganzes Jahr
         oder nur ein Tag geholt wird."""

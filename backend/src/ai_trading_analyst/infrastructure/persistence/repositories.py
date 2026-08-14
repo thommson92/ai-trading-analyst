@@ -245,10 +245,34 @@ class SqlAlchemyIntradayBarRepository:
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         if not bars:
             return 0
+        self._reject_naive(symbol, bars)
         neu = 0
         for block in range(0, len(bars), BARS_JE_INSERT):
             neu += self._insert(symbol, bars[block : block + BARS_JE_INSERT])
         return neu
+
+    @staticmethod
+    def _reject_naive(symbol: str, bars: Sequence[IntradayBar]) -> None:
+        """Naive Zeitstempel kommen hier nicht durch.
+
+        Doc 10 untersagt sie, und ``ruff`` setzt das im eigenen Code ueber die
+        ``DTZ``-Regeln durch. Eine Systemgrenze erreicht das nicht: PostgreSQL
+        nimmt einen naiven Zeitstempel fuer eine ``timestamptz``-Spalte an und
+        legt ihn in der Zeitzone der Datenbanksitzung aus -- serverabhaengig
+        und damit nicht vorhersagbar. Zurueck kaeme ein zeitzonenbehafteter
+        Wert, an dem nichts mehr auf den Fehler hinweist.
+
+        Aus 09:30 New Yorker Zeit wuerde so 09:30 UTC. Der Bar laege
+        ausserhalb des Sitzungsfensters, die Kerzenbildung verwuerfe ihn, und
+        der Handelstag saehe aus wie einer ohne jede Lieferung -- der einzige
+        Fall, den die Lueckenpruefung nicht erkennen kann.
+        """
+        naive = [bar.start for bar in bars if bar.start.tzinfo is None]
+        if naive:
+            raise ValueError(
+                f"'{symbol}': {len(naive)} Bars ohne Zeitzone, erster {naive[0].isoformat()}. "
+                "Zeitstempel muessen zeitzonenbehaftet sein (Doc 10)."
+            )
 
     def _insert(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         statement = (

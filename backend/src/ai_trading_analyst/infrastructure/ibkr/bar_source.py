@@ -28,8 +28,9 @@ import logging
 import threading
 import time
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ai_trading_analyst.domain.analysis import (
@@ -188,9 +189,12 @@ class IbAsyncBarSource:
         minimum_request_interval_seconds: float = 0.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._settings = settings
         self._bar_size = ibkr_bar_size(native_bar_minutes)
+        self._bar_minutes = native_bar_minutes
+        self._now = now
         self._duration = duration
         self._minimum_request_interval = minimum_request_interval_seconds
         self._sleep = sleep
@@ -249,7 +253,7 @@ class IbAsyncBarSource:
                 f"Historische Bars fuer '{symbol}' konnten nicht abgerufen werden: {error}"
             ) from error
 
-        return tuple(
+        return self._without_running_bar(
             IntradayBar(
                 start=bar.date,
                 open=float(bar.open),
@@ -260,6 +264,28 @@ class IbAsyncBarSource:
             )
             for bar in bars
         )
+
+    def _without_running_bar(self, bars: Iterable[IntradayBar]) -> Sequence[IntradayBar]:
+        """Laesst den noch laufenden Bar weg.
+
+        Auf ``endDateTime=""`` antwortet IBKR bis zum aktuellen Augenblick --
+        der letzte Bar einer waehrend der Sitzung gestellten Anfrage ist
+        deshalb noch nicht fertig. Sein Schluss, Hoch, Tief und Volumen sind
+        Zwischenstaende.
+
+        Fuer das Screening war das folgenlos: Die Kerze, zu der er gehoert,
+        ist selbst unfertig und faellt ohnehin heraus. Der Bestand aber ist
+        dauerhaft. Ein einmal abgelegter Bar wird nie ueberschrieben -- die
+        Ablage laesst Dubletten bewusst fallen, damit ein wiederholter Lauf
+        nichts anrichtet. Der Zwischenstand bliebe also fuer immer stehen,
+        auch wenn ein spaeterer Lauf denselben Bar fertig liefert, und
+        verfaelschte still die Kerze, die spaeter aus ihm entsteht.
+
+        Dieselbe Regel wie fuer Kerzen, eine Ebene tiefer: Was noch laeuft,
+        zaehlt nicht.
+        """
+        grenze = self._now() - timedelta(minutes=self._bar_minutes)
+        return tuple(bar for bar in bars if bar.start <= grenze)
 
     def close(self) -> None:
         """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""

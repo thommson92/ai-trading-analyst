@@ -202,15 +202,22 @@ sind über `(symbol, start)` idempotent, aufzuräumen gibt es nichts.
 **Was der Bestand nicht selbst merkt:** Er kennt nur seinen jüngsten Bar. Ein
 Tag, der mitten in der Historie fehlt, wird deshalb nie von allein nachgeholt
 — und die Kerzenbildung erkennt einen *vollständig* fehlenden Handelstag
-nicht, weil dafür ein Börsenkalender nötig wäre. Zwei Vorkehrungen dagegen:
+nicht, weil dafür ein Börsenkalender nötig wäre. Drei Vorkehrungen dagegen:
 Der Backfill meldet, wenn eine Antwort deutlich weniger Historie enthält als
-angefragt (so kürzt IBKR stillschweigend), und `--from` holt einen Zeitraum
-erneut:
+angefragt (so kürzt IBKR stillschweigend); er meldet außerdem, wenn eine
+Antwort *später* ansetzt als der letzte gespeicherte Bar — dann klafft
+zweifelsfrei etwas dazwischen. Und `--from` holt einen Zeitraum nach:
 
 ```bash
 .venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr \
     --symbols AAPL --from 2026-01-01
 ```
+
+**Was `--from` nicht kann:** bereits gespeicherte Bars berichtigen. Die Ablage
+lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet — ein
+vorhandener Bar bleibt deshalb stehen, wie er ist. Füllen lässt sich damit
+nur, was fehlt. Deshalb legt der Backfill den noch laufenden, unfertigen Bar
+gar nicht erst ab: Er wäre sonst dauerhaft ein Zwischenstand.
 
 Nebeneffekt, der wichtiger ist als die Geschwindigkeit: Der Lauf wird
 **wiederholbar**. IBKRs Ein-Jahres-Fenster wandert mit der Uhr, und schon
