@@ -128,13 +128,27 @@ def missing_days(
     """Wieviele Tage muessen nachgeholt werden?
 
     ``None`` heisst: Es liegt noch nichts vor, also der konfigurierte
-    Standardzeitraum. Sonst der Abstand zum juengsten Bar, aufgerundet und um
-    die Ueberlappung erweitert -- mindestens aber ein Tag, damit auch ein Lauf
-    kurz nach dem letzten Bar noch die laufende Sitzung nachzieht.
+    Standardzeitraum. Sonst der Abstand zum juengsten Bar, um die Ueberlappung
+    erweitert -- mindestens aber ein Tag, damit auch ein Lauf kurz nach dem
+    letzten Bar noch die laufende Sitzung nachzieht.
+
+    Gezaehlt werden **Kalendertage**, nicht verstrichene 24-Stunden-Zeitraeume.
+    Der Unterschied entscheidet nach einem Abbruch mitten in der Sitzung: Bricht
+    ein Lauf gestern um 11:00 ab und startet der naechste heute um 09:52, sind
+    keine 24 Stunden vergangen. Nach Stunden gerechnet waere das "ein Tag" --
+    und die Anfrage deckte nur den heutigen Handelstag ab, waehrend der Rest
+    von gestern dauerhaft fehlte. Der Bestand kennt danach nur seinen juengsten
+    Bar und fragte diesen Zeitraum nie wieder an; die Luecke bliebe bis zu
+    einem Lauf mit ``--from`` bestehen. Das widerspraeche der Zusage, dass ein
+    abgebrochener Lauf schlicht erneut gestartet werden kann.
+
+    Die Kalendertage werden in UTC gezaehlt. Fuer regulaere US-Handelszeiten
+    ist das eindeutig: 09:30 bis 16:00 New Yorker Zeit liegen ganzjaehrig
+    zwischen 13:30 und 21:00 UTC, also immer am selben UTC-Datum.
     """
     if latest_start is None:
         return None
-    abstand = (now - latest_start).days
+    abstand = (now.date() - latest_start.date()).days
     return max(abstand + overlap_days, 1)
 
 

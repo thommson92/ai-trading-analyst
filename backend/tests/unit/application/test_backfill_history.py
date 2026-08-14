@@ -98,6 +98,29 @@ class TestFehlenderZeitraum:
         """Sonst zoege ein Lauf am selben Tag die laufende Sitzung nicht nach."""
         assert missing_days(JETZT - timedelta(hours=2), JETZT) == 1
 
+    def test_nach_einem_abbruch_mitten_in_der_sitzung(self) -> None:
+        """Gezaehlt werden Kalendertage, nicht verstrichene 24 Stunden.
+
+        Bricht ein Lauf gestern um 11:00 New Yorker Zeit ab und startet der
+        naechste heute um 09:52, liegen keine 24 Stunden dazwischen. Nach
+        Stunden gerechnet ergaebe das einen Tag -- und der Rest des gestrigen
+        Handelstages fehlte dauerhaft, weil der Bestand nur seinen juengsten
+        Bar kennt und diesen Zeitraum nie wieder anfragte.
+        """
+        abbruch = datetime(2026, 8, 13, 15, 0, tzinfo=UTC)  # 11:00 New Yorker Zeit
+        naechster_lauf = datetime(2026, 8, 14, 13, 52, tzinfo=UTC)  # 09:52 am Folgetag
+
+        assert naechster_lauf - abbruch < timedelta(days=1)
+        assert missing_days(abbruch, naechster_lauf) == 2
+
+    def test_der_gewoehnliche_lauf_am_folgetag_holt_den_vortag_mit(self) -> None:
+        """Auch hier liegen weniger als 24 Stunden dazwischen: letzter Bar um
+        15:45, naechster Lauf am Morgen darauf."""
+        letzter_bar = datetime(2026, 8, 13, 19, 45, tzinfo=UTC)  # 15:45 New Yorker Zeit
+        naechster_lauf = datetime(2026, 8, 14, 13, 52, tzinfo=UTC)
+
+        assert missing_days(letzter_bar, naechster_lauf) == 2
+
 
 class TestAbruf:
     def test_beim_ersten_lauf_wird_der_standardzeitraum_angefragt(self) -> None:
