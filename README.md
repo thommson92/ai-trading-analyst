@@ -175,9 +175,9 @@ cd backend
 
 ### Der tägliche Ablauf: erst holen, dann rechnen
 
-`screen` fragt in der obigen Form bei **jedem** Lauf die TWS — rund 20 s je
-Aktie, also eine gute Stunde für die volle Watchlist. Mit dem Backfill
-zerfällt das in zwei Schritte, die einander nicht brauchen:
+Mit `--source live` fragt `screen` bei **jedem** Lauf die TWS — rund 20 s je
+Aktie, also eine gute Stunde für die volle Watchlist. Der Ablauf zerfällt
+deshalb in zwei Schritte, die einander nicht brauchen:
 
 ```bash
 # Holt nur, was seit dem letzten Lauf fehlt. Beim ersten Mal ein Jahr,
@@ -185,11 +185,17 @@ zerfällt das in zwei Schritte, die einander nicht brauchen:
 .venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr
 
 # Rechnet auf dem Bestand: ohne TWS, ohne Pacing.
-.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr --source stored
+.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr
 ```
 
-`backfill` braucht als einziges Kommando die Datenbank (`ATA_DATABASE_URL`)
-— es ist das einzige, das etwas dauerhaft ablegt. Die Adresse steht entweder
+`market_data.source` steht ausgeliefert auf `stored`; nur der Backfill
+spricht noch mit der TWS. Das gilt **auch für den persistierten Lauf hinter
+der API** — beide nehmen dieselbe Quelle, damit der Lauf zur Kontrolle nicht
+anders arbeitet als der reguläre. `--source live` stellt für einen einzelnen
+Aufruf um.
+
+`backfill` und der Lauf aus dem Bestand brauchen die Datenbank
+(`ATA_DATABASE_URL`). Die Adresse steht entweder
 in der Umgebung oder in einer `.env` im Projektwurzelverzeichnis (Vorlage:
 `.env.example`); die Umgebungsvariable gewinnt. Gespeichert werden die
 **nativen 15-Minuten-Bars**, nicht die daraus gebildeten Kerzen: Ändert sich

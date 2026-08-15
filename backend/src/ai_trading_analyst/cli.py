@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -48,7 +48,6 @@ from ai_trading_analyst.bootstrap import (
 from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.config.settings import AppConfig, LoggingConfig, MissingSecretError, Secrets
 from ai_trading_analyst.domain.analysis import (
-    HistoricalBarSource,
     MarketDataProvider,
     MarketDataProviderError,
     Stock,
@@ -65,16 +64,12 @@ from ai_trading_analyst.infrastructure.ibkr import (
     IbkrMarketDataProvider,
     duration_in_days,
 )
-from ai_trading_analyst.infrastructure.persistence.repositories import (
-    SqlAlchemyIntradayBarRepository,
-)
 from ai_trading_analyst.infrastructure.persistence.session import (
     DatabaseUnavailableError,
     build_engine,
     build_session_factory,
     verify_connection,
 )
-from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ai_trading_analyst.infrastructure.watchlists import (
     WatchlistError,
@@ -421,8 +416,13 @@ def command_screen(args: argparse.Namespace) -> int:
     # frueher endete und deshalb nur eine Kerze entstand.
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
+    uebersteuert: dict[str, str] = {}
     if args.provider is not None:
-        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        uebersteuert["provider"] = args.provider
+    if args.source is not None:
+        uebersteuert["source"] = args.source
+    if uebersteuert:
+        market_data = config.market_data.model_copy(update=uebersteuert)
         config = config.model_copy(update={"market_data": market_data})
 
     if config.market_data.provider != "ibkr":
@@ -455,19 +455,22 @@ def command_screen(args: argparse.Namespace) -> int:
             print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
             return 2
 
-    bar_source: HistoricalBarSource | None = None
-    if args.source == "stored":
+    uow_factory: Callable[[], UnitOfWork] | None = None
+    if config.market_data.source == "stored":
         engine = _open_database()
         if engine is None:
             return 2
-        # Eine eigene Session fuer den gesamten Lauf: Die Bars werden nur
-        # gelesen, es gibt nichts zu committen.
-        bar_source = StoredBarSource(
-            SqlAlchemyIntradayBarRepository(build_session_factory(engine)())
-        )
+        session_factory = build_session_factory(engine)
+
+        def uow_factory() -> UnitOfWork:
+            return SqlAlchemyUnitOfWork(session_factory)
 
     provider = build_market_data_provider(
-        config, indicators, project_root(loaded.source_path), watchlist, bar_source
+        config,
+        indicators,
+        project_root(loaded.source_path),
+        watchlist,
+        uow_factory=uow_factory,
     )
     rule = CandidateRuleParameters(
         required_signal_count=config.screening.required_signal_count,
@@ -482,7 +485,7 @@ def command_screen(args: argparse.Namespace) -> int:
     interval = config.market_data.ibkr.minimum_request_interval_seconds
     # Aus dem Bestand gelesen gibt es keine Anfrage an die TWS und damit
     # nichts zu drosseln -- die Sperre waere hier nur im Weg.
-    if args.source == "live" and interval <= 0 and len(stocks) > PACING_FREE_LIMIT:
+    if config.market_data.source == "live" and interval <= 0 and len(stocks) > PACING_FREE_LIMIT:
         # Ohne Abstand loest ein solcher Lauf genau die Sperre aus, gegen die
         # der Abstand eingebaut wurde -- und trifft dann auch die parallel
         # laufende Fremdanwendung an derselben TWS.
@@ -498,7 +501,7 @@ def command_screen(args: argparse.Namespace) -> int:
         f"{len(stocks)} Aktien, TWS {config.market_data.ibkr.host}:"
         f"{config.market_data.ibkr.port} (Client-ID {config.market_data.ibkr.client_id}), "
         f"Historie {config.market_data.ibkr.history_duration}, Abstand {interval:g} s\n"
-        if args.source == "live"
+        if config.market_data.source == "live"
         else f"{len(stocks)} Aktien aus dem gespeicherten Bestand -- ohne TWS\n"
     )
 
@@ -577,11 +580,12 @@ def build_parser() -> argparse.ArgumentParser:
     screen.add_argument(
         "--source",
         choices=("live", "stored"),
-        default="live",
+        default=None,
         help=(
-            "Woher die Bars kommen. 'live' fragt bei jedem Lauf die TWS -- rund 20 s "
-            "je Aktie. 'stored' rechnet auf dem Bestand, den 'backfill' angelegt hat: "
-            "ohne TWS, ohne Pacing, und bei wiederholtem Lauf mit demselben Ergebnis."
+            "Uebersteuert market_data.source nur fuer diesen Lauf. 'live' fragt bei "
+            "jedem Lauf die TWS -- rund 20 s je Aktie. 'stored' rechnet auf dem "
+            "Bestand, den 'backfill' angelegt hat: ohne TWS, ohne Pacing, und bei "
+            "wiederholtem Lauf mit demselben Ergebnis."
         ),
     )
     screen.add_argument(

@@ -193,6 +193,22 @@ class MarketDataConfig(_Section):
     """
 
     provider: Literal["fixture", "ibkr"] = "fixture"
+    source: Literal["live", "stored"] = "stored"
+    """Woher die nativen Bars kommen -- vom Anbieter oder aus dem Bestand.
+
+    ``stored`` ist der Standard, weil er die Eigenschaft mitbringt, auf die
+    es beim regulaeren Lauf ankommt: Dieselbe Analyse laesst sich morgen
+    erneut rechnen und liefert dasselbe Ergebnis. IBKRs Ein-Jahres-Fenster
+    wandert mit der Uhr; schon zwei Laeufe desselben Tages ergaben
+    unterschiedlich viele Kerzen. Ausserdem braucht der Lauf dann keine
+    angemeldete TWS -- nur der Backfill braucht sie (ADR 0014, E2).
+
+    Voraussetzung ist ein gefuellter Bestand. Fehlt er, nennt die Meldung den
+    Backfill beim Namen, statt in einer Ersatzerklaerung zu enden.
+
+    ``live`` fragt bei jedem Lauf den Anbieter. Fuer ``fixture`` ohne
+    Bedeutung -- dort liefert der Anbieter fertige Kerzen.
+    """
     ibkr: IbkrConfig = IbkrConfig()
 
 

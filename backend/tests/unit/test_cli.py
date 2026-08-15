@@ -28,6 +28,9 @@ from ai_trading_analyst.domain.screening import (
 CONFIG_TEMPLATE = """
 market_data:
   provider: {provider}
+  # Diese Tests pruefen die Kommandozeile, nicht den Bestand: 'live' haelt
+  # sie von einer Datenbank frei. Der ausgelieferte Standard ist 'stored'.
+  source: {source}
   ibkr:
     watchlist_directory: {directory}
 indicators:
@@ -51,10 +54,13 @@ def projekt(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def write_config(projekt: Path, provider: str, directory: str = "watchlists") -> Path:
+def write_config(
+    projekt: Path, provider: str, directory: str = "watchlists", source: str = "live"
+) -> Path:
     path = projekt / "config" / "default.yaml"
     path.write_text(
-        CONFIG_TEMPLATE.format(provider=provider, directory=directory), encoding="utf-8"
+        CONFIG_TEMPLATE.format(provider=provider, directory=directory, source=source),
+        encoding="utf-8",
     )
     return path
 
@@ -480,11 +486,32 @@ class TestBackfillKommando:
 
 
 class TestBarquelleFuerDasScreening:
-    def test_standard_ist_der_direkte_abruf(self) -> None:
-        assert build_parser().parse_args(["screen"]).source == "live"
+    def test_ohne_angabe_entscheidet_die_konfiguration(self) -> None:
+        """Wie ``--provider``: Das Argument uebersteuert, es setzt nicht.
+
+        Sonst haette die Kommandozeile eine eigene Vorgabe, die von der der
+        Anwendung abweicht -- und der Lauf, den der Nutzer zur Kontrolle
+        startet, arbeitete anders als der regulaere.
+        """
+        assert build_parser().parse_args(["screen"]).source is None
 
     def test_der_bestand_laesst_sich_waehlen(self) -> None:
         assert build_parser().parse_args(["screen", "--source", "stored"]).source == "stored"
+
+    def test_der_direkte_abruf_laesst_sich_waehlen(self) -> None:
+        assert build_parser().parse_args(["screen", "--source", "live"]).source == "live"
+
+    def test_die_konfiguration_wird_uebersteuert(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Konfiguration 'stored', Aufruf 'live': Der Lauf geht zur TWS."""
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr", source="stored")
+
+        main(["--config", str(config), "screen", "--source", "live", "--symbols", "AAPL"])
+
+        # Ohne die Uebersteuerung waere hier die Datenbank verlangt worden.
+        assert "TWS 127.0.0.1" in capsys.readouterr().out
 
 
     def test_aus_dem_bestand_greift_die_pacing_sperre_nicht(

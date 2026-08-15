@@ -9,12 +9,18 @@ entscheidet, ob ein Lauf mit Fixture-Daten oder gegen die echte TWS arbeitet
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
 
-from ai_trading_analyst.bootstrap import build_market_data_provider, project_root
+from ai_trading_analyst.bootstrap import (
+    build_bar_source,
+    build_market_data_provider,
+    project_root,
+)
 from ai_trading_analyst.config.settings import (
     AppConfig,
     IbkrConfig,
@@ -24,8 +30,21 @@ from ai_trading_analyst.config.settings import (
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
-from ai_trading_analyst.infrastructure.ibkr import ContractSpec, IbkrMarketDataProvider
+from ai_trading_analyst.infrastructure.ibkr import (
+    ContractSpec,
+    IbAsyncBarSource,
+    IbkrMarketDataProvider,
+)
+from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.watchlists import WatchlistError
+from tests.unit.application.conftest import (
+    FakeAnalysisRunRepository,
+    FakeProcessingErrorRepository,
+    FakeScreeningResultRepository,
+    FakeStockRepository,
+    FakeUnitOfWork,
+    InMemoryIntradayBarRepository,
+)
 
 INDICATORS = IndicatorConfig(
     rsi_length=14,
@@ -38,9 +57,17 @@ INDICATORS = IndicatorConfig(
 )
 
 
-def ibkr_config(**overrides: object) -> AppConfig:
+def ibkr_config(source: Literal["live", "stored"] = "live", **overrides: object) -> AppConfig:
+    """Standard hier ist ``live``, damit diese Tests ohne Datenbank auskommen.
+
+    Die Wahl der Barquelle ist in ``TestBarquelle`` eigens geprueft.
+    """
     return AppConfig(
-        market_data=MarketDataConfig(provider="ibkr", ibkr=IbkrConfig(**overrides)),
+        market_data=MarketDataConfig(
+            provider="ibkr",
+            source=source,
+            ibkr=IbkrConfig(**overrides),
+        ),
         indicators=INDICATORS,
     )
 
@@ -97,6 +124,63 @@ class TestAnbieterauswahl:
             ibkr_config(host="127.0.0.1", port=1), INDICATORS, wurzel_mit_watchlist
         )
         assert isinstance(provider, IbkrMarketDataProvider)
+
+
+class TestBarquelle:
+    """Woher der regulaere Lauf seine Bars nimmt.
+
+    Der Standard ist der Bestand: Nur so liefert dieselbe Analyse morgen
+    dasselbe Ergebnis -- IBKRs Ein-Jahres-Fenster wandert mit der Uhr. Und
+    nur so kommt der Lauf ohne angemeldete TWS aus (ADR 0014, E2).
+    """
+
+    @staticmethod
+    def _uow_factory() -> Callable[[], FakeUnitOfWork]:
+        def factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                InMemoryIntradayBarRepository(),
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        return factory
+
+    def test_der_standard_ist_der_bestand(self) -> None:
+        assert AppConfig(indicators=INDICATORS).market_data.source == "stored"
+
+    def test_stored_ergibt_die_bestandsquelle(self) -> None:
+        quelle = build_bar_source(ibkr_config(source="stored"), self._uow_factory())
+        assert isinstance(quelle, StoredBarSource)
+
+    def test_live_ergibt_die_tws_quelle(self) -> None:
+        quelle = build_bar_source(ibkr_config(source="live"), self._uow_factory())
+        assert isinstance(quelle, IbAsyncBarSource)
+
+    def test_live_kommt_ohne_datenbank_aus(self) -> None:
+        """Der gezielte Einzelabruf ueber die Kommandozeile soll ohne
+        Datenbank laufen."""
+        assert isinstance(build_bar_source(ibkr_config(source="live"), None), IbAsyncBarSource)
+
+    def test_stored_ohne_datenbank_scheitert_verstaendlich(self) -> None:
+        with pytest.raises(ValueError, match="keine Datenbank"):
+            build_bar_source(ibkr_config(source="stored"), None)
+
+    def test_der_provider_bekommt_die_bestandsquelle(
+        self, wurzel_mit_watchlist: Path
+    ) -> None:
+        """Der eigentliche Punkt: Auch der persistierte Lauf hinter der API
+        rechnet auf dem Bestand, nicht nur das Kommandozeilenwerkzeug."""
+        provider = build_market_data_provider(
+            ibkr_config(source="stored"),
+            INDICATORS,
+            wurzel_mit_watchlist,
+            uow_factory=self._uow_factory(),
+        )
+
+        assert isinstance(provider, IbkrMarketDataProvider)
+        assert isinstance(provider._bar_source, StoredBarSource)
 
 
 class TestProjektwurzel:
