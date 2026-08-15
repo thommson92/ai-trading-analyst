@@ -91,13 +91,12 @@ class FinnhubEarningsProvider:
     def _parse_earliest_entry(
         self, symbol: str, payload: dict[str, Any]
     ) -> NextEarningsDate | None:
-        try:
-            entries = payload["earningsCalendar"]
-        except (KeyError, TypeError) as error:
+        entries = payload.get("earningsCalendar") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
             raise FinnhubEarningsProviderError(
                 f"Unerwartetes Antwortformat des Earnings-Kalenders fuer '{symbol}': "
-                f"Feld 'earningsCalendar' fehlt."
-            ) from error
+                f"Feld 'earningsCalendar' fehlt oder ist keine Liste."
+            )
 
         if len(entries) > _SUSPICIOUS_ENTRY_COUNT:
             raise FinnhubEarningsProviderError(

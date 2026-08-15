@@ -180,7 +180,7 @@ def build_earnings_provider(config: AppConfig, secrets: Secrets) -> EarningsProv
 def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     return EarningsFilterParameters(
         configured_exclusion_candles=config.earnings_filter.configured_exclusion_candles,
-        candles_per_day=config.market.regular_session_minutes // config.market.timeframe_minutes,
+        candles_per_day=build_session_parameters(config).candles_per_day,
     )
 
 

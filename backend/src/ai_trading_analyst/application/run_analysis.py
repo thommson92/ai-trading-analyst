@@ -36,6 +36,9 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
     evaluate_candidate,
 )
+from ai_trading_analyst.observability.logging_setup import get_logger
+
+_logger = get_logger(__name__)
 
 
 class RunAnalysisUseCase:
@@ -170,6 +173,23 @@ class RunAnalysisUseCase:
                 evaluated_at=evaluated_at,
                 reason="provider_error",
             )
-        return evaluate_earnings_filter(
-            next_earnings, as_of, self._earnings_filter_params, evaluated_at
-        )
+
+        try:
+            return evaluate_earnings_filter(
+                next_earnings, as_of, self._earnings_filter_params, evaluated_at
+            )
+        except ValueError as exc:
+            # Der Anbieter selbst ist erreichbar, seine Antwort aber nicht
+            # plausibel auswertbar (z. B. ein Termin vor der Entscheidungskerze).
+            # Das ist ein Datenproblem der Quelle, kein Ausfall -- dieselbe
+            # Einstufung wie ein Ausfall (ADR 0017), aber mit eigenem Grund.
+            _logger.warning(
+                "Earnings-Termin fuer %s konnte nicht ausgewertet werden: %s",
+                stock.symbol,
+                exc,
+            )
+            return EarningsFilterResult(
+                status=EarningsFilterStatus.UNKNOWN,
+                evaluated_at=evaluated_at,
+                reason="invalid_data",
+            )

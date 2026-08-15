@@ -92,6 +92,11 @@ class TestFehlerhafteAntwort:
         with pytest.raises(FinnhubEarningsProviderError, match="earningsCalendar"):
             _provider(transport).next_earnings_date(AAPL)
 
+    def test_feld_ist_null_statt_liste_wirft_klaren_fehler(self) -> None:
+        transport = _json_transport({"earningsCalendar": None})
+        with pytest.raises(FinnhubEarningsProviderError, match="earningsCalendar"):
+            _provider(transport).next_earnings_date(AAPL)
+
     def test_kaputtes_json_wirft_klaren_fehler(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=b"nicht-json")

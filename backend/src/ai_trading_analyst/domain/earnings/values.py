@@ -46,8 +46,10 @@ class EarningsFilterResult:
     source: str | None = None
     reason: str | None = None
     """Nur bei ``UNKNOWN`` gesetzt: ``"no_coverage"`` (Anbieter kennt keinen
-    Termin fuer dieses Symbol, ADR 0017 L3) oder ``"provider_error"``
-    (Anbieter war nicht erreichbar, ADR 0017: normaler Betriebszustand)."""
+    Termin fuer dieses Symbol, ADR 0017 L3), ``"provider_error"`` (Anbieter
+    war nicht erreichbar, ADR 0017: normaler Betriebszustand) oder
+    ``"invalid_data"`` (Anbieter war erreichbar, seine Antwort aber nicht
+    plausibel auswertbar, z. B. ein Termin vor der Entscheidungskerze)."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -133,10 +133,11 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     )
     earnings: EarningsFilterResult | None = None
     if row.earnings_status is not None:
-        assert row.earnings_evaluated_at is not None, (
-            "earnings_evaluated_at fehlt trotz gesetztem earnings_status -- "
-            "beide Spalten werden immer gemeinsam geschrieben"
-        )
+        if row.earnings_evaluated_at is None:
+            raise ValueError(
+                f"Screening-Ergebnis {row.id}: earnings_evaluated_at fehlt trotz gesetztem "
+                "earnings_status -- beide Spalten werden immer gemeinsam geschrieben."
+            )
         earnings = EarningsFilterResult(
             status=EarningsFilterStatus(row.earnings_status),
             evaluated_at=row.earnings_evaluated_at,
