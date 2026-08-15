@@ -106,6 +106,18 @@ data_availability:
   poll_interval_seconds: 30
   max_wait_seconds: 1800
 
+scheduler:
+  # Zeitsteuerung des taeglichen Laufs (docs/adr/0019-trading-day-dispatcher.md).
+  # Die Aufgabenplanung startet alle 15 Minuten in einem Abendfenster;
+  # entschieden wird hier, in der Zeitzone der Boerse.
+  #
+  # Wartezeit nach Kerzenschluss: Die Kerze ist um 12:45 New Yorker Zeit zu,
+  # beim Anbieter aber nicht zwingend im selben Augenblick vollstaendig.
+  # 300 Sekunden ergeben einen fruehesten Start um 12:50.
+  safety_buffer_seconds: 300
+  # Danach gilt der Lauf als ausgefallen und es geht eine Meldung raus.
+  max_catch_up_seconds: 14400
+
 notifications:
   send_when_no_candidates: false
   # Bis zur Auswahl des Kanals (F10) wird nicht wirklich versendet.

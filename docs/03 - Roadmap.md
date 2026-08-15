@@ -37,12 +37,16 @@ ausgeschieden.
   ausschließlich abgeschlossene Kerzen
 - Indikatorberechnung (RSI, RSI-MA, EMA5, EMA20) nach den in
   [ADR 0010](adr/0010-gate-g1-freigegeben.md) freigegebenen Parametern --
-  bisher liefert nur der Fixture-Provider fertige Indikatorwerte
+  **umgesetzt**, der IBKR-Provider rechnet sie aus den Kerzen
 - Watchlisten importieren -- Quelle IBKR, nicht mehr TradingView
 - historischer Backfill als resumierbarer Batch-Job mit Chunking und Pacing
   (akzeptierte Einschränkung E3) -- **umgesetzt**: `cli backfill` holt nur die
   Lücke seit dem letzten Lauf und ist über `(symbol, start)` idempotent;
   `cli screen --source stored` rechnet auf dem Bestand
+- Trading-Day-Scheduler -- **umgesetzt**: `cli dispatch` entscheidet in
+  `America/New_York`, holt die Lücke und rechnet, höchstens einmal je
+  Handelstag ([ADR 0019](adr/0019-trading-day-dispatcher.md)). Ausgelöst von
+  der Windows-Aufgabenplanung
 - Earnings-Termine -- nicht über IBKR verfügbar (akzeptierte Einschränkung
   E1). **Abgeschlossen:** Auch RESC scheidet aus
   ([ADR 0016](adr/0016-ibkr-keine-quelle-fuer-research-daten.md)); Quelle für
