@@ -58,7 +58,12 @@ Filter & Backtesting
 
 - Earnings Filter -- Quelle und akzeptierte Einschränkungen stehen in
   [ADR 0017](adr/0017-finnhub-fuer-earnings-und-ratings.md); historische
-  Termine für das Backtesting sind dort **nicht** abgedeckt (L9)
+  Termine für das Backtesting sind dort **nicht** abgedeckt (L9). **Umgesetzt:**
+  reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung
+  nach [ADR 0020](adr/0020-earnings-filter-status-und-handelstagskalender.md),
+  `FinnhubEarningsProvider` und `FixtureEarningsProvider` hinter dem
+  gemeinsamen `EarningsProvider`-Port, Auswertung in `RunAnalysisUseCase`
+  für jede als Kandidat eingestufte Aktie
 - historische Signalprüfung
 - Kennzahlenberechnung
 
