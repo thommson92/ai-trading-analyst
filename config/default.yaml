@@ -32,6 +32,15 @@ market_data:
   # ausdruecklich eingeschaltet und nicht stillschweigend vorausgesetzt --
   # ohne laufende, angemeldete TWS liefert sie keine Daten (ADR 0014, E2).
   provider: fixture
+  # Woher die nativen Bars kommen: "stored" aus dem eigenen Bestand, den
+  # "cli backfill" fuellt, "live" bei jedem Lauf vom Anbieter.
+  #
+  # "stored" ist der Standard, weil der regulaere Lauf wiederholbar sein
+  # muss: IBKRs Ein-Jahres-Fenster wandert mit der Uhr, schon zwei Laeufe
+  # desselben Tages ergaben unterschiedlich viele Kerzen. Ausserdem braucht
+  # der Lauf dann keine angemeldete TWS -- nur der Backfill braucht sie.
+  # Fuer "fixture" ohne Bedeutung.
+  source: stored
   ibkr:
     # Die TWS-API kennt keinen Schluessel; die Berechtigung haengt an der
     # angemeldeten TWS-Sitzung. Hier stehen deshalb keine Geheimnisse.

@@ -21,23 +21,30 @@ Technisch ist die Klasse eine ``HistoricalBarSource`` wie jede andere. Der
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
-    IntradayBarRepository,
     MarketDataProviderError,
+    UnitOfWork,
 )
 from ai_trading_analyst.domain.screening import IntradayBar
 
 
 class StoredBarSource:
-    """Liest die abgelegten Bars einer Aktie."""
+    """Liest die abgelegten Bars einer Aktie.
 
-    def __init__(self, repository: IntradayBarRepository) -> None:
-        self._repository = repository
+    Je Abruf eine eigene Arbeitseinheit statt einer Sitzung fuer die gesamte
+    Laufzeit. Hinter der API laeuft dieselbe Quelle ueber Stunden und viele
+    Anfragen hinweg; eine dauerhaft offene Transaktion saehe dort nicht nur
+    im Datenbankprotokoll schlecht aus, sie zeigte auch einen mit der Zeit
+    veraltenden Ausschnitt -- der Backfill schreibt waehrenddessen weiter.
+    """
+
+    def __init__(self, uow_factory: Callable[[], UnitOfWork]) -> None:
+        self._uow_factory = uow_factory
 
     def fetch_intraday_bars(
         self, contract: ContractSpec, days: int | None = None
@@ -49,7 +56,8 @@ class StoredBarSource:
         Diese Entscheidung trifft die Kerzenbildung.
         """
         try:
-            bars = self._repository.list_for(contract.symbol)
+            with self._uow_factory() as uow:
+                bars = uow.intraday_bars.list_for(contract.symbol)
         except SQLAlchemyError as error:
             # Systemgrenze: Ohne diese Uebersetzung reisst ein
             # Datenbankproblem -- abgerissene Verbindung, Neustart des

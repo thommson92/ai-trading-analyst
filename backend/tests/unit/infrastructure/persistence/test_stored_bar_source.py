@@ -11,10 +11,21 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from ai_trading_analyst.domain.analysis import ContractSpec, MarketDataProviderError
+from ai_trading_analyst.domain.analysis import (
+    ContractSpec,
+    IntradayBarRepository,
+    MarketDataProviderError,
+)
 from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
-from tests.unit.application.conftest import InMemoryIntradayBarRepository
+from tests.unit.application.conftest import (
+    FakeAnalysisRunRepository,
+    FakeProcessingErrorRepository,
+    FakeScreeningResultRepository,
+    FakeStockRepository,
+    FakeUnitOfWork,
+    InMemoryIntradayBarRepository,
+)
 
 BEGINN = datetime(2026, 3, 10, 9, 30, tzinfo=UTC)
 
@@ -30,10 +41,25 @@ def bar(offset_minutes: int) -> IntradayBar:
     )
 
 
+def quelle_ueber(bestand: IntradayBarRepository) -> StoredBarSource:
+    """Je Abruf eine eigene Arbeitseinheit -- wie im Betrieb."""
+
+    def uow_factory() -> FakeUnitOfWork:
+        return FakeUnitOfWork(
+            FakeStockRepository(),
+            bestand,
+            FakeAnalysisRunRepository(),
+            FakeScreeningResultRepository(),
+            FakeProcessingErrorRepository(),
+        )
+
+    return StoredBarSource(uow_factory)
+
+
 def quelle_mit(*bars: IntradayBar) -> StoredBarSource:
     bestand = InMemoryIntradayBarRepository()
     bestand.add_all("AAPL", list(bars))
-    return StoredBarSource(bestand)
+    return quelle_ueber(bestand)
 
 
 class TestLesen:
@@ -58,7 +84,7 @@ class TestLeererBestand:
     def test_ohne_bars_verweist_die_meldung_auf_den_backfill(self) -> None:
         """Sonst lautete die Meldung 'keine abgeschlossene Kerze' -- richtig,
         aber irrefuehrend: Es fehlt nicht die Kerze, es fehlt der Backfill."""
-        quelle = StoredBarSource(InMemoryIntradayBarRepository())
+        quelle = quelle_ueber(InMemoryIntradayBarRepository())
         with pytest.raises(MarketDataProviderError, match="Backfill"):
             quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
 
@@ -83,13 +109,13 @@ class TestDatenbankfehler:
             raise OperationalError("SELECT intraday_bars", {}, Exception("server closed"))
 
     def test_ein_datenbankfehler_kommt_als_anbieterfehler_an(self) -> None:
-        quelle = StoredBarSource(self.AbgerisseneVerbindung())
+        quelle = quelle_ueber(self.AbgerisseneVerbindung())
 
         with pytest.raises(MarketDataProviderError, match="nicht lesbar"):
             quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
 
     def test_die_meldung_nennt_die_betroffene_aktie(self) -> None:
-        quelle = StoredBarSource(self.AbgerisseneVerbindung())
+        quelle = quelle_ueber(self.AbgerisseneVerbindung())
 
         with pytest.raises(MarketDataProviderError, match="AAPL"):
             quelle.fetch_intraday_bars(ContractSpec(symbol="AAPL"))
@@ -97,6 +123,6 @@ class TestDatenbankfehler:
 
 class TestVerbindungsfreigabe:
     def test_close_ist_folgenlos_und_mehrfach_aufrufbar(self) -> None:
-        quelle = StoredBarSource(InMemoryIntradayBarRepository())
+        quelle = quelle_ueber(InMemoryIntradayBarRepository())
         quelle.close()
         quelle.close()

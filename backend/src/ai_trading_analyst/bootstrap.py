@@ -42,6 +42,7 @@ from ai_trading_analyst.infrastructure.persistence.session import (
     build_engine,
     build_session_factory,
 )
+from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ai_trading_analyst.infrastructure.watchlists import load_watchlist_directory
 from ai_trading_analyst.presentation.api.app import create_app
@@ -66,6 +67,25 @@ def build_ibkr_bar_source(config: AppConfig) -> IbAsyncBarSource:
         duration=ibkr.history_duration,
         minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
     )
+
+
+def build_bar_source(
+    config: AppConfig, uow_factory: Callable[[], UnitOfWork] | None
+) -> HistoricalBarSource:
+    """Bestand oder Anbieter, je nach ``market_data.source``.
+
+    Ohne ``uow_factory`` bleibt nur der Anbieter: Das ist der Weg fuer einen
+    gezielten Einzelabruf ueber die Kommandozeile, der ohne Datenbank
+    auskommen soll.
+    """
+    if config.market_data.source == "stored":
+        if uow_factory is None:
+            raise ValueError(
+                "market_data.source steht auf 'stored', es wurde aber keine Datenbank "
+                "uebergeben. Der Bestand braucht eine Verbindung."
+            )
+        return StoredBarSource(uow_factory)
+    return build_ibkr_bar_source(config)
 
 
 def build_watchlist(config: AppConfig, root: Path) -> Sequence[ContractSpec]:
@@ -99,6 +119,7 @@ def build_market_data_provider(
     root: Path,
     watchlist: Sequence[ContractSpec] | None = None,
     bar_source: HistoricalBarSource | None = None,
+    uow_factory: Callable[[], UnitOfWork] | None = None,
 ) -> MarketDataProvider:
     """Waehlt den Marktdatenanbieter anhand der Konfiguration.
 
@@ -107,12 +128,15 @@ def build_market_data_provider(
 
     ``watchlist`` uebersteuert die Dateien -- gedacht fuer einen gezielten
     Einzelabruf ueber die Kommandozeile, nicht fuer den regulaeren Lauf.
+    ``bar_source`` ebenso; sonst entscheidet ``market_data.source``.
     """
     if config.market_data.provider == "fixture":
         return FixtureMarketDataProvider()
 
     return IbkrMarketDataProvider(
-        bar_source=bar_source if bar_source is not None else build_ibkr_bar_source(config),
+        bar_source=bar_source
+        if bar_source is not None
+        else build_bar_source(config, uow_factory),
         watchlist=watchlist if watchlist is not None else build_watchlist(config, root),
         session_parameters=build_session_parameters(config),
         indicator_parameters=build_indicator_parameters(indicators),
@@ -137,7 +161,7 @@ def build_app() -> FastAPI:
         warmup_candles=indicators.warmup_candles,
     )
     market_data_provider = build_market_data_provider(
-        loaded.config, indicators, project_root(loaded.source_path)
+        loaded.config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
     )
     use_case = RunAnalysisUseCase(market_data_provider, uow_factory, candidate_rule_params)
 

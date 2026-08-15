@@ -20,9 +20,6 @@ from ai_trading_analyst.domain.screening import (
     SessionParameters,
 )
 from ai_trading_analyst.infrastructure.ibkr.market_data_provider import IbkrMarketDataProvider
-from ai_trading_analyst.infrastructure.persistence.repositories import (
-    SqlAlchemyIntradayBarRepository,
-)
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 
@@ -87,9 +84,9 @@ class FakeTws:
         pass
 
 
-def build_provider(session_factory: Callable[[], object]) -> IbkrMarketDataProvider:
+def build_provider(uow_factory: UowFactory) -> IbkrMarketDataProvider:
     return IbkrMarketDataProvider(
-        bar_source=StoredBarSource(SqlAlchemyIntradayBarRepository(session_factory())),  # type: ignore[arg-type]
+        bar_source=StoredBarSource(uow_factory),
         watchlist=(AAPL,),
         session_parameters=SESSION,
         indicator_parameters=INDICATORS,
@@ -99,7 +96,7 @@ def build_provider(session_factory: Callable[[], object]) -> IbkrMarketDataProvi
 
 class TestBackfillUndScreening:
     def test_was_abgelegt_wurde_ergibt_dieselben_kerzen(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Der Kern der Sache: Der Umweg ueber die Datenbank aendert nichts am
         Ergebnis."""
@@ -109,7 +106,7 @@ class TestBackfillUndScreening:
         bericht = use_case.execute((AAPL,))
 
         assert bericht.stored_bars == len(bars)
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         series = provider.get_candle_series(provider.list_stocks()[0])
         assert len(series) == 40  # 20 Handelstage zu je zwei Kerzen
         letzte = series.indicator(len(series) - 1)
@@ -117,7 +114,7 @@ class TestBackfillUndScreening:
         assert letzte.ema20 is not None
 
     def test_ein_zweiter_backfill_aendert_den_bestand_nicht(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Wiederholbarkeit, gegen die echte Datenbank statt gegen ein
         In-Memory-Doppel."""
@@ -128,7 +125,7 @@ class TestBackfillUndScreening:
         zweiter = use_case.execute((AAPL,))
 
         assert zweiter.stored_bars == 0
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         assert len(provider.get_candle_series(provider.list_stocks()[0])) == 40
 
     def test_der_zweite_lauf_fragt_nur_noch_die_luecke(self, uow_factory: UowFactory) -> None:
@@ -143,18 +140,18 @@ class TestBackfillUndScreening:
         assert quelle.calls[1] > 0
 
     def test_zwei_laeufe_nacheinander_ergeben_dieselbe_reihe(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Der eigentliche Gewinn gegenueber dem Abruf je Lauf: IBKRs
         Ein-Jahres-Fenster wandert mit der Uhr, der Bestand nicht."""
         use_case = BackfillHistoryUseCase(FakeTws(trading_days(20)), uow_factory)
         use_case.execute((AAPL,))
 
-        erste = build_provider(session_factory).get_candle_series(
-            build_provider(session_factory).list_stocks()[0]
+        erste = build_provider(uow_factory).get_candle_series(
+            build_provider(uow_factory).list_stocks()[0]
         )
-        zweite = build_provider(session_factory).get_candle_series(
-            build_provider(session_factory).list_stocks()[0]
+        zweite = build_provider(uow_factory).get_candle_series(
+            build_provider(uow_factory).list_stocks()[0]
         )
 
         assert [candle.timestamp for candle in erste.candles] == [
@@ -162,23 +159,23 @@ class TestBackfillUndScreening:
         ]
 
     def test_ein_teilweise_gefuellter_bestand_liefert_die_vorhandenen_kerzen(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Nach einem abgebrochenen Backfill ist der Bestand unvollstaendig,
         aber in sich stimmig -- er soll nutzbar bleiben."""
         BackfillHistoryUseCase(FakeTws(trading_days(5)), uow_factory).execute((AAPL,))
 
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         assert len(provider.get_candle_series(provider.list_stocks()[0])) == 10
 
 
 class TestLeererBestand:
     def test_ohne_backfill_verweist_die_meldung_darauf(
-        self, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Sonst lautete die Meldung 'keine abgeschlossene Kerze' -- richtig,
         aber am eigentlichen Problem vorbei."""
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         try:
             provider.get_candle_series(provider.list_stocks()[0])
         except MarketDataProviderError as error:
@@ -189,7 +186,7 @@ class TestLeererBestand:
 
 class TestLueckeImBestand:
     def test_eine_echte_luecke_wird_auch_aus_dem_bestand_erkannt(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """Die Kerzenbildung prueft unabhaengig davon, woher die Bars kommen.
         Eine Luecke darf der Umweg ueber die Datenbank nicht verstecken."""
@@ -197,7 +194,7 @@ class TestLueckeImBestand:
         del bars[3]  # ein Bar mitten in der ersten Kerze
         BackfillHistoryUseCase(FakeTws(bars), uow_factory).execute((AAPL,))
 
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         try:
             provider.get_candle_series(provider.list_stocks()[0])
         except MarketDataProviderError as error:
@@ -208,13 +205,13 @@ class TestLueckeImBestand:
 
 class TestZeitzonen:
     def test_die_boersenzeit_ueberlebt_den_umweg_ueber_die_datenbank(
-        self, uow_factory: UowFactory, session_factory: Callable[[], object]
+        self, uow_factory: UowFactory
     ) -> None:
         """PostgreSQL speichert in UTC. Die Kerzen muessen trotzdem an den
         Sitzungsgrenzen der Boerse liegen -- 09:30 und 12:45 Ortszeit."""
         BackfillHistoryUseCase(FakeTws(trading_days(2)), uow_factory).execute((AAPL,))
 
-        provider = build_provider(session_factory)
+        provider = build_provider(uow_factory)
         series = provider.get_candle_series(provider.list_stocks()[0])
 
         ortszeiten = {candle.timestamp.astimezone(NEW_YORK).time() for candle in series.candles}
