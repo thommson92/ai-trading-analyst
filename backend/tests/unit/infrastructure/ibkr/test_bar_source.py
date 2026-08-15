@@ -181,6 +181,73 @@ class TestLaufenderBar:
         assert self._quelle()._without_running_bar([]) == ()
 
 
+class TestRaster:
+    """Am Anfang des Fensters schneidet IBKR ab.
+
+    Statt beim naechsten Rasterpunkt zu beginnen, kam beim ersten
+    Jahresabruf ueber 192 Symbole bei vieren ein Bar mit dem exakten
+    Zeitstempel der Anfrage zurueck -- ``12:07:06`` statt ``12:15:00``. Ein
+    solcher Bar laesst sich keiner Kerze zuordnen, und die Kerzenbildung
+    weist deshalb die gesamte Reihe zurueck. Im Bestand machte er die Aktie
+    dauerhaft unbrauchbar.
+    """
+
+    RASTER = datetime(2025, 8, 14, 16, 15, tzinfo=UTC)
+
+    def _quelle(self) -> IbAsyncBarSource:
+        return IbAsyncBarSource(
+            UNBESETZTER_PORT,
+            native_bar_minutes=15,
+            duration="1 Y",
+            now=lambda: datetime(2026, 8, 14, 16, 15, tzinfo=UTC),
+        )
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def test_der_abgeschnittene_erste_bar_faellt_weg(self) -> None:
+        """Der beobachtete Fall: 12:07:06 statt 12:15:00."""
+        abgeschnitten = self._bar(self.RASTER.replace(minute=7, second=6))
+        sauber = [self._bar(self.RASTER + timedelta(minutes=15 * index)) for index in range(3)]
+
+        behalten = self._quelle()._on_grid("WMT", [abgeschnitten, *sauber])
+
+        assert list(behalten) == sauber
+
+    def test_sekunden_ungleich_null_reichen_schon(self) -> None:
+        """Auf der Viertelstunde, aber mit Sekunden -- ebenfalls kein Raster."""
+        krumm = self._bar(self.RASTER.replace(second=36))
+
+        assert self._quelle()._on_grid("XOM", [krumm]) == ()
+
+    def test_eine_saubere_reihe_bleibt_unveraendert(self) -> None:
+        bars = [self._bar(self.RASTER + timedelta(minutes=15 * index)) for index in range(26)]
+
+        assert list(self._quelle()._on_grid("AAPL", bars)) == bars
+
+    def test_das_verwerfen_wird_protokolliert(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Still verschwinden darf nichts -- sonst faellt eine systematisch
+        krumme Lieferung nie auf."""
+        krumm = self._bar(self.RASTER.replace(minute=7, second=6))
+
+        with caplog.at_level("WARNING"):
+            self._quelle()._on_grid("WMT", [krumm])
+
+        assert "WMT" in caplog.text
+        assert "Raster" in caplog.text
+
+    def test_die_halbe_stunde_liegt_auf_dem_raster(self) -> None:
+        """Die Sitzung beginnt um 09:30 -- 09:30, 09:45, 10:00 sind gueltig."""
+        bars = [
+            self._bar(datetime(2025, 8, 14, 13, 30, tzinfo=UTC)),
+            self._bar(datetime(2025, 8, 14, 13, 45, tzinfo=UTC)),
+            self._bar(datetime(2025, 8, 14, 14, 0, tzinfo=UTC)),
+        ]
+
+        assert len(self._quelle()._on_grid("AAPL", bars)) == 3
+
+
 class TestZeitraumangabe:
     """Die Uebersetzung einer Tagesangabe in die Schreibweise der IBKR-API."""
 

@@ -38,6 +38,9 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProviderError,
 )
 from ai_trading_analyst.domain.screening import IntradayBar
+from ai_trading_analyst.observability.logging_setup import get_logger
+
+_logger = get_logger(__name__)
 
 SUPPORTED_BAR_MINUTES = (1, 3, 5, 15)
 """Bar-Groessen, die IBKR anbietet **und** die 195 Minuten ohne Rest teilen."""
@@ -253,16 +256,19 @@ class IbAsyncBarSource:
                 f"Historische Bars fuer '{symbol}' konnten nicht abgerufen werden: {error}"
             ) from error
 
-        return self._without_running_bar(
-            IntradayBar(
-                start=bar.date,
-                open=float(bar.open),
-                high=float(bar.high),
-                low=float(bar.low),
-                close=float(bar.close),
-                volume=float(bar.volume),
-            )
-            for bar in bars
+        return self._on_grid(
+            symbol,
+            self._without_running_bar(
+                IntradayBar(
+                    start=bar.date,
+                    open=float(bar.open),
+                    high=float(bar.high),
+                    low=float(bar.low),
+                    close=float(bar.close),
+                    volume=float(bar.volume),
+                )
+                for bar in bars
+            ),
         )
 
     def _without_running_bar(self, bars: Iterable[IntradayBar]) -> Sequence[IntradayBar]:
@@ -286,6 +292,48 @@ class IbAsyncBarSource:
         """
         grenze = self._now() - timedelta(minutes=self._bar_minutes)
         return tuple(bar for bar in bars if bar.start <= grenze)
+
+    def _on_grid(self, symbol: str, bars: Sequence[IntradayBar]) -> Sequence[IntradayBar]:
+        """Laesst Bars weg, die nicht auf dem Raster ihrer eigenen Groesse liegen.
+
+        Am **Anfang** des angefragten Fensters schneidet IBKR ab: Statt beim
+        naechsten Rasterpunkt zu beginnen, kommt gelegentlich ein Bar mit dem
+        exakten Zeitstempel der Anfrage zurueck -- ``12:07:06`` statt
+        ``12:15:00``. Beobachtet beim ersten Jahresabruf ueber 192 Symbole,
+        bei vier davon.
+
+        Ein solcher Bar ist nicht verwertbar: Er laesst sich keiner
+        195-Minuten-Kerze zuordnen, und die Kerzenbildung weist deshalb die
+        **gesamte** Reihe zurueck. Beim Abruf je Lauf war das folgenlos, weil
+        die naechste Antwort anders ausfiel. Im Bestand bliebe der Bar liegen
+        und machte die Aktie dauerhaft unbrauchbar.
+
+        Verworfen wird deshalb hier, an der Systemgrenze, und nicht still: Was
+        wegfaellt, steht im Protokoll. Die strenge Pruefung der Kerzenbildung
+        bleibt bestehen -- sie ist die Wache fuer alles, was trotzdem
+        durchkommt, etwa aus einem Bestand aelterer Laeufe.
+
+        Das Raster ergibt sich aus der Bar-Groesse: Die regulaere Sitzung
+        beginnt um 09:30, und alle unterstuetzten Groessen teilen sowohl die
+        Stunde als auch die halbe Stunde ohne Rest.
+        """
+        passend = tuple(
+            bar
+            for bar in bars
+            if bar.start.second == 0
+            and bar.start.microsecond == 0
+            and bar.start.minute % self._bar_minutes == 0
+        )
+        if len(passend) < len(bars):
+            verworfen = [bar.start for bar in bars if bar not in passend]
+            _logger.warning(
+                "%s: %d Bars ausserhalb des %d-Minuten-Rasters verworfen (%s)",
+                symbol,
+                len(bars) - len(passend),
+                self._bar_minutes,
+                ", ".join(zeitpunkt.isoformat() for zeitpunkt in verworfen[:5]),
+            )
+        return passend
 
     def close(self) -> None:
         """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""
