@@ -98,6 +98,12 @@ earnings_filter:
   maximum_exclusion_candles: 20
   # Konservative Grenze fuer das MVP (Doc 10, Paragraph 6.5).
   configured_exclusion_candles: 20
+  # "fixture" bleibt Standard -- Start und Tests laufen ohne Finnhub-Zugang.
+  provider: fixture
+  finnhub:
+    base_url: https://finnhub.io/api/v1
+    request_timeout_seconds: 10
+    lookahead_calendar_days: 30
 
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener

@@ -250,12 +250,32 @@ class BacktestingConfig(_Section):
         return self
 
 
+class FinnhubConfig(_Section):
+    """Zugang zum Earnings-Kalender (ADR 0017, ADR 0020).
+
+    Kein Geheimnis hier -- der Schluessel kommt ausschliesslich aus
+    ``Secrets.finnhub_api_key``.
+    """
+
+    base_url: str = "https://finnhub.io/api/v1"
+    request_timeout_seconds: PositiveInt = 10
+    lookahead_calendar_days: PositiveInt = 30
+    """Kalendertage je Anfrage -- grosszuegig ueber dem groessten
+    konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
+    um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
+    aus ADR 0017 L4, da je Symbol angefragt wird."""
+
+
 class EarningsFilterConfig(_Section):
     """Ausschlussfenster vor Quartalszahlen (Doc 10, Paragraph 6.5)."""
 
     minimum_exclusion_candles: PositiveInt = 10
     maximum_exclusion_candles: PositiveInt = 20
     configured_exclusion_candles: PositiveInt = 20
+    provider: Literal["fixture", "finnhub"] = "fixture"
+    """Wie ``market_data.provider``: ``fixture`` bleibt Standard, damit Start
+    und Tests ohne ``ATA_FINNHUB_API_KEY`` funktionieren."""
+    finnhub: FinnhubConfig = FinnhubConfig()
 
     @model_validator(mode="after")
     def _configured_value_must_be_within_range(self) -> EarningsFilterConfig:
@@ -406,6 +426,7 @@ class Secrets(BaseSettings):
     llm_api_key: SecretStr | None = None
     market_data_api_key: SecretStr | None = None
     notification_token: SecretStr | None = None
+    finnhub_api_key: SecretStr | None = None
 
     def require(self, field_name: str) -> str:
         """Liefert den Klartextwert eines Geheimnisses oder scheitert eindeutig."""
