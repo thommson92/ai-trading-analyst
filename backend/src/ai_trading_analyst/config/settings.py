@@ -293,6 +293,34 @@ class DataAvailabilityConfig(_Section):
         return self
 
 
+class SchedulerConfig(_Section):
+    """Zeitsteuerung des taeglichen Laufs (ADR 0019).
+
+    Die Aufgabenplanung startet den Dispatcher alle 15 Minuten in einem
+    Abendfenster; entschieden wird hier, in der Zeitzone der Boerse.
+    """
+
+    safety_buffer_seconds: PositiveInt = 300
+    """Wartezeit nach Kerzenschluss, bevor ueberhaupt gefragt wird.
+
+    Die Kerze ist um 12:45 New Yorker Zeit zu, beim Anbieter aber nicht
+    zwingend im selben Augenblick vollstaendig. 300 Sekunden ergeben einen
+    fruehesten Start um 12:50.
+
+    Nicht zu verwechseln mit ``data_availability.grace_period_seconds``: Jener
+    Abschnitt beschreibt ein Polling waehrend eines laufenden Abrufs und wird
+    vom Dispatcher nicht verwendet -- bei ihm uebernimmt der 15-Minuten-Takt
+    das Wiederholen.
+    """
+    max_catch_up_seconds: PositiveInt = 4 * 3600
+    """Wie lange ein verpasster Lauf noch nachgeholt werden darf.
+
+    Danach gilt er als ausgefallen und es geht eine Meldung raus. Vier Stunden
+    reichen vom fruehesten Start um 12:50 bis weit nach Boersenschluss --
+    laenger waere eine Analyse, die den Handelstag nicht mehr abbildet.
+    """
+
+
 class NotificationsConfig(_Section):
     """Benachrichtigungsverhalten (Doc 10, Paragraph 6.13)."""
 
@@ -323,6 +351,7 @@ class AppConfig(_Section):
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
+    scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     scoring: ScoringConfig = ScoringConfig()
     logging: LoggingConfig = LoggingConfig()

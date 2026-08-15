@@ -92,6 +92,17 @@ class IntradayBarRepository(Protocol):
         """Beginn des juengsten gespeicherten Bars, oder ``None``."""
         ...
 
+    def latest_start_overall(self) -> datetime | None:
+        """Beginn des juengsten Bars ueber **alle** Aktien.
+
+        Die Frage des Dispatchers: Sind die Daten des Handelstages ueberhaupt
+        angekommen? Ueber alle Aktien und nicht ueber eine bestimmte, damit
+        ein einzelner ausgesetzter Titel den Lauf nicht verhindert. Ob eine
+        *einzelne* Aktie vollstaendig ist, entscheidet ohnehin erst die
+        Kerzenbildung, und zwar je Aktie.
+        """
+        ...
+
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         """Speichert Bars und liefert die Zahl der **neu** hinzugekommenen.
 

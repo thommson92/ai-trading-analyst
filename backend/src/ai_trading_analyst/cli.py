@@ -40,9 +40,15 @@ from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
     SymbolBackfill,
 )
+from ai_trading_analyst.application.dispatch_daily_run import (
+    DispatchDailyRunUseCase,
+    DispatchOutcome,
+)
+from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import (
     build_ibkr_bar_source,
     build_market_data_provider,
+    build_watchlist,
     project_root,
 )
 from ai_trading_analyst.config.loader import load_config
@@ -53,6 +59,7 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.scheduling import DispatchDecision, SchedulerParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
@@ -63,6 +70,14 @@ from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbkrMarketDataProvider,
     duration_in_days,
+)
+from ai_trading_analyst.infrastructure.ibkr.calendar import IbkrTradingCalendar
+from ai_trading_analyst.infrastructure.notifications import (
+    NotificationChannelNotConfiguredError,
+    build_notifier,
+)
+from ai_trading_analyst.infrastructure.persistence.dispatcher_runs import (
+    SqlAlchemyDispatcherRunRepository,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
     DatabaseUnavailableError,
@@ -76,7 +91,9 @@ from ai_trading_analyst.infrastructure.watchlists import (
     describe_sources,
     load_watchlist_directory,
 )
-from ai_trading_analyst.observability.logging_setup import configure_logging
+from ai_trading_analyst.observability.logging_setup import configure_logging, get_logger
+
+_logger_cli = get_logger(__name__)
 
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
@@ -530,6 +547,167 @@ def command_screen(args: argparse.Namespace) -> int:
     return 1 if any(outcome.error is not None for outcome in outcomes) else 0
 
 
+DISPATCH_EXIT_CODES = {
+    DispatchDecision.RUN: 0,
+    DispatchDecision.TOO_EARLY: 0,
+    DispatchDecision.NO_TRADING_DAY: 0,
+    DispatchDecision.ALREADY_DONE: 0,
+    DispatchDecision.TOO_LATE: 1,
+}
+"""Was die Aufgabenplanung zu sehen bekommt.
+
+"Nichts zu tun" ist bewusst 0: Bei einem Start alle 15 Minuten waere alles
+andere ein Protokoll voller Fehlschlaege, in dem der echte nicht mehr
+auffiele. Nur ein *versuchter und gescheiterter* Lauf ergibt 1 -- und der
+abgelaufene Nachholzeitraum, weil dann tatsaechlich etwas ausgefallen ist.
+"""
+
+
+def command_dispatch(args: argparse.Namespace) -> int:
+    """Der Einstieg fuer die Aufgabenplanung (ADR 0019).
+
+    Faellt fast immer sofort wieder heraus. Nur wenn die Zielkerze
+    geschlossen, der Sicherheitspuffer abgelaufen und der Lauf noch nicht
+    erledigt ist, holt er Daten und rechnet.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+    if config.market_data.provider != "ibkr":
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der taegliche Lauf holt Daten von der "
+            "TWS -- entweder '--provider ibkr' angeben oder die Konfiguration umstellen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    indicators = config.require_indicators()
+    try:
+        standardzeitraum = duration_in_days(config.market_data.ibkr.history_duration)
+        notifier = build_notifier(config.notifications)
+    except (ValueError, NotificationChannelNotConfiguredError) as error:
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
+
+    watchlist = tuple(build_watchlist(config, project_root(loaded.source_path)))
+    if not watchlist:
+        print("Die Watchlist ist leer -- es gibt nichts zu rechnen.", file=sys.stderr)
+        return 2
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    bar_source = build_ibkr_bar_source(config)
+    runs = SqlAlchemyDispatcherRunRepository(session_factory(), engine)
+
+    def backfill() -> None:
+        bericht = BackfillHistoryUseCase(
+            bar_source, uow_factory, default_days=standardzeitraum
+        ).execute(watchlist, on_progress=_print_backfill_progress)
+        if bericht.failures:
+            # Einzelne Ausfaelle sind hingenommen -- faellt aber *alles* aus,
+            # ist die TWS weg, und daraus darf kein Analyse-Lauf entstehen.
+            if len(bericht.failures) == len(bericht.results):
+                raise MarketDataProviderError(
+                    f"Keine einzige Aktie konnte geholt werden ({len(bericht.failures)} "
+                    f"Ausfaelle), zuerst: {bericht.failures[0].error}"
+                )
+            _logger_cli.warning(
+                "%d von %d Aktien ohne neue Daten -- der Lauf geht trotzdem weiter.",
+                len(bericht.failures),
+                len(bericht.results),
+            )
+
+    def analyse() -> None:
+        provider = build_market_data_provider(
+            config,
+            indicators,
+            project_root(loaded.source_path),
+            watchlist,
+            uow_factory=uow_factory,
+        )
+        rule = CandidateRuleParameters(
+            required_signal_count=config.screening.required_signal_count,
+            signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
+            warmup_candles=indicators.warmup_candles,
+        )
+        zusammenfassung = RunAnalysisUseCase(provider, uow_factory, rule).execute()
+        kandidaten = [
+            ergebnis.stock.symbol
+            for ergebnis in zusammenfassung.outcomes
+            if ergebnis.result.status is ScreeningStatus.CANDIDATE
+        ]
+        print(
+            f"Analyse-Lauf {zusammenfassung.run.id}: {len(zusammenfassung.outcomes)} Aktien, "
+            f"{len(kandidaten)} Kandidaten, {len(zusammenfassung.errors)} Fehler"
+        )
+        if kandidaten:
+            print(f"Kandidaten: {', '.join(kandidaten)}")
+
+    def latest_stored_bar() -> datetime | None:
+        with uow_factory() as uow:
+            return uow.intraday_bars.latest_start_overall()
+
+    use_case = DispatchDailyRunUseCase(
+        calendar=IbkrTradingCalendar(bar_source, watchlist[0]),
+        runs=runs,
+        parameters=SchedulerParameters(
+            timeframe_minutes=config.market.timeframe_minutes,
+            daily_candle_index=config.market.daily_candle_index,
+            safety_buffer_seconds=config.scheduler.safety_buffer_seconds,
+            max_catch_up_seconds=config.scheduler.max_catch_up_seconds,
+            timezone=config.market.timezone,
+            session_open=config.market.session_open_time(),
+            session_minutes=config.market.regular_session_minutes,
+        ),
+        backfill=backfill,
+        analyse=analyse,
+        latest_stored_bar=latest_stored_bar,
+        notifier=notifier,
+        native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
+    )
+
+    try:
+        ergebnis = use_case.execute()
+    except KeyboardInterrupt:
+        print("\nAbgebrochen.", file=sys.stderr)
+        return 130
+    finally:
+        bar_source.close()
+
+    _print_dispatch(ergebnis)
+    if ergebnis.failed:
+        return 1
+    return DISPATCH_EXIT_CODES[ergebnis.decision]
+
+
+def _print_dispatch(ergebnis: DispatchOutcome) -> None:
+    zeitpunkt = (
+        ergebnis.scheduled.candle_close.isoformat() if ergebnis.scheduled else "unbestimmt"
+    )
+    if ergebnis.error is not None:
+        print(f"Lauf fuer {zeitpunkt} gescheitert: {ergebnis.error}", file=sys.stderr)
+        return
+    texte = {
+        DispatchDecision.RUN: f"Lauf fuer {zeitpunkt} abgeschlossen.",
+        DispatchDecision.TOO_EARLY: f"Noch zu frueh -- Kerze {zeitpunkt}.",
+        DispatchDecision.NO_TRADING_DAY: "Kein Handelstag.",
+        DispatchDecision.ALREADY_DONE: f"Bereits erledigt -- Kerze {zeitpunkt}.",
+        DispatchDecision.TOO_LATE: f"Nachholfrist fuer {zeitpunkt} abgelaufen.",
+    }
+    print(texte[ergebnis.decision])
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_trading_analyst.cli",
@@ -644,6 +822,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     backfill.set_defaults(handler=command_backfill)
+
+    dispatch = subparsers.add_parser(
+        "dispatch",
+        help=(
+            "Der taegliche Lauf fuer die Aufgabenplanung: holt die Luecke und rechnet, "
+            "aber nur wenn die Zielkerze geschlossen und der Lauf noch nicht erledigt ist."
+        ),
+    )
+    dispatch.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    dispatch.set_defaults(handler=command_dispatch)
     return parser
 
 

@@ -11,9 +11,9 @@ muessen.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -126,3 +126,38 @@ class ProcessingErrorOrm(Base):
     stock_symbol: Mapped[str]
     message: Mapped[str]
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DispatcherRunOrm(Base):
+    """Zustand des taeglichen Dispatchers (ADR 0019).
+
+    Der Schluessel ist bewusst ``(session_date, candle_close)`` und nicht der
+    Handelstag allein: Wird spaeter auch nach der zweiten Tageskerze
+    gerechnet, sind das zwei getrennte Laeufe desselben Tages.
+
+    Die Tabelle liegt in derselben Datenbank wie die Analyseergebnisse. Zwei
+    Orte fuer zusammengehoerigen Zustand waeren eine Quelle fuer Widersprueche
+    nach einem Absturz zwischen beiden Schreibvorgaengen.
+    """
+
+    __tablename__ = "dispatcher_runs"
+
+    session_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    candle_close: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    status: Mapped[str]
+    """``running``, ``succeeded`` oder ``failed``.
+
+    Nur ``succeeded`` haelt den naechsten Start ab. Ein gescheiterter Versuch
+    darf den Lauf nicht blockieren -- eine nicht angemeldete TWS ist der
+    haeufigste Grund, und der naechste Start soll es erneut versuchen.
+    """
+    attempts: Mapped[int]
+    first_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    last_error: Mapped[str | None] = mapped_column(default=None)
+    alert_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    """Ohne diesen Vermerk meldete sich der Dispatcher nach Fristablauf alle
+    15 Minuten erneut."""
