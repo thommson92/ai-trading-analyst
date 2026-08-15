@@ -9,6 +9,8 @@ dem Ergebnis richtig umgeht.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
@@ -179,3 +181,59 @@ class TestVollstaendigesScheiternAllerAktien:
         assert summary.run.status == RunStatus.FAILED
         assert not summary.outcomes
         assert len(summary.errors) == 2
+
+
+class TestVeralteteDaten:
+    """Ein Teilausfall beim Abruf darf keine Analyse auf altem Stand ergeben.
+
+    Die Kerzenreihe kennt keinen Bezug zur Gegenwart: ``len(series) - 1``
+    liefert die juengste vorhandene Kerze, gleich ob sie von heute oder von
+    vorletzter Woche ist. Reisst die Verbindung zur TWS mitten im Abruf ab,
+    sind einige Aktien frisch und die uebrigen alt -- und ohne Pruefung
+    entstuende fuer die alten ein sauber aussehendes NOT_CANDIDATE.
+    """
+
+    def _lauf(self, erwartet: datetime | None) -> object:
+        reihe = make_series(_SERIES_LENGTH, candidate=False)
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),), series_by_symbol={"AAA": reihe}
+        )
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(stocks_repo, bars_repo, runs_repo, results_repo, errors_repo)
+
+        return RunAnalysisUseCase(
+            provider, uow_factory, _PARAMS, expected_last_candle=erwartet
+        ).execute()
+
+    @staticmethod
+    def _letzte_kerze() -> datetime:
+        reihe = make_series(_SERIES_LENGTH, candidate=False)
+        return reihe.candle(len(reihe) - 1).timestamp
+
+    def test_die_erwartete_kerze_laesst_den_lauf_durch(self) -> None:
+        bericht = self._lauf(self._letzte_kerze())
+
+        assert len(bericht.outcomes) == 1  # type: ignore[attr-defined]
+        assert bericht.errors == ()  # type: ignore[attr-defined]
+
+    def test_eine_abweichende_kerze_wird_als_fehler_gefuehrt(self) -> None:
+        """Statt auf altem Stand gescreent zu werden."""
+        bericht = self._lauf(self._letzte_kerze() + timedelta(minutes=195))
+
+        assert bericht.outcomes == ()  # type: ignore[attr-defined]
+        assert len(bericht.errors) == 1  # type: ignore[attr-defined]
+        assert "fehlen die Daten" in bericht.errors[0].message  # type: ignore[attr-defined]
+
+    def test_ohne_erwartung_wird_nicht_geprueft(self) -> None:
+        """Der manuelle Lauf: Dort entscheidet der Mensch, welchen Stand er
+        sieht."""
+        bericht = self._lauf(None)
+
+        assert len(bericht.outcomes) == 1  # type: ignore[attr-defined]
+        assert bericht.errors == ()  # type: ignore[attr-defined]

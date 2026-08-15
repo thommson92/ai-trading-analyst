@@ -15,6 +15,7 @@ werden:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 
 from sqlalchemy import select, text
@@ -85,6 +86,24 @@ class SqlAlchemyDispatcherRunRepository:
         finally:
             self._lock_connection.close()
             self._lock_connection = None
+
+    def unresolved(self) -> Sequence[tuple[date, datetime]]:
+        """Laeufe, die weder gelungen sind noch gemeldet wurden.
+
+        Der Dispatcher sieht sie bei **jedem** Start durch, nicht nur die des
+        heutigen Tages. Sonst waere ein Abend, an dem die TWS durchgehend
+        fehlte, am naechsten Morgen endgueltig vergessen -- und die Meldung
+        haette nie eine Gelegenheit gehabt.
+        """
+        zeilen = self._session.execute(
+            select(DispatcherRunOrm.session_date, DispatcherRunOrm.candle_close)
+            .where(
+                DispatcherRunOrm.status != "succeeded",
+                DispatcherRunOrm.alert_sent_at.is_(None),
+            )
+            .order_by(DispatcherRunOrm.candle_close)
+        ).all()
+        return [(zeile[0], zeile[1]) for zeile in zeilen]
 
     def is_done(self, session_date: date, candle_close: datetime) -> bool:
         return self._status(session_date, candle_close) == "succeeded"

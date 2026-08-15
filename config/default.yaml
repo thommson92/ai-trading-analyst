@@ -116,7 +116,10 @@ scheduler:
   # 300 Sekunden ergeben einen fruehesten Start um 12:50.
   safety_buffer_seconds: 300
   # Danach gilt der Lauf als ausgefallen und es geht eine Meldung raus.
-  max_catch_up_seconds: 14400
+  # Zwei Stunden ab 12:50 ergeben eine Frist um 14:50 New Yorker Zeit. Der
+  # Wert muss innerhalb des Startfensters der Aufgabenplanung liegen, sonst
+  # kommt die Meldung erst am naechsten Tag (README).
+  max_catch_up_seconds: 7200
 
 notifications:
   send_when_no_candidates: false

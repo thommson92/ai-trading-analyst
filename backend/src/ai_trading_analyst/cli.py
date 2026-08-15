@@ -51,8 +51,14 @@ from ai_trading_analyst.bootstrap import (
     build_watchlist,
     project_root,
 )
-from ai_trading_analyst.config.loader import load_config
-from ai_trading_analyst.config.settings import AppConfig, LoggingConfig, MissingSecretError, Secrets
+from ai_trading_analyst.config.loader import ConfigError, load_config
+from ai_trading_analyst.config.settings import (
+    AppConfig,
+    GateNotClearedError,
+    LoggingConfig,
+    MissingSecretError,
+    Secrets,
+)
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
@@ -552,6 +558,7 @@ DISPATCH_EXIT_CODES = {
     DispatchDecision.TOO_EARLY: 0,
     DispatchDecision.NO_TRADING_DAY: 0,
     DispatchDecision.ALREADY_DONE: 0,
+    DispatchDecision.IN_PROGRESS: 0,
     DispatchDecision.TOO_LATE: 1,
 }
 """Was die Aufgabenplanung zu sehen bekommt.
@@ -570,8 +577,15 @@ def command_dispatch(args: argparse.Namespace) -> int:
     geschlossen, der Sicherheitspuffer abgelaufen und der Lauf noch nicht
     erledigt ist, holt er Daten und rechnet.
     """
-    loaded = load_config(args.config)
-    config = loaded.config
+    try:
+        loaded = load_config(args.config)
+        config = loaded.config
+        indicators = config.require_indicators()
+    except (ConfigError, GateNotClearedError) as error:
+        # Rueckgabewert 2, nicht 1: Ein erneuter Start in 15 Minuten aendert
+        # daran nichts, und die Aufgabenplanung soll das unterscheiden koennen.
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
     if args.provider is not None:
@@ -586,7 +600,6 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
-    indicators = config.require_indicators()
     try:
         standardzeitraum = duration_in_days(config.market_data.ibkr.history_duration)
         notifier = build_notifier(config.notifications)
@@ -628,12 +641,16 @@ def command_dispatch(args: argparse.Namespace) -> int:
                 len(bericht.results),
             )
 
-    def analyse() -> None:
+    def analyse(erwartete_kerze: datetime) -> None:
         provider = build_market_data_provider(
             config,
             indicators,
             project_root(loaded.source_path),
             watchlist,
+            # Ausdruecklich dieselbe Quelle: Bei 'source: live' entstuende
+            # sonst eine zweite TWS-Verbindung mit derselben Client-ID,
+            # waehrend die erste noch haengt -- IBKR laesst nur eine zu.
+            bar_source=None if config.market_data.source == "stored" else bar_source,
             uow_factory=uow_factory,
         )
         rule = CandidateRuleParameters(
@@ -641,7 +658,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
             warmup_candles=indicators.warmup_candles,
         )
-        zusammenfassung = RunAnalysisUseCase(provider, uow_factory, rule).execute()
+        zusammenfassung = RunAnalysisUseCase(
+            provider, uow_factory, rule, expected_last_candle=erwartete_kerze
+        ).execute()
         kandidaten = [
             ergebnis.stock.symbol
             for ergebnis in zusammenfassung.outcomes
@@ -703,6 +722,7 @@ def _print_dispatch(ergebnis: DispatchOutcome) -> None:
         DispatchDecision.TOO_EARLY: f"Noch zu frueh -- Kerze {zeitpunkt}.",
         DispatchDecision.NO_TRADING_DAY: "Kein Handelstag.",
         DispatchDecision.ALREADY_DONE: f"Bereits erledigt -- Kerze {zeitpunkt}.",
+        DispatchDecision.IN_PROGRESS: "Ein vorheriger Start arbeitet noch.",
         DispatchDecision.TOO_LATE: f"Nachholfrist fuer {zeitpunkt} abgelaufen.",
     }
     print(texte[ergebnis.decision])

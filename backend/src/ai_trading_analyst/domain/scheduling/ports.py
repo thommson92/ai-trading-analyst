@@ -6,6 +6,7 @@ nur diese drei Protokolle.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol
 
@@ -53,6 +54,10 @@ class DispatcherRunRepository(Protocol):
         ...
 
     def release_lock(self) -> None: ...
+
+    def unresolved(self) -> Sequence[tuple[date, datetime]]:
+        """Laeufe, die weder gelungen sind noch gemeldet wurden."""
+        ...
 
     def is_done(self, session_date: date, candle_close: datetime) -> bool: ...
 

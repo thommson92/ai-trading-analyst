@@ -17,8 +17,9 @@ aus wie die heutige Analyse und waere es nicht.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
@@ -58,7 +59,7 @@ class DispatchDailyRunUseCase:
         runs: DispatcherRunRepository,
         parameters: SchedulerParameters,
         backfill: Callable[[], None],
-        analyse: Callable[[], None],
+        analyse: Callable[[datetime], None],
         latest_stored_bar: Callable[[], datetime | None],
         notifier: Notifier,
         native_bar_minutes: int,
@@ -79,7 +80,7 @@ class DispatchDailyRunUseCase:
             # Der vorige Start arbeitet noch -- ein Backfill ueber die volle
             # Watchlist dauert laenger als der Abstand zwischen zwei Starts.
             _logger.info("Ein Lauf ist bereits in Arbeit -- dieser Start endet ohne Aktion.")
-            return DispatchOutcome(decision=DispatchDecision.ALREADY_DONE)
+            return DispatchOutcome(decision=DispatchDecision.IN_PROGRESS)
         try:
             return self._dispatch()
         finally:
@@ -87,21 +88,36 @@ class DispatchDailyRunUseCase:
 
     def _dispatch(self) -> DispatchOutcome:
         jetzt = self._now()
+        # Der Handelstag ist der an der Boerse, nicht der in UTC. Im heutigen
+        # Abendfenster faellt beides zusammen; sobald aber nach der zweiten
+        # Tageskerze gerechnet wird (16:00 New Yorker Zeit, also nach
+        # Mitternacht UTC), waere es der falsche Tag -- und der Kalender
+        # meldete faelschlich "kein Handelstag".
+        boersentag = jetzt.astimezone(ZoneInfo(self._parameters.timezone)).date()
+        gemeldet = self._report_overdue(jetzt)
+
+        if self._is_done_without_calendar(boersentag):
+            # Vor dem Kalender, damit ein erledigter Lauf die TWS gar nicht
+            # mehr anfaesst -- nach dem gelungenen Lauf folgen abends noch
+            # etliche Starts, und jeder von ihnen belegte sonst kurz die
+            # Verbindung, die IBKR je Client-ID nur einmal vergibt.
+            return DispatchOutcome(decision=DispatchDecision.ALREADY_DONE, alerted=gemeldet)
+
         kalender_lesbar = True
         try:
-            session = self._calendar.session_on(jetzt.date())
+            session = self._calendar.session_on(boersentag)
         except TradingCalendarError as error:
             # Der Kalender kommt von der TWS, und die faellt aus. Ohne ihn
             # wuesste der Dispatcher nicht einmal, dass heute ein Lauf faellig
             # waere -- ein dauerhaft ausgefallener Abend saehe aus wie ein
             # Feiertag, und die Meldung nach Fristablauf bliebe aus.
             _logger.warning("Boersenkalender nicht abrufbar (%s) -- Wochentag angenommen.", error)
-            session = assumed_session(jetzt.date(), self._parameters)
+            session = assumed_session(boersentag, self._parameters)
             kalender_lesbar = False
 
         if session is None:
             # Am Wochenende auch ohne Kalender eindeutig.
-            _logger.info("%s ist kein Handelstag.", jetzt.date().isoformat())
+            _logger.info("%s ist kein Handelstag.", boersentag.isoformat())
             return DispatchOutcome(decision=DispatchDecision.NO_TRADING_DAY)
 
         geplant = scheduled_run_for(session, self._parameters)
@@ -124,11 +140,82 @@ class DispatchDailyRunUseCase:
 
         entscheidung = geplant.decide(jetzt)
         if entscheidung is DispatchDecision.TOO_EARLY:
-            return DispatchOutcome(decision=entscheidung, scheduled=geplant)
+            return DispatchOutcome(
+                decision=entscheidung, scheduled=geplant, alerted=gemeldet
+            )
         if entscheidung is DispatchDecision.TOO_LATE:
-            return self._give_up(geplant, jetzt)
+            # Zweiter Weg zur Meldung: Der heutige Lauf ist ueberfaellig, ohne
+            # dass je ein Versuch stattfand -- dann gibt es keine Zeile, die
+            # _report_overdue finden koennte. Das passiert, wenn die
+            # Aufgabenplanung erst nach Fristablauf zum ersten Mal startet.
+            return DispatchOutcome(
+                decision=entscheidung,
+                scheduled=geplant,
+                alerted=gemeldet or self._alert_once(geplant, jetzt),
+            )
 
-        return self._run(geplant, jetzt)
+        ergebnis = self._run(geplant, jetzt)
+        return replace(ergebnis, alerted=True) if gemeldet else ergebnis
+
+    def _is_done_without_calendar(self, boersentag: date) -> bool:
+        """Ist der Lauf dieses Handelstages schon erledigt?
+
+        Ohne Kalender beantwortbar: Der Schluss der Zielkerze ergibt sich aus
+        der ueblichen Sitzung, und an einem Tag, an dem tatsaechlich gehandelt
+        wurde, stimmt er mit dem tatsaechlichen ueberein. Ein verkuerzter Tag
+        aendert den Beginn nicht, nur das Ende.
+        """
+        angenommen = assumed_session(boersentag, self._parameters)
+        if angenommen is None:
+            return False
+        geplant = scheduled_run_for(angenommen, self._parameters)
+        if geplant is None:  # pragma: no cover -- die uebliche Sitzung gibt sie her
+            return False
+        return self._runs.is_done(geplant.session_date, geplant.candle_close)
+
+    def _alert_once(self, geplant: ScheduledRun, jetzt: datetime) -> bool:
+        """Meldet einen ueberfaelligen Lauf, aber nur beim ersten Mal.
+
+        Ohne den Vermerk meldete sich der Dispatcher alle 15 Minuten erneut.
+        """
+        if self._runs.alert_sent(geplant.session_date, geplant.candle_close):
+            return False
+        self._notify(geplant.session_date, geplant.candle_close, jetzt)
+        return True
+
+    def _notify(self, session_date: date, candle_close: datetime, jetzt: datetime) -> None:
+        self._notifier.send(
+            f"Analyse-Lauf {session_date.isoformat()} ausgefallen",
+            f"Die Kerze {candle_close.isoformat()} wurde bis {jetzt.isoformat()} nicht "
+            "gerechnet; die Nachholfrist ist abgelaufen. Haeufigste Ursache: Die TWS "
+            "laeuft nicht oder ist nicht angemeldet.",
+        )
+        self._runs.mark_alert_sent(session_date, candle_close, jetzt)
+        _logger.error(
+            "Nachholfrist fuer %s abgelaufen -- Meldung abgesetzt.", session_date.isoformat()
+        )
+
+    def _report_overdue(self, jetzt: datetime) -> bool:
+        """Meldet Laeufe, deren Nachholfrist abgelaufen ist -- aus **allen**
+        Tagen, nicht nur dem heutigen.
+
+        Der Alarm haengt bewusst nicht am Entscheid ueber den heutigen Lauf.
+        Waere er dort aufgehoben, muesste ein Start genau nach Fristablauf
+        stattfinden; faellt das Zeitfenster der Aufgabenplanung frueher, gaebe
+        es die Meldung nie. Und ein Abend, an dem die TWS durchgehend fehlte,
+        waere am naechsten Morgen endgueltig vergessen.
+        """
+        gemeldet = False
+        for session_date, candle_close in self._runs.unresolved():
+            frist = candle_close + timedelta(
+                seconds=self._parameters.safety_buffer_seconds
+                + self._parameters.max_catch_up_seconds
+            )
+            if jetzt <= frist:
+                continue
+            self._notify(session_date, candle_close, jetzt)
+            gemeldet = True
+        return gemeldet
 
     def _run(self, geplant: ScheduledRun, jetzt: datetime) -> DispatchOutcome:
         versuch = self._runs.begin(geplant.session_date, geplant.candle_close, jetzt)
@@ -141,7 +228,11 @@ class DispatchDailyRunUseCase:
         try:
             self._backfill()
             self._require_target_candle(geplant)
-            self._analyse()
+            # Die Kerze traegt den Zeitstempel ihres Beginns, der Lauf kennt
+            # ihren Schluss -- dazwischen liegt genau eine Kerzenlaenge.
+            self._analyse(
+                geplant.candle_close - timedelta(minutes=self._parameters.timeframe_minutes)
+            )
         except Exception as error:  # Systemgrenze: TWS, Datenbank, Anbieter
             meldung = f"{type(error).__name__}: {error}"
             _logger.warning("Lauf gescheitert (Versuch %d): %s", versuch, meldung)
@@ -181,27 +272,6 @@ class DispatchDailyRunUseCase:
                 f"mindestens {noetig.isoformat()}. Die Daten der Zielkerze sind noch "
                 "nicht vollstaendig angekommen."
             )
-
-    def _give_up(self, geplant: ScheduledRun, jetzt: datetime) -> DispatchOutcome:
-        """Nachholfrist abgelaufen -- einmal melden, dann Ruhe geben."""
-        if self._runs.alert_sent(geplant.session_date, geplant.candle_close):
-            return DispatchOutcome(decision=DispatchDecision.TOO_LATE, scheduled=geplant)
-
-        self._notifier.send(
-            f"Analyse-Lauf {geplant.session_date.isoformat()} ausgefallen",
-            f"Die Kerze {geplant.candle_close.isoformat()} wurde bis {jetzt.isoformat()} "
-            "nicht gerechnet. Die Nachholfrist ist abgelaufen; es wird nicht weiter "
-            "versucht. Haeufigste Ursache: Die TWS laeuft nicht oder ist nicht "
-            "angemeldet.",
-        )
-        self._runs.mark_alert_sent(geplant.session_date, geplant.candle_close, jetzt)
-        _logger.error(
-            "Nachholfrist fuer %s abgelaufen -- Meldung abgesetzt.",
-            geplant.session_date.isoformat(),
-        )
-        return DispatchOutcome(
-            decision=DispatchDecision.TOO_LATE, scheduled=geplant, alerted=True
-        )
 
 
 class DataNotArrivedError(RuntimeError):

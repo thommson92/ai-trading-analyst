@@ -25,6 +25,10 @@ class DispatchDecision(StrEnum):
     """Wochenende, Feiertag -- oder ein Tag, der zu kurz fuer die Zielkerze
     ist. Laut Boersenkalender, nicht aus ausbleibenden Daten geschlossen."""
     ALREADY_DONE = "already_done"
+    IN_PROGRESS = "in_progress"
+    """Ein vorheriger Start arbeitet noch. Getrennt von ``ALREADY_DONE``,
+    weil "laeuft gerade" und "war schon erfolgreich" bei der Fehlersuche
+    genau das Gegenteil bedeuten."""
     TOO_LATE = "too_late"
     """Die Nachholfrist ist abgelaufen. Ein Lauf ergaebe eine Analyse, die
     laengst nicht mehr die des Handelstages waere."""

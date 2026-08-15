@@ -88,7 +88,20 @@ Prinzip wie „keine erfundenen Werte", eine Ebene höher.
 ### 5. Alarm nach Frist, Kanal später
 
 Überschreitet ein unerledigter Lauf die Nachholfrist, geht eine Meldung mit
-Ursache und Zeitpunkt an die Benachrichtigungsschnittstelle. Der **Auslöser**
+Ursache und Zeitpunkt an die Benachrichtigungsschnittstelle.
+
+Der Alarm hängt dabei **nicht** am Entscheid über den heutigen Lauf. Jeder
+Start sieht zuerst alle offenen Läufe durch — auch die früherer Tage — und
+meldet, was überfällig ist. Wäre er am Tagesentscheid aufgehängt, müsste ein
+Start genau nach Fristablauf stattfinden; fällt das Zeitfenster der
+Aufgabenplanung früher, gäbe es die Meldung nie. Genau dieser Fehler steckte
+im ersten Entwurf: Frist bei 16:50 ET, letzter Start um 15:30 ET.
+
+Daraus folgt eine Bedingung, die zusammen erfüllt sein muss und die ein Test
+gegen die ausgelieferte Konfiguration festhält: **Die Nachholfrist muss
+innerhalb des Startfensters liegen.** `max_catch_up_seconds` ist deshalb auf
+zwei Stunden gesetzt — Frist um 14:50 ET, in jeder Zeitumstellungslage
+mitten im Fenster. Der **Auslöser**
 wird jetzt gebaut; der Kanal ist als F10 offen (`notifications.channel:
 dry_run`) und bekommt ein eigenes ADR, weil ein Push-Dienst eine externe
 Abhängigkeit mit Zugangsdaten ist. Bis dahin landet die Meldung im Protokoll.
@@ -98,7 +111,7 @@ Abhängigkeit mit Zugangsdaten ist. Bis dahin landet die Meldung im Protokoll.
 | Wert | Bedeutung |
 |---|---|
 | 0 | Lauf durchgeführt, oder nichts zu tun (zu früh, kein Handelstag, bereits erledigt) |
-| 1 | Lauf versucht und gescheitert — Daten unvollständig, TWS nicht erreichbar |
+| 1 | Lauf versucht und gescheitert — Daten unvollständig, TWS nicht erreichbar — oder Nachholfrist abgelaufen |
 | 2 | Konfigurations- oder Umgebungsfehler; erneutes Starten hilft nicht |
 | 130 | Abgebrochen |
 
@@ -134,9 +147,16 @@ Widersprüche nach einem Absturz zwischen beiden Schreibvorgängen.
 - Ein zusätzliches Schema-Objekt (`dispatcher_runs`) samt Migration.
 - Das Startfenster der Aufgabenplanung ist die einzige Stelle mit deutscher
   Uhrzeit und gehört in die Betriebsdokumentation, nicht in den Code.
-- Die Anzahl der Starts steigt auf rund ein Dutzend je Abend. Alle bis auf einen
-  enden nach wenigen Millisekonden mit „nichts zu tun", ohne die TWS oder die
-  Watchlist anzufassen.
+- Die Anzahl der Starts steigt auf rund ein Dutzend je Abend. Nach dem
+  gelungenen Lauf enden sie nach wenigen Millisekunden, ohne die TWS
+  anzufassen — der erledigte Zustand ist ohne Kalender feststellbar. **Vor**
+  dem Lauf fragt jeder Start den Kalender, also die TWS: Ob heute ein
+  Handelstag ist, lässt sich nicht anders beantworten.
+- Ein Analyse-Lauf entsteht nur, wenn **jede** Aktie die Zielkerze liefert;
+  wessen Bestand älter endet, wird als Verarbeitungsfehler geführt statt auf
+  altem Stand gescreent. Ohne das ergäbe ein abgerissener Abruf eine Analyse,
+  in der ein Teil der Titel von gestern stammt, ohne dass etwas darauf
+  hinweist.
 
 ## Nicht Gegenstand dieser Entscheidung
 

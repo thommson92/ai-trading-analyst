@@ -141,3 +141,51 @@ class TestMeldung:
 
         assert repo.alert_sent(HANDELSTAG, KERZE_ZU)
         assert not repo.is_done(HANDELSTAG, KERZE_ZU)
+
+
+class TestOffeneLaeufe:
+    """Woran der Dispatcher erkennt, dass etwas liegengeblieben ist.
+
+    Er sieht sie bei jedem Start durch, nicht nur die des heutigen Tages --
+    sonst waere ein Abend mit ausgefallener TWS am naechsten Morgen
+    endgueltig vergessen.
+    """
+
+    def test_ohne_eintraege_ist_nichts_offen(self, repo: Repo) -> None:
+        assert list(repo.unresolved()) == []
+
+    def test_ein_begonnener_lauf_ist_offen(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+
+        assert list(repo.unresolved()) == [(HANDELSTAG, KERZE_ZU)]
+
+    def test_ein_gescheiterter_lauf_bleibt_offen(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "Keine Verbindung zur TWS")
+
+        assert list(repo.unresolved()) == [(HANDELSTAG, KERZE_ZU)]
+
+    def test_ein_gelungener_lauf_nicht(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_succeeded(HANDELSTAG, KERZE_ZU, JETZT)
+
+        assert list(repo.unresolved()) == []
+
+    def test_ein_gemeldeter_lauf_ebenfalls_nicht(self, repo: Repo) -> None:
+        """Sonst meldete er sich bei jedem weiteren Start erneut."""
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "TWS weg")
+        repo.mark_alert_sent(HANDELSTAG, KERZE_ZU, JETZT)
+
+        assert list(repo.unresolved()) == []
+
+    def test_auch_laeufe_frueherer_tage_werden_gefunden(self, repo: Repo) -> None:
+        vortag = date(2026, 8, 13)
+        vortagskerze = KERZE_ZU - timedelta(days=1)
+        repo.begin(vortag, vortagskerze, JETZT - timedelta(days=1))
+        repo.mark_failed(vortag, vortagskerze, JETZT - timedelta(days=1), "TWS weg")
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+
+        offen = list(repo.unresolved())
+
+        assert offen == [(vortag, vortagskerze), (HANDELSTAG, KERZE_ZU)]

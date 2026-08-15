@@ -313,8 +313,11 @@ wirklich schiefging:
 | 2 | Konfigurations- oder Umgebungsfehler; erneutes Starten hilft nicht |
 | 130 | Abgebrochen |
 
-Bleibt der Lauf länger als `scheduler.max_catch_up_seconds` (Standard: vier
-Stunden) unerledigt, geht eine Meldung raus. Der Kanal ist noch nicht
+Bleibt der Lauf länger als `scheduler.max_catch_up_seconds` (Standard: zwei
+Stunden, also bis 14:50 New Yorker Zeit) unerledigt, geht eine Meldung raus.
+Die Frist liegt bewusst **innerhalb** des Startfensters — sonst käme die
+Meldung erst am nächsten Tag. Wer eines von beiden verschiebt, muss das
+andere mitziehen; ein Test hält die Bedingung fest. Der Kanal ist noch nicht
 entschieden (F10); bis dahin erscheint sie im Protokoll, ausdrücklich als
 *nicht versendet* gekennzeichnet.
 

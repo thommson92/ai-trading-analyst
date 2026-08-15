@@ -24,9 +24,18 @@ from ai_trading_analyst.domain.analysis import (
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
+    CandleSeries,
     ScreeningStatus,
     evaluate_candidate,
 )
+
+
+class StaleDataError(RuntimeError):
+    """Fuer diese Aktie fehlen die Daten des laufenden Handelstages.
+
+    Kein Defekt, sondern ein Teilausfall beim Abruf. Die Aktie wird als
+    Verarbeitungsfehler gefuehrt statt auf altem Stand gescreent.
+    """
 
 
 class RunAnalysisUseCase:
@@ -45,10 +54,38 @@ class RunAnalysisUseCase:
         market_data_provider: MarketDataProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
+        expected_last_candle: datetime | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
+        self._expected_last_candle = expected_last_candle
+
+    def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
+        """Ist die juengste Kerze die, um die es geht?
+
+        Ohne diese Pruefung entscheidet allein ``len(series) - 1``, und die
+        Kerzenreihe kennt keinen Bezug zur Gegenwart. Eine Aktie, deren
+        Bestand vor drei Tagen endet, ergaebe damit ein sauber aussehendes
+        CANDIDATE oder NOT_CANDIDATE, an dem nichts auf das Alter hinweist --
+        genau die Analyse, die aussieht wie die heutige und es nicht ist.
+
+        Der Fall entsteht im automatischen Lauf leicht: Reisst die Verbindung
+        zur TWS mitten im Abruf ab, sind einige Aktien frisch und die
+        uebrigen von gestern.
+
+        Ohne ``expected_last_candle`` (manueller Lauf, Backtesting) wird nicht
+        geprueft -- dort entscheidet der Mensch, welchen Stand er sieht.
+        """
+        if self._expected_last_candle is None:
+            return
+        vorhanden = series.candle(decision_index).timestamp
+        if vorhanden != self._expected_last_candle:
+            raise StaleDataError(
+                f"Die juengste Kerze ist {vorhanden.isoformat()}, erwartet wurde "
+                f"{self._expected_last_candle.isoformat()}. Fuer diese Aktie fehlen "
+                "die Daten des laufenden Handelstages."
+            )
 
     def execute(self) -> AnalysisRunSummary:
         run = AnalysisRun(id=uuid4(), status=RunStatus.RUNNING, started_at=datetime.now(UTC))
@@ -80,6 +117,7 @@ class RunAnalysisUseCase:
             try:
                 series = self._market_data_provider.get_candle_series(stock)
                 decision_index = len(series) - 1
+                self._require_expected_candle(series, decision_index)
                 result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
                 outcome = StockScreeningOutcome(
                     analysis_run_id=run.id,

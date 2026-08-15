@@ -312,12 +312,18 @@ class SchedulerConfig(_Section):
     vom Dispatcher nicht verwendet -- bei ihm uebernimmt der 15-Minuten-Takt
     das Wiederholen.
     """
-    max_catch_up_seconds: PositiveInt = 4 * 3600
+    max_catch_up_seconds: PositiveInt = 2 * 3600
     """Wie lange ein verpasster Lauf noch nachgeholt werden darf.
 
-    Danach gilt er als ausgefallen und es geht eine Meldung raus. Vier Stunden
-    reichen vom fruehesten Start um 12:50 bis weit nach Boersenschluss --
-    laenger waere eine Analyse, die den Handelstag nicht mehr abbildet.
+    Danach gilt er als ausgefallen. Zwei Stunden ab dem fruehesten Start um
+    12:50 ergeben eine Frist um 14:50 New Yorker Zeit; eine Analyse noch
+    spaeter am Tag bildete den Handelstag kaum noch ab.
+
+    Der Wert muss **innerhalb** des Zeitfensters liegen, in dem die
+    Aufgabenplanung startet (README, Abschnitt "Der automatische Tageslauf").
+    Mit einer Frist jenseits des letzten Starts bliebe ein ausgefallener Lauf
+    am selben Abend unbemerkt -- er wird zwar am naechsten Start noch
+    gemeldet, aber erst Stunden spaeter.
     """
 
 
