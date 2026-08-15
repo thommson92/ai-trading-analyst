@@ -18,17 +18,24 @@ from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.config.loader import load_config, load_secrets
-from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig
+from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
+    EarningsProvider,
     HistoricalBarSource,
     MarketDataProvider,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
     SessionParameters,
 )
+from ai_trading_analyst.infrastructure.finnhub import (
+    FinnhubConnectionSettings,
+    FinnhubEarningsProvider,
+)
+from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
@@ -144,6 +151,39 @@ def build_market_data_provider(
     )
 
 
+def build_finnhub_earnings_provider(
+    config: AppConfig, secrets: Secrets
+) -> FinnhubEarningsProvider:
+    finnhub = config.earnings_filter.finnhub
+    return FinnhubEarningsProvider(
+        FinnhubConnectionSettings(
+            base_url=finnhub.base_url,
+            api_key=secrets.require("finnhub_api_key"),
+            request_timeout_seconds=float(finnhub.request_timeout_seconds),
+            lookahead_calendar_days=finnhub.lookahead_calendar_days,
+        )
+    )
+
+
+def build_earnings_provider(config: AppConfig, secrets: Secrets) -> EarningsProvider:
+    """Waehlt den Earnings-Anbieter anhand der Konfiguration.
+
+    ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
+    Start ohne Finnhub-Zugang; ``finnhub`` ist die produktive Quelle
+    (ADR 0017, ADR 0020).
+    """
+    if config.earnings_filter.provider == "fixture":
+        return FixtureEarningsProvider()
+    return build_finnhub_earnings_provider(config, secrets)
+
+
+def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
+    return EarningsFilterParameters(
+        configured_exclusion_candles=config.earnings_filter.configured_exclusion_candles,
+        candles_per_day=config.market.regular_session_minutes // config.market.timeframe_minutes,
+    )
+
+
 def build_app() -> FastAPI:
     loaded = load_config()
     secrets = load_secrets()
@@ -163,7 +203,15 @@ def build_app() -> FastAPI:
     market_data_provider = build_market_data_provider(
         loaded.config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
     )
-    use_case = RunAnalysisUseCase(market_data_provider, uow_factory, candidate_rule_params)
+    earnings_provider = build_earnings_provider(loaded.config, secrets)
+    earnings_filter_params = build_earnings_filter_params(loaded.config)
+    use_case = RunAnalysisUseCase(
+        market_data_provider,
+        earnings_provider,
+        uow_factory,
+        candidate_rule_params,
+        earnings_filter_params,
+    )
 
     def check_database_ready() -> bool:
         try:

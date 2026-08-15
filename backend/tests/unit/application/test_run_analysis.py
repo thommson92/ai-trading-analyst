@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus
+from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
+    FakeEarningsProvider,
     FakeMarketDataProvider,
     FakeProcessingErrorRepository,
     FakeScreeningResultRepository,
@@ -28,11 +30,13 @@ from tests.unit.application.conftest import (
 _PARAMS = CandidateRuleParameters(
     required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
+_EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11
 
 
 def _build_use_case(
     provider: FakeMarketDataProvider,
+    earnings_provider: FakeEarningsProvider | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -49,7 +53,13 @@ def _build_use_case(
     def uow_factory() -> FakeUnitOfWork:
         return FakeUnitOfWork(stocks_repo, bars_repo, runs_repo, results_repo, errors_repo)
 
-    use_case = RunAnalysisUseCase(provider, uow_factory, _PARAMS)
+    use_case = RunAnalysisUseCase(
+        provider,
+        earnings_provider or FakeEarningsProvider(),
+        uow_factory,
+        _PARAMS,
+        _EARNINGS_PARAMS,
+    )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
 
@@ -164,6 +174,59 @@ class TestVollstaendigesScheiternVorScreeningbeginn:
 
         assert summary.run.status == RunStatus.COMPLETED
         assert summary.run.number_of_stocks == 0
+
+
+class TestEarningsFilter:
+    def test_laeuft_nur_fuer_kandidaten(self) -> None:
+        stock_a, stock_b = make_stock("CAND"), make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock_a, stock_b),
+            series_by_symbol={
+                "CAND": make_series(_SERIES_LENGTH, candidate=True),
+                "NOCAND": make_series(_SERIES_LENGTH, candidate=False),
+            },
+        )
+        earnings_provider = FakeEarningsProvider()
+        use_case, *_ = _build_use_case(provider, earnings_provider)
+
+        summary = use_case.execute()
+
+        assert earnings_provider.calls == ["CAND"]
+        by_symbol = {o.stock.symbol: o for o in summary.outcomes}
+        assert by_symbol["CAND"].earnings is not None
+        assert by_symbol["NOCAND"].earnings is None
+
+    def test_provider_ohne_abdeckung_ergibt_unknown(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        use_case, *_ = _build_use_case(provider, FakeEarningsProvider())
+
+        summary = use_case.execute()
+
+        earnings = summary.outcomes[0].earnings
+        assert earnings is not None
+        assert earnings.status is EarningsFilterStatus.UNKNOWN
+        assert earnings.reason == "no_coverage"
+
+    def test_providerausfall_ergibt_unknown_und_bleibt_kein_processing_error(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(error_symbols=frozenset({"CAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(provider, earnings_provider)
+
+        summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert not summary.errors
+        assert not errors_repo.added
+        earnings = summary.outcomes[0].earnings
+        assert earnings is not None
+        assert earnings.status is EarningsFilterStatus.UNKNOWN
+        assert earnings.reason == "provider_error"
 
 
 class TestVollstaendigesScheiternAllerAktien:

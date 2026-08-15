@@ -8,18 +8,27 @@ laeuft ausschliesslich ueber ``ai_trading_analyst.domain.screening.evaluate_cand
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    EarningsProvider,
+    EarningsProviderError,
     MarketDataProvider,
     MarketDataProviderError,
     RunStatus,
+    Stock,
     StockProcessingError,
     StockScreeningOutcome,
     UnitOfWork,
+)
+from ai_trading_analyst.domain.earnings import (
+    EarningsFilterParameters,
+    EarningsFilterResult,
+    EarningsFilterStatus,
+    evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -38,17 +47,28 @@ class RunAnalysisUseCase:
     ``StockProcessingError`` erfasst. Scheitert bereits die Aktienliste
     selbst, wird der Lauf als Ganzes ``FAILED``, ohne dass das Screening
     ueberhaupt beginnt.
+
+    Der Earnings-Filter (Doc 10, Paragraph 6.5) laeuft ausschliesslich fuer
+    Aktien, die der Screener als ``CANDIDATE`` einstuft. Ein Ausfall des
+    Earnings-Anbieters ist kein Verarbeitungsfehler der Aktie -- er ergibt
+    ``EarningsFilterStatus.UNKNOWN`` und die Aktie bleibt ein normales
+    Ergebnis, statt in ``StockProcessingError`` zu landen (ADR 0017: die
+    technische Analyse laeuft unabhaengig vom Earnings-Filter weiter).
     """
 
     def __init__(
         self,
         market_data_provider: MarketDataProvider,
+        earnings_provider: EarningsProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
+        earnings_filter_params: EarningsFilterParameters,
     ) -> None:
         self._market_data_provider = market_data_provider
+        self._earnings_provider = earnings_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
+        self._earnings_filter_params = earnings_filter_params
 
     def execute(self) -> AnalysisRunSummary:
         run = AnalysisRun(id=uuid4(), status=RunStatus.RUNNING, started_at=datetime.now(UTC))
@@ -81,13 +101,22 @@ class RunAnalysisUseCase:
                 series = self._market_data_provider.get_candle_series(stock)
                 decision_index = len(series) - 1
                 result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
+                evaluated_at = datetime.now(UTC)
+
+                earnings: EarningsFilterResult | None = None
+                if result.status == ScreeningStatus.CANDIDATE:
+                    earnings = self._evaluate_earnings(
+                        stock, series.candles[decision_index].timestamp.date(), evaluated_at
+                    )
+
                 outcome = StockScreeningOutcome(
                     analysis_run_id=run.id,
                     stock=stock,
                     result=result,
                     decision_candle_index=decision_index,
-                    evaluated_at=datetime.now(UTC),
+                    evaluated_at=evaluated_at,
                     signal_rule_version=SIGNAL_RULE_VERSION,
+                    earnings=earnings,
                 )
                 with self._uow_factory() as uow:
                     uow.stocks.add(stock)
@@ -122,3 +151,25 @@ class RunAnalysisUseCase:
             uow.commit()
 
         return AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+
+    def _evaluate_earnings(
+        self, stock: Stock, as_of: date, evaluated_at: datetime
+    ) -> EarningsFilterResult:
+        """Wertet den Earnings-Filter fuer eine bereits qualifizierte Aktie aus.
+
+        Ein Ausfall des Anbieters wird hier abgefangen, nicht im aufrufenden
+        Fehlerisolations-Block: Er soll ``EarningsFilterStatus.UNKNOWN``
+        ergeben, nicht die Aktie als Ganzes in ``StockProcessingError``
+        verschieben (ADR 0017).
+        """
+        try:
+            next_earnings = self._earnings_provider.next_earnings_date(stock)
+        except EarningsProviderError:
+            return EarningsFilterResult(
+                status=EarningsFilterStatus.UNKNOWN,
+                evaluated_at=evaluated_at,
+                reason="provider_error",
+            )
+        return evaluate_earnings_filter(
+            next_earnings, as_of, self._earnings_filter_params, evaluated_at
+        )
