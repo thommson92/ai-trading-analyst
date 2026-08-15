@@ -53,6 +53,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0016](0016-ibkr-keine-quelle-fuer-research-daten.md) | IBKR ist keine Quelle für Research-Daten (RESC: NO_GO) | Angenommen |
 | [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
+| [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen |
 
 ## Offene Entscheidungen
 
