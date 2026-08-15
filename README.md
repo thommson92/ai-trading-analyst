@@ -158,8 +158,7 @@ TradingView-Exportformat (`NASDAQ:NVDA,NYSE:BRK.B,…`, `###Abschnitt` als
 Überschrift). Mehrfachnennungen über mehrere Listen werden zusammengefasst,
 `BRK.B` wird in IBKRs Schreibweise `BRK B` übersetzt.
 
-Für einen manuellen Lauf gegen die TWS gibt es eine Kommandozeile — ohne
-Datenbank, ohne API, nur lesend:
+Für einen manuellen Lauf gegen die TWS gibt es eine Kommandozeile:
 
 ```bash
 cd backend
@@ -170,9 +169,60 @@ cd backend
 .venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr \
     --symbols AAPL,MSFT --no-pacing
 
-# Die vollständige Watchlist:
+# Die vollständige Watchlist, direkt von der TWS:
 .venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr
 ```
+
+### Der tägliche Ablauf: erst holen, dann rechnen
+
+`screen` fragt in der obigen Form bei **jedem** Lauf die TWS — rund 20 s je
+Aktie, also eine gute Stunde für die volle Watchlist. Mit dem Backfill
+zerfällt das in zwei Schritte, die einander nicht brauchen:
+
+```bash
+# Holt nur, was seit dem letzten Lauf fehlt. Beim ersten Mal ein Jahr,
+# danach die Lücke -- ein Tag, ein Wochenende, drei Wochen nach einem Ausfall.
+.venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr
+
+# Rechnet auf dem Bestand: ohne TWS, ohne Pacing.
+.venv/bin/python -m ai_trading_analyst.cli screen --provider ibkr --source stored
+```
+
+`backfill` braucht als einziges Kommando die Datenbank (`ATA_DATABASE_URL`)
+— es ist das einzige, das etwas dauerhaft ablegt. Die Adresse steht entweder
+in der Umgebung oder in einer `.env` im Projektwurzelverzeichnis (Vorlage:
+`.env.example`); die Umgebungsvariable gewinnt. Gespeichert werden die
+**nativen 15-Minuten-Bars**, nicht die daraus gebildeten Kerzen: Ändert sich
+eine Aggregationsregel, ist das ein erneuter Lauf über lokale Daten statt
+eines Abrufs über ein Jahr und alle Symbole.
+
+Ein abgebrochener Backfill wird schlicht erneut gestartet — Schreibvorgänge
+sind über `(symbol, start)` idempotent, aufzuräumen gibt es nichts.
+
+**Was der Bestand nicht selbst merkt:** Er kennt nur seinen jüngsten Bar. Ein
+Tag, der mitten in der Historie fehlt, wird deshalb nie von allein nachgeholt
+— und die Kerzenbildung erkennt einen *vollständig* fehlenden Handelstag
+nicht, weil dafür ein Börsenkalender nötig wäre. Drei Vorkehrungen dagegen:
+Der Backfill meldet, wenn eine Antwort deutlich weniger Historie enthält als
+angefragt (so kürzt IBKR stillschweigend); er meldet außerdem, wenn eine
+Antwort *später* ansetzt als der letzte gespeicherte Bar — dann klafft
+zweifelsfrei etwas dazwischen. Und `--from` holt einen Zeitraum nach:
+
+```bash
+.venv/bin/python -m ai_trading_analyst.cli backfill --provider ibkr \
+    --symbols AAPL --from 2026-01-01
+```
+
+**Was `--from` nicht kann:** bereits gespeicherte Bars berichtigen. Die Ablage
+lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet — ein
+vorhandener Bar bleibt deshalb stehen, wie er ist. Füllen lässt sich damit
+nur, was fehlt. Deshalb legt der Backfill den noch laufenden, unfertigen Bar
+gar nicht erst ab: Er wäre sonst dauerhaft ein Zwischenstand.
+
+Nebeneffekt, der wichtiger ist als die Geschwindigkeit: Der Lauf wird
+**wiederholbar**. IBKRs Ein-Jahres-Fenster wandert mit der Uhr, und schon
+zwei Läufe desselben Tages ergaben unterschiedlich viele Kerzen. Auf dem
+Bestand liefert dieselbe Analyse dasselbe Ergebnis.
 
 `market_data.provider` bleibt in `config/default.yaml` bewusst auf `fixture`,
 damit API und Tests ohne TWS auskommen; `--provider ibkr` schaltet für den

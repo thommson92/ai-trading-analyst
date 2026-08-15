@@ -3,6 +3,7 @@
 from .models import (
     AnalysisRun,
     AnalysisRunSummary,
+    ContractSpec,
     RunStatus,
     Stock,
     StockProcessingError,
@@ -10,6 +11,8 @@ from .models import (
 )
 from .ports import (
     AnalysisRunRepository,
+    HistoricalBarSource,
+    IntradayBarRepository,
     MarketDataProvider,
     MarketDataProviderError,
     ProcessingErrorRepository,
@@ -22,6 +25,9 @@ __all__ = [
     "AnalysisRun",
     "AnalysisRunRepository",
     "AnalysisRunSummary",
+    "ContractSpec",
+    "HistoricalBarSource",
+    "IntradayBarRepository",
     "MarketDataProvider",
     "MarketDataProviderError",
     "ProcessingErrorRepository",

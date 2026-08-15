@@ -30,6 +30,35 @@ def _enum_column(enum_type: type) -> SqlEnum:
     return SqlEnum(enum_type, values_callable=lambda e: [member.value for member in e])
 
 
+class IntradayBarOrm(Base):
+    """Native Bars des Anbieters, so wie er sie geliefert hat.
+
+    Gespeichert werden **Rohbars, keine fertigen 195-Minuten-Kerzen.** Der
+    Grund ist Erfahrung: Die Aggregationsregeln haben sich binnen einer Woche
+    dreimal geaendert -- verkuerzte Handelstage, spaeter Handelsbeginn,
+    stille Kuerzung der Antwort. Laegen nur Kerzen vor, haette jede dieser
+    Korrekturen einen erneuten Abruf ueber ein Jahr und 192 Symbole verlangt:
+    eine Stunde Laufzeit und die Anfragegrenzen von IBKR. Mit Rohbars ist eine
+    Regelaenderung ein erneuter Lauf ueber lokale Daten.
+
+    Der Schluessel ist ``(symbol, start)``, nicht die Aktien-ID: Bars werden
+    vom Backfill geholt, unter Umstaenden bevor ueberhaupt ein
+    ``stocks``-Eintrag existiert, und das Symbol ist die Kennung, die der
+    Anbieter liefert. Derselbe Schluessel macht den Job **wiederholbar** --
+    ein erneuter Abruf desselben Zeitraums schreibt keine Dubletten.
+    """
+
+    __tablename__ = "intraday_bars"
+
+    symbol: Mapped[str] = mapped_column(primary_key=True)
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    open: Mapped[float]
+    high: Mapped[float]
+    low: Mapped[float]
+    close: Mapped[float]
+    volume: Mapped[float]
+
+
 class StockOrm(Base):
     __tablename__ = "stocks"
 

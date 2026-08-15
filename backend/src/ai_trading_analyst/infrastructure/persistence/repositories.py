@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -17,13 +18,21 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.screening import (
+    IntradayBar,
     ScreeningResult,
     ScreeningStatus,
     SignalEvent,
     SignalType,
 )
 
-from .orm import AnalysisRunOrm, ProcessingErrorOrm, ScreeningResultOrm, SignalEventOrm, StockOrm
+from .orm import (
+    AnalysisRunOrm,
+    IntradayBarOrm,
+    ProcessingErrorOrm,
+    ScreeningResultOrm,
+    SignalEventOrm,
+    StockOrm,
+)
 
 
 class SqlAlchemyStockRepository:
@@ -195,6 +204,120 @@ class SqlAlchemyProcessingErrorRepository:
                 stock_symbol=row.stock_symbol,
                 message=row.message,
                 occurred_at=row.occurred_at,
+            )
+            for row in rows
+        )
+
+
+BARS_JE_INSERT = 1_000
+"""Zeilen je Einfuegevorgang.
+
+PostgreSQL nimmt hoechstens 65.535 Parameter je Anweisung entgegen. Bei
+sieben Spalten je Bar reisst ein einzelnes Insert deshalb ab 9.363 Zeilen ab
+-- nachgestellt und belegt. Der Standardzuschnitt (15-Minuten-Bars, ein Jahr
+Historie) liegt mit rund 6.550 Bars knapp darunter und liefe heute noch
+durch; fuenf Minuten Barbreite oder der in ADR 0014 (E3) vorgesehene
+Fuenf-Jahres-Batch scheiterten sofort.
+
+Tausend Zeilen belegen 7.000 Parameter -- reichlich Abstand, ohne die Zahl
+der Anweisungen unnoetig hochzutreiben. Alle Bloecke laufen in derselben
+Transaktion; ein Abbruch dazwischen laesst nichts halb Geschriebenes zurueck.
+"""
+
+
+class SqlAlchemyIntradayBarRepository:
+    """Bar-Speicher fuer den Backfill.
+
+    Alle Schreibvorgaenge sind ueber den Schluessel ``(symbol, start)``
+    idempotent. Das ist keine Bequemlichkeit, sondern die Eigenschaft, die den
+    Backfill wiederholbar macht: Ein abgebrochener Lauf wird schlicht erneut
+    gestartet, und ueberlappende Zeitraeume kosten nichts.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def latest_start(self, symbol: str) -> datetime | None:
+        return self._session.execute(
+            select(func.max(IntradayBarOrm.start)).where(IntradayBarOrm.symbol == symbol)
+        ).scalar_one_or_none()
+
+    def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+        if not bars:
+            return 0
+        self._reject_naive(symbol, bars)
+        neu = 0
+        for block in range(0, len(bars), BARS_JE_INSERT):
+            neu += self._insert(symbol, bars[block : block + BARS_JE_INSERT])
+        return neu
+
+    @staticmethod
+    def _reject_naive(symbol: str, bars: Sequence[IntradayBar]) -> None:
+        """Naive Zeitstempel kommen hier nicht durch.
+
+        Doc 10 untersagt sie, und ``ruff`` setzt das im eigenen Code ueber die
+        ``DTZ``-Regeln durch. Eine Systemgrenze erreicht das nicht: PostgreSQL
+        nimmt einen naiven Zeitstempel fuer eine ``timestamptz``-Spalte an und
+        legt ihn in der Zeitzone der Datenbanksitzung aus -- serverabhaengig
+        und damit nicht vorhersagbar. Zurueck kaeme ein zeitzonenbehafteter
+        Wert, an dem nichts mehr auf den Fehler hinweist.
+
+        Aus 09:30 New Yorker Zeit wuerde so 09:30 UTC. Der Bar laege
+        ausserhalb des Sitzungsfensters, die Kerzenbildung verwuerfe ihn, und
+        der Handelstag saehe aus wie einer ohne jede Lieferung -- der einzige
+        Fall, den die Lueckenpruefung nicht erkennen kann.
+        """
+        naive = [bar.start for bar in bars if bar.start.tzinfo is None]
+        if naive:
+            raise ValueError(
+                f"'{symbol}': {len(naive)} Bars ohne Zeitzone, erster {naive[0].isoformat()}. "
+                "Zeitstempel muessen zeitzonenbehaftet sein (Doc 10)."
+            )
+
+    def _insert(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+        statement = (
+            pg_insert(IntradayBarOrm)
+            .values(
+                [
+                    {
+                        "symbol": symbol,
+                        "start": bar.start,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                    }
+                    for bar in bars
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["symbol", "start"])
+            # Nicht ueber rowcount zaehlen: Bei einem Insert mit mehreren
+            # Zeilen liefert der Treiber dafuer -1. RETURNING gibt bei
+            # ON CONFLICT DO NOTHING ausschliesslich die tatsaechlich
+            # geschriebenen Zeilen zurueck.
+            .returning(IntradayBarOrm.start)
+        )
+        return len(self._session.execute(statement).all())
+
+    def list_for(self, symbol: str) -> Sequence[IntradayBar]:
+        rows = (
+            self._session.execute(
+                select(IntradayBarOrm)
+                .where(IntradayBarOrm.symbol == symbol)
+                .order_by(IntradayBarOrm.start)
+            )
+            .scalars()
+            .all()
+        )
+        return tuple(
+            IntradayBar(
+                start=row.start,
+                open=row.open,
+                high=row.high,
+                low=row.low,
+                close=row.close,
+                volume=row.volume,
             )
             for row in rows
         )

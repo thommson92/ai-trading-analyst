@@ -40,7 +40,9 @@ ausgeschieden.
   bisher liefert nur der Fixture-Provider fertige Indikatorwerte
 - Watchlisten importieren -- Quelle IBKR, nicht mehr TradingView
 - historischer Backfill als resumierbarer Batch-Job mit Chunking und Pacing
-  (akzeptierte Einschränkung E3)
+  (akzeptierte Einschränkung E3) -- **umgesetzt**: `cli backfill` holt nur die
+  Lücke seit dem letzten Lauf und ist über `(symbol, start)` idempotent;
+  `cli screen --source stored` rechnet auf dem Bestand
 - Earnings-Termine -- nicht über IBKR verfügbar (akzeptierte Einschränkung
   E1). **Abgeschlossen:** Auch RESC scheidet aus
   ([ADR 0016](adr/0016-ibkr-keine-quelle-fuer-research-daten.md)); Quelle für

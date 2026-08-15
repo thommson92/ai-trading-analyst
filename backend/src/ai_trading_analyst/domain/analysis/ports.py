@@ -9,13 +9,20 @@ Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
-from ai_trading_analyst.domain.screening import CandleSeries
+from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 
-from .models import AnalysisRun, Stock, StockProcessingError, StockScreeningOutcome
+from .models import (
+    AnalysisRun,
+    ContractSpec,
+    Stock,
+    StockProcessingError,
+    StockScreeningOutcome,
+)
 
 
 class MarketDataProviderError(Exception):
@@ -24,6 +31,36 @@ class MarketDataProviderError(Exception):
     Wird vom Application-Layer pro Aktie isoliert (Fehlerisolation) -- ein
     Fehler bei einer Aktie darf den Lauf nicht insgesamt scheitern lassen.
     """
+
+
+class HistoricalBarSource(Protocol):
+    """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst.
+
+    Bewusst getrennt von ``MarketDataProvider``: Der Provider liefert fertige
+    Kerzen samt Indikatoren, diese Quelle nur Rohbars. Der Backfill braucht
+    genau die Rohbars, und der Screener liest sie spaeter aus dem eigenen
+    Bestand -- dieselbe Schnittstelle, einmal gegen die TWS, einmal gegen die
+    Datenbank.
+    """
+
+    def fetch_intraday_bars(
+        self, contract: ContractSpec, days: int | None = None
+    ) -> Sequence[IntradayBar]:
+        """Holt Bars der letzten ``days`` Tage.
+
+        ``None`` bedeutet den konfigurierten Standardzeitraum -- den Fall des
+        allerersten Abrufs, wenn noch nichts gespeichert ist. Danach fragt der
+        Backfill nur noch die Luecke seit dem letzten bekannten Bar an.
+
+        Raises:
+            MarketDataProviderError: wenn die Bars nicht beschafft werden
+                konnten.
+        """
+        ...
+
+    def close(self) -> None:
+        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
+        ...
 
 
 class MarketDataProvider(Protocol):
@@ -38,6 +75,34 @@ class MarketDataProvider(Protocol):
             MarketDataProviderError: wenn fuer diese Aktie keine Daten
                 beschafft werden konnten.
         """
+        ...
+
+
+class IntradayBarRepository(Protocol):
+    """Speicher fuer die nativen Bars des Anbieters.
+
+    Er beantwortet die eine Frage, von der der Backfill lebt: **Bis wann
+    liegen fuer diese Aktie schon Daten vor?** Daraus ergibt sich, was noch
+    zu holen ist -- ein Tag nach einem gewoehnlichen Lauf, drei Wochen nach
+    einem laengeren Ausfall, ein ganzes Jahr beim ersten Mal. Ein fester
+    Zeitraum je Lauf wuerde entweder zu viel holen oder zu wenig.
+    """
+
+    def latest_start(self, symbol: str) -> datetime | None:
+        """Beginn des juengsten gespeicherten Bars, oder ``None``."""
+        ...
+
+    def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+        """Speichert Bars und liefert die Zahl der **neu** hinzugekommenen.
+
+        Wiederholt gelieferte Bars werden uebergangen, nicht als Fehler
+        behandelt: Die Zeitraeume zweier Laeufe ueberlappen sich zwangslaeufig,
+        und ein abgebrochener Lauf muss ohne Aufraeumen wiederholbar sein.
+        """
+        ...
+
+    def list_for(self, symbol: str) -> Sequence[IntradayBar]:
+        """Alle gespeicherten Bars einer Aktie, nach Zeit aufsteigend."""
         ...
 
 
@@ -72,6 +137,7 @@ class UnitOfWork(Protocol):
     """
 
     stocks: StockRepository
+    intraday_bars: IntradayBarRepository
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository

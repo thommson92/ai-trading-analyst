@@ -19,7 +19,11 @@ from sqlalchemy import text
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.config.loader import load_config, load_secrets
 from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig
-from ai_trading_analyst.domain.analysis import MarketDataProvider, UnitOfWork
+from ai_trading_analyst.domain.analysis import (
+    HistoricalBarSource,
+    MarketDataProvider,
+    UnitOfWork,
+)
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
@@ -48,11 +52,53 @@ def project_root(config_path: Path) -> Path:
     return config_path.resolve().parent.parent
 
 
+def build_ibkr_bar_source(config: AppConfig) -> IbAsyncBarSource:
+    """Die Verbindung zur TWS -- einmal gebaut, von Backfill und Provider genutzt."""
+    ibkr = config.market_data.ibkr
+    return IbAsyncBarSource(
+        IbkrConnectionSettings(
+            host=ibkr.host,
+            port=ibkr.port,
+            client_id=ibkr.client_id,
+            connect_timeout_seconds=float(ibkr.connect_timeout_seconds),
+        ),
+        native_bar_minutes=ibkr.native_bar_minutes,
+        duration=ibkr.history_duration,
+        minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
+    )
+
+
+def build_watchlist(config: AppConfig, root: Path) -> Sequence[ContractSpec]:
+    return load_watchlist_directory(root / config.market_data.ibkr.watchlist_directory)
+
+
+def build_session_parameters(config: AppConfig) -> SessionParameters:
+    return SessionParameters(
+        timezone=config.market.timezone,
+        session_open=config.market.session_open_time(),
+        session_minutes=config.market.regular_session_minutes,
+        timeframe_minutes=config.market.timeframe_minutes,
+        early_close=config.market.early_close_time(),
+    )
+
+
+def build_indicator_parameters(indicators: IndicatorConfig) -> IndicatorParameters:
+    return IndicatorParameters(
+        rsi_length=indicators.rsi_length,
+        rsi_method=indicators.rsi_method,
+        rsi_ma_length=indicators.rsi_ma_length,
+        rsi_ma_type=indicators.rsi_ma_type,
+        fast_ema_length=indicators.fast_ema_length,
+        slow_ema_length=indicators.slow_ema_length,
+    )
+
+
 def build_market_data_provider(
     config: AppConfig,
     indicators: IndicatorConfig,
     root: Path,
     watchlist: Sequence[ContractSpec] | None = None,
+    bar_source: HistoricalBarSource | None = None,
 ) -> MarketDataProvider:
     """Waehlt den Marktdatenanbieter anhand der Konfiguration.
 
@@ -65,41 +111,12 @@ def build_market_data_provider(
     if config.market_data.provider == "fixture":
         return FixtureMarketDataProvider()
 
-    ibkr = config.market_data.ibkr
-    bar_source = IbAsyncBarSource(
-        IbkrConnectionSettings(
-            host=ibkr.host,
-            port=ibkr.port,
-            client_id=ibkr.client_id,
-            connect_timeout_seconds=float(ibkr.connect_timeout_seconds),
-        ),
-        native_bar_minutes=ibkr.native_bar_minutes,
-        duration=ibkr.history_duration,
-        minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
-    )
     return IbkrMarketDataProvider(
-        bar_source=bar_source,
-        watchlist=(
-            watchlist
-            if watchlist is not None
-            else load_watchlist_directory(root / ibkr.watchlist_directory)
-        ),
-        session_parameters=SessionParameters(
-            timezone=config.market.timezone,
-            session_open=config.market.session_open_time(),
-            session_minutes=config.market.regular_session_minutes,
-            timeframe_minutes=config.market.timeframe_minutes,
-            early_close=config.market.early_close_time(),
-        ),
-        indicator_parameters=IndicatorParameters(
-            rsi_length=indicators.rsi_length,
-            rsi_method=indicators.rsi_method,
-            rsi_ma_length=indicators.rsi_ma_length,
-            rsi_ma_type=indicators.rsi_ma_type,
-            fast_ema_length=indicators.fast_ema_length,
-            slow_ema_length=indicators.slow_ema_length,
-        ),
-        native_bar_minutes=ibkr.native_bar_minutes,
+        bar_source=bar_source if bar_source is not None else build_ibkr_bar_source(config),
+        watchlist=watchlist if watchlist is not None else build_watchlist(config, root),
+        session_parameters=build_session_parameters(config),
+        indicator_parameters=build_indicator_parameters(indicators),
+        native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
     )
 
 

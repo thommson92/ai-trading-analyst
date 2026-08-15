@@ -28,11 +28,19 @@ import logging
 import threading
 import time
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
+from ai_trading_analyst.domain.analysis import (
+    ContractSpec,
+    MarketDataProviderError,
+)
 from ai_trading_analyst.domain.screening import IntradayBar
+from ai_trading_analyst.observability.logging_setup import get_logger
+
+_logger = get_logger(__name__)
 
 SUPPORTED_BAR_MINUTES = (1, 3, 5, 15)
 """Bar-Groessen, die IBKR anbietet **und** die 195 Minuten ohne Rest teilen."""
@@ -74,7 +82,7 @@ def _silence_account_logging() -> None:
     logging.getLogger("ib_async").setLevel(logging.WARNING)
 
 
-class IbkrBarSourceError(RuntimeError):
+class IbkrBarSourceError(MarketDataProviderError):
     """Die TWS war nicht erreichbar oder hat keine verwertbaren Bars geliefert.
 
     Der haeufigste Fall ist der erwartete Betriebszustand aus ADR 0014,
@@ -114,35 +122,45 @@ def ibkr_bar_size(native_bar_minutes: int) -> str:
     return "1 min" if native_bar_minutes == 1 else f"{native_bar_minutes} mins"
 
 
-@dataclass(frozen=True, slots=True)
-class ContractSpec:
-    """Der Kontrakt, den IBKR fuer ein Symbol aufloesen soll.
+def ibkr_duration(days: int) -> str:
+    """Uebersetzt eine Tagesangabe in die Zeitraumangabe der IBKR-API.
 
-    ``exchange`` ist der Weg zur Ausfuehrung (``SMART`` ist IBKRs
-    Smart-Routing und fuer US-Aktien der Normalfall), ``primary_exchange`` die
-    Heimatboerse. Letztere macht mehrdeutige Symbole eindeutig -- ohne sie
-    liefert IBKR bei manchen Tickern mehrere Kontrakte zurueck, und die Wahl
-    des ersten waere geraten.
+    Tagesangaben nimmt die API bis 365 an; darueber ist in Jahren zu rechnen.
+    Aufgerundet wird bewusst -- lieber ein paar Bars zu viel als eine Luecke,
+    zumal doppelte Bars beim Speichern ohnehin uebergangen werden.
     """
+    if days < 1:
+        raise ValueError(f"days muss mindestens 1 sein, ist aber {days}")
+    if days <= 365:
+        return f"{days} D"
+    return f"{-(-days // 365)} Y"
 
-    symbol: str
-    exchange: str = "SMART"
-    currency: str = "USD"
-    primary_exchange: str | None = None
+
+_ZEITRAUMEINHEITEN = {"D": 1, "W": 7, "M": 30, "Y": 365}
 
 
-class HistoricalBarSource(Protocol):
-    """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst."""
+def duration_in_days(duration: str) -> int:
+    """Uebersetzt eine Zeitraumangabe der IBKR-API in Tage.
 
-    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
-        """Raises:
-        IbkrBarSourceError: wenn die Bars nicht beschafft werden konnten.
-        """
-        ...
-
-    def close(self) -> None:
-        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
-        ...
+    Die Umkehrung von ``ibkr_duration``, gebraucht fuer den Vergleich zwischen
+    angefragtem und geliefertem Zeitraum: Der Standardzeitraum steht in der
+    Konfiguration in IBKR-Schreibweise, die Kuerzungspruefung rechnet in Tagen.
+    Naeherungsweise -- ein Monat gilt als 30 Tage -- was fuer einen Vergleich
+    von Groessenordnungen genuegt.
+    """
+    teile = duration.split()
+    if len(teile) != 2 or teile[1] not in _ZEITRAUMEINHEITEN:
+        raise ValueError(
+            f"'{duration}' ist keine IBKR-Zeitraumangabe. Erwartet wird eine Zahl und "
+            f"eine Einheit, etwa '1 Y' oder '30 D' ({', '.join(_ZEITRAUMEINHEITEN)})."
+        )
+    try:
+        anzahl = int(teile[0])
+    except ValueError as error:
+        raise ValueError(f"'{duration}' beginnt nicht mit einer ganzen Zahl.") from error
+    if anzahl < 1:
+        raise ValueError(f"'{duration}' ergibt keinen Zeitraum.")
+    return anzahl * _ZEITRAUMEINHEITEN[teile[1]]
 
 
 class IbAsyncBarSource:
@@ -174,9 +192,12 @@ class IbAsyncBarSource:
         minimum_request_interval_seconds: float = 0.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._settings = settings
         self._bar_size = ibkr_bar_size(native_bar_minutes)
+        self._bar_minutes = native_bar_minutes
+        self._now = now
         self._duration = duration
         self._minimum_request_interval = minimum_request_interval_seconds
         self._sleep = sleep
@@ -186,11 +207,13 @@ class IbAsyncBarSource:
         self._owner_thread: int | None = None
         self._last_request_at: float | None = None
 
-    def fetch_intraday_bars(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+    def fetch_intraday_bars(
+        self, contract: ContractSpec, days: int | None = None
+    ) -> Sequence[IntradayBar]:
         with self._lock:
-            return self._fetch(contract)
+            return self._fetch(contract, days)
 
-    def _fetch(self, contract: ContractSpec) -> Sequence[IntradayBar]:
+    def _fetch(self, contract: ContractSpec, days: int | None) -> Sequence[IntradayBar]:
         symbol = contract.symbol
         try:
             ib = self._connection()
@@ -216,7 +239,7 @@ class IbAsyncBarSource:
             bars = ib.reqHistoricalData(
                 contracts[0],
                 endDateTime="",
-                durationStr=self._duration,
+                durationStr=self._duration if days is None else ibkr_duration(days),
                 barSizeSetting=self._bar_size,
                 whatToShow="TRADES",
                 # Nur regulaere Handelszeiten -- Extended Hours fliessen nie in
@@ -233,17 +256,84 @@ class IbAsyncBarSource:
                 f"Historische Bars fuer '{symbol}' konnten nicht abgerufen werden: {error}"
             ) from error
 
-        return tuple(
-            IntradayBar(
-                start=bar.date,
-                open=float(bar.open),
-                high=float(bar.high),
-                low=float(bar.low),
-                close=float(bar.close),
-                volume=float(bar.volume),
-            )
-            for bar in bars
+        return self._on_grid(
+            symbol,
+            self._without_running_bar(
+                IntradayBar(
+                    start=bar.date,
+                    open=float(bar.open),
+                    high=float(bar.high),
+                    low=float(bar.low),
+                    close=float(bar.close),
+                    volume=float(bar.volume),
+                )
+                for bar in bars
+            ),
         )
+
+    def _without_running_bar(self, bars: Iterable[IntradayBar]) -> Sequence[IntradayBar]:
+        """Laesst den noch laufenden Bar weg.
+
+        Auf ``endDateTime=""`` antwortet IBKR bis zum aktuellen Augenblick --
+        der letzte Bar einer waehrend der Sitzung gestellten Anfrage ist
+        deshalb noch nicht fertig. Sein Schluss, Hoch, Tief und Volumen sind
+        Zwischenstaende.
+
+        Fuer das Screening war das folgenlos: Die Kerze, zu der er gehoert,
+        ist selbst unfertig und faellt ohnehin heraus. Der Bestand aber ist
+        dauerhaft. Ein einmal abgelegter Bar wird nie ueberschrieben -- die
+        Ablage laesst Dubletten bewusst fallen, damit ein wiederholter Lauf
+        nichts anrichtet. Der Zwischenstand bliebe also fuer immer stehen,
+        auch wenn ein spaeterer Lauf denselben Bar fertig liefert, und
+        verfaelschte still die Kerze, die spaeter aus ihm entsteht.
+
+        Dieselbe Regel wie fuer Kerzen, eine Ebene tiefer: Was noch laeuft,
+        zaehlt nicht.
+        """
+        grenze = self._now() - timedelta(minutes=self._bar_minutes)
+        return tuple(bar for bar in bars if bar.start <= grenze)
+
+    def _on_grid(self, symbol: str, bars: Sequence[IntradayBar]) -> Sequence[IntradayBar]:
+        """Laesst Bars weg, die nicht auf dem Raster ihrer eigenen Groesse liegen.
+
+        Am **Anfang** des angefragten Fensters schneidet IBKR ab: Statt beim
+        naechsten Rasterpunkt zu beginnen, kommt gelegentlich ein Bar mit dem
+        exakten Zeitstempel der Anfrage zurueck -- ``12:07:06`` statt
+        ``12:15:00``. Beobachtet beim ersten Jahresabruf ueber 192 Symbole,
+        bei vier davon.
+
+        Ein solcher Bar ist nicht verwertbar: Er laesst sich keiner
+        195-Minuten-Kerze zuordnen, und die Kerzenbildung weist deshalb die
+        **gesamte** Reihe zurueck. Beim Abruf je Lauf war das folgenlos, weil
+        die naechste Antwort anders ausfiel. Im Bestand bliebe der Bar liegen
+        und machte die Aktie dauerhaft unbrauchbar.
+
+        Verworfen wird deshalb hier, an der Systemgrenze, und nicht still: Was
+        wegfaellt, steht im Protokoll. Die strenge Pruefung der Kerzenbildung
+        bleibt bestehen -- sie ist die Wache fuer alles, was trotzdem
+        durchkommt, etwa aus einem Bestand aelterer Laeufe.
+
+        Das Raster ergibt sich aus der Bar-Groesse: Die regulaere Sitzung
+        beginnt um 09:30, und alle unterstuetzten Groessen teilen sowohl die
+        Stunde als auch die halbe Stunde ohne Rest.
+        """
+        passend = tuple(
+            bar
+            for bar in bars
+            if bar.start.second == 0
+            and bar.start.microsecond == 0
+            and bar.start.minute % self._bar_minutes == 0
+        )
+        if len(passend) < len(bars):
+            verworfen = [bar.start for bar in bars if bar not in passend]
+            _logger.warning(
+                "%s: %d Bars ausserhalb des %d-Minuten-Rasters verworfen (%s)",
+                symbol,
+                len(bars) - len(passend),
+                self._bar_minutes,
+                ", ".join(zeitpunkt.isoformat() for zeitpunkt in verworfen[:5]),
+            )
+        return passend
 
     def close(self) -> None:
         """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""

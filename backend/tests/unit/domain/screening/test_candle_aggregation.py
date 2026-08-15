@@ -258,6 +258,69 @@ class TestSpaeterHandelsbeginnIstKeineLuecke:
             2026, 6, 12, 9, 30, tzinfo=NEW_YORK
         )
 
+
+class TestRandDesAbrufzeitraums:
+    """Der erste Tag der Reihe darf ganz ohne vollstaendige Kerze bleiben.
+
+    Spiegelbild zum letzten Tag, der frueh enden darf: Dort steht die
+    laufende Sitzung, hier der Rand des angefragten Zeitraums. IBKR schneidet
+    an dieser Kante mitten in einer Kerze ab.
+
+    Live aufgetreten (GOLD, 15.08.2026): Der Jahresabruf fiel um 13:02 New
+    Yorker Zeit an, der erste Tag der Reihe begann damit erst um 13:15 -- zu
+    spaet fuer beide Kerzen des Tages. Ohne diese Ausnahme war die Aktie
+    allein deshalb dauerhaft unbrauchbar, weil ihr Abruf spaet am Handelstag
+    stattfand.
+    """
+
+    @staticmethod
+    def _reihe(erster_bar_index: int) -> list[IntradayBar]:
+        """Ein angeschnittener erster Tag, danach ein vollstaendiger."""
+        return [
+            *bars_for_session(date(2026, 3, 10), 26)[erster_bar_index:],
+            *bars_for_session(date(2026, 3, 11), 26),
+        ]
+
+    def test_ein_erster_tag_ohne_vollstaendige_kerze_ist_keine_luecke(self) -> None:
+        # Ab 13:15: beide Kerzen des Tages bleiben unvollstaendig.
+        ergebnis = aggregate_intraday_bars(self._reihe(15), 15, PARAMETERS)
+
+        assert {gap.reason for gap in ergebnis.incomplete} == {
+            IncompleteReason.SESSION_STARTED_LATE
+        }
+
+    def test_die_kerzen_des_angeschnittenen_tages_entfallen(self) -> None:
+        """Verworfen, nicht ergaenzt -- ein Rest ergibt keine Kerze."""
+        ergebnis = aggregate_intraday_bars(self._reihe(15), 15, PARAMETERS)
+
+        assert len(ergebnis.candles) == 2  # nur der vollstaendige Folgetag
+        assert all(
+            candle.timestamp.date() == date(2026, 3, 11) for candle in ergebnis.candles
+        )
+
+    def test_ein_innerer_tag_ohne_vollstaendige_kerze_bleibt_eine_luecke(self) -> None:
+        """Die Ausnahme gilt nur am Rand. Faellt mitten in der Reihe ein Tag
+        auf einen Nachmittag zusammen, ist das ein Datenausfall."""
+        bars = [
+            *bars_for_session(date(2026, 3, 10), 26),
+            *bars_for_session(date(2026, 3, 11), 26)[15:],
+            *bars_for_session(date(2026, 3, 12), 26),
+        ]
+
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+
+        assert IncompleteReason.DATA_GAP in {gap.reason for gap in ergebnis.incomplete}
+
+    def test_ein_loch_im_ersten_tag_bleibt_ein_loch(self) -> None:
+        """Die Ausnahme deckt den Anschnitt, nicht jeden Mangel: Ein fehlender
+        Bar zwischen zwei vorhandenen ist durch keinen Rand erklaerbar."""
+        bars = self._reihe(0)
+        del bars[5]
+
+        ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
+
+        assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.DATA_GAP]
+
     def test_der_erste_fehlende_bar_wird_auch_mitten_im_fenster_benannt(self) -> None:
         bars = bars_for_session(date(2026, 3, 10), 26)
         del bars[5]

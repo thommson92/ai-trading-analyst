@@ -9,16 +9,20 @@ nur die eigene Annahme ueber die Bibliothek pruefen.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from ai_trading_analyst.domain.analysis import ContractSpec
+from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.infrastructure.ibkr.bar_source import (
     SUPPORTED_BAR_MINUTES,
-    ContractSpec,
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
+    duration_in_days,
     ibkr_bar_size,
+    ibkr_duration,
 )
 
 UNBESETZTER_PORT = IbkrConnectionSettings(
@@ -126,3 +130,178 @@ class TestPacing:
         quelle._wait_for_pacing()
         quelle._wait_for_pacing()
         assert geschlafen == []
+
+
+class TestLaufenderBar:
+    """Auf ``endDateTime=""`` antwortet IBKR bis zum Augenblick der Anfrage.
+
+    Der letzte Bar einer waehrend der Sitzung gestellten Anfrage ist deshalb
+    ein Zwischenstand. Fuer das Screening folgenlos -- die zugehoerige Kerze
+    ist selbst unfertig --, fuer den Bestand fatal: Ein abgelegter Bar wird
+    nie wieder ueberschrieben, der Zwischenstand bliebe fuer immer stehen.
+    """
+
+    JETZT = datetime(2026, 8, 14, 17, 7, tzinfo=UTC)  # 13:07 New Yorker Zeit
+
+    def _quelle(self) -> IbAsyncBarSource:
+        return IbAsyncBarSource(
+            UNBESETZTER_PORT, native_bar_minutes=15, duration="1 D", now=lambda: self.JETZT
+        )
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def test_der_noch_laufende_bar_faellt_weg(self) -> None:
+        """13:00 bis 13:15 ist um 13:07 noch nicht fertig."""
+        bars = [
+            self._bar(self.JETZT - timedelta(minutes=37)),  # 12:30, fertig
+            self._bar(self.JETZT - timedelta(minutes=22)),  # 12:45, fertig
+            self._bar(self.JETZT - timedelta(minutes=7)),  # 13:00, laeuft noch
+        ]
+
+        behalten = self._quelle()._without_running_bar(bars)
+
+        assert len(behalten) == 2
+        assert behalten[-1].start == self.JETZT - timedelta(minutes=22)
+
+    def test_ein_gerade_abgeschlossener_bar_bleibt(self) -> None:
+        """Die Grenze liegt genau bei einer Bar-Laenge -- 12:52 ist fertig."""
+        gerade_fertig = self._bar(self.JETZT - timedelta(minutes=15))
+
+        assert self._quelle()._without_running_bar([gerade_fertig]) == (gerade_fertig,)
+
+    def test_ausserhalb_der_sitzung_bleibt_alles_stehen(self) -> None:
+        """Nach Boersenschluss ist kein Bar mehr in Arbeit."""
+        bars = [self._bar(self.JETZT - timedelta(hours=stunden)) for stunden in (5, 4, 3)]
+
+        assert len(self._quelle()._without_running_bar(bars)) == 3
+
+    def test_eine_leere_lieferung_bleibt_leer(self) -> None:
+        assert self._quelle()._without_running_bar([]) == ()
+
+
+class TestRaster:
+    """Am Anfang des Fensters schneidet IBKR ab.
+
+    Statt beim naechsten Rasterpunkt zu beginnen, kam beim ersten
+    Jahresabruf ueber 192 Symbole bei vieren ein Bar mit dem exakten
+    Zeitstempel der Anfrage zurueck -- ``12:07:06`` statt ``12:15:00``. Ein
+    solcher Bar laesst sich keiner Kerze zuordnen, und die Kerzenbildung
+    weist deshalb die gesamte Reihe zurueck. Im Bestand machte er die Aktie
+    dauerhaft unbrauchbar.
+    """
+
+    RASTER = datetime(2025, 8, 14, 16, 15, tzinfo=UTC)
+
+    def _quelle(self) -> IbAsyncBarSource:
+        return IbAsyncBarSource(
+            UNBESETZTER_PORT,
+            native_bar_minutes=15,
+            duration="1 Y",
+            now=lambda: datetime(2026, 8, 14, 16, 15, tzinfo=UTC),
+        )
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def test_der_abgeschnittene_erste_bar_faellt_weg(self) -> None:
+        """Der beobachtete Fall: 12:07:06 statt 12:15:00."""
+        abgeschnitten = self._bar(self.RASTER.replace(minute=7, second=6))
+        sauber = [self._bar(self.RASTER + timedelta(minutes=15 * index)) for index in range(3)]
+
+        behalten = self._quelle()._on_grid("WMT", [abgeschnitten, *sauber])
+
+        assert list(behalten) == sauber
+
+    def test_sekunden_ungleich_null_reichen_schon(self) -> None:
+        """Auf der Viertelstunde, aber mit Sekunden -- ebenfalls kein Raster."""
+        krumm = self._bar(self.RASTER.replace(second=36))
+
+        assert self._quelle()._on_grid("XOM", [krumm]) == ()
+
+    def test_eine_saubere_reihe_bleibt_unveraendert(self) -> None:
+        bars = [self._bar(self.RASTER + timedelta(minutes=15 * index)) for index in range(26)]
+
+        assert list(self._quelle()._on_grid("AAPL", bars)) == bars
+
+    def test_das_verwerfen_wird_protokolliert(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Still verschwinden darf nichts -- sonst faellt eine systematisch
+        krumme Lieferung nie auf."""
+        krumm = self._bar(self.RASTER.replace(minute=7, second=6))
+
+        with caplog.at_level("WARNING"):
+            self._quelle()._on_grid("WMT", [krumm])
+
+        assert "WMT" in caplog.text
+        assert "Raster" in caplog.text
+
+    def test_die_halbe_stunde_liegt_auf_dem_raster(self) -> None:
+        """Die Sitzung beginnt um 09:30 -- 09:30, 09:45, 10:00 sind gueltig."""
+        bars = [
+            self._bar(datetime(2025, 8, 14, 13, 30, tzinfo=UTC)),
+            self._bar(datetime(2025, 8, 14, 13, 45, tzinfo=UTC)),
+            self._bar(datetime(2025, 8, 14, 14, 0, tzinfo=UTC)),
+        ]
+
+        assert len(self._quelle()._on_grid("AAPL", bars)) == 3
+
+
+class TestZeitraumangabe:
+    """Die Uebersetzung einer Tagesangabe in die Schreibweise der IBKR-API."""
+
+    def test_tage_bleiben_tage(self) -> None:
+        assert ibkr_duration(1) == "1 D"
+        assert ibkr_duration(30) == "30 D"
+
+    def test_bis_365_tage_sind_zulaessig(self) -> None:
+        assert ibkr_duration(365) == "365 D"
+
+    def test_darueber_wird_in_jahren_gerechnet(self) -> None:
+        """Die API nimmt Tagesangaben nur bis 365 an."""
+        assert ibkr_duration(366) == "2 Y"
+        assert ibkr_duration(730) == "2 Y"
+        assert ibkr_duration(731) == "3 Y"
+
+    def test_aufgerundet_wird_bewusst(self) -> None:
+        """Lieber ein paar Bars zu viel als eine Luecke -- doppelte werden
+        beim Speichern ohnehin uebergangen."""
+        assert ibkr_duration(400) == "2 Y"
+
+    def test_null_tage_sind_kein_gueltiger_zeitraum(self) -> None:
+        with pytest.raises(ValueError, match="mindestens 1"):
+            ibkr_duration(0)
+
+
+class TestZeitraumangabeInTage:
+    """Die Gegenrichtung: Der Standardzeitraum steht in der Konfiguration in
+    IBKR-Schreibweise, die Kuerzungspruefung des Backfills rechnet in Tagen."""
+
+    def test_die_ausgelieferte_einstellung(self) -> None:
+        assert duration_in_days("1 Y") == 365
+
+    def test_alle_einheiten(self) -> None:
+        assert duration_in_days("30 D") == 30
+        assert duration_in_days("2 W") == 14
+        assert duration_in_days("6 M") == 180
+
+    def test_die_umkehrung_von_ibkr_duration(self) -> None:
+        assert duration_in_days(ibkr_duration(30)) == 30
+        assert duration_in_days(ibkr_duration(365)) == 365
+
+    def test_eine_unbekannte_einheit_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="keine IBKR-Zeitraumangabe"):
+            duration_in_days("1 Jahr")
+
+    def test_eine_angabe_ohne_einheit_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="keine IBKR-Zeitraumangabe"):
+            duration_in_days("365")
+
+    def test_eine_angabe_ohne_zahl_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="ganzen Zahl"):
+            duration_in_days("ein Y")
+
+    def test_null_ergibt_keinen_zeitraum(self) -> None:
+        with pytest.raises(ValueError, match="keinen Zeitraum"):
+            duration_in_days("0 D")

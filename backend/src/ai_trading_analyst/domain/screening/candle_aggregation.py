@@ -159,6 +159,7 @@ class _TradingDay:
     erster_bar: datetime
     letzter_bar_ende: datetime
     hat_vollstaendige_kerze: bool
+    ist_erster_tag_der_reihe: bool
     ist_letzter_tag_der_reihe: bool
 
 
@@ -172,6 +173,7 @@ def _trading_days(
     for (session_start, _), bucket_bars in buckets.items():
         tage.setdefault(session_start, []).append(bucket_bars)
 
+    erster_tag = min(tage)
     letzter_tag = max(tage)
     ergebnis: dict[datetime, _TradingDay] = {}
     for session_start, tagesfenster in tage.items():
@@ -183,6 +185,7 @@ def _trading_days(
             hat_vollstaendige_kerze=any(
                 len(fenster) == expected_bars for fenster in tagesfenster
             ),
+            ist_erster_tag_der_reihe=session_start == erster_tag,
             ist_letzter_tag_der_reihe=session_start == letzter_tag,
         )
     return ergebnis
@@ -208,12 +211,22 @@ def _classify(
        (US-Maerkte: 13:00) oder es der letzte Tag der Reihe ist -- dann ist es
        die laufende Kerze. Ein Feed, der um 10:45 abreisst, sieht genauso aus,
        endet aber zu keiner boerslichen Schlusszeit.
-    3. Liegt das Fenster am **Anfang** der Tagesdaten, ist es nur dann
-       unbedenklich, wenn der Tag danach mindestens eine vollstaendige Kerze
-       hergibt. Ein Tag, der ueberhaupt keine vollstaendige Kerze liefert, ist
-       kein spaeter Handelsbeginn, sondern ein Datenausfall.
+    3. Liegt das Fenster am **Anfang** der Tagesdaten, ist es unbedenklich,
+       wenn der Tag danach mindestens eine vollstaendige Kerze hergibt -- oder
+       wenn es der erste Tag der Reihe ist. Ein Tag mitten in der Reihe, der
+       ueberhaupt keine vollstaendige Kerze liefert, ist kein spaeter
+       Handelsbeginn, sondern ein Datenausfall.
 
     Alles andere ist eine Luecke.
+
+    Punkt 2 und 3 sind bewusst spiegelbildlich: Der **letzte** Tag der Reihe
+    darf frueh enden, weil dort die laufende Sitzung steht; der **erste** darf
+    spaet beginnen, weil dort der Rand des angefragten Zeitraums liegt. IBKR
+    schneidet an dieser Kante mitten in einer Kerze ab, und wer um 13:02 ein
+    Jahr anfragt, bekommt vom ersten Tag nur den Nachmittag -- zu wenig fuer
+    eine vollstaendige 195-Minuten-Kerze, aber kein Datenausfall. Ohne diese
+    Ausnahme war eine Aktie allein deshalb dauerhaft unbrauchbar, weil ihr
+    Abruf spaet am Handelstag stattfand.
     """
     vorhanden = [bar.start for bar in bucket_bars]
     lueckenlos = all(
@@ -240,7 +253,9 @@ def _classify(
         or tag.letzter_bar_ende.time() == parameters.early_close
     ):
         return IncompleteReason.SESSION_ENDED
-    if eroeffnet_den_tag and tag.hat_vollstaendige_kerze:
+    if eroeffnet_den_tag and (
+        tag.ist_erster_tag_der_reihe or tag.hat_vollstaendige_kerze
+    ):
         return IncompleteReason.SESSION_STARTED_LATE
     return IncompleteReason.DATA_GAP
 

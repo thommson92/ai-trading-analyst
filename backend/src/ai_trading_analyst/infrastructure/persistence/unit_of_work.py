@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunRepository,
+    IntradayBarRepository,
     ProcessingErrorRepository,
     ScreeningResultRepository,
     StockRepository,
@@ -16,6 +17,7 @@ from ai_trading_analyst.domain.analysis import (
 
 from .repositories import (
     SqlAlchemyAnalysisRunRepository,
+    SqlAlchemyIntradayBarRepository,
     SqlAlchemyProcessingErrorRepository,
     SqlAlchemyScreeningResultRepository,
     SqlAlchemyStockRepository,
@@ -27,6 +29,7 @@ class SqlAlchemyUnitOfWork:
     Session, Verlassen ohne vorherigen ``commit()`` rollt zurueck."""
 
     stocks: StockRepository
+    intraday_bars: IntradayBarRepository
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
@@ -38,6 +41,7 @@ class SqlAlchemyUnitOfWork:
     def __enter__(self) -> Self:
         self._session = self._session_factory()
         self.stocks = SqlAlchemyStockRepository(self._session)
+        self.intraday_bars = SqlAlchemyIntradayBarRepository(self._session)
         self.analysis_runs = SqlAlchemyAnalysisRunRepository(self._session)
         self.screening_results = SqlAlchemyScreeningResultRepository(self._session)
         self.processing_errors = SqlAlchemyProcessingErrorRepository(self._session)

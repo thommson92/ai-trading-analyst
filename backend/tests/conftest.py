@@ -14,19 +14,25 @@ from collections.abc import Iterator
 
 import pytest
 
+from ai_trading_analyst.config import Secrets
+
 _SECRET_ENV_PREFIX = "ATA_"
 
 
 @pytest.fixture(autouse=True)
 def isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Entfernt alle ATA_-Variablen aus der Umgebung.
+    """Entfernt alle ATA_-Variablen aus der Umgebung -- und die lokale ``.env``.
 
     Ein Entwickler mit gesetztem ATA_DATABASE_URL wuerde sonst genau die Tests
-    scheitern sehen, die das Fehlen eines Geheimnisses pruefen.
+    scheitern sehen, die das Fehlen eines Geheimnisses pruefen. Seit ``Secrets``
+    ersatzweise die ``.env`` im Projektwurzelverzeichnis liest, gilt dasselbe
+    fuer diese Datei: Wer sie fuer den eigenen Betrieb angelegt hat, soll
+    deshalb keine anderen Testergebnisse bekommen.
     """
     for name in list(os.environ):
         if name.startswith(_SECRET_ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)
+    monkeypatch.setitem(Secrets.model_config, "env_file", None)
 
 
 @pytest.fixture(autouse=True)

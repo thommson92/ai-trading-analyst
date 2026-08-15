@@ -393,3 +393,128 @@ class TestArgumente:
         assert args.symbols == "AAPL,MSFT"
         assert args.limit == 5
         assert args.no_pacing is True
+
+
+class TestBackfillKommando:
+    """Das einzige Kommando, das etwas dauerhaft ablegt -- und damit als
+    einziges eine Datenbank braucht."""
+
+    def test_ohne_datenbankadresse_meldet_es_sich_verstaendlich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+    def test_eine_unerreichbare_datenbank_beendet_den_lauf_vor_der_ersten_aktie(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Sonst quittiert jede Aktie einzeln denselben Anmeldefehler."""
+        monkeypatch.setenv("ATA_DATABASE_URL", "postgresql+psycopg://ata:geheim@127.0.0.1:1/ata")
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
+        ausgabe = capsys.readouterr().err
+        assert "nicht erreichbar" in ausgabe
+        assert "ATA_DATABASE_URL" in ausgabe
+        assert "geheim" not in ausgabe  # die Adresse enthaelt das Passwort
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+        assert main(["--config", str(config), "backfill", "--symbols", ","]) == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_ohne_abstand_und_mit_voller_watchlist_wird_der_lauf_verweigert(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "backfill", "--no-pacing"]) == 2
+        assert "nicht zulaessig" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["backfill", "--symbols", "AAPL,MSFT", "--limit", "5", "--no-pacing"]
+        )
+        assert args.symbols == "AAPL,MSFT"
+        assert args.limit == 5
+        assert args.no_pacing is True
+
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Standard 'fixture' darf nie stillschweigend zur TWS greifen."""
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "backfill", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_der_provider_laesst_sich_je_lauf_uebersteuern(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Wie bei ``screen``: Die Konfiguration im Repository bleibt auf
+        'fixture', damit ein 'git pull' auf dem Server keinen lokalen Diff
+        vorfindet."""
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="fixture")
+
+        code = main(
+            ["--config", str(config), "backfill", "--provider", "ibkr", "--symbols", "AAPL"]
+        )
+
+        # Bis zur Datenbank kommt der Lauf -- die Provider-Sperre ist passiert.
+        assert code == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+
+class TestBarquelleFuerDasScreening:
+    def test_standard_ist_der_direkte_abruf(self) -> None:
+        assert build_parser().parse_args(["screen"]).source == "live"
+
+    def test_der_bestand_laesst_sich_waehlen(self) -> None:
+        assert build_parser().parse_args(["screen", "--source", "stored"]).source == "stored"
+
+
+    def test_aus_dem_bestand_greift_die_pacing_sperre_nicht(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne Anfrage an die TWS gibt es nichts zu drosseln -- die Sperre
+        waere hier nur im Weg. Sie darf den Lauf nicht mit 2 abweisen."""
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(
+            ["--config", str(config), "screen", "--source", "stored", "--no-pacing"]
+        )
+
+        # 2 kommt hier nur noch von der fehlenden Datenbankadresse, nicht vom
+        # Pacing -- erkennbar an der Meldung.
+        assert exit_code == 2
+        assert "nicht zulaessig" not in capsys.readouterr().err
+
+    def test_ohne_datenbankadresse_meldet_sich_der_bestand_verstaendlich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(
+            ["--config", str(config), "screen", "--source", "stored", "--symbols", "AAPL"]
+        )
+
+        assert exit_code == 2
+        assert "Datenbank" in capsys.readouterr().err
