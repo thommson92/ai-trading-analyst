@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,6 +15,7 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     IntradayBar,
@@ -144,6 +145,69 @@ class TestScreeningResultRepository:
             (persisted,) = uow.screening_results.list_for_run(run.id)
         assert persisted.result.status == status
         assert persisted.stock == stock
+        assert persisted.earnings is None
+
+    def test_earnings_ergebnis_wird_mitgespeichert(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("WITHEARNINGS")
+        run = make_run()
+        earnings = EarningsFilterResult(
+            status=EarningsFilterStatus.EARNINGS_EXCLUDED,
+            evaluated_at=datetime.now(UTC),
+            next_earnings_date=date(2026, 9, 1),
+            candles_until_earnings=6,
+            source="finnhub",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            earnings=earnings,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.earnings == earnings
+
+    def test_unknown_earnings_ergebnis_mit_grund_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("WITHUNKNOWNEARNINGS")
+        run = make_run()
+        earnings = EarningsFilterResult(
+            status=EarningsFilterStatus.UNKNOWN,
+            evaluated_at=datetime.now(UTC),
+            reason="no_coverage",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            earnings=earnings,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.earnings == earnings
+        assert persisted.earnings is not None
+        assert persisted.earnings.next_earnings_date is None
 
     def test_signal_events_werden_mitgespeichert(self, uow_factory: UowFactory) -> None:
         stock = make_stock("WITHEVENTS")

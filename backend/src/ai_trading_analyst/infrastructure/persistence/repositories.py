@@ -17,6 +17,7 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
     ScreeningResult,
@@ -130,6 +131,20 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         reason=row.reason,
         affected_index=row.affected_index,
     )
+    earnings: EarningsFilterResult | None = None
+    if row.earnings_status is not None:
+        assert row.earnings_evaluated_at is not None, (
+            "earnings_evaluated_at fehlt trotz gesetztem earnings_status -- "
+            "beide Spalten werden immer gemeinsam geschrieben"
+        )
+        earnings = EarningsFilterResult(
+            status=EarningsFilterStatus(row.earnings_status),
+            evaluated_at=row.earnings_evaluated_at,
+            next_earnings_date=row.earnings_next_date,
+            candles_until_earnings=row.earnings_candles_until,
+            source=row.earnings_source,
+            reason=row.earnings_reason,
+        )
     return StockScreeningOutcome(
         analysis_run_id=row.analysis_run_id,
         stock=stock,
@@ -137,6 +152,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         decision_candle_index=row.decision_candle_index,
         evaluated_at=row.evaluated_at,
         signal_rule_version=row.signal_rule_version,
+        earnings=earnings,
     )
 
 
@@ -145,6 +161,7 @@ class SqlAlchemyScreeningResultRepository:
         self._session = session
 
     def add(self, outcome: StockScreeningOutcome) -> None:
+        earnings = outcome.earnings
         row = ScreeningResultOrm(
             id=uuid.uuid4(),
             analysis_run_id=outcome.analysis_run_id,
@@ -155,6 +172,14 @@ class SqlAlchemyScreeningResultRepository:
             decision_candle_index=outcome.decision_candle_index,
             evaluated_at=outcome.evaluated_at,
             signal_rule_version=outcome.signal_rule_version,
+            earnings_status=earnings.status if earnings is not None else None,
+            earnings_evaluated_at=earnings.evaluated_at if earnings is not None else None,
+            earnings_next_date=earnings.next_earnings_date if earnings is not None else None,
+            earnings_candles_until=(
+                earnings.candles_until_earnings if earnings is not None else None
+            ),
+            earnings_source=earnings.source if earnings is not None else None,
+            earnings_reason=earnings.reason if earnings is not None else None,
         )
         row.signal_events = [
             SignalEventOrm(
