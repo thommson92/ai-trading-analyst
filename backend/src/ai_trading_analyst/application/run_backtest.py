@@ -79,6 +79,7 @@ class BacktestUseCase:
                 evaluated_at=self._now(),
             )
             with self._uow_factory() as uow:
+                uow.stocks.add(stock)
                 for result in results:
                     uow.backtest_results.add(result)
                 uow.commit()

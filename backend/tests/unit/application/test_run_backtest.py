@@ -34,12 +34,13 @@ SERIES_LENGTH = 20
 
 def _build_use_case(
     provider: FakeMarketDataProvider,
-) -> tuple[BacktestUseCase, FakeBacktestResultRepository]:
+) -> tuple[BacktestUseCase, FakeBacktestResultRepository, FakeStockRepository]:
     backtest_results_repo = FakeBacktestResultRepository()
+    stocks_repo = FakeStockRepository()
 
     def uow_factory() -> FakeUnitOfWork:
         return FakeUnitOfWork(
-            FakeStockRepository(),
+            stocks_repo,
             InMemoryIntradayBarRepository(),
             FakeAnalysisRunRepository(),
             FakeScreeningResultRepository(),
@@ -48,7 +49,7 @@ def _build_use_case(
         )
 
     use_case = BacktestUseCase(provider, uow_factory, CANDIDATE_PARAMS, BACKTEST_PARAMS)
-    return use_case, backtest_results_repo
+    return use_case, backtest_results_repo, stocks_repo
 
 
 class TestErfolgreicherLauf:
@@ -61,7 +62,7 @@ class TestErfolgreicherLauf:
                 "BBB": make_series(SERIES_LENGTH, candidate=False),
             },
         )
-        use_case, backtest_results_repo = _build_use_case(provider)
+        use_case, backtest_results_repo, _ = _build_use_case(provider)
 
         report = use_case.execute()
 
@@ -70,6 +71,20 @@ class TestErfolgreicherLauf:
         assert len(backtest_results_repo.added) == 8  # 4 Kombinationen je Aktie
         stock_ids = {result.stock_id for result in backtest_results_repo.added}
         assert stock_ids == {stock_a.id, stock_b.id}
+
+    def test_die_aktie_wird_vor_den_ergebnissen_gespeichert(self) -> None:
+        """Sonst schlaegt die Fremdschluesselbeziehung auf 'stocks' fehl,
+        sobald echte Persistenz statt eines Fakes im Spiel ist."""
+        stock = make_stock("AAA")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"AAA": make_series(SERIES_LENGTH, candidate=False)},
+        )
+        use_case, _, stocks_repo = _build_use_case(provider)
+
+        use_case.execute()
+
+        assert stock in stocks_repo.added
 
 
 class TestFehlerisolation:
@@ -80,7 +95,7 @@ class TestFehlerisolation:
             series_by_symbol={"AAA": make_series(SERIES_LENGTH, candidate=False)},
             error_symbols=frozenset({"BROKEN"}),
         )
-        use_case, backtest_results_repo = _build_use_case(provider)
+        use_case, backtest_results_repo, _ = _build_use_case(provider)
 
         report = use_case.execute()
 
@@ -92,7 +107,7 @@ class TestFehlerisolation:
 
     def test_leere_aktienliste_ergibt_einen_leeren_bericht(self) -> None:
         provider = FakeMarketDataProvider(stocks=(), series_by_symbol={})
-        use_case, backtest_results_repo = _build_use_case(provider)
+        use_case, backtest_results_repo, _ = _build_use_case(provider)
 
         report = use_case.execute()
 
