@@ -21,6 +21,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from ai_trading_analyst.domain.analysis import RunStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
+from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 
 
@@ -117,8 +118,34 @@ class ScreeningResultOrm(Base):
     earnings_source: Mapped[str | None] = mapped_column(nullable=True)
     earnings_reason: Mapped[str | None] = mapped_column(nullable=True)
 
+    # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0022) --
+    # wie bei den earnings_*-Spalten: einmal je Lauf und Aktie berechnet,
+    # nie unabhaengig vom Screening-Ergebnis abgefragt. Nur gesetzt, wenn
+    # zusaetzlich earnings_status == EARNINGS_CLEAR war.
+    research_status: Mapped[ResearchStatus | None] = mapped_column(
+        _enum_column(ResearchStatus), nullable=True
+    )
+    research_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    research_model: Mapped[str | None] = mapped_column(nullable=True)
+    research_prompt_version: Mapped[str | None] = mapped_column(nullable=True)
+    research_summary: Mapped[str | None] = mapped_column(nullable=True)
+    research_positive_factors: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    research_negative_factors: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    research_risks: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    research_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    research_reason: Mapped[str | None] = mapped_column(nullable=True)
+
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(
+        back_populates="screening_result", cascade="all, delete-orphan"
+    )
+    research_citations: Mapped[list[ResearchCitationOrm]] = relationship(
         back_populates="screening_result", cascade="all, delete-orphan"
     )
 
@@ -132,6 +159,27 @@ class SignalEventOrm(Base):
     candle_index: Mapped[int]
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="signal_events")
+
+
+class ResearchCitationOrm(Base):
+    """Ein einzelner Beleg eines Research-Berichts (ADR 0022, Zitier-
+    architektur) -- eigene Tabelle statt einer flachen Spalte, weil jedes
+    Zitat mehrere Felder hat (Muster ``SignalEventOrm``)."""
+
+    __tablename__ = "research_citations"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
+    url: Mapped[str]
+    title: Mapped[str]
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cited_text: Mapped[str | None] = mapped_column(nullable=True)
+    license_class: Mapped[SourceLicenseClass] = mapped_column(_enum_column(SourceLicenseClass))
+    transformation: Mapped[str]
+
+    screening_result: Mapped[ScreeningResultOrm] = relationship(
+        back_populates="research_citations"
+    )
 
 
 class ProcessingErrorOrm(Base):
