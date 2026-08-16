@@ -16,6 +16,7 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    BacktestResultRepository,
     EarningsProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
@@ -26,6 +27,7 @@ from ai_trading_analyst.domain.analysis import (
     StockRepository,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.screening import (
     Candle,
@@ -171,6 +173,17 @@ class FakeScreeningResultRepository:
         return tuple(o for o in self.added if o.analysis_run_id == run_id)
 
 
+class FakeBacktestResultRepository:
+    def __init__(self) -> None:
+        self.added: list[BacktestResult] = []
+
+    def add(self, result: BacktestResult) -> None:
+        self.added.append(result)
+
+    def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
+        return tuple(r for r in self.added if r.stock_id == stock_id)
+
+
 class FakeProcessingErrorRepository:
     def __init__(self) -> None:
         self.added: list[StockProcessingError] = []
@@ -227,12 +240,14 @@ class FakeUnitOfWork:
         analysis_runs: AnalysisRunRepository,
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
+        backtest_results: BacktestResultRepository | None = None,
     ) -> None:
         self.stocks = stocks
         self.intraday_bars = intraday_bars
         self.analysis_runs = analysis_runs
         self.screening_results = screening_results
         self.processing_errors = processing_errors
+        self.backtest_results = backtest_results or FakeBacktestResultRepository()
 
     def __enter__(self) -> Self:
         return self

@@ -11,6 +11,7 @@ from .models import (
 )
 from .ports import (
     AnalysisRunRepository,
+    BacktestResultRepository,
     EarningsProvider,
     EarningsProviderError,
     HistoricalBarSource,
@@ -27,6 +28,7 @@ __all__ = [
     "AnalysisRun",
     "AnalysisRunRepository",
     "AnalysisRunSummary",
+    "BacktestResultRepository",
     "ContractSpec",
     "EarningsProvider",
     "EarningsProviderError",

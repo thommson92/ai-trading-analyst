@@ -17,6 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trading_analyst.bootstrap import (
+    build_backtest_params,
     build_bar_source,
     build_earnings_provider,
     build_market_data_provider,
@@ -217,6 +218,20 @@ class TestBarquelle:
 class TestProjektwurzel:
     def test_die_wurzel_liegt_ueber_dem_konfigurationsverzeichnis(self, tmp_path: Path) -> None:
         assert project_root(tmp_path / "config" / "default.yaml") == tmp_path
+
+
+class TestBacktestParameter:
+    def test_werte_kommen_unveraendert_aus_der_konfiguration(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        params = build_backtest_params(config)
+        assert params.horizons == config.backtesting.horizons
+        assert params.cooldown_candles == config.backtesting.cooldown_candles
+        assert params.minimum_sample_size == config.backtesting.minimum_sample_size
+        assert (
+            params.normal_confidence_sample_size
+            == config.backtesting.normal_confidence_sample_size
+        )
+        assert params.history_years == config.backtesting.history_years
 
 
 class TestKonfigurationspruefung:
