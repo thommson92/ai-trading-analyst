@@ -14,8 +14,10 @@ from ai_trading_analyst.config import (
     EarningsFilterConfig,
     GateNotClearedError,
     IndicatorConfig,
+    LlmConfig,
     MarketConfig,
     MissingSecretError,
+    ModelProfile,
     Secrets,
 )
 from ai_trading_analyst.config.settings import project_env_file
@@ -66,6 +68,30 @@ class TestBacktestingConfig:
     def test_rejects_empty_horizons(self) -> None:
         with pytest.raises(ValidationError, match="horizons"):
             BacktestingConfig(horizons=())
+
+
+class TestLlmConfig:
+    def test_default_provider_ist_anthropic(self) -> None:
+        assert LlmConfig().provider == "anthropic"
+
+    def test_jede_aufgabe_hat_ein_eigenes_modellprofil(self) -> None:
+        llm = LlmConfig()
+        assert llm.research.model
+        assert llm.technical.model
+        assert llm.fundamental.model
+        assert llm.report.model
+
+    def test_ein_teilweise_angegebenes_profil_uebernimmt_den_rest_vom_standard(self) -> None:
+        llm = LlmConfig(research=ModelProfile(model="ein-anderes-modell"))
+        assert llm.research.model == "ein-anderes-modell"
+        assert llm.technical.model == LlmConfig().technical.model
+
+    def test_ein_unbekannter_anbieter_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValidationError):
+            LlmConfig(provider="openai")
+
+    def test_fallback_ist_standardmaessig_nicht_gesetzt(self) -> None:
+        assert ModelProfile(model="claude-sonnet-5").fallback_model is None
 
 
 class TestDataAvailabilityConfig:

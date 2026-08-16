@@ -292,6 +292,37 @@ class EarningsFilterConfig(_Section):
         return self
 
 
+class ModelProfile(_Section):
+    """Modell fuer eine Analyseaufgabe, mit Ausweichmodell (ADR 0021).
+
+    Der Fallback greift nur bei technischem Versagen (Timeout, Ratenlimit,
+    Providerfehler) -- nie als stille Qualitaetsminderung ohne Kennzeichnung.
+    Welches Modell tatsaechlich geantwortet hat, gehoert an jedes KI-Ergebnis,
+    nicht nur ins Log (Doc 10, Paragraph 12).
+    """
+
+    model: str
+    fallback_model: str | None = None
+
+
+class LlmConfig(_Section):
+    """Modellprofile je Analyseaufgabe (CLAUDE.md "KI-Anbindung", ADR 0021).
+
+    ``provider`` ist heute immer ``anthropic`` -- als Literal statt als freies
+    Feld, damit ein Tippfehler beim Start auffaellt statt still zu einem
+    falschen Adapter zu fuehren (Muster wie ``MarketDataConfig.provider``).
+    Noch ohne Verbraucher: Der erste Agent (Research) braucht zusaetzlich eine
+    eigene Entscheidung ueber seine externen Quellen, bevor ein Port/Adapter
+    dazukommt.
+    """
+
+    provider: Literal["anthropic"] = "anthropic"
+    research: ModelProfile = ModelProfile(model="claude-sonnet-5")
+    technical: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+    fundamental: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+    report: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+
+
 class DataAvailabilityConfig(_Section):
     """Wartelogik nach Kerzenschluss (Risiko R9 des Entwicklungsplans).
 
@@ -342,6 +373,7 @@ class AppConfig(_Section):
     screening: ScreeningConfig = ScreeningConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
+    llm: LlmConfig = LlmConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     scoring: ScoringConfig = ScoringConfig()

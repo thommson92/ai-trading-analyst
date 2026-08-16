@@ -105,6 +105,25 @@ earnings_filter:
     request_timeout_seconds: 10
     lookahead_calendar_days: 30
 
+llm:
+  # Anbieter und Modellstufen je Analyseaufgabe
+  # (docs/adr/0021-ki-anbindung-anthropic-api.md). Guenstigere Modelle fuer
+  # Aufgaben mit geringerer Analysetiefe, das staerkere Modell konzentriert
+  # auf die Research-Aufgabe.
+  #
+  # Modell-Identifier vor dem ersten produktiven Lauf gegen den dann
+  # aktuellen Anthropic-Katalog und dessen Preise pruefen -- sie aendern
+  # sich unabhaengig von diesem Projekt.
+  provider: anthropic
+  research:
+    model: claude-sonnet-5
+  technical:
+    model: claude-haiku-4-5-20251001
+  fundamental:
+    model: claude-haiku-4-5-20251001
+  report:
+    model: claude-haiku-4-5-20251001
+
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener
   # Vollstaendigkeit der Kerze (Risiko R9).
