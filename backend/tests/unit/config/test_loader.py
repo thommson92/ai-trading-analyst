@@ -99,6 +99,16 @@ class TestShippedDefaultConfig:
         assert indicators.slow_ema_length == 20
         assert indicators.warmup_candles == 250
 
+    def test_it_contains_the_llm_model_profiles(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ADR 0021 -- Anthropic API, gestufte Modellprofile je Analyseaufgabe."""
+        monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
+        llm = load_config().config.llm
+        assert llm.provider == "anthropic"
+        assert llm.research.model == "claude-sonnet-5"
+        assert llm.technical.model == "claude-haiku-4-5-20251001"
+        assert llm.fundamental.model == "claude-haiku-4-5-20251001"
+        assert llm.report.model == "claude-haiku-4-5-20251001"
+
     def test_it_contains_no_secret_like_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
         content = default_config_path().read_text(encoding="utf-8").lower()
