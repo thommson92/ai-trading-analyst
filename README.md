@@ -52,7 +52,6 @@ Bewusst noch nicht begonnen:
 | Thema | Blockiert durch |
 |---|---|
 | Earnings-Termine | Anbieterwahl offen — IBKR liefert sie nicht (ADR 0014, E1) |
-| KI-Integration | ADR ausstehend |
 
 ## Struktur
 
