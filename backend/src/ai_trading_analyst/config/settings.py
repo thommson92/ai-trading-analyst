@@ -311,9 +311,6 @@ class LlmConfig(_Section):
     ``provider`` ist heute immer ``anthropic`` -- als Literal statt als freies
     Feld, damit ein Tippfehler beim Start auffaellt statt still zu einem
     falschen Adapter zu fuehren (Muster wie ``MarketDataConfig.provider``).
-    Noch ohne Verbraucher: Der erste Agent (Research) braucht zusaetzlich eine
-    eigene Entscheidung ueber seine externen Quellen, bevor ein Port/Adapter
-    dazukommt.
     """
 
     provider: Literal["anthropic"] = "anthropic"
@@ -321,6 +318,24 @@ class LlmConfig(_Section):
     technical: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
     fundamental: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
     report: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+
+
+class ResearchConfig(_Section):
+    """Recherchequellen des Research Agent (ADR 0022).
+
+    ``fixture`` bleibt Standard, damit Start und Tests ohne
+    ``ATA_LLM_API_KEY`` funktionieren (Muster wie
+    ``earnings_filter.provider``). ``max_searches``/``max_fetches`` begrenzen
+    die Kosten je Aufruf hart (ADR 0021 Budget), ``allowed_domains`` ist
+    bewusst eine Allowlist statt einer Blockliste (ADR 0022, Zitier-
+    architektur Punkt 5) -- eine leere Allowlist bedeutet keine
+    Einschraenkung, ist aber nicht der ausgelieferte Standard.
+    """
+
+    provider: Literal["fixture", "anthropic"] = "fixture"
+    max_searches: PositiveInt = 5
+    max_fetches: PositiveInt = 5
+    allowed_domains: tuple[str, ...] = ("sec.gov",)
 
 
 class DataAvailabilityConfig(_Section):
@@ -374,6 +389,7 @@ class AppConfig(_Section):
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
     llm: LlmConfig = LlmConfig()
+    research: ResearchConfig = ResearchConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     scoring: ScoringConfig = ScoringConfig()

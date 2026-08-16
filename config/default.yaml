@@ -124,6 +124,18 @@ llm:
   report:
     model: claude-haiku-4-5-20251001
 
+research:
+  # Recherchequellen des Research Agent
+  # (docs/adr/0022-research-agent-quellen.md). "fixture" bleibt Standard --
+  # Start und Tests laufen ohne Anthropic-Zugang.
+  provider: fixture
+  # Begrenzen die Kosten je Aufruf hart (ADR 0021 Budget).
+  max_searches: 5
+  max_fetches: 5
+  # Allowlist statt Blockliste (ADR 0022, Zitierarchitektur Punkt 5).
+  allowed_domains:
+    - sec.gov
+
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener
   # Vollstaendigkeit der Kerze (Risiko R9).
