@@ -16,8 +16,14 @@ Wie bei RESC ([ADR 0016](0016-ibkr-keine-quelle-fuer-research-daten.md)) und
 der Earnings-Anbieterwahl ([ADR 0017](0017-finnhub-fuer-earnings-und-ratings.md))
 gilt: Belegt wird an der offiziellen Anbieterdokumentation geprüft, nicht an
 einer Vergleichstabelle. Anders als bei RESC gibt es hier keine unbelegte
-Rechtegrundlage, sondern eine konkret benennbare, noch zu klärende Frage
-(siehe Einschränkung E1).
+Rechtegrundlage: Anthropics Dokumentation untersagt die Aufbereitung oder
+Aggregation von Suchergebnissen nicht, sie verlangt bei modifizierten
+API-Ausgaben eine angemessene Quellenanzeige (siehe Einschränkung E1 und den
+[Deployment-Gate](#deployment-gate-oeffentliche-oder-kommerzielle-bereitstellung)
+unten). Der Projektinhaber hat diese Einschätzung nach Rückfrage bestätigt --
+Muster wie bei der IBKR-Marktdatenbewertung in ADR 0014, wo eine bewusste
+eigene Einschätzung getroffen wurde, statt auf eine vollständige externe
+Klärung zu warten.
 
 ## Entscheidung
 
@@ -46,6 +52,31 @@ nicht nur bei der Auswertung.
 Agent gesetzt, nicht offen gelassen -- konkrete Werte sind Sache der
 Implementierung, nicht dieses ADR.
 
+### Lizenzbewusste Quellen- und Zitierarchitektur
+
+Verbindliche Konstruktionsregeln für den Research Agent, nicht optional:
+
+1. Jede wesentliche externe Tatsachenbehauptung bleibt bis zu ihrer
+   Originalquelle zurückverfolgbar.
+2. Der Bericht enthält absatz-/aussagenahe Verweise mit Quelle, Titel und
+   Abrufzeitpunkt -- auch wenn mehrere Quellen zu einer Aussage aggregiert
+   wurden. Erfüllt zugleich CLAUDE.mds "Quellenbindung".
+3. Keine längeren Textpassagen, Tabellen oder proprietären Kennzahlen
+   unverändert übernehmen -- nur eigene Zusammenfassung mit Verweis.
+4. Primärquellen bevorzugt (Geschäftsberichte, regulatorische
+   Veröffentlichungen, Investor-Relations-Mitteilungen) vor sekundärer
+   Berichterstattung. SEC EDGAR erfüllt das für die SEC-Sparte bereits per
+   Konstruktion.
+5. Anbieter/Webseiten nur gemäß ihren jeweiligen API-, Anzeige-, Speicher-
+   und Weiterverbreitungsrechten nutzen. Quellen mit unklarer Rechtslage
+   sind technisch abschaltbar bzw. laufen über eine Allowlist
+   (`allowed_domains` des Web-Search-/Web-Fetch-Tools) statt einer
+   Blockliste als Standard.
+6. Intern wird je Aussage gespeichert: Herkunft (URL, Anbieter), Lizenzklasse
+   und die angewendeten Transformationsschritte (z. B. "zusammengefasst",
+   "übersetzt", "aggregiert aus n Quellen") -- eigenes Datenmodell, kein
+   Freitext-Reporting ohne diese Metadaten.
+
 ## Begründung
 
 Beide Anthropic-Tools sind Teil der bereits gewählten API, ohne
@@ -62,20 +93,20 @@ einen Vorteil zu bringen.
 
 ### Akzeptierte Einschränkungen
 
-- **E1 -- Lizenzfrage bei Weiterverarbeitung ungeklärt.** Anthropics
-  Dokumentation verlangt Rücksprache mit der eigenen Rechtsabteilung, sobald
-  Suchergebnisse nicht unverändert mit Zitat angezeigt, sondern
-  umformuliert/kombiniert werden -- genau das tut der Research Agent
-  (strukturierter Bericht statt Rohtreffer). **Vor dem ersten produktiven
-  Research-Agent-Lauf** sind Anthropics Commercial Terms of Service
-  (<https://www.anthropic.com/legal/commercial-terms>) und die Usage Policy
-  (<https://www.anthropic.com/aup>) konkret auf diesen Anwendungsfall zu
-  prüfen -- ein persönliches, nicht öffentlich zugängliches Dashboard mit
-  dauerhafter, aber nicht weitergegebener Speicherung ist voraussichtlich
-  unkritisch, aber das ist eine Einschätzung, keine Feststellung. Diese
-  Prüfung blockiert nicht die Konfigurationsgrundlage oder die
-  Domain-/Ports-Implementierung, wohl aber den ersten echten Lauf gegen
-  produktive Daten.
+- **E1 -- Lizenzfrage bei Weiterverarbeitung, bewusst eingeschätzt statt
+  blockiert.** Anthropics Dokumentation untersagt Aufbereitung/Aggregation
+  von Suchergebnissen nicht; sie verlangt bei modifizierten Ausgaben eine
+  angemessene Quellenanzeige. Für den privaten Prototyp -- kein öffentlicher
+  Zugriff, keine Weitergabe, nur der Projektinhaber selbst als Nutzer --
+  ist die oben beschriebene Zitierarchitektur die angemessene Antwort
+  darauf, kein zusätzliches Genehmigungsverfahren vor jeder Zusammenfassung.
+  Blockiert **nicht** die Implementierung. Die vollständige rechtliche
+  Prüfung von Anthropics Commercial Terms of Service
+  (<https://www.anthropic.com/legal/commercial-terms>) und Usage Policy
+  (<https://www.anthropic.com/aup>) gegen die dann tatsächlich verwendeten
+  Quellen und Anbieterbedingungen ist ein
+  [Deployment-Gate](#deployment-gate-oeffentliche-oder-kommerzielle-bereitstellung),
+  kein Implementierungs-Gate.
 - **E2 -- Kostenschätzung ungemessen.** Die grobe Schätzung
   (12-40 USD/Monat allein an Suchgebühr, siehe Untersuchungsdokument
   Abschnitt 1.3) liegt am oberen Rand des in ADR 0021 gesetzten
@@ -87,6 +118,27 @@ einen Vorteil zu bringen.
 - **E4 -- Keine strukturierte Quelle für Analystenratings/Kursziele.**
   Bleibt wie in ADR 0017 zurückgestellt; nicht spezifisch für den Research
   Agent.
+
+### Deployment-Gate: öffentliche oder kommerzielle Bereitstellung
+
+**Gesperrt ist:** jede Bereitstellung des Research Agent außerhalb des
+privaten Prototyps -- öffentlicher Zugriff, Mehrnutzerbetrieb, kommerzielle
+Nutzung oder Weitergabe von Berichten an Dritte.
+
+**Freigabe durch:** eine gezielte rechtliche Prüfung der zu diesem Zeitpunkt
+*tatsächlich* verwendeten Quellen und Anbieterbedingungen (nicht nur
+Anthropics Bedingungen, auch die der einzelnen über Web Search/Fetch
+erreichten Webseiten) -- durchgeführt, bevor eine dieser Bereitstellungsarten
+beginnt, nicht danach.
+
+**Bis zur Freigabe:** Betrieb ausschließlich als privater, persönlicher
+Prototyp durch den Projektinhaber selbst, im Muster der bereits
+umgesetzten Module (kein öffentlich erreichbares Dashboard, siehe Doc 10
+§13 "Externer Zugriff", F12 -- ohnehin noch nicht umgesetzt). Eine
+technische Durchsetzung dieses Gates (vergleichbar
+`AppConfig.require_indicators()` für G1) ist heute nicht gebaut, weil noch
+keine Deployment-Unterscheidung zwischen privat und öffentlich existiert --
+nachzuholen, sobald F12 ansteht.
 
 ### Nächste Schritte
 
