@@ -18,6 +18,8 @@ from ai_trading_analyst.domain.analysis import (
     EarningsProviderError,
     MarketDataProvider,
     MarketDataProviderError,
+    ResearchProvider,
+    ResearchProviderError,
     RunStatus,
     Stock,
     StockProcessingError,
@@ -30,6 +32,7 @@ from ai_trading_analyst.domain.earnings import (
     EarningsFilterStatus,
     evaluate_earnings_filter,
 )
+from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
@@ -57,18 +60,28 @@ class RunAnalysisUseCase:
     ``EarningsFilterStatus.UNKNOWN`` und die Aktie bleibt ein normales
     Ergebnis, statt in ``StockProcessingError`` zu landen (ADR 0017: die
     technische Analyse laeuft unabhaengig vom Earnings-Filter weiter).
+
+    Der Research Agent (Doc 10, Paragraph 6.7; ADR 0021, ADR 0022) laeuft
+    danach, ausschliesslich fuer Aktien, die zusaetzlich den Earnings-Filter
+    mit ``EARNINGS_CLEAR`` bestanden haben. Ein Ausfall des
+    Research-Anbieters ist wie beim Earnings-Filter kein Verarbeitungsfehler
+    der Aktie -- er ergibt ``ResearchStatus.UNAVAILABLE`` statt eines
+    ``StockProcessingError`` (CLAUDE.md: Research darf die technische
+    Analyse und das Backtesting nie blockieren).
     """
 
     def __init__(
         self,
         market_data_provider: MarketDataProvider,
         earnings_provider: EarningsProvider,
+        research_provider: ResearchProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
+        self._research_provider = research_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
@@ -107,10 +120,13 @@ class RunAnalysisUseCase:
                 evaluated_at = datetime.now(UTC)
 
                 earnings: EarningsFilterResult | None = None
+                research: ResearchReport | None = None
                 if result.status == ScreeningStatus.CANDIDATE:
                     earnings = self._evaluate_earnings(
                         stock, series.candles[decision_index].timestamp.date(), evaluated_at
                     )
+                    if earnings.status == EarningsFilterStatus.EARNINGS_CLEAR:
+                        research = self._evaluate_research(stock, evaluated_at)
 
                 outcome = StockScreeningOutcome(
                     analysis_run_id=run.id,
@@ -120,6 +136,7 @@ class RunAnalysisUseCase:
                     evaluated_at=evaluated_at,
                     signal_rule_version=SIGNAL_RULE_VERSION,
                     earnings=earnings,
+                    research=research,
                 )
                 with self._uow_factory() as uow:
                     uow.stocks.add(stock)
@@ -192,4 +209,27 @@ class RunAnalysisUseCase:
                 status=EarningsFilterStatus.UNKNOWN,
                 evaluated_at=evaluated_at,
                 reason="invalid_data",
+            )
+
+    def _evaluate_research(self, stock: Stock, evaluated_at: datetime) -> ResearchReport:
+        """Wertet den Research Agent fuer eine bereits qualifizierte Aktie aus.
+
+        Muster ``_evaluate_earnings``: Ein Ausfall des Anbieters wird hier
+        abgefangen, nicht im aufrufenden Fehlerisolations-Block -- er soll
+        ``ResearchStatus.UNAVAILABLE`` ergeben, nicht die Aktie als Ganzes in
+        ``StockProcessingError`` verschieben (CLAUDE.md, Doc 10: Research
+        darf die technische Analyse nie blockieren).
+        """
+        try:
+            return self._research_provider.research(stock)
+        except ResearchProviderError as exc:
+            _logger.warning(
+                "Research fuer %s konnte nicht abgerufen werden: %s", stock.symbol, exc
+            )
+            return ResearchReport(
+                status=ResearchStatus.UNAVAILABLE,
+                evaluated_at=evaluated_at,
+                model=None,
+                prompt_version=None,
+                reason="provider_error",
             )

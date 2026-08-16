@@ -22,6 +22,7 @@ Beispiele::
     python -m ai_trading_analyst.cli screen --provider ibkr --symbols AAPL,MSFT --no-pacing
     python -m ai_trading_analyst.cli screen --provider ibkr --limit 5
     python -m ai_trading_analyst.cli screen --provider ibkr
+    python -m ai_trading_analyst.cli research --provider anthropic --symbol AAPL
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import ArgumentError
@@ -45,6 +47,7 @@ from ai_trading_analyst.bootstrap import (
     build_backtest_params,
     build_ibkr_bar_source,
     build_market_data_provider,
+    build_research_provider,
     project_root,
 )
 from ai_trading_analyst.config.loader import load_config
@@ -52,10 +55,12 @@ from ai_trading_analyst.config.settings import AppConfig, LoggingConfig, Missing
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
+    ResearchProviderError,
     Stock,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
@@ -677,6 +682,68 @@ def command_backtest(args: argparse.Namespace) -> int:
     return 1 if report.failures else 0
 
 
+def _print_research_report(symbol: str, report: ResearchReport) -> None:
+    print(f"{symbol}: {report.status.value}")
+    if report.reason:
+        print(f"  Grund: {report.reason}")
+    if report.model:
+        print(f"  Modell: {report.model} (Prompt-Version {report.prompt_version})")
+    if report.confidence is not None:
+        print(f"  Confidence: {report.confidence:.2f}")
+    if report.summary:
+        print(f"  Zusammenfassung: {report.summary}")
+    for label, factors in (
+        ("Positive Faktoren", report.positive_factors),
+        ("Negative Faktoren", report.negative_factors),
+        ("Risiken", report.risks),
+    ):
+        if factors:
+            print(f"  {label}:")
+            for factor in factors:
+                print(f"    - {factor}")
+    if report.citations:
+        print("  Zitate:")
+        for citation in report.citations:
+            print(f"    - [{citation.license_class.value}] {citation.title} ({citation.url})")
+            if citation.cited_text:
+                print(f'      "{citation.cited_text}"')
+
+
+def command_research(args: argparse.Namespace) -> int:
+    """Manueller Probelauf des Research Agent fuer ein einzelnes Symbol.
+
+    Braucht weder Datenbank noch Marktdatenanbieter -- anders als
+    'backtest' liest der Research Agent keinen eigenen Kursbestand.
+    Ein echter Aufruf gegen 'anthropic' kostet Geld (ADR 0021/0022
+    Budget), deshalb keine automatische Uebersteuerung: 'fixture' bleibt
+    Standard, bis ausdruecklich '--provider anthropic' gesetzt wird.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        research = config.research.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"research": research})
+
+    try:
+        provider = build_research_provider(config, Secrets())
+    except MissingSecretError as error:
+        print(f"Research: {error}", file=sys.stderr)
+        return 2
+
+    stock = Stock(id=uuid4(), symbol=args.symbol.upper(), exchange=args.exchange)
+
+    try:
+        report = provider.research(stock)
+    except ResearchProviderError as error:
+        print(f"Research fuer '{stock.symbol}' fehlgeschlagen: {error}", file=sys.stderr)
+        return 2
+
+    _print_research_report(stock.symbol, report)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_trading_analyst.cli",
@@ -822,6 +889,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
+
+    research = subparsers.add_parser(
+        "research",
+        help="Manueller Probelauf des Research Agent fuer ein einzelnes Symbol (ADR 0021/0022).",
+    )
+    research.add_argument(
+        "--provider",
+        choices=("fixture", "anthropic"),
+        default=None,
+        help=(
+            "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' loest "
+            "einen echten, kostenpflichtigen API-Aufruf aus."
+        ),
+    )
+    research.add_argument("--symbol", required=True, help="Das zu recherchierende Symbol.")
+    research.add_argument(
+        "--exchange",
+        default="NASDAQ",
+        help="Nur fuer die Anfrage an das Sprachmodell relevant, nicht persistiert.",
+    )
+    research.set_defaults(handler=command_research)
     return parser
 
 

@@ -23,6 +23,7 @@ from ai_trading_analyst.domain.analysis import (
     EarningsProvider,
     HistoricalBarSource,
     MarketDataProvider,
+    ResearchProvider,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -32,6 +33,7 @@ from ai_trading_analyst.domain.screening import (
     IndicatorParameters,
     SessionParameters,
 )
+from ai_trading_analyst.infrastructure.anthropic import AnthropicResearchProvider
 from ai_trading_analyst.infrastructure.finnhub import (
     FinnhubConnectionSettings,
     FinnhubEarningsProvider,
@@ -40,6 +42,7 @@ from ai_trading_analyst.infrastructure.fixtures.earnings_provider import Fixture
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -185,6 +188,24 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     )
 
 
+def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProvider:
+    """Waehlt den Research-Anbieter anhand der Konfiguration.
+
+    ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
+    Start ohne Anthropic-Zugang; ``anthropic`` ist die produktive Quelle
+    (ADR 0021, ADR 0022).
+    """
+    if config.research.provider == "fixture":
+        return FixtureResearchProvider()
+    return AnthropicResearchProvider(
+        api_key=secrets.require("llm_api_key"),
+        model=config.llm.research.model,
+        max_searches=config.research.max_searches,
+        max_fetches=config.research.max_fetches,
+        allowed_domains=config.research.allowed_domains,
+    )
+
+
 def build_backtest_params(config: AppConfig) -> BacktestParameters:
     return BacktestParameters(
         horizons=config.backtesting.horizons,
@@ -216,9 +237,11 @@ def build_app() -> FastAPI:
     )
     earnings_provider = build_earnings_provider(loaded.config, secrets)
     earnings_filter_params = build_earnings_filter_params(loaded.config)
+    research_provider = build_research_provider(loaded.config, secrets)
     use_case = RunAnalysisUseCase(
         market_data_provider,
         earnings_provider,
+        research_provider,
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,
