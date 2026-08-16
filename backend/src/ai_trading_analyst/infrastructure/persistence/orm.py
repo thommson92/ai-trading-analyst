@@ -13,12 +13,13 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import ARRAY, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ai_trading_analyst.domain.analysis import RunStatus
+from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 
@@ -143,3 +144,37 @@ class ProcessingErrorOrm(Base):
     stock_symbol: Mapped[str]
     message: Mapped[str]
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BacktestResultOrm(Base):
+    """Ein Zeile je Aktie, Signalkombination und Horizont (Doc 07; G1-Pruefvorlage
+    Abschnitt 4).
+
+    Keine Unique Constraint, kein Update-Pfad -- jede Neuberechnung ist ein
+    neues, zeitgestempeltes Insert (Projektregel: abgeschlossene Analysen
+    werden nicht ueberschrieben).
+    """
+
+    __tablename__ = "backtest_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
+    signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
+    """Sortierte Werte von ``SignalType`` -- die Domain rekonstruiert daraus
+    ein ``frozenset`` (Menge, nicht Liste, G1-Pruefvorlage Abschnitt 4.3)."""
+    signal_rule_version: Mapped[str]
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    history_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    history_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    horizon: Mapped[int] = mapped_column(Integer)
+    raw_event_count: Mapped[int]
+    deduplicated_event_count: Mapped[int]
+    hit_rate: Mapped[float | None]
+    mean_return: Mapped[float | None]
+    median_return: Mapped[float | None]
+    max_loss: Mapped[float | None]
+    drawdown: Mapped[float | None]
+    held_above_entry_rate: Mapped[float | None]
+    confidence: Mapped[BacktestConfidence] = mapped_column(_enum_column(BacktestConfidence))
+
+    stock: Mapped[StockOrm] = relationship()

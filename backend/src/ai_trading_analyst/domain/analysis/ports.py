@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 
@@ -103,6 +104,11 @@ class EarningsProvider(Protocol):
         ...
 
 
+class BacktestResultRepository(Protocol):
+    def add(self, result: BacktestResult) -> None: ...
+    def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
+
+
 class IntradayBarRepository(Protocol):
     """Speicher fuer die nativen Bars des Anbieters.
 
@@ -166,6 +172,7 @@ class UnitOfWork(Protocol):
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
+    backtest_results: BacktestResultRepository
 
     def __enter__(self) -> UnitOfWork: ...
 

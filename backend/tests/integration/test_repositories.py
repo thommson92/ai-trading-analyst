@@ -15,6 +15,11 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.backtesting import (
+    BacktestConfidence,
+    BacktestResult,
+    HorizonMetrics,
+)
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -263,6 +268,100 @@ class TestScreeningResultRepository:
                     make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
                 )
                 uow.commit()
+
+
+class TestBacktestResultRepository:
+    def test_ein_ergebnis_mit_mehreren_horizonten_uebersteht_den_rundlauf(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("BACKTESTED")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+        evaluated_at = datetime.now(UTC)
+        result = BacktestResult(
+            stock_id=stock.id,
+            signal_types=combination,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            evaluated_at=evaluated_at,
+            history_start=datetime(2020, 1, 2, tzinfo=UTC),
+            history_end=datetime(2025, 1, 2, tzinfo=UTC),
+            horizons=(
+                HorizonMetrics(
+                    horizon=5,
+                    raw_event_count=12,
+                    deduplicated_event_count=9,
+                    hit_rate=0.667,
+                    mean_return=0.021,
+                    median_return=0.018,
+                    max_loss=-0.05,
+                    drawdown=0.07,
+                    held_above_entry_rate=0.55,
+                    confidence=BacktestConfidence.NORMAL,
+                ),
+                HorizonMetrics(
+                    horizon=20,
+                    raw_event_count=12,
+                    deduplicated_event_count=3,
+                    hit_rate=None,
+                    mean_return=None,
+                    median_return=None,
+                    max_loss=None,
+                    drawdown=None,
+                    held_above_entry_rate=None,
+                    confidence=BacktestConfidence.INSUFFICIENT_DATA,
+                ),
+            ),
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.backtest_results.add(result)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.backtest_results.list_for_stock(stock.id)
+
+        assert persisted.signal_types == combination
+        assert persisted.evaluated_at == evaluated_at
+        assert {h.horizon for h in persisted.horizons} == {5, 20}
+        by_horizon = {h.horizon: h for h in persisted.horizons}
+        assert by_horizon[5] == result.horizons[0]
+        assert by_horizon[20] == result.horizons[1]
+
+    def test_ein_anderes_symbol_bekommt_keine_fremden_ergebnisse(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock_a, stock_b = make_stock("BTA"), make_stock("BTB")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT})
+        horizon = HorizonMetrics(
+            horizon=5,
+            raw_event_count=1,
+            deduplicated_event_count=1,
+            hit_rate=1.0,
+            mean_return=0.01,
+            median_return=0.01,
+            max_loss=0.0,
+            drawdown=0.0,
+            held_above_entry_rate=1.0,
+            confidence=BacktestConfidence.LOW_SAMPLE,
+        )
+        result_a = BacktestResult(
+            stock_id=stock_a.id,
+            signal_types=combination,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            evaluated_at=datetime.now(UTC),
+            history_start=datetime(2020, 1, 2, tzinfo=UTC),
+            history_end=datetime(2025, 1, 2, tzinfo=UTC),
+            horizons=(horizon,),
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock_a)
+            uow.stocks.add(stock_b)
+            uow.backtest_results.add(result_a)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.backtest_results.list_for_stock(stock_b.id) == ()
 
 
 class TestProcessingErrorRepository:

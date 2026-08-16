@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunRepository,
+    BacktestResultRepository,
     IntradayBarRepository,
     ProcessingErrorRepository,
     ScreeningResultRepository,
@@ -17,6 +18,7 @@ from ai_trading_analyst.domain.analysis import (
 
 from .repositories import (
     SqlAlchemyAnalysisRunRepository,
+    SqlAlchemyBacktestResultRepository,
     SqlAlchemyIntradayBarRepository,
     SqlAlchemyProcessingErrorRepository,
     SqlAlchemyScreeningResultRepository,
@@ -33,6 +35,7 @@ class SqlAlchemyUnitOfWork:
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
+    backtest_results: BacktestResultRepository
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -45,6 +48,7 @@ class SqlAlchemyUnitOfWork:
         self.analysis_runs = SqlAlchemyAnalysisRunRepository(self._session)
         self.screening_results = SqlAlchemyScreeningResultRepository(self._session)
         self.processing_errors = SqlAlchemyProcessingErrorRepository(self._session)
+        self.backtest_results = SqlAlchemyBacktestResultRepository(self._session)
         return self
 
     def __exit__(

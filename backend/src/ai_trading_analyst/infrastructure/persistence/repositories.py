@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -17,6 +18,11 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.backtesting import (
+    BacktestConfidence,
+    BacktestResult,
+    HorizonMetrics,
+)
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
@@ -28,6 +34,7 @@ from ai_trading_analyst.domain.screening import (
 
 from .orm import (
     AnalysisRunOrm,
+    BacktestResultOrm,
     IntradayBarOrm,
     ProcessingErrorOrm,
     ScreeningResultOrm,
@@ -347,3 +354,89 @@ class SqlAlchemyIntradayBarRepository:
             )
             for row in rows
         )
+
+
+def _horizon_metrics_from_row(row: BacktestResultOrm) -> HorizonMetrics:
+    return HorizonMetrics(
+        horizon=row.horizon,
+        raw_event_count=row.raw_event_count,
+        deduplicated_event_count=row.deduplicated_event_count,
+        hit_rate=row.hit_rate,
+        mean_return=row.mean_return,
+        median_return=row.median_return,
+        max_loss=row.max_loss,
+        drawdown=row.drawdown,
+        held_above_entry_rate=row.held_above_entry_rate,
+        confidence=BacktestConfidence(row.confidence),
+    )
+
+
+def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[BacktestResult, ...]:
+    """Fasst Zeilen (eine je Horizont) wieder zu einem ``BacktestResult`` je
+    Aktie, Signalkombination und Berechnungszeitpunkt zusammen."""
+    grouped: dict[
+        tuple[uuid.UUID, frozenset[SignalType], datetime], list[BacktestResultOrm]
+    ] = defaultdict(list)
+    for row in rows:
+        signal_types = frozenset(SignalType(value) for value in row.signal_types)
+        grouped[(row.stock_id, signal_types, row.evaluated_at)].append(row)
+
+    results = []
+    for (stock_id, signal_types, evaluated_at), group_rows in grouped.items():
+        first = group_rows[0]
+        horizons = tuple(
+            _horizon_metrics_from_row(row) for row in sorted(group_rows, key=lambda r: r.horizon)
+        )
+        results.append(
+            BacktestResult(
+                stock_id=stock_id,
+                signal_types=signal_types,
+                signal_rule_version=first.signal_rule_version,
+                evaluated_at=evaluated_at,
+                history_start=first.history_start,
+                history_end=first.history_end,
+                horizons=horizons,
+            )
+        )
+    return tuple(results)
+
+
+class SqlAlchemyBacktestResultRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, result: BacktestResult) -> None:
+        sorted_signal_types = sorted(signal_type.value for signal_type in result.signal_types)
+        rows = [
+            BacktestResultOrm(
+                id=uuid.uuid4(),
+                stock_id=result.stock_id,
+                signal_types=sorted_signal_types,
+                signal_rule_version=result.signal_rule_version,
+                evaluated_at=result.evaluated_at,
+                history_start=result.history_start,
+                history_end=result.history_end,
+                horizon=horizon.horizon,
+                raw_event_count=horizon.raw_event_count,
+                deduplicated_event_count=horizon.deduplicated_event_count,
+                hit_rate=horizon.hit_rate,
+                mean_return=horizon.mean_return,
+                median_return=horizon.median_return,
+                max_loss=horizon.max_loss,
+                drawdown=horizon.drawdown,
+                held_above_entry_rate=horizon.held_above_entry_rate,
+                confidence=horizon.confidence,
+            )
+            for horizon in result.horizons
+        ]
+        self._session.add_all(rows)
+
+    def list_for_stock(self, stock_id: uuid.UUID) -> Sequence[BacktestResult]:
+        rows = (
+            self._session.execute(
+                select(BacktestResultOrm).where(BacktestResultOrm.stock_id == stock_id)
+            )
+            .scalars()
+            .all()
+        )
+        return _group_rows_into_results(rows)
