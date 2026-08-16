@@ -273,3 +273,135 @@ class TestFehlerfaelle:
 
         with pytest.raises(ResearchProviderError, match="confidence"):
             _provider(handler).research(AAPL)
+
+    def test_unerwartete_antwortform_wird_nicht_als_rohe_exception_durchgereicht(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(_message([_submit_block()]))
+
+        provider = _provider(handler)
+
+        def _boom(content: object) -> dict[str, object] | None:
+            raise AttributeError("'NoneType' object has no attribute 'title'")
+
+        provider._find_submit_call = _boom  # type: ignore[method-assign]
+
+        with pytest.raises(ResearchProviderError, match="AAPL"):
+            provider.research(AAPL)
+
+
+class TestUnbekannteZitatTypen:
+    def test_unbekannter_zitat_typ_wird_uebersprungen_statt_zu_crashen(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        {
+                            "type": "text",
+                            "text": "...",
+                            "citations": [
+                                {
+                                    "type": "page_location",
+                                    "document_index": 0,
+                                    "document_title": "Ein PDF-Filing",
+                                    "cited_text": "Ausschnitt",
+                                    "start_page_number": 1,
+                                    "end_page_number": 2,
+                                }
+                            ],
+                        },
+                        _submit_block(),
+                    ]
+                )
+            )
+
+        report = _provider(handler).research(AAPL)
+        assert report.status is ResearchStatus.COMPLETED
+        assert report.citations == ()
+
+
+class TestAusweichmodell:
+    def test_bei_anbieterfehler_wird_das_ausweichmodell_versucht(self) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            calls.append(str(body["model"]))
+            if len(calls) == 1:
+                return httpx.Response(
+                    401,
+                    json={
+                        "type": "error",
+                        "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+                    },
+                )
+            return _json_response(_message([_submit_block()]))
+
+        provider = AnthropicResearchProvider(
+            api_key="test-key",
+            model="claude-sonnet-5",
+            fallback_model="claude-haiku-4-5-20251001",
+            max_searches=5,
+            max_fetches=5,
+            allowed_domains=(),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        report = provider.research(AAPL)
+
+        assert report.status is ResearchStatus.COMPLETED
+        assert report.model == "claude-haiku-4-5-20251001"
+        assert calls == ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
+
+    def test_ohne_konfiguriertes_ausweichmodell_wird_direkt_ein_fehler_geworfen(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                401,
+                json={
+                    "type": "error",
+                    "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+                },
+            )
+
+        with pytest.raises(ResearchProviderError, match="AAPL"):
+            _provider(handler).research(AAPL)
+
+    def test_scheitert_auch_das_ausweichmodell_wird_ein_fehler_geworfen(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                401,
+                json={
+                    "type": "error",
+                    "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+                },
+            )
+
+        provider = AnthropicResearchProvider(
+            api_key="test-key",
+            model="claude-sonnet-5",
+            fallback_model="claude-haiku-4-5-20251001",
+            max_searches=5,
+            max_fetches=5,
+            allowed_domains=(),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        with pytest.raises(ResearchProviderError, match="Ausweichmodell"):
+            provider.research(AAPL)
+
+
+class TestDokumentTitelKollision:
+    def test_erstes_dokument_gewinnt_bei_gleichem_titel(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        _web_fetch_result("https://sec.gov/erstes-filing", "10-Q"),
+                        _web_fetch_result("https://sec.gov/zweites-filing", "10-Q"),
+                        _text_with_char_location_citation("10-Q"),
+                        _submit_block(),
+                    ]
+                )
+            )
+
+        report = _provider(handler).research(AAPL)
+        assert len(report.citations) == 1
+        assert report.citations[0].url == "https://sec.gov/erstes-filing"

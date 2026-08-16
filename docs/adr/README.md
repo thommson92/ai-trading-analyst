@@ -55,6 +55,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
 | [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen |
 | [0021](0021-ki-anbindung-anthropic-api.md) | KI-Anbindung — Anthropic API mit Modellprofilen je Analyseaufgabe | Angenommen |
+| [0022](0022-research-agent-zitierarchitektur.md) | Research Agent — Zitierarchitektur | Angenommen |
 
 ## Offene Entscheidungen
 

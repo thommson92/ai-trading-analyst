@@ -37,9 +37,11 @@ _logger = get_logger(__name__)
 
 _PROMPT_VERSION = "research-v1"
 _SUBMIT_TOOL_NAME = "submit_research_report"
-_MAX_TURNS = 8
-"""Obergrenze der Gespraechsrunden (``pause_turn``-Fortsetzungen) -- verhindert
-eine Endlosschleife bei einem unerwarteten Anbieterverhalten."""
+_MAX_TURNS_SLACK = 2
+"""Zusaetzliche Gespraechsrunden ueber ``max_searches + max_fetches`` hinaus,
+um Runden ohne Werkzeugaufruf (z. B. reines Nachfragen des Modells) nicht
+sofort als Endlosschleife zu werten -- die eigentliche Obergrenze ist das
+konfigurierte Kostenbudget (ADR 0021), nicht diese Zahl selbst."""
 _MAX_TOKENS = 4096
 
 _PRIMARY_SOURCE_DOMAINS = ("sec.gov",)
@@ -118,23 +120,55 @@ class AnthropicResearchProvider(ResearchProvider):
         max_searches: int,
         max_fetches: int,
         allowed_domains: Sequence[str],
+        fallback_model: str | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
         self._client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
         self._model = model
+        self._fallback_model = fallback_model
         self._max_searches = max_searches
         self._max_fetches = max_fetches
         self._allowed_domains = tuple(allowed_domains)
+        self._max_turns = max_searches + max_fetches + _MAX_TURNS_SLACK
 
     def research(self, stock: Stock) -> ResearchReport:
         try:
-            return self._run(stock)
+            return self._attempt(stock, self._model)
         except anthropic.APIError as error:
+            if self._fallback_model is None:
+                raise ResearchProviderError(
+                    f"Research fuer '{stock.symbol}' konnte nicht abgerufen werden: {error}"
+                ) from error
+            _logger.warning(
+                "Research fuer %s mit Modell %s fehlgeschlagen (%s) -- "
+                "Versuch mit Ausweichmodell %s (ModelProfile.fallback_model)",
+                stock.symbol,
+                self._model,
+                error,
+                self._fallback_model,
+            )
+            try:
+                return self._attempt(stock, self._fallback_model)
+            except anthropic.APIError as fallback_error:
+                raise ResearchProviderError(
+                    f"Research fuer '{stock.symbol}' konnte auch mit Ausweichmodell "
+                    f"'{self._fallback_model}' nicht abgerufen werden: {fallback_error}"
+                ) from fallback_error
+
+    def _attempt(self, stock: Stock, model: str) -> ResearchReport:
+        # Fehler aus der eigenen Antwort-Auswertung (unerwartete Blockform
+        # einer zukuenftigen SDK-/API-Version) sind kein Anbieterausfall,
+        # sollen aber ebenso wenig als roher Python-Fehler bis in die
+        # Fehlerisolation je Aktie durchschlagen (Muster Finnhub-Adapter,
+        # CLAUDE.md: Research darf die technische Analyse nie blockieren).
+        try:
+            return self._run(stock, model)
+        except (AttributeError, KeyError, TypeError, ValueError) as error:
             raise ResearchProviderError(
-                f"Research fuer '{stock.symbol}' konnte nicht abgerufen werden: {error}"
+                f"'{stock.symbol}': unerwartete Anbieterantwort ({error!r})"
             ) from error
 
-    def _run(self, stock: Stock) -> ResearchReport:
+    def _run(self, stock: Stock, model: str) -> ResearchReport:
         messages: list[dict[str, Any]] = [
             {"role": "user", "content": self._build_user_prompt(stock)}
         ]
@@ -143,14 +177,14 @@ class AnthropicResearchProvider(ResearchProvider):
         citations: list[Citation] = []
         evaluated_at = datetime.now(UTC)
 
-        for _ in range(_MAX_TURNS):
+        for _ in range(self._max_turns):
             # Rohe Dicts statt der SDK-eigenen, nach Werkzeugversion benannten
             # TypedDicts (z. B. "WebSearchTool20250305Param") -- genau das Muster
             # aus Anthropics eigener Dokumentation. Die Versionsangabe steckt im
             # "type"-Feld, nicht im Python-Typ; ein Import wuerde an jede neue
             # Werkzeugversion binden, ohne einen Laufzeitvorteil zu bringen.
             response = self._client.messages.create(
-                model=self._model,
+                model=model,
                 max_tokens=_MAX_TOKENS,
                 system=_SYSTEM_PROMPT,
                 messages=messages,  # type: ignore[arg-type]
@@ -164,7 +198,7 @@ class AnthropicResearchProvider(ResearchProvider):
 
             submit_input = self._find_submit_call(response.content)
             if submit_input is not None:
-                return self._build_report(stock, submit_input, citations, evaluated_at)
+                return self._build_report(stock, submit_input, citations, evaluated_at, model)
 
             if response.stop_reason == "pause_turn":
                 messages.append(
@@ -182,7 +216,7 @@ class AnthropicResearchProvider(ResearchProvider):
 
         raise ResearchProviderError(
             f"'{stock.symbol}': zu viele Gespraechsrunden ohne Abschluss ueber "
-            f"'{_SUBMIT_TOOL_NAME}' (Limit {_MAX_TURNS})"
+            f"'{_SUBMIT_TOOL_NAME}' (Limit {self._max_turns})"
         )
 
     def _build_user_prompt(self, stock: Stock) -> str:
@@ -217,7 +251,11 @@ class AnthropicResearchProvider(ResearchProvider):
                 continue
             title = block.content.content.title
             if title:
-                fetched_documents[title] = block.content.url
+                # setdefault statt Ueberschreiben: zwei Dokumente mit
+                # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings) sollen
+                # nicht dazu fuehren, dass ein spaeterer Fund die URL eines
+                # frueher zitierten Dokuments verdraengt.
+                fetched_documents.setdefault(title, block.content.url)
 
     def _extract_citations(
         self,
@@ -234,7 +272,7 @@ class AnthropicResearchProvider(ResearchProvider):
                     results.append(
                         Citation(
                             url=citation.url,
-                            title=citation.title,
+                            title=citation.title or citation.url,
                             retrieved_at=retrieved_at,
                             cited_text=citation.cited_text,
                             license_class=_classify_license(citation.url),
@@ -263,6 +301,14 @@ class AnthropicResearchProvider(ResearchProvider):
                             transformation="zusammengefasst",
                         )
                     )
+                else:
+                    # Weitere Zitat-Typen der Anthropic-API (z. B.
+                    # page_location bei per web_fetch geladenen PDFs)
+                    # sind bisher nicht abgedeckt -- statt sie unbemerkt
+                    # zu verlieren, wird das sichtbar geloggt (Quellenbindung).
+                    _logger.warning(
+                        "Unbekannter Zitat-Typ uebersprungen: %s", citation.type
+                    )
         return results
 
     def _find_submit_call(self, content: Iterable[Any]) -> dict[str, Any] | None:
@@ -278,6 +324,7 @@ class AnthropicResearchProvider(ResearchProvider):
         submit_input: dict[str, Any],
         citations: list[Citation],
         evaluated_at: datetime,
+        model: str,
     ) -> ResearchReport:
         try:
             status = ResearchStatus(submit_input["status"])
@@ -302,7 +349,7 @@ class AnthropicResearchProvider(ResearchProvider):
         return ResearchReport(
             status=status,
             evaluated_at=evaluated_at,
-            model=self._model,
+            model=model,
             prompt_version=_PROMPT_VERSION,
             summary=submit_input.get("summary"),
             positive_factors=tuple(submit_input.get("positive_factors") or ()),

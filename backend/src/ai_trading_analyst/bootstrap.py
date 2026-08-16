@@ -200,6 +200,7 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
     return AnthropicResearchProvider(
         api_key=secrets.require("llm_api_key"),
         model=config.llm.research.model,
+        fallback_model=config.llm.research.fallback_model,
         max_searches=config.research.max_searches,
         max_fetches=config.research.max_fetches,
         allowed_domains=config.research.allowed_domains,
