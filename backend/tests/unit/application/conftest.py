@@ -21,6 +21,7 @@ from ai_trading_analyst.domain.analysis import (
     IntradayBarRepository,
     MarketDataProviderError,
     ProcessingErrorRepository,
+    ResearchProviderError,
     ScreeningResultRepository,
     Stock,
     StockProcessingError,
@@ -29,6 +30,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
@@ -128,6 +130,28 @@ class FakeEarningsProvider:
         if stock.symbol in self._error_symbols:
             raise EarningsProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
         return self._next_by_symbol.get(stock.symbol)
+
+
+class FakeResearchProvider:
+    """Liefert standardmaessig einen kanonischen ``COMPLETED``-Bericht;
+    ``error_symbols`` loest ``ResearchProviderError`` aus (Muster
+    ``FakeEarningsProvider``)."""
+
+    def __init__(self, error_symbols: frozenset[str] = frozenset()) -> None:
+        self._error_symbols = error_symbols
+        self.calls: list[str] = []
+
+    def research(self, stock: Stock) -> ResearchReport:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self._error_symbols:
+            raise ResearchProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        return ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="fake-model",
+            prompt_version="fake-v1",
+            summary=f"Fake-Recherche fuer {stock.symbol}",
+        )
 
 
 class FakeStockRepository:

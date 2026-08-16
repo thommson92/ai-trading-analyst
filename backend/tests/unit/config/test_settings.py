@@ -18,6 +18,7 @@ from ai_trading_analyst.config import (
     MarketConfig,
     MissingSecretError,
     ModelProfile,
+    ResearchConfig,
     Secrets,
 )
 from ai_trading_analyst.config.settings import project_env_file
@@ -92,6 +93,23 @@ class TestLlmConfig:
 
     def test_fallback_ist_standardmaessig_nicht_gesetzt(self) -> None:
         assert ModelProfile(model="claude-sonnet-5").fallback_model is None
+
+
+class TestResearchConfig:
+    def test_default_provider_ist_fixture(self) -> None:
+        """Wie bei EarningsFilterConfig: Start und Tests ohne Anthropic-Zugang."""
+        assert ResearchConfig().provider == "fixture"
+
+    def test_default_allowlist_enthaelt_sec_gov(self) -> None:
+        assert "sec.gov" in ResearchConfig().allowed_domains
+
+    def test_ein_unbekannter_anbieter_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValidationError):
+            ResearchConfig(provider="openai")
+
+    def test_eine_leere_allowlist_ist_erlaubt(self) -> None:
+        """Bewusst keine Einschraenkung -- aber nicht der ausgelieferte Standard."""
+        assert ResearchConfig(allowed_domains=()).allowed_domains == ()
 
 
 class TestDataAvailabilityConfig:

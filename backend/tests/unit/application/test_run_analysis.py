@@ -18,12 +18,14 @@ from ai_trading_analyst.domain.earnings import (
     EarningsFilterStatus,
     NextEarningsDate,
 )
+from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeEarningsProvider,
     FakeMarketDataProvider,
     FakeProcessingErrorRepository,
+    FakeResearchProvider,
     FakeScreeningResultRepository,
     FakeStockRepository,
     FakeUnitOfWork,
@@ -43,6 +45,7 @@ _SERIES_LENGTH = 11
 def _build_use_case(
     provider: FakeMarketDataProvider,
     earnings_provider: FakeEarningsProvider | None = None,
+    research_provider: FakeResearchProvider | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -62,6 +65,7 @@ def _build_use_case(
     use_case = RunAnalysisUseCase(
         provider,
         earnings_provider or FakeEarningsProvider(),
+        research_provider or FakeResearchProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -265,6 +269,81 @@ class TestEarningsFilter:
         assert earnings is not None
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "invalid_data"
+
+
+class TestResearch:
+    _EARNINGS_CLEAR = NextEarningsDate(
+        date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
+    )
+    """Weit genug in der Zukunft, um bei configured_exclusion_candles=20
+    EARNINGS_CLEAR zu ergeben."""
+
+    def test_laeuft_nur_wenn_earnings_clear_ist(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(next_by_symbol={"CAND": self._EARNINGS_CLEAR})
+        research_provider = FakeResearchProvider()
+        use_case, *_ = _build_use_case(provider, earnings_provider, research_provider)
+
+        summary = use_case.execute()
+
+        earnings = summary.outcomes[0].earnings
+        assert earnings is not None
+        assert earnings.status is EarningsFilterStatus.EARNINGS_CLEAR
+        assert research_provider.calls == ["CAND"]
+        research = summary.outcomes[0].research
+        assert research is not None
+        assert research.status is ResearchStatus.COMPLETED
+
+    def test_laeuft_nicht_wenn_earnings_nicht_clear_ist(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        research_provider = FakeResearchProvider()
+        # Standard-FakeEarningsProvider() -> keine Abdeckung -> UNKNOWN.
+        use_case, *_ = _build_use_case(provider, FakeEarningsProvider(), research_provider)
+
+        summary = use_case.execute()
+
+        assert research_provider.calls == []
+        assert summary.outcomes[0].research is None
+
+    def test_laeuft_nicht_fuer_nicht_kandidaten(self) -> None:
+        stock = make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        research_provider = FakeResearchProvider()
+        use_case, *_ = _build_use_case(provider, FakeEarningsProvider(), research_provider)
+
+        use_case.execute()
+
+        assert research_provider.calls == []
+
+    def test_providerausfall_ergibt_unavailable_und_bleibt_kein_processing_error(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(next_by_symbol={"CAND": self._EARNINGS_CLEAR})
+        research_provider = FakeResearchProvider(error_symbols=frozenset({"CAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            provider, earnings_provider, research_provider
+        )
+
+        summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert not summary.errors
+        assert not errors_repo.added
+        research = summary.outcomes[0].research
+        assert research is not None
+        assert research.status is ResearchStatus.UNAVAILABLE
+        assert research.reason == "provider_error"
 
 
 class TestVollstaendigesScheiternAllerAktien:

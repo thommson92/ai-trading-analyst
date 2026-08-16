@@ -18,6 +18,7 @@ from datetime import date
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
+from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     CandleSeries,
@@ -27,6 +28,7 @@ from ai_trading_analyst.infrastructure.fixtures.earnings_provider import Fixture
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 
 UowFactory = Callable[[], SqlAlchemyUnitOfWork]
@@ -55,7 +57,12 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
 ) -> None:
     earnings_provider = FixtureEarningsProvider(reference_date=lambda: _FIXTURE_DECISION_DATE)
     use_case = RunAnalysisUseCase(
-        FixtureMarketDataProvider(), earnings_provider, uow_factory, _PARAMS, _EARNINGS_PARAMS
+        FixtureMarketDataProvider(),
+        earnings_provider,
+        FixtureResearchProvider(),
+        uow_factory,
+        _PARAMS,
+        _EARNINGS_PARAMS,
     )
 
     summary = use_case.execute()
@@ -80,6 +87,15 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
     assert earnings_by_symbol["FIXNOCAND"] is None
     assert earnings_by_symbol["FIXINCOMPLETE"] is None
 
+    # Research laeuft nur, wenn zusaetzlich EARNINGS_CLEAR ist (Doc 10, Paragraph 6.7).
+    research_by_symbol = {o.stock.symbol: o.research for o in summary.outcomes}
+    fixcand_research = research_by_symbol["FIXCAND"]
+    assert fixcand_research is not None
+    assert fixcand_research.status is ResearchStatus.COMPLETED
+    assert fixcand_research.citations
+    assert research_by_symbol["FIXNOCAND"] is None
+    assert research_by_symbol["FIXINCOMPLETE"] is None
+
     with uow_factory() as uow:
         persisted_outcomes = uow.screening_results.list_for_run(summary.run.id)
         persisted_errors = uow.processing_errors.list_for_run(summary.run.id)
@@ -91,6 +107,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
 
     persisted_fixcand = next(o for o in persisted_outcomes if o.stock.symbol == "FIXCAND")
     assert persisted_fixcand.earnings == fixcand_earnings
+    assert persisted_fixcand.research == fixcand_research
 
 
 def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persistiert(
@@ -99,6 +116,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
     use_case = RunAnalysisUseCase(
         _AlwaysFailingMarketDataProvider(),
         FixtureEarningsProvider(),
+        FixtureResearchProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
