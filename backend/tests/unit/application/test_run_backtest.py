@@ -27,7 +27,11 @@ CANDIDATE_PARAMS = CandidateRuleParameters(
     required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 BACKTEST_PARAMS = BacktestParameters(
-    horizons=(5,), cooldown_candles=5, minimum_sample_size=1, normal_confidence_sample_size=1
+    horizons=(5,),
+    cooldown_candles=5,
+    minimum_sample_size=1,
+    normal_confidence_sample_size=1,
+    history_years=5,
 )
 SERIES_LENGTH = 20
 

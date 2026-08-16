@@ -231,6 +231,7 @@ class TestBacktestParameter:
             params.normal_confidence_sample_size
             == config.backtesting.normal_confidence_sample_size
         )
+        assert params.history_years == config.backtesting.history_years
 
 
 class TestKonfigurationspruefung:

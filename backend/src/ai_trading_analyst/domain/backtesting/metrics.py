@@ -10,8 +10,8 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
-from itertools import chain, combinations
+from datetime import datetime, timedelta
+from itertools import combinations
 from uuid import UUID
 
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, CandleSeries, SignalType
@@ -25,12 +25,40 @@ from .values import (
     SignalCombination,
 )
 
-_QUALIFYING_COMBINATIONS: tuple[SignalCombination, ...] = tuple(
-    frozenset(combo)
-    for combo in chain(combinations(SignalType, 2), combinations(SignalType, 3))
-)
-"""Alle Signalkombinationen, die die 2-aus-3-Regel erfuellen koennen
-(G1-Pruefvorlage Abschnitt 4.3): jedes Zweier- und das Dreier-Paar."""
+_DAYS_PER_YEAR = 365
+
+
+def _qualifying_combinations(required_signal_count: int) -> tuple[SignalCombination, ...]:
+    """Alle Signalkombinationen, die die konfigurierte Qualifikationsregel
+    erfuellen koennen (G1-Pruefvorlage Abschnitt 4.3).
+
+    ``evaluate_candidate`` fordert ``len(fired_types) >= required_signal_count``
+    -- qualifizierend sind deshalb alle Teilmengen von ``SignalType`` mit
+    mindestens dieser Groesse, nicht nur die mit exakt dieser Groesse. Bei
+    ``required_signal_count=2`` und drei Signaltypen sind das die drei
+    Zweier- und das eine Dreier-Kombination.
+    """
+    all_types = tuple(SignalType)
+    return tuple(
+        frozenset(combo)
+        for size in range(required_signal_count, len(all_types) + 1)
+        for combo in combinations(all_types, size)
+    )
+
+
+def _truncate_to_recent_history(
+    series: CandleSeries, history_years: int, evaluated_at: datetime
+) -> CandleSeries:
+    """Blendet Kerzen vor dem konfigurierten Historienfenster aus (Doc 10,
+    Paragraph 6.6) -- aeltere gespeicherte Kerzen fliessen nicht in den
+    Replay ein."""
+    cutoff = evaluated_at - timedelta(days=_DAYS_PER_YEAR * history_years)
+    start_index = next(
+        (i for i in range(len(series)) if series.candle(i).timestamp >= cutoff), len(series)
+    )
+    return CandleSeries(
+        candles=series.candles[start_index:], indicators=series.indicators[start_index:]
+    )
 
 
 def group_by_combination(
@@ -131,9 +159,16 @@ def compute_backtest_results(
 ) -> tuple[BacktestResult, ...]:
     """Replay, Deduplizierung, Gruppierung und Kennzahlen fuer eine Aktie.
 
-    Liefert immer alle vier moeglichen Signalkombinationen, auch mit null
+    Liefert immer alle moeglichen Signalkombinationen, auch mit null
     Ereignissen -- kein stillschweigendes Weglassen (Projektkonvention).
     """
+    series = _truncate_to_recent_history(series, backtest_params.history_years, evaluated_at)
+    if len(series) == 0:
+        raise ValueError(
+            f"Keine einzige gespeicherte Kerze innerhalb der letzten "
+            f"{backtest_params.history_years} Jahre -- kein Backtest moeglich."
+        )
+
     raw_decisions = find_historical_decisions(series, candidate_params)
     dedup_decisions = deduplicate_with_cooldown(raw_decisions, backtest_params.cooldown_candles)
 
@@ -143,8 +178,9 @@ def compute_backtest_results(
     history_start = series.candle(0).timestamp
     history_end = series.candle(len(series) - 1).timestamp
 
+    qualifying_combinations = _qualifying_combinations(candidate_params.required_signal_count)
     results = []
-    for combination in _QUALIFYING_COMBINATIONS:
+    for combination in qualifying_combinations:
         raw_indices = raw_by_combination.get(combination, ())
         dedup_indices = dedup_by_combination.get(combination, ())
         horizons = tuple(

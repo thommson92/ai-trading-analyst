@@ -191,6 +191,7 @@ def build_backtest_params(config: AppConfig) -> BacktestParameters:
         cooldown_candles=config.backtesting.cooldown_candles,
         minimum_sample_size=config.backtesting.minimum_sample_size,
         normal_confidence_sample_size=config.backtesting.normal_confidence_sample_size,
+        history_years=config.backtesting.history_years,
     )
 
 

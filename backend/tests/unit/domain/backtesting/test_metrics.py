@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
+
+import pytest
 
 from ai_trading_analyst.domain.backtesting.metrics import (
     compute_backtest_results,
@@ -18,7 +20,11 @@ from .conftest import make_series
 
 COMBO = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
 PERMISSIVE_PARAMS = BacktestParameters(
-    horizons=(5,), cooldown_candles=5, minimum_sample_size=1, normal_confidence_sample_size=1
+    horizons=(5,),
+    cooldown_candles=5,
+    minimum_sample_size=1,
+    normal_confidence_sample_size=1,
+    history_years=5,
 )
 
 
@@ -97,6 +103,7 @@ class TestKonfidenzstufen:
             cooldown_candles=5,
             minimum_sample_size=11,
             normal_confidence_sample_size=20,
+            history_years=5,
         )
         metrics = compute_horizon_metrics(
             self.SERIES, self.INDICES, raw_event_count=10, horizon=1, params=params
@@ -110,6 +117,7 @@ class TestKonfidenzstufen:
             cooldown_candles=5,
             minimum_sample_size=5,
             normal_confidence_sample_size=20,
+            history_years=5,
         )
         metrics = compute_horizon_metrics(
             self.SERIES, self.INDICES, raw_event_count=10, horizon=1, params=params
@@ -123,6 +131,7 @@ class TestKonfidenzstufen:
             cooldown_candles=5,
             minimum_sample_size=5,
             normal_confidence_sample_size=10,
+            history_years=5,
         )
         metrics = compute_horizon_metrics(
             self.SERIES, self.INDICES, raw_event_count=10, horizon=1, params=params
@@ -147,6 +156,7 @@ class TestVollstaendigeBerechnung:
             cooldown_candles=5,
             minimum_sample_size=10,
             normal_confidence_sample_size=30,
+            history_years=5,
         )
         candidate_params = CandidateRuleParameters(
             required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
@@ -166,3 +176,77 @@ class TestVollstaendigeBerechnung:
             for result in results
             for horizon in result.horizons
         )
+
+    def test_anzahl_der_kombinationen_folgt_required_signal_count(self) -> None:
+        """Bei required_signal_count=3 qualifiziert nur noch die eine
+        Dreier-Kombination -- nicht mehr die drei Zweier-Kombinationen aus
+        dem Standardfall (G1-Pruefvorlage Abschnitt 4.3)."""
+        series = make_series(20)
+        params = BacktestParameters(
+            horizons=(5,),
+            cooldown_candles=5,
+            minimum_sample_size=10,
+            normal_confidence_sample_size=30,
+            history_years=5,
+        )
+        candidate_params = CandidateRuleParameters(
+            required_signal_count=3, signal_lookback_previous_candles=5, warmup_candles=10
+        )
+        results = compute_backtest_results(
+            series,
+            stock_id=uuid.uuid4(),
+            candidate_params=candidate_params,
+            backtest_params=params,
+            signal_rule_version="test-version",
+            evaluated_at=datetime.now(UTC),
+        )
+        assert len(results) == 1
+        assert results[0].signal_types == frozenset(SignalType)
+
+
+class TestHistorienfenster:
+    CANDIDATE_PARAMS = CandidateRuleParameters(
+        required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+    )
+
+    def test_kerzen_vor_dem_cutoff_werden_nicht_repliziert(self) -> None:
+        series = make_series(40)
+        cutoff_reference = series.candle(20).timestamp
+        evaluated_at = cutoff_reference + timedelta(days=365)
+        params = BacktestParameters(
+            horizons=(5,),
+            cooldown_candles=5,
+            minimum_sample_size=10,
+            normal_confidence_sample_size=30,
+            history_years=1,
+        )
+        results = compute_backtest_results(
+            series,
+            stock_id=uuid.uuid4(),
+            candidate_params=self.CANDIDATE_PARAMS,
+            backtest_params=params,
+            signal_rule_version="test-version",
+            evaluated_at=evaluated_at,
+        )
+        assert results[0].history_start == cutoff_reference
+        assert results[0].history_end == series.candle(39).timestamp
+
+    def test_eine_serie_vollstaendig_ausserhalb_des_fensters_wirft_einen_fehler(self) -> None:
+        series = make_series(10)
+        evaluated_at = series.candle(0).timestamp + timedelta(days=3650)
+        params = BacktestParameters(
+            horizons=(5,),
+            cooldown_candles=5,
+            minimum_sample_size=10,
+            normal_confidence_sample_size=30,
+            history_years=1,
+        )
+        with pytest.raises(ValueError, match="innerhalb der letzten"):
+            compute_backtest_results(
+                series,
+                stock_id=uuid.uuid4(),
+                candidate_params=self.CANDIDATE_PARAMS,
+                backtest_params=params,
+                signal_rule_version="test-version",
+                evaluated_at=evaluated_at,
+            )

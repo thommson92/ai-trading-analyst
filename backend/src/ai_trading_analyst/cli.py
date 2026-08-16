@@ -538,24 +538,20 @@ def _format_combination(signal_types: frozenset[SignalType]) -> str:
     return "+".join(sorted(signal_type.value for signal_type in signal_types))
 
 
-def _print_backtest_result(stock: StockBacktest, details: bool) -> None:
-    if stock.failed:
-        print(f"{stock.symbol}: FEHLER -- {stock.error}")
-        return
-
+def _print_backtest_summary(stock: StockBacktest) -> None:
     auswertbar = sum(
         1
         for result in stock.results
         for horizon in result.horizons
         if horizon.confidence is not BacktestConfidence.INSUFFICIENT_DATA
     )
-    if not details:
-        print(
-            f"{stock.symbol}: {auswertbar} auswertbare Horizonte "
-            f"von {len(stock.results)} Kombinationen"
-        )
-        return
+    print(
+        f"{stock.symbol}: {auswertbar} auswertbare Horizonte "
+        f"von {len(stock.results)} Kombinationen"
+    )
 
+
+def _print_backtest_details(stock: StockBacktest) -> None:
     print(f"{stock.symbol}:")
     for result in stock.results:
         print(f"  {_format_combination(result.signal_types)}")
@@ -568,11 +564,23 @@ def _print_backtest_result(stock: StockBacktest, details: bool) -> None:
                 continue
             assert horizon.hit_rate is not None
             assert horizon.median_return is not None
+            assert horizon.held_above_entry_rate is not None
             print(
                 f"    {horizon.horizon:>3} Kerzen: Trefferquote {horizon.hit_rate:.0%}, "
+                f"dauerhaft oberhalb {horizon.held_above_entry_rate:.0%}, "
                 f"Median {horizon.median_return:+.2%}, n={horizon.deduplicated_event_count} "
                 f"({horizon.confidence.value})"
             )
+
+
+def _print_backtest_result(stock: StockBacktest, details: bool) -> None:
+    if stock.failed:
+        print(f"{stock.symbol}: FEHLER -- {stock.error}")
+        return
+    if details:
+        _print_backtest_details(stock)
+    else:
+        _print_backtest_summary(stock)
 
 
 def command_backtest(args: argparse.Namespace) -> int:
@@ -586,7 +594,26 @@ def command_backtest(args: argparse.Namespace) -> int:
     indicators = config.require_indicators()
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
-    market_data = config.market_data.model_copy(update={"provider": "ibkr", "source": "stored"})
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        # Anders als 'source' (unten) wird 'provider' nicht stillschweigend
+        # uebersteuert: Ein Backtest gegen den Fixture-Anbieter wuerde
+        # Aktien-IDs aus einem anderen UUID-Namensraum verwenden als der
+        # IBKR-Bestand -- die Fremdschluesselbeziehung auf 'stocks' schluege
+        # dann erst beim Speichern fehl, weit weg von dieser Meldung.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Backtest braucht den ueber IBKR "
+            "gefuellten Bestand -- entweder market_data.provider auf 'ibkr' stellen "
+            "oder zuerst 'backfill' laufen lassen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    market_data = config.market_data.model_copy(update={"source": "stored"})
     config = config.model_copy(update={"market_data": market_data})
 
     engine = _open_database()
@@ -614,6 +641,15 @@ def command_backtest(args: argparse.Namespace) -> int:
                 symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()
             }
             stocks = [stock for stock in stocks if stock.symbol in wanted]
+            fehlend = wanted - {stock.symbol for stock in stocks}
+            if fehlend:
+                # Nicht in der Watchlist gefunden ist etwas anderes als ein
+                # Tippfehler ganz ohne Treffer -- beides soll aber sichtbar
+                # sein, nicht nur die Aktien, die zufaellig passten.
+                print(
+                    f"Nicht in der Watchlist gefunden: {', '.join(sorted(fehlend))}",
+                    file=sys.stderr,
+                )
             if not stocks:
                 print(
                     f"--symbols enthaelt kein bekanntes Symbol: '{args.symbols}'", file=sys.stderr
@@ -761,6 +797,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Historische Signalpruefung ueber den gespeicherten Bestand (Doc 07).",
     )
     backtest.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider nur fuer diesen Lauf. Der Backtest "
+            "braucht 'ibkr' -- ohne laufende TWS, aber mit gefuelltem Bestand."
+        ),
+    )
+    backtest.add_argument(
         "--symbols",
         default=None,
         help="Kommagetrennte Symbole statt der Watchlist -- fuer eine gezielte Einzelpruefung.",
@@ -774,7 +819,7 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument(
         "--details",
         action="store_true",
-        help="Zeigt je Aktie alle vier Signalkombinationen und Horizonte einzeln.",
+        help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
     return parser

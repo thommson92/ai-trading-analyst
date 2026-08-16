@@ -76,3 +76,6 @@ class BacktestParameters:
     cooldown_candles: int
     minimum_sample_size: int
     normal_confidence_sample_size: int
+    history_years: int
+    """Wie viele Jahre vor ``evaluated_at`` repliziert werden -- aeltere
+    gespeicherte Kerzen bleiben unberuecksichtigt (Doc 10, Paragraph 6.6)."""
