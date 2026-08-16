@@ -54,6 +54,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
 | [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen |
+| [0021](0021-ki-anbindung-vorschlag.md) | KI-Anbindung — Konfigurationsmechanik vorgeschlagen, Anbieterwahl offen | Vorgeschlagen (offener Punkt) |
 
 ## Offene Entscheidungen
 
@@ -89,5 +90,7 @@ ADR, sobald die nötigen Informationen vorliegen:
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
 - Benachrichtigungskanal (F10)
-- KI-Anbieter und Modellprofile (F11)
+- KI-Anbieter und Modellprofile (F11) — Konfigurationsmechanik in
+  [ADR 0021](0021-ki-anbindung-vorschlag.md) vorgeschlagen, Anbieter-/
+  Modellwahl selbst noch offen (Kosten-/Vertragsentscheidung).
 - Externer Zugriff auf das Dashboard (F12)
