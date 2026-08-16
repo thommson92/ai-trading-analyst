@@ -11,14 +11,15 @@ muessen.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ai_trading_analyst.domain.analysis import RunStatus
+from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 
 
@@ -98,6 +99,22 @@ class ScreeningResultOrm(Base):
     decision_candle_index: Mapped[int]
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     signal_rule_version: Mapped[str]
+
+    # Earnings-Filter (Doc 10, Paragraph 6.5; ADR 0020) -- nur bei CANDIDATE
+    # gesetzt, sonst durchgehend NULL. Eigene Spalten statt einer eigenen
+    # Tabelle: die Entscheidung wird einmal je Lauf und Aktie berechnet, nie
+    # unabhaengig vom Screening-Ergebnis abgefragt (wie reason/affected_index
+    # oben).
+    earnings_status: Mapped[EarningsFilterStatus | None] = mapped_column(
+        _enum_column(EarningsFilterStatus), nullable=True
+    )
+    earnings_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    earnings_next_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    earnings_candles_until: Mapped[int | None] = mapped_column(nullable=True)
+    earnings_source: Mapped[str | None] = mapped_column(nullable=True)
+    earnings_reason: Mapped[str | None] = mapped_column(nullable=True)
 
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(

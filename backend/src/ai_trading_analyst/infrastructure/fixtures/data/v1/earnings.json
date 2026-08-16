@@ -1,0 +1,20 @@
+{
+  "stocks": [
+    {
+      "symbol": "FIXCAND",
+      "trading_days_offset": 45
+    },
+    {
+      "symbol": "EARNEXCLUDED",
+      "trading_days_offset": 2
+    },
+    {
+      "symbol": "EARNCLEAR",
+      "trading_days_offset": 30
+    },
+    {
+      "symbol": "EARNERROR",
+      "error_message": "Simulierter Providerfehler."
+    }
+  ]
+}

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.screening import ScreeningResult
 
 
@@ -69,6 +70,10 @@ class StockScreeningOutcome:
     decision_candle_index: int
     evaluated_at: datetime
     signal_rule_version: str
+    earnings: EarningsFilterResult | None = None
+    """Nur bei ``ScreeningStatus.CANDIDATE`` gesetzt -- der Earnings-Filter
+    laeuft ausschliesslich fuer bereits qualifizierte Kandidaten (Doc 10,
+    Paragraph 6.5)."""
 
 
 @dataclass(frozen=True, slots=True)

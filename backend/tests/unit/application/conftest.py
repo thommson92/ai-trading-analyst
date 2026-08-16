@@ -16,6 +16,7 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    EarningsProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
     ProcessingErrorRepository,
@@ -25,6 +26,7 @@ from ai_trading_analyst.domain.analysis import (
     StockRepository,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
@@ -104,6 +106,26 @@ class FakeMarketDataProvider:
         if stock.symbol in self._error_symbols:
             raise MarketDataProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
         return self._series_by_symbol[stock.symbol]
+
+
+class FakeEarningsProvider:
+    """Erwartet keine echte Abdeckung -- ``next_by_symbol`` haelt explizit
+    hinterlegte Termine, alles andere ergibt ``None`` (keine Abdeckung)."""
+
+    def __init__(
+        self,
+        next_by_symbol: dict[str, NextEarningsDate] | None = None,
+        error_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._next_by_symbol = next_by_symbol or {}
+        self._error_symbols = error_symbols
+        self.calls: list[str] = []
+
+    def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self._error_symbols:
+            raise EarningsProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        return self._next_by_symbol.get(stock.symbol)
 
 
 class FakeStockRepository:
