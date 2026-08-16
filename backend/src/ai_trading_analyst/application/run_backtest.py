@@ -8,7 +8,7 @@ den Lauf.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -61,9 +61,11 @@ class BacktestUseCase:
         self._backtest_params = backtest_params
         self._now = now
 
-    def execute(self) -> BacktestReport:
-        stocks = self._market_data_provider.list_stocks()
-        return BacktestReport(stocks=tuple(self._backtest_one(stock) for stock in stocks))
+    def execute(self, stocks: Sequence[Stock] | None = None) -> BacktestReport:
+        """``stocks`` uebersteuert die volle Watchlist -- fuer einen gezielten
+        Einzelabruf ueber die Kommandozeile, nicht fuer den regulaeren Lauf."""
+        selected = stocks if stocks is not None else self._market_data_provider.list_stocks()
+        return BacktestReport(stocks=tuple(self._backtest_one(stock) for stock in selected))
 
     def _backtest_one(self, stock: Stock) -> StockBacktest:
         try:

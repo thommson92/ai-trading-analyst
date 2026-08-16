@@ -25,6 +25,7 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
@@ -181,6 +182,15 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     return EarningsFilterParameters(
         configured_exclusion_candles=config.earnings_filter.configured_exclusion_candles,
         candles_per_day=build_session_parameters(config).candles_per_day,
+    )
+
+
+def build_backtest_params(config: AppConfig) -> BacktestParameters:
+    return BacktestParameters(
+        horizons=config.backtesting.horizons,
+        cooldown_candles=config.backtesting.cooldown_candles,
+        minimum_sample_size=config.backtesting.minimum_sample_size,
+        normal_confidence_sample_size=config.backtesting.normal_confidence_sample_size,
     )
 
 

@@ -40,7 +40,9 @@ from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
     SymbolBackfill,
 )
+from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
 from ai_trading_analyst.bootstrap import (
+    build_backtest_params,
     build_ibkr_bar_source,
     build_market_data_provider,
     project_root,
@@ -53,10 +55,12 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
     ScreeningStatus,
+    SignalType,
     evaluate_candidate,
 )
 from ai_trading_analyst.infrastructure.ibkr import (
@@ -530,6 +534,113 @@ def command_screen(args: argparse.Namespace) -> int:
     return 1 if any(outcome.error is not None for outcome in outcomes) else 0
 
 
+def _format_combination(signal_types: frozenset[SignalType]) -> str:
+    return "+".join(sorted(signal_type.value for signal_type in signal_types))
+
+
+def _print_backtest_result(stock: StockBacktest, details: bool) -> None:
+    if stock.failed:
+        print(f"{stock.symbol}: FEHLER -- {stock.error}")
+        return
+
+    auswertbar = sum(
+        1
+        for result in stock.results
+        for horizon in result.horizons
+        if horizon.confidence is not BacktestConfidence.INSUFFICIENT_DATA
+    )
+    if not details:
+        print(
+            f"{stock.symbol}: {auswertbar} auswertbare Horizonte "
+            f"von {len(stock.results)} Kombinationen"
+        )
+        return
+
+    print(f"{stock.symbol}:")
+    for result in stock.results:
+        print(f"  {_format_combination(result.signal_types)}")
+        for horizon in result.horizons:
+            if horizon.confidence is BacktestConfidence.INSUFFICIENT_DATA:
+                print(
+                    f"    {horizon.horizon:>3} Kerzen: zu wenig Daten "
+                    f"({horizon.deduplicated_event_count} Ereignisse)"
+                )
+                continue
+            assert horizon.hit_rate is not None
+            assert horizon.median_return is not None
+            print(
+                f"    {horizon.horizon:>3} Kerzen: Trefferquote {horizon.hit_rate:.0%}, "
+                f"Median {horizon.median_return:+.2%}, n={horizon.deduplicated_event_count} "
+                f"({horizon.confidence.value})"
+            )
+
+
+def command_backtest(args: argparse.Namespace) -> int:
+    """Historische Signalpruefung ueber den gespeicherten Bestand.
+
+    Braucht immer den Bestand, nie die TWS -- ein Backtest ueber eine live
+    abgerufene Kerzenserie ergibt keinen Sinn (G1-Pruefvorlage Abschnitt 4).
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    indicators = config.require_indicators()
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    market_data = config.market_data.model_copy(update={"provider": "ibkr", "source": "stored"})
+    config = config.model_copy(update={"market_data": market_data})
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    provider = build_market_data_provider(
+        config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+    )
+    rule = CandidateRuleParameters(
+        required_signal_count=config.screening.required_signal_count,
+        signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
+        warmup_candles=indicators.warmup_candles,
+    )
+    backtest_params = build_backtest_params(config)
+
+    try:
+        stocks = list(provider.list_stocks())
+        if args.symbols is not None:
+            wanted = {
+                symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()
+            }
+            stocks = [stock for stock in stocks if stock.symbol in wanted]
+            if not stocks:
+                print(
+                    f"--symbols enthaelt kein bekanntes Symbol: '{args.symbols}'", file=sys.stderr
+                )
+                return 2
+        if args.limit is not None:
+            stocks = stocks[: args.limit]
+
+        print(f"{len(stocks)} Aktien aus dem gespeicherten Bestand -- ohne TWS\n")
+
+        use_case = BacktestUseCase(provider, uow_factory, rule, backtest_params)
+        started = datetime.now(UTC)
+        report = use_case.execute(stocks)
+    finally:
+        if isinstance(provider, IbkrMarketDataProvider):
+            provider.close()
+
+    for stock in report.stocks:
+        _print_backtest_result(stock, args.details)
+
+    dauer = (datetime.now(UTC) - started).total_seconds()
+    print(f"\n{len(report.stocks)} Aktien in {dauer:.0f} s, {len(report.failures)} Fehler")
+    if report.failures:
+        print(f"Fehlgeschlagen: {', '.join(item.symbol for item in report.failures)}")
+    return 1 if report.failures else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_trading_analyst.cli",
@@ -644,6 +755,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     backfill.set_defaults(handler=command_backfill)
+
+    backtest = subparsers.add_parser(
+        "backtest",
+        help="Historische Signalpruefung ueber den gespeicherten Bestand (Doc 07).",
+    )
+    backtest.add_argument(
+        "--symbols",
+        default=None,
+        help="Kommagetrennte Symbole statt der Watchlist -- fuer eine gezielte Einzelpruefung.",
+    )
+    backtest.add_argument(
+        "--limit",
+        type=_positive_count,
+        default=None,
+        help="Nur die ersten N Aktien der Watchlist.",
+    )
+    backtest.add_argument(
+        "--details",
+        action="store_true",
+        help="Zeigt je Aktie alle vier Signalkombinationen und Horizonte einzeln.",
+    )
+    backtest.set_defaults(handler=command_backtest)
     return parser
 
 
