@@ -1,10 +1,12 @@
 # Externe Quellen für den Research Agent
 
-Stand 2026-08-16. **Untersuchung, keine Entscheidung.** Dieses Dokument
-beantwortet die in [ADR 0021](../adr/0021-ki-anbindung-anthropic-api.md)
-offen gelassene Frage: Woher bekommt der Research Agent seine externen
-Inhalte (Doc 06: Nachrichten, Unternehmensmeldungen, Analystenberichte, SEC
-Informationen)? Wie bei
+Stand 2026-08-16. **Erledigt** — die Entscheidung steht in
+[ADR 0022](../adr/0022-research-agent-quellen.md). Dieses Dokument bleibt als
+Beleg erhalten: Es beantwortet die in
+[ADR 0021](../adr/0021-ki-anbindung-anthropic-api.md) offen gelassene Frage,
+woher der Research Agent seine externen Inhalte bezieht (Doc 06:
+Nachrichten, Unternehmensmeldungen, Analystenberichte, SEC Informationen).
+Wie bei
 [docs/requirements/earnings-anbieter-evaluation.md](earnings-anbieter-evaluation.md)
 und
 [docs/requirements/resc-lizenzpruefung.md](resc-lizenzpruefung.md) trennt
