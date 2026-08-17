@@ -17,6 +17,7 @@ import pytest
 from ai_trading_analyst.domain.analysis import ResearchProviderError, Stock
 from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
 from ai_trading_analyst.infrastructure.anthropic.provider import (
+    _SUBMIT_REPORT_TOOL,
     AnthropicResearchProvider,
     AnthropicResearchSettings,
 )
@@ -390,6 +391,19 @@ class TestFalschTypisierteWerkzeugantwort:
         schema = submit["input_schema"]
         assert isinstance(schema, dict)
         assert schema["additionalProperties"] is False
+
+    def test_schema_verwendet_nur_den_strict_teilmengen_wortschatz(self) -> None:
+        """Der strict-Subset lehnt einige JSON-Schema-Schluesselwoerter mit
+        einem 400 ab -- ``minimum``/``maximum`` haben genau das ausgeloest.
+        Wertebereiche gehoeren in die Beschreibung, durchgesetzt werden sie
+        im Adapter."""
+        nicht_unterstuetzt = {"minimum", "maximum", "minLength", "maxLength", "maxItems", "pattern"}
+        schema = _SUBMIT_REPORT_TOOL["input_schema"]
+        assert isinstance(schema, dict)
+        for name, definition in schema["properties"].items():
+            assert not nicht_unterstuetzt & set(definition), (
+                f"'{name}' verwendet ein im strict-Subset unzulaessiges Schluesselwort"
+            )
 
 
 class TestAbgeschnitteneAntwort:

@@ -116,7 +116,15 @@ _SUBMIT_REPORT_TOOL: dict[str, Any] = {
             "positive_factors": {"type": "array", "items": {"type": "string"}},
             "negative_factors": {"type": "array", "items": {"type": "string"}},
             "risks": {"type": "array", "items": {"type": "string"}},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            # Der strict-Schemasubset kennt "minimum"/"maximum" bei "number"
+            # nicht (400: "For 'number' type, properties maximum, minimum are
+            # not supported"). Die Grenze steht deshalb in der Beschreibung --
+            # durchgesetzt wird sie ohnehin im Adapter (_build_report), nicht
+            # vom Schema.
+            "confidence": {
+                "type": "number",
+                "description": "Wert zwischen 0 und 1 (einschliesslich).",
+            },
             "reason": {
                 "type": "string",
                 "description": "Nur bei status=INSUFFICIENT_DATA: kurze Begruendung.",
