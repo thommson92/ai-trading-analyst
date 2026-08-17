@@ -12,8 +12,27 @@ class DatabaseUnavailableError(RuntimeError):
     """Die Datenbank antwortet nicht oder weist die Anmeldung ab."""
 
 
+CONNECT_TIMEOUT_SECONDS = 5
+"""Obergrenze fuer den Verbindungsaufbau.
+
+Ohne sie wartet libpq, bis das Betriebssystem aufgibt -- und das ist keine
+verlaessliche Frist: Wird das SYN-Paket verworfen statt abgewiesen, haengt
+der Aufbau minutenlang oder unbegrenzt. Auf dem Windows-Server ist genau das
+mit einem geschlossenen Port passiert.
+
+Fuer den taeglichen Lauf waere das die schlechteste aller Antworten: Die
+Aufgabenplanung startet alle 15 Minuten erneut, und statt einer klaren
+Meldung stapelten sich wartende Prozesse. Fuenf Sekunden sind fuer eine
+Datenbank auf derselben Maschine reichlich.
+"""
+
+
 def build_engine(database_url: str) -> Engine:
-    return create_engine(database_url, future=True)
+    return create_engine(
+        database_url,
+        future=True,
+        connect_args={"connect_timeout": CONNECT_TIMEOUT_SECONDS},
+    )
 
 
 def build_session_factory(engine: Engine) -> sessionmaker[Session]:

@@ -8,17 +8,23 @@ Watchlist waeren es 192 gewesen.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from sqlalchemy.exc import OperationalError
 
 from ai_trading_analyst.infrastructure.persistence.session import (
+    CONNECT_TIMEOUT_SECONDS,
     DatabaseUnavailableError,
     build_engine,
     verify_connection,
 )
 
-# Port 1 nimmt nichts entgegen: Die Verbindung wird sofort abgewiesen, ohne
-# Zeitueberschreitung und ohne Namensaufloesung.
+# Port 1 nimmt nichts entgegen. Wie schnell das auffaellt, entscheidet aber
+# nicht dieser Test, sondern das Betriebssystem: Linux und macOS weisen die
+# Verbindung sofort ab, der Windows-Server verwirft das Paket stattdessen und
+# liess den Aufbau minutenlang haengen. Verlassen wird sich deshalb allein auf
+# die Frist aus ``build_engine``.
 GESCHLOSSENER_PORT = "postgresql+psycopg://ata:geheim@127.0.0.1:1/ata"
 
 
@@ -49,3 +55,18 @@ def test_die_urspruengliche_ausnahme_bleibt_erhalten() -> None:
         verify_connection(build_engine(GESCHLOSSENER_PORT))
 
     assert isinstance(fehler.value.__cause__, OperationalError)
+
+
+def test_der_versuch_gibt_nach_der_vereinbarten_frist_auf() -> None:
+    """Sonst haengt der taegliche Lauf, statt sich zu melden.
+
+    Der Aufbau muss von sich aus aufgeben, auch wenn das Betriebssystem das
+    Paket verwirft statt es abzuweisen -- ohne diese Frist hing der Aufruf auf
+    dem Windows-Server minutenlang, und die Aufgabenplanung haette alle 15
+    Minuten einen weiteren wartenden Prozess gestartet.
+    """
+    begonnen = time.monotonic()
+    with pytest.raises(DatabaseUnavailableError):
+        verify_connection(build_engine(GESCHLOSSENER_PORT))
+
+    assert time.monotonic() - begonnen < CONNECT_TIMEOUT_SECONDS + 2
