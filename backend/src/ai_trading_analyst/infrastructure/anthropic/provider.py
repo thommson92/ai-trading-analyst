@@ -219,6 +219,17 @@ class AnthropicResearchProvider(ResearchProvider):
                 )
                 continue
 
+            response_text = " ".join(
+                block.text for block in response.content if block.type == "text"
+            )
+            _logger.warning(
+                "'%s': Anthropic-Antwort endete ohne Aufruf von '%s' "
+                "(stop_reason=%s). Antworttext: %s",
+                stock.symbol,
+                _SUBMIT_TOOL_NAME,
+                response.stop_reason,
+                response_text or "(kein Textblock)",
+            )
             raise ResearchProviderError(
                 f"'{stock.symbol}': Anthropic-Antwort endete ohne Aufruf von "
                 f"'{_SUBMIT_TOOL_NAME}' (stop_reason={response.stop_reason})"
@@ -237,13 +248,16 @@ class AnthropicResearchProvider(ResearchProvider):
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:
+        # _20260209-Variante (dynamische Filterung serverseitig) statt der
+        # aelteren _20250305/_20250910-Basisversion -- fuer Sonnet 5 sowie
+        # Opus/Sonnet ab der 4.6-Generation verfuegbar, ohne Beta-Header.
         web_search: dict[str, Any] = {
-            "type": "web_search_20250305",
+            "type": "web_search_20260209",
             "name": "web_search",
             "max_uses": self._max_searches,
         }
         web_fetch: dict[str, Any] = {
-            "type": "web_fetch_20250910",
+            "type": "web_fetch_20260209",
             "name": "web_fetch",
             "max_uses": self._max_fetches,
             "citations": {"enabled": True},
