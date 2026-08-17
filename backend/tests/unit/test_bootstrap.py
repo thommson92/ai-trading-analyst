@@ -17,19 +17,30 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trading_analyst.bootstrap import (
+    build_backtest_params,
     build_bar_source,
+    build_earnings_provider,
     build_market_data_provider,
+    build_research_provider,
     project_root,
 )
 from ai_trading_analyst.config.settings import (
     AppConfig,
+    EarningsFilterConfig,
     IbkrConfig,
     IndicatorConfig,
     MarketDataConfig,
+    MissingSecretError,
+    ResearchConfig,
+    Secrets,
 )
+from ai_trading_analyst.infrastructure.anthropic import AnthropicResearchProvider
+from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
+from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -126,6 +137,52 @@ class TestAnbieterauswahl:
         assert isinstance(provider, IbkrMarketDataProvider)
 
 
+class TestEarningsAnbieterauswahl:
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.earnings_filter.provider == "fixture"
+        provider = build_earnings_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FixtureEarningsProvider)
+
+    def test_finnhub_ohne_secret_scheitert_verstaendlich(self) -> None:
+        config = AppConfig(
+            indicators=INDICATORS, earnings_filter=EarningsFilterConfig(provider="finnhub")
+        )
+        with pytest.raises(MissingSecretError, match="ATA_FINNHUB_API_KEY"):
+            build_earnings_provider(config, Secrets(_env_file=None))
+
+    def test_finnhub_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS, earnings_filter=EarningsFilterConfig(provider="finnhub")
+        )
+        provider = build_earnings_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FinnhubEarningsProvider)
+
+
+class TestResearchAnbieterauswahl:
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.research.provider == "fixture"
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FixtureResearchProvider)
+
+    def test_anthropic_ohne_secret_scheitert_verstaendlich(self) -> None:
+        config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
+        with pytest.raises(MissingSecretError, match="ATA_LLM_API_KEY"):
+            build_research_provider(config, Secrets(_env_file=None))
+
+    def test_anthropic_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, AnthropicResearchProvider)
+
+
 class TestBarquelle:
     """Woher der regulaere Lauf seine Bars nimmt.
 
@@ -186,6 +243,20 @@ class TestBarquelle:
 class TestProjektwurzel:
     def test_die_wurzel_liegt_ueber_dem_konfigurationsverzeichnis(self, tmp_path: Path) -> None:
         assert project_root(tmp_path / "config" / "default.yaml") == tmp_path
+
+
+class TestBacktestParameter:
+    def test_werte_kommen_unveraendert_aus_der_konfiguration(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        params = build_backtest_params(config)
+        assert params.horizons == config.backtesting.horizons
+        assert params.cooldown_candles == config.backtesting.cooldown_candles
+        assert params.minimum_sample_size == config.backtesting.minimum_sample_size
+        assert (
+            params.normal_confidence_sample_size
+            == config.backtesting.normal_confidence_sample_size
+        )
+        assert params.history_years == config.backtesting.history_years
 
 
 class TestKonfigurationspruefung:

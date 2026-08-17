@@ -99,9 +99,53 @@ class TestShippedDefaultConfig:
         assert indicators.slow_ema_length == 20
         assert indicators.warmup_candles == 250
 
+    def test_it_contains_the_llm_model_profiles(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ADR 0021 -- Anthropic API, gestufte Modellprofile je Analyseaufgabe."""
+        monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
+        llm = load_config().config.llm
+        assert llm.provider == "anthropic"
+        assert llm.research.model == "claude-sonnet-5"
+        assert llm.technical.model == "claude-haiku-4-5-20251001"
+        assert llm.fundamental.model == "claude-haiku-4-5-20251001"
+        assert llm.report.model == "claude-haiku-4-5-20251001"
+
+    def test_it_contains_the_research_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ADR 0023 -- fixture bleibt Standard, Allowlist statt Blockliste.
+
+        Die Liste selbst ist eine fachliche Auswahl und darf wachsen; geprueft
+        wird deshalb der Charakter der Einstellung: nicht leer (leer hiesse
+        keine Einschraenkung) und mit der Primaerquelle darin. Ebenso das
+        Kostenbudget: dass es ueberhaupt gesetzt ist, nicht welcher Wert.
+        """
+        monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
+        research = load_config().config.research
+        assert research.provider == "fixture"
+        assert research.fetch_allowed_domains
+        assert "sec.gov" in research.fetch_allowed_domains
+        assert research.max_fetch_content_tokens > 0
+        assert research.max_input_tokens_per_symbol > 0
+
     def test_it_contains_no_secret_like_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Geheimnisse gehoeren ausschliesslich in ATA_-Umgebungsvariablen
+        (CLAUDE.md "Sicherheit").
+
+        Zwei Ebenen: Der Rohtext darf Begriffe nicht enthalten, die hier
+        keinen legitimen Zweck haben; "token" gehoert bewusst nicht dazu,
+        seit die Kostensteuerung des Research Agent mit Token-Zahlen
+        arbeitet (``max_fetch_content_tokens``). Damit ein Schluessel
+        ``token:`` trotzdem auffaellt, werden die Schluesselnamen selbst
+        zusaetzlich exakt geprueft.
+        """
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
         content = default_config_path().read_text(encoding="utf-8").lower()
 
-        for forbidden in ("password", "api_key", "apikey", "token", "secret"):
-            assert forbidden not in content, f"Geheimnis-verdaechtiger Schluessel: {forbidden}"
+        for forbidden in ("password", "api_key", "apikey", "secret"):
+            assert forbidden not in content, f"Geheimnis-verdaechtiger Begriff: {forbidden}"
+
+        forbidden_keys = {"token", "access_token", "credentials", "passwd"}
+        for line in content.splitlines():
+            key, separator, _ = line.strip().partition(":")
+            if separator:
+                assert key.lstrip("- ") not in forbidden_keys, (
+                    f"Geheimnis-verdaechtiger Schluessel: {key}"
+                )

@@ -52,7 +52,6 @@ Bewusst noch nicht begonnen:
 | Thema | Blockiert durch |
 |---|---|
 | Earnings-Termine | Anbieterwahl offen — IBKR liefert sie nicht (ADR 0014, E1) |
-| KI-Integration | ADR ausstehend |
 
 ## Struktur
 
@@ -285,6 +284,13 @@ nächsten Start erneut versucht. Ohne die Daten der Zielkerze entsteht **kein**
 Analyse-Lauf — ein Ergebnis auf dem Stand von gestern sähe aus wie die heutige
 Analyse und wäre es nicht. Die Entscheidungen dahinter stehen in
 [ADR 0019](docs/adr/0019-trading-day-dispatcher.md).
+
+Gerechnet wird über denselben Anwendungsfall wie beim manuellen Lauf.
+Earnings-Filter und Research Agent hängen darin und laufen deshalb automatisch
+mit — mit den Anbietern aus `earnings_filter.provider` und
+`research.provider`. Beide stehen ausgeliefert auf `fixture`; der tägliche Lauf
+braucht also weder einen Finnhub- noch einen Anthropic-Zugang, liefert dann
+aber auch keine echten Termine und keine echte Recherche.
 
 ### Eintrag in der Windows-Aufgabenplanung
 

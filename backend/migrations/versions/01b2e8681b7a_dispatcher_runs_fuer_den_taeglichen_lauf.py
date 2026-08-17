@@ -6,7 +6,7 @@ auch nach der zweiten Tageskerze gerechnet, sind das zwei getrennte Laeufe
 desselben Tages.
 
 Revision ID: 01b2e8681b7a
-Revises: 8f2a41c7b903
+Revises: c9dfcbdad545
 Create Date: 2026-08-15 17:07:20.282405
 
 """
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = '01b2e8681b7a'
-down_revision: str | None = '8f2a41c7b903'
+down_revision: str | None = 'c9dfcbdad545'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

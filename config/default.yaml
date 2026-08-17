@@ -98,6 +98,93 @@ earnings_filter:
   maximum_exclusion_candles: 20
   # Konservative Grenze fuer das MVP (Doc 10, Paragraph 6.5).
   configured_exclusion_candles: 20
+  # "fixture" bleibt Standard -- Start und Tests laufen ohne Finnhub-Zugang.
+  provider: fixture
+  finnhub:
+    base_url: https://finnhub.io/api/v1
+    request_timeout_seconds: 10
+    lookahead_calendar_days: 30
+
+llm:
+  # Anbieter und Modellstufen je Analyseaufgabe
+  # (docs/adr/0021-ki-anbindung-anthropic-api.md). Guenstigere Modelle fuer
+  # Aufgaben mit geringerer Analysetiefe, das staerkere Modell konzentriert
+  # auf die Research-Aufgabe.
+  #
+  # Modell-Identifier vor dem ersten produktiven Lauf gegen den dann
+  # aktuellen Anthropic-Katalog und dessen Preise pruefen -- sie aendern
+  # sich unabhaengig von diesem Projekt.
+  provider: anthropic
+  research:
+    model: claude-sonnet-5
+  technical:
+    model: claude-haiku-4-5-20251001
+  fundamental:
+    model: claude-haiku-4-5-20251001
+  report:
+    model: claude-haiku-4-5-20251001
+
+research:
+  # Recherchequellen des Research Agent
+  # (docs/adr/0022-research-agent-quellen.md), Zitierarchitektur und
+  # Kostensteuerung in ADR 0023. "fixture" bleibt Standard -- Start und
+  # Tests laufen ohne Anthropic-Zugang.
+  provider: fixture
+  # Kostenbudget je Aktie (ADR 0021, ADR 0023 "Kostenkontrolle").
+  #
+  # Wichtig zum Verstaendnis: web_search/web_fetch sind serverseitige
+  # Werkzeuge, deren Schleife bis zu zehn Iterationen INNERHALB EINER
+  # EINZIGEN Anfrage laeuft, und der angesammelte Kontext wird bei jeder
+  # Iteration erneut als Eingabe verrechnet. Ein ungebremst abgerufenes
+  # SEC-Filing (~125.000 Token) schlaegt also vielfach zu Buche -- ein realer
+  # Lauf kam so auf 256.000 Eingabe-Token und rund 0,62 USD ohne Ergebnis.
+  max_searches: 5
+  max_fetches: 3
+  # Der wirksamste Hebel: max_fetches * dieser Wert ist das eigentliche
+  # Budget an Dokumentinhalt (hier ~24.000 Token).
+  max_fetch_content_tokens: 8000
+  # Notbremse zwischen zwei Anfragen (~0,30 USD). Eine bereits laufende
+  # Anfrage laesst sich nicht abbrechen -- dort wirken nur max_uses und
+  # max_fetch_content_tokens.
+  max_input_tokens_per_symbol: 150000
+  # Deckelt Denken UND Antworttext gemeinsam: Auf Sonnet 5 laeuft ein Aufruf
+  # ohne thinking-Feld mit adaptivem Denken, und beides teilt sich dasselbe
+  # Budget. Zu knapp schneidet es den Werkzeugaufruf ab, statt zu sparen.
+  max_output_tokens: 16000
+  # Ohne eigenen Wert gilt der SDK-Standard von 600 s mal zwei Versuchen --
+  # eine haengende Anfrage blockierte damit einen der nebenlaeufigen
+  # Arbeiter fast eine Stunde.
+  request_timeout_seconds: 300
+  # Allowlist statt Blockliste (ADR 0023, Zitierarchitektur Punkt 5) -- gilt
+  # aber NUR fuer den Abruf. Die Suche laeuft bewusst offen: Eine Allowlist
+  # auf der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
+  # Suchkontingent, und web_fetch erreicht danach nichts mehr (es darf nur
+  # URLs holen, die vorher in Suchtreffern standen). Breit suchen, eng
+  # vertiefen.
+  #
+  # Nicht jede serioese Quelle ist abrufbar: Wer Anthropics Crawler
+  # aussperrt, laesst die gesamte Anfrage mit einem 400 scheitern, nicht nur
+  # den einzelnen Abruf. Reuters und AP sind aus genau diesem Grund nicht
+  # hier. Vor dem Aufnehmen einer neuen Domain also einen echten Lauf machen.
+  fetch_allowed_domains:
+    # Primaerquellen
+    - sec.gov
+    # Unternehmensmeldungen im Original -- fuer Quartalszahlen, Rueckkaeufe
+    # und Personalien ohnehin die bessere Quelle als eine Agenturmeldung
+    - prnewswire.com
+    - businesswire.com
+    - globenewswire.com
+    - nasdaq.com
+  # Nur fuer die Kostenschaetzung im Log. VON HAND GEPFLEGT -- die Anwendung
+  # fragt keine Preisliste ab, ein veralteter Wert faellt nirgends auf.
+  #
+  # Stand 2026-08-17: Sonnet-5-Einfuehrungspreise, Websuche 10 USD je 1000.
+  # ACHTUNG: Die Einfuehrungspreise laufen am 2026-08-31 aus, danach gelten
+  # 3,00 / 15,00 USD je Million. Ab dann sind die Werte hier zu niedrig.
+  pricing:
+    input_usd_per_million: 2.0
+    output_usd_per_million: 10.0
+    usd_per_search: 0.01
 
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener

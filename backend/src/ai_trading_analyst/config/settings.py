@@ -250,12 +250,32 @@ class BacktestingConfig(_Section):
         return self
 
 
+class FinnhubConfig(_Section):
+    """Zugang zum Earnings-Kalender (ADR 0017, ADR 0020).
+
+    Kein Geheimnis hier -- der Schluessel kommt ausschliesslich aus
+    ``Secrets.finnhub_api_key``.
+    """
+
+    base_url: str = "https://finnhub.io/api/v1"
+    request_timeout_seconds: PositiveInt = 10
+    lookahead_calendar_days: PositiveInt = 30
+    """Kalendertage je Anfrage -- grosszuegig ueber dem groessten
+    konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
+    um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
+    aus ADR 0017 L4, da je Symbol angefragt wird."""
+
+
 class EarningsFilterConfig(_Section):
     """Ausschlussfenster vor Quartalszahlen (Doc 10, Paragraph 6.5)."""
 
     minimum_exclusion_candles: PositiveInt = 10
     maximum_exclusion_candles: PositiveInt = 20
     configured_exclusion_candles: PositiveInt = 20
+    provider: Literal["fixture", "finnhub"] = "fixture"
+    """Wie ``market_data.provider``: ``fixture`` bleibt Standard, damit Start
+    und Tests ohne ``ATA_FINNHUB_API_KEY`` funktionieren."""
+    finnhub: FinnhubConfig = FinnhubConfig()
 
     @model_validator(mode="after")
     def _configured_value_must_be_within_range(self) -> EarningsFilterConfig:
@@ -270,6 +290,102 @@ class EarningsFilterConfig(_Section):
                 f"maximum_exclusion_candles ({self.maximum_exclusion_candles}) liegen"
             )
         return self
+
+
+class ModelProfile(_Section):
+    """Modell fuer eine Analyseaufgabe, mit Ausweichmodell (ADR 0021).
+
+    Der Fallback greift nur bei technischem Versagen (Timeout, Ratenlimit,
+    Providerfehler) -- nie als stille Qualitaetsminderung ohne Kennzeichnung.
+    Welches Modell tatsaechlich geantwortet hat, gehoert an jedes KI-Ergebnis,
+    nicht nur ins Log (Doc 10, Paragraph 12).
+    """
+
+    model: str
+    fallback_model: str | None = None
+
+
+class LlmConfig(_Section):
+    """Modellprofile je Analyseaufgabe (CLAUDE.md "KI-Anbindung", ADR 0021).
+
+    ``provider`` ist heute immer ``anthropic`` -- als Literal statt als freies
+    Feld, damit ein Tippfehler beim Start auffaellt statt still zu einem
+    falschen Adapter zu fuehren (Muster wie ``MarketDataConfig.provider``).
+    """
+
+    provider: Literal["anthropic"] = "anthropic"
+    research: ModelProfile = ModelProfile(model="claude-sonnet-5")
+    technical: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+    fundamental: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+    report: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
+
+
+class ResearchPricingConfig(_Section):
+    """Preise fuer die Kostenschaetzung im Log (ADR 0021 Budget).
+
+    Rein informativ und **von Hand gepflegt** -- die Anwendung fragt keine
+    Preisliste ab. Vorbelegt mit den Sonnet-5-Einfuehrungspreisen; die
+    Websuche kostet zusaetzlich zu den Token (10 USD je 1000 Suchen).
+    Token allein beantworten die eigentliche Betreiberfrage nicht ("was
+    kostet mich ein Lauf"), ein Schaetzwert schon.
+    """
+
+    input_usd_per_million: NonNegativeFloat = 2.0
+    output_usd_per_million: NonNegativeFloat = 10.0
+    usd_per_search: NonNegativeFloat = 0.01
+
+
+class ResearchConfig(_Section):
+    """Recherchequellen und Kostenbudget des Research Agent (ADR 0023).
+
+    ``fixture`` bleibt Standard, damit Start und Tests ohne
+    ``ATA_LLM_API_KEY`` funktionieren (Muster wie
+    ``earnings_filter.provider``).
+
+    Die Budgetwerte sind nicht kosmetisch: ``web_search``/``web_fetch`` sind
+    serverseitige Werkzeuge, deren Schleife bis zu zehn Iterationen *innerhalb
+    einer einzigen Anfrage* laeuft, und der angesammelte Kontext wird bei
+    jeder Iteration erneut als Eingabe verrechnet. Ein ungebremster Abruf
+    eines SEC-Filings (~125.000 Token) schlaegt deshalb vielfach zu Buche.
+    ``max_fetch_content_tokens`` ist der wirksamste Hebel dagegen;
+    ``max_fetches`` mal dieser Wert ist das eigentliche Kostenbudget.
+
+    ``fetch_allowed_domains`` gilt **nur fuer den Abruf**, nicht fuer die
+    Suche: Eine Allowlist auf der Suche laesst kaum Treffer uebrig, das Modell
+    verbrennt sein Suchkontingent, und ``web_fetch`` darf danach nichts mehr
+    holen (es erreicht ausschliesslich URLs, die vorher im Kontext standen).
+    Breit suchen, eng vertiefen -- ADR 0023, Abschnitt "Kostenkontrolle und
+    Reichweite der Allowlist".
+
+    Eine Domain, die Anthropics Crawler aussperrt, laesst die *gesamte*
+    Anfrage mit einem 400 scheitern -- nicht nur den einzelnen Abruf. Reuters
+    und AP sind deshalb nicht in der Voreinstellung; eine neue Domain gehoert
+    vor der Aufnahme einmal durch einen echten Lauf.
+    """
+
+    provider: Literal["fixture", "anthropic"] = "fixture"
+    max_searches: PositiveInt = 5
+    max_fetches: PositiveInt = 3
+    max_fetch_content_tokens: PositiveInt = 8000
+    max_input_tokens_per_symbol: PositiveInt = 150_000
+    max_output_tokens: PositiveInt = 16_000
+    """Deckelt Denken **und** Antworttext gemeinsam: Auf Sonnet 5 laeuft ein
+    Aufruf ohne ``thinking``-Feld mit adaptivem Denken, und beides teilt sich
+    dasselbe Budget. Zu knapp bemessen schneidet es den Werkzeugaufruf ab,
+    statt Kosten zu sparen."""
+    request_timeout_seconds: PositiveInt = 300
+    """Ohne eigenen Wert gilt der SDK-Standard von 600 Sekunden Lesezeit mal
+    zwei Wiederholungen -- eine haengende Anfrage blockierte damit einen der
+    nebenlaeufigen Arbeiter fast eine Stunde (Muster
+    ``FinnhubConfig.request_timeout_seconds``)."""
+    fetch_allowed_domains: tuple[str, ...] = (
+        "sec.gov",
+        "prnewswire.com",
+        "businesswire.com",
+        "globenewswire.com",
+        "nasdaq.com",
+    )
+    pricing: ResearchPricingConfig = ResearchPricingConfig()
 
 
 class DataAvailabilityConfig(_Section):
@@ -356,6 +472,8 @@ class AppConfig(_Section):
     screening: ScreeningConfig = ScreeningConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
+    llm: LlmConfig = LlmConfig()
+    research: ResearchConfig = ResearchConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()
@@ -441,6 +559,7 @@ class Secrets(BaseSettings):
     llm_api_key: SecretStr | None = None
     market_data_api_key: SecretStr | None = None
     notification_token: SecretStr | None = None
+    finnhub_api_key: SecretStr | None = None
 
     def require(self, field_name: str) -> str:
         """Liefert den Klartextwert eines Geheimnisses oder scheitert eindeutig."""

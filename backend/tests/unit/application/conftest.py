@@ -16,15 +16,21 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    BacktestResultRepository,
+    EarningsProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
     ProcessingErrorRepository,
+    ResearchProviderError,
     ScreeningResultRepository,
     Stock,
     StockProcessingError,
     StockRepository,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
@@ -106,6 +112,56 @@ class FakeMarketDataProvider:
         return self._series_by_symbol[stock.symbol]
 
 
+class FakeEarningsProvider:
+    """Erwartet keine echte Abdeckung -- ``next_by_symbol`` haelt explizit
+    hinterlegte Termine, alles andere ergibt ``None`` (keine Abdeckung)."""
+
+    def __init__(
+        self,
+        next_by_symbol: dict[str, NextEarningsDate] | None = None,
+        error_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._next_by_symbol = next_by_symbol or {}
+        self._error_symbols = error_symbols
+        self.calls: list[str] = []
+
+    def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self._error_symbols:
+            raise EarningsProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        return self._next_by_symbol.get(stock.symbol)
+
+
+class FakeResearchProvider:
+    """Liefert standardmaessig einen kanonischen ``COMPLETED``-Bericht;
+    ``error_symbols`` loest ``ResearchProviderError`` aus (Muster
+    ``FakeEarningsProvider``), ``crash_symbols`` eine rohe Ausnahme --
+    also einen Anbieter, der seinen Vertrag bricht."""
+
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._error_symbols = error_symbols
+        self._crash_symbols = crash_symbols
+        self.calls: list[str] = []
+
+    def research(self, stock: Stock) -> ResearchReport:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self._crash_symbols:
+            raise RuntimeError(f"Vertragsbruch des Anbieters fuer {stock.symbol}")
+        if stock.symbol in self._error_symbols:
+            raise ResearchProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        return ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="fake-model",
+            prompt_version="fake-v1",
+            summary=f"Fake-Recherche fuer {stock.symbol}",
+        )
+
+
 class FakeStockRepository:
     def __init__(self) -> None:
         self.added: list[Stock] = []
@@ -147,6 +203,17 @@ class FakeScreeningResultRepository:
 
     def list_for_run(self, run_id: uuid.UUID) -> tuple[StockScreeningOutcome, ...]:
         return tuple(o for o in self.added if o.analysis_run_id == run_id)
+
+
+class FakeBacktestResultRepository:
+    def __init__(self) -> None:
+        self.added: list[BacktestResult] = []
+
+    def add(self, result: BacktestResult) -> None:
+        self.added.append(result)
+
+    def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
+        return tuple(r for r in self.added if r.stock_id == stock_id)
 
 
 class FakeProcessingErrorRepository:
@@ -209,12 +276,14 @@ class FakeUnitOfWork:
         analysis_runs: AnalysisRunRepository,
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
+        backtest_results: BacktestResultRepository | None = None,
     ) -> None:
         self.stocks = stocks
         self.intraday_bars = intraday_bars
         self.analysis_runs = analysis_runs
         self.screening_results = screening_results
         self.processing_errors = processing_errors
+        self.backtest_results = backtest_results or FakeBacktestResultRepository()
 
     def __enter__(self) -> Self:
         return self

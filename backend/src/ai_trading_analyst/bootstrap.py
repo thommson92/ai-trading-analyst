@@ -18,20 +18,35 @@ from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.config.loader import load_config, load_secrets
-from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig
+from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
+    EarningsProvider,
     HistoricalBarSource,
     MarketDataProvider,
+    ResearchProvider,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.backtesting import BacktestParameters
+from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
     SessionParameters,
 )
+from ai_trading_analyst.infrastructure.anthropic import (
+    AnthropicResearchPricing,
+    AnthropicResearchProvider,
+    AnthropicResearchSettings,
+)
+from ai_trading_analyst.infrastructure.finnhub import (
+    FinnhubConnectionSettings,
+    FinnhubEarningsProvider,
+)
+from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -134,13 +149,82 @@ def build_market_data_provider(
         return FixtureMarketDataProvider()
 
     return IbkrMarketDataProvider(
-        bar_source=bar_source
-        if bar_source is not None
-        else build_bar_source(config, uow_factory),
+        bar_source=bar_source if bar_source is not None else build_bar_source(config, uow_factory),
         watchlist=watchlist if watchlist is not None else build_watchlist(config, root),
         session_parameters=build_session_parameters(config),
         indicator_parameters=build_indicator_parameters(indicators),
         native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
+    )
+
+
+def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> FinnhubEarningsProvider:
+    finnhub = config.earnings_filter.finnhub
+    return FinnhubEarningsProvider(
+        FinnhubConnectionSettings(
+            base_url=finnhub.base_url,
+            api_key=secrets.require("finnhub_api_key"),
+            request_timeout_seconds=float(finnhub.request_timeout_seconds),
+            lookahead_calendar_days=finnhub.lookahead_calendar_days,
+        )
+    )
+
+
+def build_earnings_provider(config: AppConfig, secrets: Secrets) -> EarningsProvider:
+    """Waehlt den Earnings-Anbieter anhand der Konfiguration.
+
+    ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
+    Start ohne Finnhub-Zugang; ``finnhub`` ist die produktive Quelle
+    (ADR 0017, ADR 0020).
+    """
+    if config.earnings_filter.provider == "fixture":
+        return FixtureEarningsProvider()
+    return build_finnhub_earnings_provider(config, secrets)
+
+
+def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
+    return EarningsFilterParameters(
+        configured_exclusion_candles=config.earnings_filter.configured_exclusion_candles,
+        candles_per_day=build_session_parameters(config).candles_per_day,
+    )
+
+
+def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProvider:
+    """Waehlt den Research-Anbieter anhand der Konfiguration.
+
+    ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
+    Start ohne Anthropic-Zugang; ``anthropic`` ist die produktive Quelle
+    (ADR 0021, ADR 0023).
+    """
+    if config.research.provider == "fixture":
+        return FixtureResearchProvider()
+    return AnthropicResearchProvider(
+        AnthropicResearchSettings(
+            api_key=secrets.require("llm_api_key"),
+            model=config.llm.research.model,
+            fallback_model=config.llm.research.fallback_model,
+            max_searches=config.research.max_searches,
+            max_fetches=config.research.max_fetches,
+            max_fetch_content_tokens=config.research.max_fetch_content_tokens,
+            max_input_tokens_per_symbol=config.research.max_input_tokens_per_symbol,
+            max_output_tokens=config.research.max_output_tokens,
+            request_timeout_seconds=config.research.request_timeout_seconds,
+            fetch_allowed_domains=config.research.fetch_allowed_domains,
+            pricing=AnthropicResearchPricing(
+                input_usd_per_million=config.research.pricing.input_usd_per_million,
+                output_usd_per_million=config.research.pricing.output_usd_per_million,
+                usd_per_search=config.research.pricing.usd_per_search,
+            ),
+        )
+    )
+
+
+def build_backtest_params(config: AppConfig) -> BacktestParameters:
+    return BacktestParameters(
+        horizons=config.backtesting.horizons,
+        cooldown_candles=config.backtesting.cooldown_candles,
+        minimum_sample_size=config.backtesting.minimum_sample_size,
+        normal_confidence_sample_size=config.backtesting.normal_confidence_sample_size,
+        history_years=config.backtesting.history_years,
     )
 
 
@@ -163,7 +247,17 @@ def build_app() -> FastAPI:
     market_data_provider = build_market_data_provider(
         loaded.config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
     )
-    use_case = RunAnalysisUseCase(market_data_provider, uow_factory, candidate_rule_params)
+    earnings_provider = build_earnings_provider(loaded.config, secrets)
+    earnings_filter_params = build_earnings_filter_params(loaded.config)
+    research_provider = build_research_provider(loaded.config, secrets)
+    use_case = RunAnalysisUseCase(
+        market_data_provider,
+        earnings_provider,
+        research_provider,
+        uow_factory,
+        candidate_rule_params,
+        earnings_filter_params,
+    )
 
     def check_database_ready() -> bool:
         try:

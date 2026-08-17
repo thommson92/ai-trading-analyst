@@ -54,6 +54,10 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
 | [0019](0019-trading-day-dispatcher.md) | Trading-Day-Dispatcher — idempotenter Einzelstart statt Dauerprozess | Angenommen |
+| [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen |
+| [0021](0021-ki-anbindung-anthropic-api.md) | KI-Anbindung — Anthropic API mit Modellprofilen je Analyseaufgabe | Angenommen |
+| [0022](0022-research-agent-quellen.md) | Research Agent — Anthropic Web Search/Web Fetch, SEC EDGAR deterministisch für Fundamentaldaten | Angenommen (GO_WITH_LIMITATIONS) |
+| [0023](0023-research-agent-zitierarchitektur.md) | Research Agent — Zitierarchitektur | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -89,5 +93,7 @@ ADR, sobald die nötigen Informationen vorliegen:
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
 - Benachrichtigungskanal (F10)
-- KI-Anbieter und Modellprofile (F11)
+- KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
+  gestuften Modellprofilen je Analyseaufgabe, siehe
+  [ADR 0021](0021-ki-anbindung-anthropic-api.md).
 - Externer Zugriff auf das Dashboard (F12)

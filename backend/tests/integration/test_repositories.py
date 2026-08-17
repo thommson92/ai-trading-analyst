@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,6 +15,18 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
     StockProcessingError,
     StockScreeningOutcome,
+)
+from ai_trading_analyst.domain.backtesting import (
+    BacktestConfidence,
+    BacktestResult,
+    HorizonMetrics,
+)
+from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.research import (
+    Citation,
+    ResearchReport,
+    ResearchStatus,
+    SourceLicenseClass,
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -144,6 +157,69 @@ class TestScreeningResultRepository:
             (persisted,) = uow.screening_results.list_for_run(run.id)
         assert persisted.result.status == status
         assert persisted.stock == stock
+        assert persisted.earnings is None
+
+    def test_earnings_ergebnis_wird_mitgespeichert(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("WITHEARNINGS")
+        run = make_run()
+        earnings = EarningsFilterResult(
+            status=EarningsFilterStatus.EARNINGS_EXCLUDED,
+            evaluated_at=datetime.now(UTC),
+            next_earnings_date=date(2026, 9, 1),
+            candles_until_earnings=6,
+            source="finnhub",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            earnings=earnings,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.earnings == earnings
+
+    def test_unknown_earnings_ergebnis_mit_grund_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("WITHUNKNOWNEARNINGS")
+        run = make_run()
+        earnings = EarningsFilterResult(
+            status=EarningsFilterStatus.UNKNOWN,
+            evaluated_at=datetime.now(UTC),
+            reason="no_coverage",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            earnings=earnings,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.earnings == earnings
+        assert persisted.earnings is not None
+        assert persisted.earnings.next_earnings_date is None
 
     def test_signal_events_werden_mitgespeichert(self, uow_factory: UowFactory) -> None:
         stock = make_stock("WITHEVENTS")
@@ -178,6 +254,104 @@ class TestScreeningResultRepository:
             {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
         )
 
+    def test_research_bericht_mit_zitaten_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("WITHRESEARCH")
+        run = make_run()
+        citations = (
+            Citation(
+                url="https://sec.gov/filing",
+                title="SEC-Filing",
+                retrieved_at=datetime.now(UTC),
+                cited_text="ein zitierter Ausschnitt",
+                license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                transformation="zusammengefasst",
+            ),
+            Citation(
+                url="https://example.com/news",
+                title="Nachrichtenartikel",
+                retrieved_at=datetime.now(UTC),
+                cited_text=None,
+                license_class=SourceLicenseClass.UNKNOWN,
+                transformation="aggregiert aus mehreren Quellen",
+            ),
+        )
+        research = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            summary="Zusammenfassung",
+            positive_factors=("Faktor A",),
+            negative_factors=("Faktor B",),
+            risks=("Risiko A",),
+            confidence=0.7,
+            citations=citations,
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.research is not None
+        # Die Zitat-Relationship hat kein ``order_by`` (wie ``signal_events``),
+        # die Lesereihenfolge ist also datenbankabhaengig. Geprueft wird
+        # deshalb die Menge der Zitate, nicht ihre Reihenfolge -- sonst haenge
+        # der Test an einer Zusage, die das Schema nicht gibt.
+        assert set(persisted.research.citations) == set(citations)
+        assert persisted.research == replace(research, citations=persisted.research.citations)
+        assert len(persisted.research.citations) == 2
+
+    def test_research_bericht_ohne_ergebnis_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """UNAVAILABLE hat weder Modell noch Zitate -- beide Spalten bleiben NULL."""
+        stock = make_stock("WITHUNAVAILABLERESEARCH")
+        run = make_run()
+        research = ResearchReport(
+            status=ResearchStatus.UNAVAILABLE,
+            evaluated_at=datetime.now(UTC),
+            model=None,
+            prompt_version=None,
+            reason="provider_error",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.research == research
+        assert persisted.research is not None
+        assert persisted.research.model is None
+        assert persisted.research.citations == ()
+
     def test_zweites_ergebnis_fuer_dieselbe_aktie_im_selben_lauf_wird_abgelehnt(
         self, uow_factory: UowFactory
     ) -> None:
@@ -199,6 +373,100 @@ class TestScreeningResultRepository:
                     make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
                 )
                 uow.commit()
+
+
+class TestBacktestResultRepository:
+    def test_ein_ergebnis_mit_mehreren_horizonten_uebersteht_den_rundlauf(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("BACKTESTED")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+        evaluated_at = datetime.now(UTC)
+        result = BacktestResult(
+            stock_id=stock.id,
+            signal_types=combination,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            evaluated_at=evaluated_at,
+            history_start=datetime(2020, 1, 2, tzinfo=UTC),
+            history_end=datetime(2025, 1, 2, tzinfo=UTC),
+            horizons=(
+                HorizonMetrics(
+                    horizon=5,
+                    raw_event_count=12,
+                    deduplicated_event_count=9,
+                    hit_rate=0.667,
+                    mean_return=0.021,
+                    median_return=0.018,
+                    max_loss=-0.05,
+                    drawdown=0.07,
+                    held_above_entry_rate=0.55,
+                    confidence=BacktestConfidence.NORMAL,
+                ),
+                HorizonMetrics(
+                    horizon=20,
+                    raw_event_count=12,
+                    deduplicated_event_count=3,
+                    hit_rate=None,
+                    mean_return=None,
+                    median_return=None,
+                    max_loss=None,
+                    drawdown=None,
+                    held_above_entry_rate=None,
+                    confidence=BacktestConfidence.INSUFFICIENT_DATA,
+                ),
+            ),
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.backtest_results.add(result)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.backtest_results.list_for_stock(stock.id)
+
+        assert persisted.signal_types == combination
+        assert persisted.evaluated_at == evaluated_at
+        assert {h.horizon for h in persisted.horizons} == {5, 20}
+        by_horizon = {h.horizon: h for h in persisted.horizons}
+        assert by_horizon[5] == result.horizons[0]
+        assert by_horizon[20] == result.horizons[1]
+
+    def test_ein_anderes_symbol_bekommt_keine_fremden_ergebnisse(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock_a, stock_b = make_stock("BTA"), make_stock("BTB")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT})
+        horizon = HorizonMetrics(
+            horizon=5,
+            raw_event_count=1,
+            deduplicated_event_count=1,
+            hit_rate=1.0,
+            mean_return=0.01,
+            median_return=0.01,
+            max_loss=0.0,
+            drawdown=0.0,
+            held_above_entry_rate=1.0,
+            confidence=BacktestConfidence.LOW_SAMPLE,
+        )
+        result_a = BacktestResult(
+            stock_id=stock_a.id,
+            signal_types=combination,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            evaluated_at=datetime.now(UTC),
+            history_start=datetime(2020, 1, 2, tzinfo=UTC),
+            history_end=datetime(2025, 1, 2, tzinfo=UTC),
+            horizons=(horizon,),
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock_a)
+            uow.stocks.add(stock_b)
+            uow.backtest_results.add(result_a)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.backtest_results.list_for_stock(stock_b.id) == ()
 
 
 class TestProcessingErrorRepository:

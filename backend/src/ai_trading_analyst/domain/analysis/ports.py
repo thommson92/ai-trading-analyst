@@ -14,6 +14,9 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 
 from .models import (
@@ -76,6 +79,60 @@ class MarketDataProvider(Protocol):
                 beschafft werden konnten.
         """
         ...
+
+
+class EarningsProviderError(Exception):
+    """Ein Earnings-Anbieter konnte fuer eine Aktie keinen Termin liefern.
+
+    Wird vom Application-Layer pro Aktie isoliert -- ein Ausfall der Quelle
+    ist ein normaler Betriebszustand (ADR 0017), kein Laufabbruch. Die
+    technische Analyse laeuft unabhaengig weiter (Doc 10: Analysemodule sind
+    entkoppelt).
+    """
+
+
+class EarningsProvider(Protocol):
+    """Liefert den naechsten bekannten Earnings-Termin einer Aktie."""
+
+    def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+        """Naechster kuenftiger Earnings-Termin, oder ``None`` bei fehlender
+        Abdeckung (ADR 0017 L3) -- niemals stillschweigend als unbedenklich
+        zu werten.
+
+        Raises:
+            EarningsProviderError: wenn die Quelle nicht erreichbar war.
+        """
+        ...
+
+
+class ResearchProviderError(Exception):
+    """Ein Research-Anbieter konnte fuer eine Aktie keinen Bericht liefern.
+
+    Wird vom Application-Layer pro Aktie isoliert -- ein Ausfall der Quelle
+    ist ein normaler Betriebszustand, kein Laufabbruch (Muster
+    ``EarningsProviderError``). Die deterministische Chartanalyse und das
+    Backtesting laufen unabhaengig von Research weiter (CLAUDE.md, Doc 10:
+    Analysemodule sind entkoppelt).
+    """
+
+
+class ResearchProvider(Protocol):
+    """Liefert einen strukturierten Recherche-Bericht zu einer Aktie."""
+
+    def research(self, stock: Stock) -> ResearchReport:
+        """Bericht mit Belegen, oder ``status=INSUFFICIENT_DATA`` bei zu
+        duenner Grundlage -- niemals ein erfundener Bericht (Doc 10,
+        Paragraph 10, Halluzinationsschutz).
+
+        Raises:
+            ResearchProviderError: wenn die Quelle nicht erreichbar war.
+        """
+        ...
+
+
+class BacktestResultRepository(Protocol):
+    def add(self, result: BacktestResult) -> None: ...
+    def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
 
 
 class IntradayBarRepository(Protocol):
@@ -152,6 +209,7 @@ class UnitOfWork(Protocol):
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
+    backtest_results: BacktestResultRepository
 
     def __enter__(self) -> UnitOfWork: ...
 

@@ -401,6 +401,45 @@ class TestArgumente:
         assert args.no_pacing is True
 
 
+class TestResearchKommando:
+    def test_budget_kann_fuer_einen_probelauf_gedrueckt_werden(self) -> None:
+        """Ein echter Lauf kostet Geld -- mit '--max-searches 1' laesst sich
+        die Kette fuer wenige Cent pruefen (ADR 0023, "Kostenkontrolle")."""
+        args = build_parser().parse_args(
+            [
+                "research",
+                "--symbol",
+                "AAPL",
+                "--provider",
+                "anthropic",
+                "--max-searches",
+                "1",
+                "--max-fetches",
+                "1",
+            ]
+        )
+        assert args.max_searches == 1
+        assert args.max_fetches == 1
+
+    def test_ohne_ueberschreibung_bleibt_die_konfiguration_massgeblich(self) -> None:
+        args = build_parser().parse_args(["research", "--symbol", "AAPL"])
+        assert args.provider is None
+        assert args.max_searches is None
+        assert args.max_fetches is None
+
+    def test_der_fixture_anbieter_laeuft_ohne_anthropic_zugang_durch(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Standard bleibt 'fixture' -- kein Kommandozeilenaufruf loest
+        versehentlich einen kostenpflichtigen API-Aufruf aus."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "research", "--symbol", "aapl"])
+
+        assert exit_code == 0
+        assert "AAPL" in capsys.readouterr().out
+
+
 class TestBackfillKommando:
     """Das einzige Kommando, das etwas dauerhaft ablegt -- und damit als
     einziges eine Datenbank braucht."""
