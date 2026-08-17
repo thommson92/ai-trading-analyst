@@ -51,8 +51,10 @@ gelieferten Zitat-Rohdaten belastbare, persistierbare Belege werden.
 4. **Lizenzklasse deterministisch aus der URL, nie vom Modell erfragt**
    (`SourceLicenseClass`, `_classify_license` in
    `infrastructure/anthropic/provider.py`): `PRIMARY_SOURCE` für bekannte
-   regulatorische Domains (aktuell `sec.gov`), sonst `UNKNOWN`. Setzt
-   CLAUDE.mds Verbot um, Klassifikationen aus LLM-Freitext zu übernehmen.
+   regulatorische Domains (`sec.gov`), `NEWS_MEDIA` für die aufgenommenen
+   Nachrichtenagenturen und Original-Pressemitteilungsdienste, sonst
+   `UNKNOWN`. Setzt CLAUDE.mds Verbot um, Klassifikationen aus LLM-Freitext
+   zu übernehmen.
 5. **Jedes Zitat trägt ein `transformation`-Feld** (z. B.
    `"zusammengefasst"`), das dokumentiert, wie die Quelle im Bericht
    verwendet wurde -- Grundlage für eine spätere Unterscheidung zwischen
@@ -60,6 +62,49 @@ gelieferten Zitat-Rohdaten belastbare, persistierbare Belege werden.
 6. **Zitate werden dedupliziert**, falls dieselbe Quelle (gleiche URL,
    gleicher zitierter Ausschnitt) mehrfach über mehrere Gesprächsrunden
    auftritt; die Reihenfolge der ersten Nennung bleibt erhalten.
+
+### Nachtrag: Schemadurchsetzung statt nur Schemabeschreibung
+
+Der erste echte Lauf gegen die API (2026-08-17) hat gezeigt, dass ein
+beschriebenes Schema nicht genügt. Das Modell hat die Faktorlisten in seiner
+internen XML-Werkzeugsyntax geschrieben (`<parameter name="item">…`), die API
+hat den Wert als einfachen String durchgereicht, und der Adapter hat ihn mit
+`tuple(...)` in Einzelzeichen zerlegt -- der Bericht hatte einen Listeneintrag
+je Buchstabe. Zwei Ergänzungen zu Entscheidung 1:
+
+7. **Das `submit_research_report`-Werkzeug wird mit `strict: true` und
+   `additionalProperties: false` deklariert.** Damit erzwingt die API die
+   Schemakonformität über grammar-constrained sampling, statt das Schema nur
+   zu beschreiben. Ein Array-Feld kann keinen String mehr enthalten.
+8. **Der Adapter prüft die Typen der Werkzeugantwort trotzdem selbst**
+   (`_require_string_list`, `_require_optional_text` und die Zahlprüfung bei
+   `confidence`). Ein falsch typisiertes Feld führt zu einem sichtbaren
+   `ResearchProviderError`, nie zu einem stillen Ersatzwert -- der Fehler
+   bleibt in der Fehlerisolation je Aktie und blockiert die technische Analyse
+   nicht.
+
+Ebenfalls abgesichert: Endet eine Antwort mit `stop_reason == "max_tokens"`,
+wird kein Bericht gebaut. Ein dort abgeschnittener Werkzeugaufruf kann eine
+halbe Faktorliste enthalten, die vollständig aussähe.
+
+**Nicht gewählt: `output_config.format` / `client.messages.parse()`.** Beides
+würde dieselbe Schemagarantie liefern, aber die finale Ausgabe wäre ein
+JSON-Textblock. Die Zitat-Blöcke der Websuche hängen an Textblöcken; der
+Abschluss über ein Client-Werkzeug ist genau das, was Entscheidung 1 möglich
+macht. `strict` liefert die Garantie, ohne die Quellenbindung aufs Spiel zu
+setzen.
+
+### Nachtrag: Reichweite der Allowlist
+
+Die ausgelieferte Allowlist enthielt zunächst nur `sec.gov`. Da sie für
+`web_search` **und** `web_fetch` gilt, konnte der Agent die im Systemprompt
+verlangten Nachrichten und Analystenkommentare gar nicht erreichen -- der
+erste echte Bericht stützte sich ausschließlich auf SEC-Einreichungen und hat
+das selbst vermerkt. Die Liste wurde deshalb um Original-Pressemitteilungs-
+dienste (`prnewswire.com`, `businesswire.com`, `globenewswire.com`) und
+etablierte Nachrichtenagenturen (`reuters.com`, `apnews.com`, `nasdaq.com`)
+ergänzt. Entscheidung 3 bleibt unverändert: kuratierte Allowlist, keine
+Blockliste, keine offene Suche.
 
 ### Bekannte Abweichung von der Quellenbindungs-Regel
 
@@ -107,3 +152,12 @@ architekturrelevanten Entscheidungen.
 - Offener Folgepunkt: Entscheidung zu `published_at` nachholen (siehe
   oben), bevor Research-Ergebnisse in einem Bericht gegenüber dem Nutzer
   als vollständig quellengebunden dargestellt werden.
+- Offener Folgepunkt: Der technische Status (`ResearchStatus.COMPLETED`) sagt
+  bislang nichts über die inhaltliche Abdeckung. Ein Lauf, der wegen des
+  Suchbudgets nur einen Teil der Quellenklassen erreicht hat, gilt trotzdem
+  als abgeschlossen. Eine getrennte Abdeckungsangabe neben dem Status braucht
+  eine eigene Entscheidung samt Migration.
+- Token- und Werkzeugnutzung werden je Lauf protokolliert
+  (`_UsageTotals`), damit sich das Budget aus ADR 0021 überhaupt überprüfen
+  lässt. Bewusst nur im Log: ein persistierter Kostenwert am Ergebnis wäre
+  eine eigene Entscheidung.

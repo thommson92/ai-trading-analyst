@@ -43,12 +43,25 @@ _MAX_TURNS_SLACK = 2
 um Runden ohne Werkzeugaufruf (z. B. reines Nachfragen des Modells) nicht
 sofort als Endlosschleife zu werten -- die eigentliche Obergrenze ist das
 konfigurierte Kostenbudget (ADR 0021), nicht diese Zahl selbst."""
-_MAX_TOKENS = 4096
+_MAX_TOKENS = 8192
 
 _PRIMARY_SOURCE_DOMAINS = ("sec.gov",)
 """Deterministische Lizenzklassifikation (ADR 0022, Zitierarchitektur Punkt
 6) -- bewusst nicht vom Sprachmodell selbst erfragt (CLAUDE.md: Scores/
 Klassen nicht aus LLM-Freitext uebernehmen)."""
+
+_NEWS_MEDIA_DOMAINS = (
+    "reuters.com",
+    "apnews.com",
+    "prnewswire.com",
+    "businesswire.com",
+    "globenewswire.com",
+    "nasdaq.com",
+)
+"""Zweite Stufe derselben Klassifikation: serioese Nachrichtenagenturen und
+Original-Pressemitteilungsdienste. Bewusst getrennt von
+``_PRIMARY_SOURCE_DOMAINS`` -- eine Agenturmeldung ist keine regulatorische
+Einreichung, und der Bericht soll diesen Unterschied sichtbar lassen."""
 
 _SYSTEM_PROMPT = """\
 Du bist der Research Agent eines Aktienanalyse-Systems. Deine Aufgabe ist \
@@ -79,6 +92,16 @@ _SUBMIT_REPORT_TOOL: dict[str, Any] = {
         "Schliesst die Recherche ab und uebermittelt den strukturierten Bericht. "
         "Muss genau einmal aufgerufen werden, als letzte Aktion."
     ),
+    # strict laesst die API die Ausgabe des Modells am Schema entlang
+    # erzwingen (grammar-constrained sampling) statt es nur zu beschreiben.
+    # Ohne das hat das Modell am 2026-08-17 die Faktorlisten in seiner
+    # internen XML-Werkzeugsyntax geschrieben ('<parameter name="item">...'),
+    # und die API hat den Wert als einfachen String durchgereicht -- ein
+    # Array-Feld kann jetzt keinen String mehr enthalten. Mit den
+    # serverseitigen Werkzeugen (web_search/web_fetch) ist strict laut
+    # Anthropic-Dokumentation ausdruecklich kombinierbar, und optionale
+    # Felder bleiben erlaubt (nur "status" ist Pflicht).
+    "strict": True,
     "input_schema": {
         "type": "object",
         "properties": {
@@ -100,15 +123,108 @@ _SUBMIT_REPORT_TOOL: dict[str, Any] = {
             },
         },
         "required": ["status"],
+        "additionalProperties": False,
     },
+    "input_examples": [
+        {
+            "status": "COMPLETED",
+            "summary": "Kurze Einordnung der Recherchelage in zusammenhaengendem Text.",
+            "positive_factors": [
+                "Umsatz im letzten Quartal ueber der eigenen Prognose",
+                "Neues Rueckkaufprogramm angekuendigt",
+            ],
+            "negative_factors": ["Laufendes Kartellverfahren mit offenem Ausgang"],
+            "risks": ["Zollrisiken bei Importen aus mehreren Fertigungslaendern"],
+            "confidence": 0.7,
+        }
+    ],
 }
 
 
 def _classify_license(url: str) -> SourceLicenseClass:
     host = urlparse(url).netloc.lower()
-    if any(host == domain or host.endswith(f".{domain}") for domain in _PRIMARY_SOURCE_DOMAINS):
+
+    def _matches(domains: tuple[str, ...]) -> bool:
+        return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+    if _matches(_PRIMARY_SOURCE_DOMAINS):
         return SourceLicenseClass.PRIMARY_SOURCE
+    if _matches(_NEWS_MEDIA_DOMAINS):
+        return SourceLicenseClass.NEWS_MEDIA
     return SourceLicenseClass.UNKNOWN
+
+
+def _require_string_list(symbol: str, field: str, value: object) -> tuple[str, ...]:
+    """Prueft ein Listenfeld der Werkzeugantwort, statt es blind an ``tuple``
+    zu geben.
+
+    ``tuple("Text")`` zerlegt einen String klaglos in seine Einzelzeichen --
+    genau das ist am 2026-08-17 im ersten echten Lauf passiert und hat einen
+    Bericht mit einem Listeneintrag je Buchstabe erzeugt. Ein sichtbarer
+    Anbieterfehler ist hier deutlich besser als ein unbrauchbarer Bericht
+    (CLAUDE.md: keine erfundenen Werte, kein stiller Fallback).
+    """
+    if value is None:
+        return ()
+    if isinstance(value, list | tuple) and all(isinstance(item, str) for item in value):
+        return tuple(value)
+    raise ResearchProviderError(
+        f"'{symbol}': '{field}' aus '{_SUBMIT_TOOL_NAME}' ist keine Liste von "
+        f"Texten, sondern {type(value).__name__} ({value!r:.120})"
+    )
+
+
+def _require_optional_text(symbol: str, field: str, value: object) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    raise ResearchProviderError(
+        f"'{symbol}': '{field}' aus '{_SUBMIT_TOOL_NAME}' ist kein Text, "
+        f"sondern {type(value).__name__} ({value!r:.120})"
+    )
+
+
+@dataclass(slots=True)
+class _UsageTotals:
+    """Summiert Tokens und serverseitige Werkzeugaufrufe ueber alle
+    Gespraechsrunden eines Symbols.
+
+    Das Kostenbudget aus ADR 0021 laesst sich sonst nicht ueberpruefen: Der
+    erste echte Lauf hat Geld gekostet, ohne dass die Anwendung davon etwas
+    mitbekommen hat. Bewusst nur Logging und kein Feld am Ergebnis -- ein
+    persistierter Kostenwert braucht eine eigene Entscheidung.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    web_searches: int = 0
+    web_fetches: int = 0
+    turns: int = 0
+
+    def add(self, usage: Any) -> None:
+        self.turns += 1
+        self.input_tokens += usage.input_tokens
+        self.output_tokens += usage.output_tokens
+        self.cache_read_tokens += usage.cache_read_input_tokens or 0
+        server_tool_use = usage.server_tool_use
+        if server_tool_use is not None:
+            self.web_searches += server_tool_use.web_search_requests or 0
+            self.web_fetches += server_tool_use.web_fetch_requests or 0
+
+    def log(self, symbol: str, model: str) -> None:
+        _logger.info(
+            "Research-Nutzung %s (%s): %d Runden, %d Eingabe-Token "
+            "(davon %d aus dem Cache), %d Ausgabe-Token, "
+            "%d Websuchen, %d Webabrufe",
+            symbol,
+            model,
+            self.turns,
+            self.input_tokens,
+            self.cache_read_tokens,
+            self.output_tokens,
+            self.web_searches,
+            self.web_fetches,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,58 +303,78 @@ class AnthropicResearchProvider(ResearchProvider):
         fetched_documents: dict[str, str] = {}
         citations: list[Citation] = []
         evaluated_at = datetime.now(UTC)
+        usage = _UsageTotals()
 
-        for _ in range(self._max_turns):
-            # Rohe Dicts statt der SDK-eigenen, nach Werkzeugversion benannten
-            # TypedDicts (z. B. "WebSearchTool20250305Param") -- genau das Muster
-            # aus Anthropics eigener Dokumentation. Die Versionsangabe steckt im
-            # "type"-Feld, nicht im Python-Typ; ein Import wuerde an jede neue
-            # Werkzeugversion binden, ohne einen Laufzeitvorteil zu bringen.
-            response = self._client.messages.create(
-                model=model,
-                max_tokens=_MAX_TOKENS,
-                system=_SYSTEM_PROMPT,
-                messages=messages,  # type: ignore[arg-type]
-                tools=tools,  # type: ignore[arg-type]
-            )
-
-            submit_input = self._scan_turn(response.content, fetched_documents)
-            citations.extend(
-                self._extract_citations(response.content, fetched_documents, evaluated_at)
-            )
-
-            if submit_input is not None:
-                return self._build_report(stock, submit_input, citations, evaluated_at, model)
-
-            if response.stop_reason == "pause_turn":
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": [block.model_dump(mode="json") for block in response.content],
-                    }
+        # Die Nutzung wird auch beim Abbruch protokolliert -- gerade ein
+        # gescheiterter Lauf hat schon Geld gekostet und soll nachvollziehbar
+        # bleiben (ADR 0021 Budget).
+        try:
+            for _ in range(self._max_turns):
+                # Rohe Dicts statt der SDK-eigenen, nach Werkzeugversion benannten
+                # TypedDicts (z. B. "WebSearchTool20250305Param") -- genau das Muster
+                # aus Anthropics eigener Dokumentation. Die Versionsangabe steckt im
+                # "type"-Feld, nicht im Python-Typ; ein Import wuerde an jede neue
+                # Werkzeugversion binden, ohne einen Laufzeitvorteil zu bringen.
+                response = self._client.messages.create(
+                    model=model,
+                    max_tokens=_MAX_TOKENS,
+                    system=_SYSTEM_PROMPT,
+                    messages=messages,  # type: ignore[arg-type]
+                    tools=tools,  # type: ignore[arg-type]
                 )
-                continue
 
-            response_text = " ".join(
-                block.text for block in response.content if block.type == "text"
-            )
-            _logger.warning(
-                "'%s': Anthropic-Antwort endete ohne Aufruf von '%s' "
-                "(stop_reason=%s). Antworttext: %s",
-                stock.symbol,
-                _SUBMIT_TOOL_NAME,
-                response.stop_reason,
-                response_text or "(kein Textblock)",
-            )
+                usage.add(response.usage)
+
+                if response.stop_reason == "max_tokens":
+                    # Ein hier abgeschnittener tool_use-Block kann eine halbe
+                    # Faktorliste enthalten. Ein Teilbericht saehe vollstaendig
+                    # aus, waere es aber nicht -- lieber gar keiner.
+                    raise ResearchProviderError(
+                        f"'{stock.symbol}': Anthropic-Antwort wurde bei max_tokens "
+                        f"({_MAX_TOKENS}) abgeschnitten -- kein vollstaendiger Bericht"
+                    )
+
+                submit_input = self._scan_turn(response.content, fetched_documents)
+                citations.extend(
+                    self._extract_citations(response.content, fetched_documents, evaluated_at)
+                )
+
+                if submit_input is not None:
+                    return self._build_report(stock, submit_input, citations, evaluated_at, model)
+
+                if response.stop_reason == "pause_turn":
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": [
+                                block.model_dump(mode="json") for block in response.content
+                            ],
+                        }
+                    )
+                    continue
+
+                response_text = " ".join(
+                    block.text for block in response.content if block.type == "text"
+                )
+                _logger.warning(
+                    "'%s': Anthropic-Antwort endete ohne Aufruf von '%s' "
+                    "(stop_reason=%s). Antworttext: %s",
+                    stock.symbol,
+                    _SUBMIT_TOOL_NAME,
+                    response.stop_reason,
+                    response_text or "(kein Textblock)",
+                )
+                raise ResearchProviderError(
+                    f"'{stock.symbol}': Anthropic-Antwort endete ohne Aufruf von "
+                    f"'{_SUBMIT_TOOL_NAME}' (stop_reason={response.stop_reason})"
+                )
+
             raise ResearchProviderError(
-                f"'{stock.symbol}': Anthropic-Antwort endete ohne Aufruf von "
-                f"'{_SUBMIT_TOOL_NAME}' (stop_reason={response.stop_reason})"
+                f"'{stock.symbol}': zu viele Gespraechsrunden ohne Abschluss ueber "
+                f"'{_SUBMIT_TOOL_NAME}' (Limit {self._max_turns})"
             )
-
-        raise ResearchProviderError(
-            f"'{stock.symbol}': zu viele Gespraechsrunden ohne Abschluss ueber "
-            f"'{_SUBMIT_TOOL_NAME}' (Limit {self._max_turns})"
-        )
+        finally:
+            usage.log(stock.symbol, model)
 
     def _build_user_prompt(self, stock: Stock) -> str:
         return (
@@ -364,6 +500,11 @@ class AnthropicResearchProvider(ResearchProvider):
             ) from error
 
         confidence = submit_input.get("confidence")
+        if confidence is not None and not isinstance(confidence, int | float):
+            raise ResearchProviderError(
+                f"'{stock.symbol}': confidence aus '{_SUBMIT_TOOL_NAME}' ist keine Zahl, "
+                f"sondern {type(confidence).__name__} ({confidence!r:.120})"
+            )
         if confidence is not None and not 0.0 <= confidence <= 1.0:
             raise ResearchProviderError(
                 f"'{stock.symbol}': confidence ({confidence}) liegt ausserhalb von [0, 1]"
@@ -380,11 +521,15 @@ class AnthropicResearchProvider(ResearchProvider):
             evaluated_at=evaluated_at,
             model=model,
             prompt_version=_PROMPT_VERSION,
-            summary=submit_input.get("summary"),
-            positive_factors=tuple(submit_input.get("positive_factors") or ()),
-            negative_factors=tuple(submit_input.get("negative_factors") or ()),
-            risks=tuple(submit_input.get("risks") or ()),
+            summary=_require_optional_text(stock.symbol, "summary", submit_input.get("summary")),
+            positive_factors=_require_string_list(
+                stock.symbol, "positive_factors", submit_input.get("positive_factors")
+            ),
+            negative_factors=_require_string_list(
+                stock.symbol, "negative_factors", submit_input.get("negative_factors")
+            ),
+            risks=_require_string_list(stock.symbol, "risks", submit_input.get("risks")),
             confidence=confidence,
             citations=tuple(deduplicated.values()),
-            reason=submit_input.get("reason"),
+            reason=_require_optional_text(stock.symbol, "reason", submit_input.get("reason")),
         )

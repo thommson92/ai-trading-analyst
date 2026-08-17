@@ -329,13 +329,25 @@ class ResearchConfig(_Section):
     die Kosten je Aufruf hart (ADR 0021 Budget), ``allowed_domains`` ist
     bewusst eine Allowlist statt einer Blockliste (ADR 0022, Zitier-
     architektur Punkt 5) -- eine leere Allowlist bedeutet keine
-    Einschraenkung, ist aber nicht der ausgelieferte Standard.
+    Einschraenkung, ist aber nicht der ausgelieferte Standard. Die Allowlist
+    gilt fuer Suche und Abruf gleichermassen; sie enthaelt deshalb neben der
+    Primaerquelle auch Pressemitteilungsdienste und Nachrichtenagenturen, weil
+    der Agent sonst die im Prompt verlangten Nachrichten gar nicht erreichen
+    kann.
     """
 
     provider: Literal["fixture", "anthropic"] = "fixture"
     max_searches: PositiveInt = 5
     max_fetches: PositiveInt = 5
-    allowed_domains: tuple[str, ...] = ("sec.gov",)
+    allowed_domains: tuple[str, ...] = (
+        "sec.gov",
+        "prnewswire.com",
+        "businesswire.com",
+        "globenewswire.com",
+        "reuters.com",
+        "apnews.com",
+        "nasdaq.com",
+    )
 
 
 class DataAvailabilityConfig(_Section):

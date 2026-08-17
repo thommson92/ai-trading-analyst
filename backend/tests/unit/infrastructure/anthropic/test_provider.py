@@ -154,6 +154,41 @@ class TestErfolgreicherZyklus:
         report = _provider(handler).research(AAPL)
         assert report.citations[0].license_class is SourceLicenseClass.UNKNOWN
 
+    def test_nachrichtenagentur_wird_von_der_primaerquelle_unterschieden(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        _text_with_citation("https://www.reuters.com/markets/apple", "Agentur"),
+                        _text_with_citation("https://sec.gov/filing", "Filing"),
+                        _submit_block(),
+                    ]
+                )
+            )
+
+        report = _provider(handler).research(AAPL)
+        klassen = [citation.license_class for citation in report.citations]
+        assert klassen == [SourceLicenseClass.NEWS_MEDIA, SourceLicenseClass.PRIMARY_SOURCE]
+
+    def test_faktorlisten_werden_unveraendert_uebernommen(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        _submit_block(
+                            positive_factors=["Rekordumsatz im letzten Quartal"],
+                            negative_factors=["Laufendes Kartellverfahren"],
+                            risks=["Zollrisiken"],
+                        )
+                    ]
+                )
+            )
+
+        report = _provider(handler).research(AAPL)
+        assert report.positive_factors == ("Rekordumsatz im letzten Quartal",)
+        assert report.negative_factors == ("Laufendes Kartellverfahren",)
+        assert report.risks == ("Zollrisiken",)
+
     def test_insufficient_data_ohne_erfundene_werte(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return _json_response(
@@ -297,6 +332,75 @@ class TestFehlerfaelle:
 
         with pytest.raises(ResearchProviderError, match="AAPL"):
             provider.research(AAPL)
+
+
+class TestFalschTypisierteWerkzeugantwort:
+    """Regression zum Vorfall vom 2026-08-17: Das Modell hat die Faktorlisten
+    in seiner internen XML-Werkzeugsyntax geschrieben, die API hat den Wert als
+    einfachen String durchgereicht, und ``tuple(...)`` hat ihn klaglos in
+    Einzelzeichen zerlegt -- der Bericht hatte einen Eintrag je Buchstabe."""
+
+    VORFALLWERT = '\n<parameter name="item">Drei aufeinanderfolgende Rekordquartale'
+
+    def test_string_statt_liste_wird_abgelehnt_statt_in_zeichen_zerlegt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(_message([_submit_block(positive_factors=self.VORFALLWERT)]))
+
+        with pytest.raises(ResearchProviderError, match="positive_factors"):
+            _provider(handler).research(AAPL)
+
+    def test_liste_mit_nicht_text_eintrag_wird_abgelehnt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(_message([_submit_block(risks=["Zollrisiko", {"a": 1}])]))
+
+        with pytest.raises(ResearchProviderError, match="risks"):
+            _provider(handler).research(AAPL)
+
+    def test_summary_als_liste_wird_abgelehnt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(_message([_submit_block(summary=["a", "b"])]))
+
+        with pytest.raises(ResearchProviderError, match="summary"):
+            _provider(handler).research(AAPL)
+
+    def test_confidence_als_text_wird_abgelehnt(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(_message([_submit_block(confidence="hoch")]))
+
+        with pytest.raises(ResearchProviderError, match="confidence"):
+            _provider(handler).research(AAPL)
+
+    def test_werkzeugschema_erzwingt_die_form_serverseitig(self) -> None:
+        """Zweite Verteidigungslinie ist der Adapter -- die erste ist das
+        Schema selbst. Ohne ``strict`` waere die Validierung oben nur
+        Symptombehandlung."""
+        gesendete_werkzeuge: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            gesendete_werkzeuge.extend(body["tools"])
+            return _json_response(_message([_submit_block()]))
+
+        _provider(handler).research(AAPL)
+
+        submit = next(
+            tool for tool in gesendete_werkzeuge if tool["name"] == "submit_research_report"
+        )
+        assert submit["strict"] is True
+        schema = submit["input_schema"]
+        assert isinstance(schema, dict)
+        assert schema["additionalProperties"] is False
+
+
+class TestAbgeschnitteneAntwort:
+    def test_max_tokens_erzeugt_keinen_teilbericht(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message([_submit_block(positive_factors=["Rekord"])], stop_reason="max_tokens")
+            )
+
+        with pytest.raises(ResearchProviderError, match="max_tokens"):
+            _provider(handler).research(AAPL)
 
 
 class TestUnbekannteZitatTypen:

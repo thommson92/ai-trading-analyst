@@ -110,11 +110,17 @@ class TestShippedDefaultConfig:
         assert llm.report.model == "claude-haiku-4-5-20251001"
 
     def test_it_contains_the_research_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """ADR 0022 -- fixture bleibt Standard, Allowlist statt Blockliste."""
+        """ADR 0022 -- fixture bleibt Standard, Allowlist statt Blockliste.
+
+        Die Liste selbst ist eine fachliche Auswahl und darf wachsen; geprueft
+        wird deshalb der Charakter der Einstellung: nicht leer (leer hiesse
+        keine Einschraenkung) und mit der Primaerquelle darin.
+        """
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
         research = load_config().config.research
         assert research.provider == "fixture"
-        assert research.allowed_domains == ("sec.gov",)
+        assert research.allowed_domains
+        assert "sec.gov" in research.allowed_domains
 
     def test_it_contains_no_secret_like_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
