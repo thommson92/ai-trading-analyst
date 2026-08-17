@@ -371,3 +371,18 @@ sind Qualitätsthemen, keine Fehler — sie gehören in eine eigene Entscheidung
 - **Die Zitatmenge ist ungesteuert.** Rund 40 Zitate für einen Bericht sind
   eher Rohmaterial als Beleg. Eine Obergrenze und eine Priorisierung nach
   Quellenklasse fehlen.
+
+Der Abnahmelauf nach den Review-Korrekturen (2026-08-17, 14:35 Uhr) hat einen
+vierten Punkt ergänzt: **die Kosten je Aktie streuen erheblich.** Derselbe
+Aufruf für dasselbe Symbol kostete 0,581 $ statt 0,325 $ — 210.654 statt 80.000
+Eingabe-Token, verteilt auf zwei statt einer Runde. Ursache sind vier
+fehlgeschlagene Abrufe (dreimal `url_not_allowed`, danach `max_uses_exceeded`),
+die Kontext und Iterationen verbrauchen, ohne ein einziges Dokument zu liefern.
+Der Zusammenhang zum zweiten Folgepunkt ist direkt: Solange der Systemprompt
+Primärquellen verlangt, die Abruf-Allowlist sie aber nicht zulässt, bezahlt
+jeder Lauf für Fehlversuche. Die Notbremse
+`max_input_tokens_per_symbol` (150.000) hat hier planmäßig nicht gegriffen —
+sie prüft zwischen Anfragen, und die Überschreitung entstand innerhalb der
+zweiten. Das ist die im Abschnitt „Kostenkontrolle" ausdrücklich benannte
+Reichweitengrenze, kein Fehler, aber ein Argument dafür, die
+Werkzeugkonfiguration zusammen mit der Quellenhierarchie neu zu schneiden.
