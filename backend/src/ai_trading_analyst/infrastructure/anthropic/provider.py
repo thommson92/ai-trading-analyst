@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -85,9 +85,15 @@ Suchkontingent ist knapp.
 vertrauenswuerdige Domains beschraenkt. Es erreicht ausserdem nur URLs, die \
 vorher in Suchtreffern aufgetaucht sind. Hebe die wenigen Abrufe deshalb fuer \
 die wichtigsten Primaerquellen auf, statt sie fruehzeitig zu verbrauchen.
-- Schlaegt ein Werkzeug fehl oder ist das Kontingent erschoepft, arbeite mit \
-dem weiter, was du bereits hast. Ein Bericht aus wenigen belegten Quellen ist \
-besser als gar keiner -- nur erfinden darfst du nichts.
+- Meldet ein Werkzeug "max_uses_exceeded", ist das Kontingent endgueltig \
+aufgebraucht. Ein erneuter Aufruf aendert daran nichts, kostet aber jedes Mal \
+zusaetzlich -- versuche es dann nicht noch einmal, sondern arbeite mit dem \
+weiter, was du bereits hast. Dasselbe gilt fuer "url_not_allowed": Die Domain \
+ist gesperrt und wird es bleiben.
+- Ein Bericht aus wenigen belegten Quellen ist besser als gar keiner -- nur \
+erfinden darfst du nichts.
+- Nenne im Bericht den zeitlichen Stand deiner Quellen. Gib nie einen \
+aelteren Stand als den heutigen als aktuelle Lage aus.
 
 Regeln fuer Quellen und Zitate:
 - Jede wesentliche Tatsachenbehauptung muss auf eine konkrete, mit \
@@ -351,13 +357,13 @@ class AnthropicResearchProvider(ResearchProvider):
             ) from error
 
     def _run(self, stock: Stock, model: str) -> ResearchReport:
+        evaluated_at = datetime.now(UTC)
         messages: list[dict[str, Any]] = [
-            {"role": "user", "content": self._build_user_prompt(stock)}
+            {"role": "user", "content": self._build_user_prompt(stock, evaluated_at.date())}
         ]
         tools = self._build_tools()
         fetched_documents: dict[str, str] = {}
         citations: list[Citation] = []
-        evaluated_at = datetime.now(UTC)
         usage = _UsageTotals(pricing=self._pricing)
 
         # Die Nutzung wird auch beim Abbruch protokolliert -- gerade ein
@@ -438,17 +444,35 @@ class AnthropicResearchProvider(ResearchProvider):
         finally:
             usage.log(stock.symbol, model)
 
-    def _build_user_prompt(self, stock: Stock) -> str:
+    def _build_user_prompt(self, stock: Stock, today: date) -> str:
+        # Das Stichtagsdatum steht ausdruecklich im Prompt: Ohne es hat das
+        # Modell in einem realen Lauf neun Monate alte Meldungen als
+        # Gegenwart dargestellt ("Ende 2025" bei einem Lauf im August 2026).
+        # Fuer ein Handelssystem ist veraltetes Research, das sich als
+        # aktuell ausgibt, schaedlicher als gar keines.
         return (
-            f"Recherchiere aktuelle Nachrichten, Unternehmensmeldungen, "
-            f"Analystenkommentare und das Marktumfeld fuer die Aktie "
-            f"{stock.symbol} ({stock.exchange})."
+            f"Heute ist der {today.isoformat()}. Recherchiere den aktuellen "
+            f"Stand zu Nachrichten, Unternehmensmeldungen, Analystenkommentaren "
+            f"und Marktumfeld fuer die Aktie {stock.symbol} ({stock.exchange}).\n"
+            f"Pruefe bei jeder Quelle das Veroeffentlichungsdatum. Aeltere "
+            f"Meldungen darfst du zur Einordnung verwenden, musst sie im "
+            f"Bericht aber als das kennzeichnen, was sie sind -- gib niemals "
+            f"einen aelteren Stand als den heutigen aus. Findest du zu einem "
+            f"Punkt nur veraltete Quellen, sage das ausdruecklich."
         )
 
     def _build_tools(self) -> list[dict[str, Any]]:
-        # _20260209-Variante (dynamische Filterung serverseitig) statt der
-        # aelteren _20250305/_20250910-Basisversion -- fuer Sonnet 5 sowie
-        # Opus/Sonnet ab der 4.6-Generation verfuegbar, ohne Beta-Header.
+        # allowed_callers=["direct"] schaltet die dynamische Filterung ab.
+        #
+        # Die _20260209-Werkzeuge lassen ihre Ergebnisse standardmaessig durch
+        # Code Execution laufen und sparen so Token. Der Preis dafuer ist
+        # genau das, was ADR 0022 traegt: Das Modell referenziert die Treffer
+        # danach ueber Indizes ('<cite index="8-3">' als Rohtext im Bericht)
+        # statt ueber 'web_search_result_location'-Bloecke, aus denen
+        # '_extract_citations' die Quellen zieht. Ein realer Lauf lieferte so
+        # null Zitate. Quellenbindung geht hier vor Tokenersparnis
+        # (CLAUDE.md "Daten und Ergebnisse").
+        #
         # Die Suche laeuft bewusst ohne allowed_domains: Eine Allowlist auf
         # der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
         # Kontingent, und web_fetch erreicht danach nichts mehr (es darf nur
@@ -459,6 +483,7 @@ class AnthropicResearchProvider(ResearchProvider):
             "type": "web_search_20260209",
             "name": "web_search",
             "max_uses": self._max_searches,
+            "allowed_callers": ["direct"],
         }
         # max_content_tokens ist der wirksamste Kostenhebel: Ein ungebremst
         # abgerufenes SEC-Filing bringt rund 125.000 Token in den Kontext,
@@ -470,6 +495,7 @@ class AnthropicResearchProvider(ResearchProvider):
             "max_uses": self._max_fetches,
             "max_content_tokens": self._max_fetch_content_tokens,
             "citations": {"enabled": True},
+            "allowed_callers": ["direct"],
         }
         if self._fetch_allowed_domains:
             web_fetch["allowed_domains"] = list(self._fetch_allowed_domains)

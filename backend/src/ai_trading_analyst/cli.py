@@ -924,8 +924,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "Uebersteuert research.max_searches nur fuer diesen Lauf. Mit 1 kostet "
-            "ein Probelauf wenige Cent statt des vollen Budgets."
+            "Uebersteuert research.max_searches nur fuer diesen Lauf. Achtung: Ein "
+            "zu knapper Wert kann teurer werden statt billiger -- das Modell "
+            "versucht abgelehnte Aufrufe erneut, und jeder Versuch verrechnet den "
+            "Kontext neu."
         ),
     )
     research.add_argument(

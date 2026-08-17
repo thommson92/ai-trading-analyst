@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -442,6 +443,23 @@ class TestWerkzeugbudget:
         assert web_fetch["max_content_tokens"] == 8000
         assert web_fetch["allowed_domains"] == ["sec.gov"]
 
+    def test_dynamische_filterung_ist_abgeschaltet(self) -> None:
+        """Mit dynamischer Filterung laufen die Treffer durch Code Execution,
+        und das Modell referenziert sie ueber Indizes statt ueber
+        'web_search_result_location'-Bloecke -- ein realer Lauf lieferte so
+        null Zitate bei rohem '<cite index=...>'-Markup im Bericht. Die
+        Quellenbindung aus ADR 0022 haengt daran."""
+        aufzeichnung: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            aufzeichnung.extend(json.loads(request.content)["tools"])
+            return _json_response(_message([_submit_block()]))
+
+        werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
+
+        assert werkzeuge["web_search"]["allowed_callers"] == ["direct"]
+        assert werkzeuge["web_fetch"]["allowed_callers"] == ["direct"]
+
     def test_die_suche_laeuft_bewusst_ohne_allowlist(self) -> None:
         """Eine Allowlist auf der Suche laesst kaum Treffer uebrig, das Modell
         verbrennt sein Kontingent, und web_fetch erreicht danach nichts mehr --
@@ -490,6 +508,27 @@ class TestWerkzeugbudget:
 
         # 0,50 USD Eingabe + 0,06 USD Ausgabe + 0,05 USD Suchen
         assert totals.estimated_usd() == pytest.approx(0.61)
+
+
+class TestStichtag:
+    def test_das_heutige_datum_steht_im_prompt(self) -> None:
+        """Ohne Stichtag hat das Modell in einem realen Lauf neun Monate alte
+        Meldungen als Gegenwart dargestellt. Veraltetes Research, das sich als
+        aktuell ausgibt, ist fuer ein Handelssystem schaedlicher als gar
+        keines."""
+        anfragen: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            anfragen.append(json.loads(request.content))
+            return _json_response(_message([_submit_block()]))
+
+        _provider(handler).research(AAPL)
+
+        messages = anfragen[0]["messages"]
+        assert isinstance(messages, list)
+        prompt = str(messages[0]["content"])
+        assert datetime.now(UTC).date().isoformat() in prompt
+        assert "AAPL" in prompt
 
 
 class TestWerkzeugfehler:

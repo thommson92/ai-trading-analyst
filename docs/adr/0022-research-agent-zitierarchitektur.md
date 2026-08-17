@@ -143,6 +143,53 @@ gelangen.
 Dass der Lauf `INSUFFICIENT_DATA` statt eines erfundenen Berichts lieferte, ist
 die Halluzinationsschutz-Regel aus CLAUDE.md — die hat funktioniert.
 
+### Nachtrag: Dynamische Filterung kostet die Zitate
+
+Ein Lauf am 2026-08-17 lieferte einen inhaltlich brauchbaren Bericht mit
+**null Zitaten** — und dafür rohem `<cite index="8-3">`-Markup mitten in den
+Faktortexten. Damit war die tragende Entscheidung 1 dieses ADR wirkungslos.
+
+Ursache: Die `_20260209`-Werkzeuge lassen ihre Ergebnisse standardmäßig durch
+Code Execution laufen (dynamische Filterung, spart laut Anthropic rund 24 %
+Eingabe-Token). Das Modell referenziert die Treffer danach über Indizes statt
+über `web_search_result_location`-Blöcke — genau die Blöcke, aus denen
+`_extract_citations` die Quellen zieht.
+
+13. **`allowed_callers: ["direct"]` auf beiden Web-Werkzeugen** schaltet die
+    dynamische Filterung ab und stellt den klassischen Zitatpfad her. Die
+    Tokenersparnis wird bewusst aufgegeben: Ohne Quellenbindung verletzt der
+    Research Agent CLAUDE.mds Regel „Aussagen über Nachrichten […] verweisen
+    auf gespeicherte Quellen mit URL". Ein billiger Bericht ohne Belege ist
+    für dieses System wertlos.
+
+### Nachtrag: Stichtag im Prompt
+
+Derselbe Lauf beschrieb den November 2025 als aktuelle Lage — bei einem
+Laufdatum im August 2026. Das Modell kannte das heutige Datum nicht und hat
+neun Monate alte Meldungen als Gegenwart präsentiert. Für ein Handelssystem
+ist veraltetes Research, das sich als aktuell ausgibt, schädlicher als gar
+keines.
+
+14. **Der Benutzerprompt nennt das heutige Datum** und verlangt, das
+    Veröffentlichungsdatum jeder Quelle zu prüfen, den zeitlichen Stand im
+    Bericht zu nennen und niemals einen älteren Stand als aktuelle Lage
+    auszugeben. Das ersetzt kein `published_at` je Zitat (weiterhin offener
+    Folgepunkt), schließt aber die gröbste Lücke.
+
+### Nachtrag: Ein zu knappes Kontingent verteuert den Lauf
+
+Derselbe Lauf mit `--max-searches 1 --max-fetches 1` kostete **0,315 $** —
+mehr als das halbe Vollbudget. Nach der einen erlaubten Suche versuchte das
+Modell fünf weitere Suchen und drei weitere Abrufe, alle mit
+`max_uses_exceeded` bzw. `url_not_allowed` abgelehnt. Jeder Versuch ist eine
+weitere Iteration der serverseitigen Schleife und verrechnet den gesamten
+Kontext neu.
+
+Konsequenz: `max_uses` ist eine Obergrenze für *sinnvolle* Aufrufe, keine
+Sparbremse. Zu knapp gesetzt kostet es mehr. Der Systemprompt weist deshalb
+ausdrücklich darauf hin, dass `max_uses_exceeded` und `url_not_allowed` sich
+durch Wiederholung nicht ändern, und die CLI-Hilfe warnt davor.
+
 ### Nachtrag: Zusammensetzung der Abruf-Allowlist
 
 Die ausgelieferte Liste enthielt zunächst nur `sec.gov` und wurde um
@@ -206,11 +253,13 @@ architekturrelevanten Entscheidungen.
 - Offener Folgepunkt: Entscheidung zu `published_at` nachholen (siehe
   oben), bevor Research-Ergebnisse in einem Bericht gegenüber dem Nutzer
   als vollständig quellengebunden dargestellt werden.
-- Offener Folgepunkt: Der technische Status (`ResearchStatus.COMPLETED`) sagt
-  bislang nichts über die inhaltliche Abdeckung. Ein Lauf, der wegen des
-  Suchbudgets nur einen Teil der Quellenklassen erreicht hat, gilt trotzdem
-  als abgeschlossen. Eine getrennte Abdeckungsangabe neben dem Status braucht
-  eine eigene Entscheidung samt Migration.
+- Offener Folgepunkt, inzwischen belegt: Der technische Status
+  (`ResearchStatus.COMPLETED`) sagt nichts über die inhaltliche Abdeckung. Ein
+  Lauf mit **einer** Suche, **null** erfolgreichen Abrufen und acht abgelehnten
+  Werkzeugaufrufen meldete `COMPLETED` mit Confidence 0,55. Eine getrennte
+  Abdeckungsangabe neben dem Status braucht eine eigene Entscheidung samt
+  Migration — sie ist damit aber kein theoretischer Punkt mehr, sondern ein
+  beobachteter Mangel.
 - Token- und Werkzeugnutzung werden je Lauf protokolliert
   (`_UsageTotals`), samt Kostenschätzung, damit sich das Budget aus ADR 0021
   überhaupt überprüfen lässt. Bewusst nur im Log: ein persistierter
