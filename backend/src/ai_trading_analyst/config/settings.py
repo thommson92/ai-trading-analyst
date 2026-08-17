@@ -331,9 +331,13 @@ class ResearchConfig(_Section):
     architektur Punkt 5) -- eine leere Allowlist bedeutet keine
     Einschraenkung, ist aber nicht der ausgelieferte Standard. Die Allowlist
     gilt fuer Suche und Abruf gleichermassen; sie enthaelt deshalb neben der
-    Primaerquelle auch Pressemitteilungsdienste und Nachrichtenagenturen, weil
-    der Agent sonst die im Prompt verlangten Nachrichten gar nicht erreichen
-    kann.
+    Primaerquelle auch Pressemitteilungsdienste, weil der Agent sonst die im
+    Prompt verlangten Nachrichten gar nicht erreichen kann.
+
+    Eine Domain, die Anthropics Crawler aussperrt, laesst die *gesamte*
+    Anfrage mit einem 400 scheitern -- nicht nur den einzelnen Abruf. Reuters
+    und AP sind deshalb nicht in der Voreinstellung; eine neue Domain gehoert
+    vor der Aufnahme einmal durch einen echten Lauf.
     """
 
     provider: Literal["fixture", "anthropic"] = "fixture"
@@ -344,8 +348,6 @@ class ResearchConfig(_Section):
         "prnewswire.com",
         "businesswire.com",
         "globenewswire.com",
-        "reuters.com",
-        "apnews.com",
         "nasdaq.com",
     )
 

@@ -61,7 +61,12 @@ _NEWS_MEDIA_DOMAINS = (
 """Zweite Stufe derselben Klassifikation: serioese Nachrichtenagenturen und
 Original-Pressemitteilungsdienste. Bewusst getrennt von
 ``_PRIMARY_SOURCE_DOMAINS`` -- eine Agenturmeldung ist keine regulatorische
-Einreichung, und der Bericht soll diesen Unterschied sichtbar lassen."""
+Einreichung, und der Bericht soll diesen Unterschied sichtbar lassen.
+
+Beschreibt die Quellenart, nicht die Erreichbarkeit: Reuters und AP stehen
+hier, obwohl sie in ``ResearchConfig.allowed_domains`` fehlen (sie sperren
+Anthropics Crawler aus). Aendert sich das oder nimmt jemand sie in die
+eigene Konfiguration auf, stimmt die Einstufung sofort."""
 
 _SYSTEM_PROMPT = """\
 Du bist der Research Agent eines Aktienanalyse-Systems. Deine Aufgabe ist \

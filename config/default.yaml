@@ -135,18 +135,21 @@ research:
   # Allowlist statt Blockliste (ADR 0022, Zitierarchitektur Punkt 5). Sie gilt
   # fuer Suche und Abruf gleichermassen: mit sec.gov allein findet der Agent
   # keine Nachrichten und Analystenkommentare, obwohl der Prompt genau danach
-  # fragt. Deshalb zusaetzlich Original-Pressemitteilungsdienste und etablierte
-  # Nachrichtenagenturen -- kuratiert, nicht offen.
+  # fragt. Deshalb zusaetzlich Original-Pressemitteilungsdienste -- kuratiert,
+  # nicht offen.
+  #
+  # Nicht jede seriose Quelle ist verwendbar: Wer Anthropics Crawler
+  # aussperrt, laesst die gesamte Anfrage mit einem 400 scheitern, nicht nur
+  # den einzelnen Abruf. Reuters und AP sind aus genau diesem Grund nicht
+  # hier. Vor dem Aufnehmen einer neuen Domain also einen echten Lauf machen.
   allowed_domains:
     # Primaerquellen
     - sec.gov
-    # Unternehmensmeldungen im Original
+    # Unternehmensmeldungen im Original -- fuer Quartalszahlen, Rueckkaeufe
+    # und Personalien ohnehin die bessere Quelle als eine Agenturmeldung
     - prnewswire.com
     - businesswire.com
     - globenewswire.com
-    # Etablierte Nachrichtenagenturen
-    - reuters.com
-    - apnews.com
     - nasdaq.com
 
 data_availability:

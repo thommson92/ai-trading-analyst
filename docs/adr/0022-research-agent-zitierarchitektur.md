@@ -101,10 +101,20 @@ Die ausgelieferte Allowlist enthielt zunächst nur `sec.gov`. Da sie für
 verlangten Nachrichten und Analystenkommentare gar nicht erreichen -- der
 erste echte Bericht stützte sich ausschließlich auf SEC-Einreichungen und hat
 das selbst vermerkt. Die Liste wurde deshalb um Original-Pressemitteilungs-
-dienste (`prnewswire.com`, `businesswire.com`, `globenewswire.com`) und
-etablierte Nachrichtenagenturen (`reuters.com`, `apnews.com`, `nasdaq.com`)
-ergänzt. Entscheidung 3 bleibt unverändert: kuratierte Allowlist, keine
-Blockliste, keine offene Suche.
+dienste (`prnewswire.com`, `businesswire.com`, `globenewswire.com`,
+`nasdaq.com`) ergänzt. Entscheidung 3 bleibt unverändert: kuratierte
+Allowlist, keine Blockliste, keine offene Suche.
+
+**Einschränkung durch den Crawler-Zugang.** Nicht jede seriöse Quelle ist
+verwendbar. Steht in `allowed_domains` eine Domain, die Anthropics Crawler
+aussperrt, scheitert die **gesamte** Anfrage mit einem 400 -- nicht nur der
+einzelne Abruf. Reuters und AP tun genau das und sind deshalb nicht in der
+Voreinstellung; eine neue Domain gehört vor der Aufnahme einmal durch einen
+echten Lauf. Für die eigentlich interessanten Unternehmensmeldungen
+(Quartalszahlen, Rückkäufe, Personalien) sind die Pressemitteilungsdienste
+ohnehin die Originalquelle und damit die bessere Wahl. Die Klassifikation in
+`_NEWS_MEDIA_DOMAINS` führt Reuters und AP weiterhin, weil sie die Quellen-
+*art* beschreibt und nicht die Erreichbarkeit.
 
 ### Bekannte Abweichung von der Quellenbindungs-Regel
 
