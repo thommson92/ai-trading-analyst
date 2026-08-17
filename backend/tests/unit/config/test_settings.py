@@ -113,7 +113,7 @@ class TestResearchConfig:
 
     def test_kostenbudget_ist_vorbelegt(self) -> None:
         """Ohne Deckel hat ein realer Lauf 256.000 Eingabe-Token verbraucht
-        (ADR 0022, "Kostenkontrolle") -- die Voreinstellung darf das nicht
+        (ADR 0023, "Kostenkontrolle") -- die Voreinstellung darf das nicht
         wieder offenlassen."""
         config = ResearchConfig()
         assert config.max_fetch_content_tokens > 0

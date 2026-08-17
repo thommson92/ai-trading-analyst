@@ -4,7 +4,7 @@ Fehlerbehandlung.
 Kein echtes Netzwerk (Muster Finnhub-Tests): ``httpx.MockTransport``,
 injiziert ueber den SDK-eigenen ``http_client``-Parameter.
 
-Der Adapter arbeitet in zwei Phasen (ADR 0022, "Zwei Phasen"): Phase 1
+Der Adapter arbeitet in zwei Phasen (ADR 0023, "Zwei Phasen"): Phase 1
 recherchiert mit den Web-Werkzeugen und antwortet in Fliesstext, Phase 2
 strukturiert diesen Text ueber ``submit_research_report``. Die Testhelfer
 ``_zweiphasig`` und ``_provider`` bilden das ab; ein Test, der nur eine der
@@ -249,7 +249,7 @@ class TestErfolgreicherZyklus:
 class TestZweiPhasen:
     """Zitate haengen an Textbloecken; ein tool_use-Block hat keine
     Zitat-Metadaten. Solange der Bericht ueber das Abschluss-Werkzeug kam,
-    konnte es deshalb gar keine Belege geben (ADR 0022, "Zwei Phasen")."""
+    konnte es deshalb gar keine Belege geben (ADR 0023, "Zwei Phasen")."""
 
     def test_die_recherchephase_bekommt_kein_abschluss_werkzeug(self) -> None:
         """Waere es dabei, schriebe das Modell den Bericht dorthin statt in
@@ -473,7 +473,7 @@ class TestFalschTypisierteWerkzeugantwort:
 
 class TestWerkzeugbudget:
     """Der Lauf vom 2026-08-17 hat 256.000 Eingabe-Token und ~0,62 USD
-    gekostet, ohne einen Bericht zu liefern (ADR 0022, "Kostenkontrolle")."""
+    gekostet, ohne einen Bericht zu liefern (ADR 0023, "Kostenkontrolle")."""
 
     def _gesendete_werkzeuge(
         self, provider: AnthropicResearchProvider, aufzeichnung: list[dict[str, object]]
@@ -499,7 +499,7 @@ class TestWerkzeugbudget:
         und das Modell referenziert sie ueber Indizes statt ueber
         'web_search_result_location'-Bloecke -- ein realer Lauf lieferte so
         null Zitate bei rohem '<cite index=...>'-Markup im Bericht. Die
-        Quellenbindung aus ADR 0022 haengt daran."""
+        Quellenbindung aus ADR 0023 haengt daran."""
         aufzeichnung: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:

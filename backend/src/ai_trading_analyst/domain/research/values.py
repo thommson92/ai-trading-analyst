@@ -1,5 +1,5 @@
 """Wertobjekte des Research Agent (Doc 06; Doc 10, Paragraph 6.7 und 10;
-ADR 0021, ADR 0022).
+ADR 0021, ADR 0023).
 
 Reines Python -- keine Infrastruktur, kein Anbieter. Der Domain Layer kennt
 Anthropic nicht (Doc 10, Paragraph 9), nur ``ResearchProvider`` als Port
@@ -16,13 +16,13 @@ from enum import StrEnum
 
 
 class SourceLicenseClass(StrEnum):
-    """Grobe Einordnung einer Zitatquelle (ADR 0022, Zitierarchitektur
+    """Grobe Einordnung einer Zitatquelle (ADR 0023, Zitierarchitektur
     Punkt 6) -- deterministisch aus der URL bestimmt, nie vom Sprachmodell
     selbst erfragt (CLAUDE.md: Scores/Klassen nicht aus LLM-Freitext
     uebernehmen)."""
 
     PRIMARY_SOURCE = "PRIMARY_SOURCE"
-    """SEC-Filing, Investor-Relations-Mitteilung o. Ae. -- ADR 0022 bevorzugt
+    """SEC-Filing, Investor-Relations-Mitteilung o. Ae. -- ADR 0023 bevorzugt
     diese Klasse ausdruecklich vor sekundaerer Berichterstattung."""
     NEWS_MEDIA = "NEWS_MEDIA"
     UNKNOWN = "UNKNOWN"
@@ -42,7 +42,7 @@ class ResearchStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Citation:
-    """Ein einzelner Beleg fuer eine Aussage im Bericht (ADR 0022,
+    """Ein einzelner Beleg fuer eine Aussage im Bericht (ADR 0023,
     Zitierarchitektur Punkt 1/2/6) -- Rueckverfolgbarkeit bis zur
     Originalquelle, nicht nur eine Sammelquelle je Bericht."""
 
@@ -55,7 +55,7 @@ class Citation:
     license_class: SourceLicenseClass
     transformation: str
     """Wie die Quelle im Bericht verwendet wurde, z. B. "zusammengefasst"
-    oder "aggregiert aus n Quellen" (ADR 0022, Zitierarchitektur Punkt 6)."""
+    oder "aggregiert aus n Quellen" (ADR 0023, Zitierarchitektur Punkt 6)."""
 
 
 @dataclass(frozen=True, slots=True)

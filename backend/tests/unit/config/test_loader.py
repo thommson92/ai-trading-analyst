@@ -110,7 +110,7 @@ class TestShippedDefaultConfig:
         assert llm.report.model == "claude-haiku-4-5-20251001"
 
     def test_it_contains_the_research_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """ADR 0022 -- fixture bleibt Standard, Allowlist statt Blockliste.
+        """ADR 0023 -- fixture bleibt Standard, Allowlist statt Blockliste.
 
         Die Liste selbst ist eine fachliche Auswahl und darf wachsen; geprueft
         wird deshalb der Charakter der Einstellung: nicht leer (leer hiesse

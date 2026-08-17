@@ -336,7 +336,7 @@ class ResearchPricingConfig(_Section):
 
 
 class ResearchConfig(_Section):
-    """Recherchequellen und Kostenbudget des Research Agent (ADR 0022).
+    """Recherchequellen und Kostenbudget des Research Agent (ADR 0023).
 
     ``fixture`` bleibt Standard, damit Start und Tests ohne
     ``ATA_LLM_API_KEY`` funktionieren (Muster wie
@@ -354,7 +354,7 @@ class ResearchConfig(_Section):
     Suche: Eine Allowlist auf der Suche laesst kaum Treffer uebrig, das Modell
     verbrennt sein Suchkontingent, und ``web_fetch`` darf danach nichts mehr
     holen (es erreicht ausschliesslich URLs, die vorher im Kontext standen).
-    Breit suchen, eng vertiefen -- ADR 0022, Abschnitt "Kostenkontrolle und
+    Breit suchen, eng vertiefen -- ADR 0023, Abschnitt "Kostenkontrolle und
     Reichweite der Allowlist".
 
     Eine Domain, die Anthropics Crawler aussperrt, laesst die *gesamte*

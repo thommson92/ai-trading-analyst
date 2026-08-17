@@ -1,4 +1,4 @@
-# ADR 0022: Research Agent -- Zitierarchitektur
+# ADR 0023: Research Agent -- Zitierarchitektur
 
 - Status: Angenommen
 - Datum: 2026-08-16
@@ -274,7 +274,7 @@ architekturrelevanten Entscheidungen.
 ## Konsequenzen
 
 - `docs/adr/README.md`-Übersicht um diesen Eintrag ergänzt.
-- Die im Code verstreuten Verweise auf "ADR 0022" (u. a.
+- Die im Code verstreuten Verweise auf "ADR 0023" (u. a.
   `infrastructure/anthropic/provider.py`, `domain/research/values.py`,
   `config/settings.py`, `infrastructure/persistence/orm.py`) sind damit
   gedeckt.
@@ -301,3 +301,28 @@ architekturrelevanten Entscheidungen.
 - `research.allowed_domains` heißt jetzt `research.fetch_allowed_domains`.
   Der alte Name versprach eine Geltung, die er nach der Öffnung der Suche
   nicht mehr hat.
+
+### Am ersten vollständigen Lauf sichtbar gewordene Folgepunkte
+
+Der erste Lauf mit funktionierender Quellenbindung (2026-08-17, rund 40 Zitate,
+0,325 $) hat drei Schwächen belegt, die vorher nur vermutet waren. Alle drei
+sind Qualitätsthemen, keine Fehler — sie gehören in eine eigene Entscheidung:
+
+- **Die Lizenzklassifikation sagt nichts mehr aus.** Sämtliche Zitate wurden
+  `UNKNOWN`, weil `_NEWS_MEDIA_DOMAINS` nur Agenturen und Wire-Dienste kennt,
+  die Suche aber CNBC, Fortune, Yahoo Finance, MacRumors und Engadget
+  lieferte. Zugleich stehen dort Aggregatoren und automatisiert erzeugte
+  Analyseseiten (`stockinvest.us`, `marketbeat.com`, `finbold.com`)
+  gleichberechtigt neben etablierten Medien. Nötig ist eine echte
+  Quellenhierarchie mit einer eigenen Klasse für Quellen geringer Beweiskraft,
+  die für harte Finanz- oder Rechtsfakten nicht als alleiniger Beleg zählen.
+- **Primärquellen kommen nicht vor.** `web_fetch` wurde in keinem Lauf
+  benutzt: Die Suche liefert Sekundärberichterstattung, und
+  `fetch_allowed_domains` lässt nur `sec.gov` und Wire-Dienste zu — jeder
+  Abrufversuch auf einen Suchtreffer liefe auf `url_not_allowed`. Der
+  Systemprompt verlangt „Bevorzuge Primärquellen", die Konfiguration macht es
+  unmöglich. Entweder gezielt nach SEC-Einreichungen suchen lassen oder die
+  Abruf-Allowlist an das ausrichten, was die Suche tatsächlich findet.
+- **Die Zitatmenge ist ungesteuert.** Rund 40 Zitate für einen Bericht sind
+  eher Rohmaterial als Beleg. Eine Obergrenze und eine Priorisierung nach
+  Quellenklasse fehlen.

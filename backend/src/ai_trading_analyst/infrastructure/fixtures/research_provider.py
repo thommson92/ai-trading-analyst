@@ -1,4 +1,4 @@
-"""Dauerhaft nutzbarer Testprovider fuer den Research Agent (ADR 0022).
+"""Dauerhaft nutzbarer Testprovider fuer den Research Agent (ADR 0023).
 
 Anders als beim Earnings-Filter gibt es hier kein sinnvoll variierbares
 Szenario je Symbol (kein Datum, kein Vorlauf) -- der Fixture-Provider liefert

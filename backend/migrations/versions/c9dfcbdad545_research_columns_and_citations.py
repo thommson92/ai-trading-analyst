@@ -1,7 +1,7 @@
 """research columns and citations
 
 Zehn nullable Spalten fuer den Research Agent (Doc 10, Paragraph 6.7 und 10;
-ADR 0021, ADR 0022) auf ``screening_results``, nach demselben Muster wie die
+ADR 0021, ADR 0023) auf ``screening_results``, nach demselben Muster wie die
 ``earnings_*``-Spalten: einmal je Lauf und Aktie berechnet, nur gesetzt, wenn
 zusaetzlich der Earnings-Filter ``EARNINGS_CLEAR`` war.
 

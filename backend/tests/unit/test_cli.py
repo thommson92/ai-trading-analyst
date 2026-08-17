@@ -404,7 +404,7 @@ class TestArgumente:
 class TestResearchKommando:
     def test_budget_kann_fuer_einen_probelauf_gedrueckt_werden(self) -> None:
         """Ein echter Lauf kostet Geld -- mit '--max-searches 1' laesst sich
-        die Kette fuer wenige Cent pruefen (ADR 0022, "Kostenkontrolle")."""
+        die Kette fuer wenige Cent pruefen (ADR 0023, "Kostenkontrolle")."""
         args = build_parser().parse_args(
             [
                 "research",

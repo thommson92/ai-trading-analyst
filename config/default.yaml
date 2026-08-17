@@ -126,10 +126,11 @@ llm:
 
 research:
   # Recherchequellen des Research Agent
-  # (docs/adr/0022-research-agent-zitierarchitektur.md). "fixture" bleibt
-  # Standard -- Start und Tests laufen ohne Anthropic-Zugang.
+  # (docs/adr/0022-research-agent-quellen.md), Zitierarchitektur und
+  # Kostensteuerung in ADR 0023. "fixture" bleibt Standard -- Start und
+  # Tests laufen ohne Anthropic-Zugang.
   provider: fixture
-  # Kostenbudget je Aktie (ADR 0021, ADR 0022 "Kostenkontrolle").
+  # Kostenbudget je Aktie (ADR 0021, ADR 0023 "Kostenkontrolle").
   #
   # Wichtig zum Verstaendnis: web_search/web_fetch sind serverseitige
   # Werkzeuge, deren Schleife bis zu zehn Iterationen INNERHALB EINER
@@ -146,7 +147,7 @@ research:
   # Anfrage laesst sich nicht abbrechen -- dort wirken nur max_uses und
   # max_fetch_content_tokens.
   max_input_tokens_per_symbol: 150000
-  # Allowlist statt Blockliste (ADR 0022, Zitierarchitektur Punkt 5) -- gilt
+  # Allowlist statt Blockliste (ADR 0023, Zitierarchitektur Punkt 5) -- gilt
   # aber NUR fuer den Abruf. Die Suche laeuft bewusst offen: Eine Allowlist
   # auf der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
   # Suchkontingent, und web_fetch erreicht danach nichts mehr (es darf nur

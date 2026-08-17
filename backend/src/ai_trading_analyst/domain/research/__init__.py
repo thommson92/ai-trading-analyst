@@ -1,6 +1,6 @@
 """Research Agent: Wertobjekte des strukturierten Recherche-Berichts
 
-(Doc 06; Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0022)."""
+(Doc 06; Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0023)."""
 
 from .values import Citation, ResearchReport, ResearchStatus, SourceLicenseClass
 

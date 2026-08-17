@@ -96,7 +96,7 @@ class RunAnalysisUseCase:
     Ergebnis, statt in ``StockProcessingError`` zu landen (ADR 0017: die
     technische Analyse laeuft unabhaengig vom Earnings-Filter weiter).
 
-    Der Research Agent (Doc 10, Paragraph 6.7; ADR 0021, ADR 0022) laeuft
+    Der Research Agent (Doc 10, Paragraph 6.7; ADR 0021, ADR 0023) laeuft
     danach, ausschliesslich fuer Aktien, die zusaetzlich den Earnings-Filter
     mit ``EARNINGS_CLEAR`` bestanden haben. Ein Ausfall des
     Research-Anbieters ist wie beim Earnings-Filter kein Verarbeitungsfehler

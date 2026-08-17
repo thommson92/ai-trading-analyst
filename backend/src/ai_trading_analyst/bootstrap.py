@@ -193,7 +193,7 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
 
     ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
     Start ohne Anthropic-Zugang; ``anthropic`` ist die produktive Quelle
-    (ADR 0021, ADR 0022).
+    (ADR 0021, ADR 0023).
     """
     if config.research.provider == "fixture":
         return FixtureResearchProvider()

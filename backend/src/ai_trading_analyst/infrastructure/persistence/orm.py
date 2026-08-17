@@ -118,7 +118,7 @@ class ScreeningResultOrm(Base):
     earnings_source: Mapped[str | None] = mapped_column(nullable=True)
     earnings_reason: Mapped[str | None] = mapped_column(nullable=True)
 
-    # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0022) --
+    # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0023) --
     # wie bei den earnings_*-Spalten: einmal je Lauf und Aktie berechnet,
     # nie unabhaengig vom Screening-Ergebnis abgefragt. Nur gesetzt, wenn
     # zusaetzlich earnings_status == EARNINGS_CLEAR war.
@@ -162,7 +162,7 @@ class SignalEventOrm(Base):
 
 
 class ResearchCitationOrm(Base):
-    """Ein einzelner Beleg eines Research-Berichts (ADR 0022, Zitier-
+    """Ein einzelner Beleg eines Research-Berichts (ADR 0023, Zitier-
     architektur) -- eigene Tabelle statt einer flachen Spalte, weil jedes
     Zitat mehrere Felder hat (Muster ``SignalEventOrm``)."""
 

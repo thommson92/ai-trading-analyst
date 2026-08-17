@@ -1,4 +1,4 @@
-"""Zugriff auf den Research Agent ueber die Anthropic-API (ADR 0021, ADR 0022).
+"""Zugriff auf den Research Agent ueber die Anthropic-API (ADR 0021, ADR 0023).
 
 Anders als der Finnhub-Adapter (ein einzelner GET-Aufruf) verwendet dieser
 Adapter das offizielle ``anthropic``-SDK statt rohem ``httpx``: Der
@@ -51,7 +51,7 @@ abgerufenen Inhalt (``max_fetch_content_tokens``), nicht an der Rundenzahl."""
 _MAX_TOKENS = 8192
 
 _PRIMARY_SOURCE_DOMAINS = ("sec.gov",)
-"""Deterministische Lizenzklassifikation (ADR 0022, Zitierarchitektur Punkt
+"""Deterministische Lizenzklassifikation (ADR 0023, Zitierarchitektur Punkt
 6) -- bewusst nicht vom Sprachmodell selbst erfragt (CLAUDE.md: Scores/
 Klassen nicht aus LLM-Freitext uebernehmen)."""
 
@@ -393,7 +393,7 @@ class AnthropicResearchProvider(ResearchProvider):
         Phase 1 recherchiert deshalb **ohne** Abschluss-Werkzeug: Das Modell
         muss in Prosa antworten, und die Belege entstehen dort automatisch.
         Phase 2 strukturiert diese Prosa in einem zweiten, billigen Aufruf
-        ohne Web-Werkzeuge. Siehe ADR 0022, "Zwei Phasen".
+        ohne Web-Werkzeuge. Siehe ADR 0023, "Zwei Phasen".
         """
         evaluated_at = datetime.now(UTC)
         usage = _UsageTotals(pricing=self._pricing)
@@ -559,7 +559,7 @@ class AnthropicResearchProvider(ResearchProvider):
         #
         # Die _20260209-Werkzeuge lassen ihre Ergebnisse standardmaessig durch
         # Code Execution laufen und sparen so Token. Der Preis dafuer waere
-        # genau das, was ADR 0022 traegt: Das Modell referenziert die Treffer
+        # genau das, was ADR 0023 traegt: Das Modell referenziert die Treffer
         # danach ueber Indizes statt ueber 'web_search_result_location'-
         # Bloecke, aus denen '_extract_citations' die Quellen zieht.
         # Quellenbindung geht hier vor Tokenersparnis (CLAUDE.md "Daten und
@@ -569,7 +569,7 @@ class AnthropicResearchProvider(ResearchProvider):
         # der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
         # Kontingent, und web_fetch erreicht danach nichts mehr (es darf nur
         # URLs holen, die vorher im Kontext standen). Breit suchen, eng
-        # vertiefen -- ADR 0022, "Kostenkontrolle und Reichweite der
+        # vertiefen -- ADR 0023, "Kostenkontrolle und Reichweite der
         # Allowlist".
         web_search: dict[str, Any] = {
             "type": "web_search_20260209",

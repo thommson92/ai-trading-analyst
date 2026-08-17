@@ -714,7 +714,7 @@ def command_research(args: argparse.Namespace) -> int:
 
     Braucht weder Datenbank noch Marktdatenanbieter -- anders als
     'backtest' liest der Research Agent keinen eigenen Kursbestand.
-    Ein echter Aufruf gegen 'anthropic' kostet Geld (ADR 0021/0022
+    Ein echter Aufruf gegen 'anthropic' kostet Geld (ADR 0021/0023
     Budget), deshalb keine automatische Uebersteuerung: 'fixture' bleibt
     Standard, bis ausdruecklich '--provider anthropic' gesetzt wird.
     '--max-searches'/'--max-fetches' druecken das Budget fuer einen
@@ -902,7 +902,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     research = subparsers.add_parser(
         "research",
-        help="Manueller Probelauf des Research Agent fuer ein einzelnes Symbol (ADR 0021/0022).",
+        help="Manueller Probelauf des Research Agent fuer ein einzelnes Symbol (ADR 0021/0023).",
     )
     research.add_argument(
         "--provider",
