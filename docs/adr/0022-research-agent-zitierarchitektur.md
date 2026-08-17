@@ -143,24 +143,52 @@ gelangen.
 Dass der Lauf `INSUFFICIENT_DATA` statt eines erfundenen Berichts lieferte, ist
 die Halluzinationsschutz-Regel aus CLAUDE.md — die hat funktioniert.
 
-### Nachtrag: Dynamische Filterung kostet die Zitate
+### Nachtrag: Zwei Phasen — Zitate und Schemazwang schließen sich aus
 
-Ein Lauf am 2026-08-17 lieferte einen inhaltlich brauchbaren Bericht mit
-**null Zitaten** — und dafür rohem `<cite index="8-3">`-Markup mitten in den
-Faktortexten. Damit war die tragende Entscheidung 1 dieses ADR wirkungslos.
+Zwei Läufe am 2026-08-17 lieferten inhaltlich brauchbare Berichte mit **null
+Zitaten** — und dafür rohem `<cite index="8-3">`-Markup mitten in den
+Faktortexten. Damit war die tragende Entscheidung 1 dieses ADR wirkungslos,
+und zwar seit dem ersten Commit.
 
-Ursache: Die `_20260209`-Werkzeuge lassen ihre Ergebnisse standardmäßig durch
-Code Execution laufen (dynamische Filterung, spart laut Anthropic rund 24 %
-Eingabe-Token). Das Modell referenziert die Treffer danach über Indizes statt
-über `web_search_result_location`-Blöcke — genau die Blöcke, aus denen
-`_extract_citations` die Quellen zieht.
+**Der Entwurfsfehler.** Anthropic-Zitate hängen an Textblöcken; ein
+`tool_use`-Block hat keine Zitat-Metadaten. Die Dokumentation sagt es
+ausdrücklich: *„Citations require interleaving citation blocks with text
+output, which is incompatible with the strict JSON schema constraints of
+structured outputs."* Dieses ADR verlangte aber beides gleichzeitig —
+Quellenbindung (Entscheidung 1) **und** Abschluss über
+`submit_research_report`. Damit lieferte das Modell den ganzen Bericht über den
+einen Kanal, in dem Zitate technisch nicht existieren können, und schrieb sie
+mangels Alternative als Text hinein. `_extract_citations` fand nichts, weil es
+nichts zu finden gab.
 
-13. **`allowed_callers: ["direct"]` auf beiden Web-Werkzeugen** schaltet die
-    dynamische Filterung ab und stellt den klassischen Zitatpfad her. Die
-    Tokenersparnis wird bewusst aufgegeben: Ohne Quellenbindung verletzt der
-    Research Agent CLAUDE.mds Regel „Aussagen über Nachrichten […] verweisen
-    auf gespeicherte Quellen mit URL". Ein billiger Bericht ohne Belege ist
-    für dieses System wertlos.
+Der Fehler fiel neun Läufe lang nicht auf, weil keiner davon bis zur
+Zitatausgabe kam: Erst schlugen Werkzeugversionen fehl, dann das Schema, dann
+der Crawler-Zugang, dann das Budget.
+
+15. **Der Lauf zerfällt in zwei Phasen.** Phase 1 recherchiert **ohne**
+    Abschluss-Werkzeug — das Modell muss in Fließtext antworten, und die
+    Zitatblöcke entstehen dort automatisch. Phase 2 strukturiert diesen Text in
+    einem zweiten Aufruf **ohne** Web-Werkzeuge (`tool_choice` erzwingt den
+    Werkzeugaufruf). Was Phase 2 ausgibt, kann nichts enthalten, was nicht
+    schon in Phase 1 recherchiert und belegt wurde; der Recherchetext wird ihr
+    als abgegrenzte Daten übergeben, nicht als Instruktion.
+
+    Kosten: ein zusätzlicher Aufruf, der aber nur den fertigen Text sieht statt
+    der gesamten Werkzeughistorie — rund 0,02 $.
+
+16. **`allowed_callers: ["direct"]` auf beiden Web-Werkzeugen** schaltet die
+    dynamische Filterung ab. Sie lässt die Ergebnisse durch Code Execution
+    laufen und spart laut Anthropic rund 24 % Eingabe-Token, führt aber zu
+    indexbasierten Referenzen statt zu `web_search_result_location`-Blöcken.
+    Die Tokenersparnis wird bewusst aufgegeben: Ein billiger Bericht ohne
+    Belege ist für dieses System wertlos.
+
+**Rückblickend:** Ein Fremd-Review hatte genau das vorhergesagt („Da
+Anthropic-Citations und Structured Outputs nicht ohne Weiteres in derselben
+finalen Ausgabe kombinierbar sind, verwende für den strukturierten Report
+eigene `source_id`s") und wurde mit der Begründung abgelehnt, `strict` liefere
+dieselbe Garantie „ohne die Zitate aufzugeben". Das war falsch — die Zitate
+waren zu dem Zeitpunkt bereits verloren.
 
 ### Nachtrag: Stichtag im Prompt
 

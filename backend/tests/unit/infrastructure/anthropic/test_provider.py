@@ -3,6 +3,12 @@ Fehlerbehandlung.
 
 Kein echtes Netzwerk (Muster Finnhub-Tests): ``httpx.MockTransport``,
 injiziert ueber den SDK-eigenen ``http_client``-Parameter.
+
+Der Adapter arbeitet in zwei Phasen (ADR 0022, "Zwei Phasen"): Phase 1
+recherchiert mit den Web-Werkzeugen und antwortet in Fliesstext, Phase 2
+strukturiert diesen Text ueber ``submit_research_report``. Die Testhelfer
+``_zweiphasig`` und ``_provider`` bilden das ab; ein Test, der nur eine der
+beiden Phasen betrifft, uebergibt nur den betreffenden Teil.
 """
 
 from __future__ import annotations
@@ -112,6 +118,31 @@ def _web_fetch_result(url: str, title: str) -> dict[str, object]:
     }
 
 
+def _ist_strukturierungsphase(request: httpx.Request) -> bool:
+    """Phase 2 erkennt man am einzigen Werkzeug: die Web-Werkzeuge sind dort
+    bewusst nicht mehr dabei."""
+    tools = json.loads(request.content).get("tools", [])
+    return any(tool.get("name") == "submit_research_report" for tool in tools)
+
+
+def _zweiphasig(
+    recherche: list[dict[str, object]] | None = None,
+    submit: dict[str, object] | None = None,
+    recherche_stop_reason: str = "end_turn",
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Beantwortet Phase 1 mit Fliesstext (plus optionalen Bloecken) und
+    Phase 2 mit dem Werkzeugaufruf."""
+    standard: list[dict[str, object]] = [{"type": "text", "text": "Recherchetext"}]
+    inhalt = recherche if recherche is not None else standard
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _ist_strukturierungsphase(request):
+            return _json_response(_message([submit or _submit_block()]))
+        return _json_response(_message(inhalt, stop_reason=recherche_stop_reason))
+
+    return handler
+
+
 def _settings(**overrides: object) -> AnthropicResearchSettings:
     defaults: dict[str, object] = {
         "api_key": "test-key",
@@ -145,12 +176,9 @@ def _json_response(body: dict[str, object], status_code: int = 200) -> httpx.Res
 
 class TestErfolgreicherZyklus:
     def test_direkter_abschluss_mit_zitat(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message([_text_with_citation("https://sec.gov/filing"), _submit_block()])
-            )
-
-        report = _provider(handler).research(AAPL)
+        report = _provider(
+            _zweiphasig(recherche=[_text_with_citation("https://sec.gov/filing")])
+        ).research(AAPL)
 
         assert report.status is ResearchStatus.COMPLETED
         assert report.model == "claude-sonnet-5"
@@ -161,111 +189,147 @@ class TestErfolgreicherZyklus:
         assert report.citations[0].license_class is SourceLicenseClass.PRIMARY_SOURCE
 
     def test_unbekannte_domain_wird_als_unknown_eingestuft(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message([_text_with_citation("https://example.com/news"), _submit_block()])
-            )
-
-        report = _provider(handler).research(AAPL)
+        report = _provider(
+            _zweiphasig(recherche=[_text_with_citation("https://example.com/news")])
+        ).research(AAPL)
         assert report.citations[0].license_class is SourceLicenseClass.UNKNOWN
 
     def test_nachrichtenagentur_wird_von_der_primaerquelle_unterschieden(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _text_with_citation("https://www.reuters.com/markets/apple", "Agentur"),
-                        _text_with_citation("https://sec.gov/filing", "Filing"),
-                        _submit_block(),
-                    ]
-                )
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _text_with_citation("https://www.reuters.com/markets/apple", "Agentur"),
+                    _text_with_citation("https://sec.gov/filing", "Filing"),
+                ]
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         klassen = [citation.license_class for citation in report.citations]
         assert klassen == [SourceLicenseClass.NEWS_MEDIA, SourceLicenseClass.PRIMARY_SOURCE]
 
     def test_faktorlisten_werden_unveraendert_uebernommen(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _submit_block(
-                            positive_factors=["Rekordumsatz im letzten Quartal"],
-                            negative_factors=["Laufendes Kartellverfahren"],
-                            risks=["Zollrisiken"],
-                        )
-                    ]
+        report = _provider(
+            _zweiphasig(
+                submit=_submit_block(
+                    positive_factors=["Rekordumsatz im letzten Quartal"],
+                    negative_factors=["Laufendes Kartellverfahren"],
+                    risks=["Zollrisiken"],
                 )
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert report.positive_factors == ("Rekordumsatz im letzten Quartal",)
         assert report.negative_factors == ("Laufendes Kartellverfahren",)
         assert report.risks == ("Zollrisiken",)
 
     def test_insufficient_data_ohne_erfundene_werte(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _submit_block(
-                            status="INSUFFICIENT_DATA",
-                            reason="keine Quellen gefunden",
-                            confidence=None,
-                        )
-                    ]
+        report = _provider(
+            _zweiphasig(
+                submit=_submit_block(
+                    status="INSUFFICIENT_DATA",
+                    reason="keine Quellen gefunden",
+                    confidence=None,
                 )
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert report.status is ResearchStatus.INSUFFICIENT_DATA
         assert report.reason == "keine Quellen gefunden"
         assert report.confidence is None
 
     def test_dasselbe_zitat_taucht_nur_einmal_im_bericht_auf(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _text_with_citation("https://sec.gov/filing"),
-                        _text_with_citation("https://sec.gov/filing"),
-                        _submit_block(),
-                    ]
-                )
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _text_with_citation("https://sec.gov/filing"),
+                    _text_with_citation("https://sec.gov/filing"),
+                ]
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert len(report.citations) == 1
+
+
+class TestZweiPhasen:
+    """Zitate haengen an Textbloecken; ein tool_use-Block hat keine
+    Zitat-Metadaten. Solange der Bericht ueber das Abschluss-Werkzeug kam,
+    konnte es deshalb gar keine Belege geben (ADR 0022, "Zwei Phasen")."""
+
+    def test_die_recherchephase_bekommt_kein_abschluss_werkzeug(self) -> None:
+        """Waere es dabei, schriebe das Modell den Bericht dorthin statt in
+        zitierbaren Fliesstext -- genau der Fehler, der null Zitate
+        erzeugte."""
+        anfragen: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            anfragen.append(json.loads(request.content))
+            return _zweiphasig()(request)
+
+        _provider(handler).research(AAPL)
+
+        recherche_werkzeuge = anfragen[0]["tools"]
+        assert isinstance(recherche_werkzeuge, list)
+        namen = {str(tool["name"]) for tool in recherche_werkzeuge}
+        assert namen == {"web_search", "web_fetch"}
+
+    def test_die_strukturierungsphase_bekommt_keine_web_werkzeuge(self) -> None:
+        """Was hier herauskommt, kann nichts enthalten, was nicht schon in
+        Phase 1 belegt wurde."""
+        anfragen: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            anfragen.append(json.loads(request.content))
+            return _zweiphasig()(request)
+
+        _provider(handler).research(AAPL)
+
+        assert len(anfragen) == 2
+        struktur_werkzeuge = anfragen[1]["tools"]
+        assert isinstance(struktur_werkzeuge, list)
+        assert [str(tool["name"]) for tool in struktur_werkzeuge] == ["submit_research_report"]
+        assert anfragen[1]["tool_choice"] == {
+            "type": "tool",
+            "name": "submit_research_report",
+        }
+
+    def test_der_recherchetext_wird_abgegrenzt_uebergeben(self) -> None:
+        """Modellausgabe ist Daten, keine Instruktion (CLAUDE.md)."""
+        anfragen: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            anfragen.append(json.loads(request.content))
+            return _zweiphasig(recherche=[{"type": "text", "text": "Befund X"}])(request)
+
+        _provider(handler).research(AAPL)
+
+        messages = anfragen[1]["messages"]
+        assert isinstance(messages, list)
+        prompt = str(messages[0]["content"])
+        assert "<recherchetext>" in prompt
+        assert "Befund X" in prompt
+
+    def test_ohne_recherchetext_gibt_es_keinen_bericht(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _zweiphasig(recherche=[])(request)
+
+        with pytest.raises(ResearchProviderError, match="keinen Text"):
+            _provider(handler).research(AAPL)
 
 
 class TestWebFetchZitate:
     def test_char_location_zitat_wird_ueber_den_dokumenttitel_aufgeloest(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _web_fetch_result("https://sec.gov/doc.htm", "Ein Dokument"),
-                        _text_with_char_location_citation("Ein Dokument"),
-                        _submit_block(),
-                    ]
-                )
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _web_fetch_result("https://sec.gov/doc.htm", "Ein Dokument"),
+                    _text_with_char_location_citation("Ein Dokument"),
+                ]
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert len(report.citations) == 1
         assert report.citations[0].url == "https://sec.gov/doc.htm"
         assert report.citations[0].license_class is SourceLicenseClass.PRIMARY_SOURCE
 
     def test_unaufloesbares_zitat_wird_ausgelassen_statt_erfunden(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [_text_with_char_location_citation("Unbekanntes Dokument"), _submit_block()]
-                )
-            )
-
-        report = _provider(handler).research(AAPL)
+        report = _provider(
+            _zweiphasig(recherche=[_text_with_char_location_citation("Unbekanntes Dokument")])
+        ).research(AAPL)
         assert report.citations == ()
 
 
@@ -274,16 +338,16 @@ class TestPauseTurn:
         calls: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content)
-            calls.append(body)
+            calls.append(json.loads(request.content))
             if len(calls) == 1:
                 return _json_response(_message([], stop_reason="pause_turn"))
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         report = _provider(handler).research(AAPL)
 
         assert report.status is ResearchStatus.COMPLETED
-        assert len(calls) == 2
+        # Zwei Recherchedurchgaenge plus die Strukturierung.
+        assert len(calls) == 3
         second_request_messages = calls[1]["messages"]
         assert isinstance(second_request_messages, list)
         assert len(second_request_messages) == 2
@@ -312,38 +376,34 @@ class TestFehlerfaelle:
             _provider(handler).research(AAPL)
 
     def test_ohne_abschliessenden_tool_aufruf_wird_ein_fehler_geworfen(self) -> None:
+        """tool_choice erzwingt den Aufruf zwar, aber verlassen wird sich
+        darauf nicht."""
+
         def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message([{"type": "text", "text": "fertig"}], stop_reason="end_turn")
-            )
+            if _ist_strukturierungsphase(request):
+                return _json_response(
+                    _message([{"type": "text", "text": "fertig"}], stop_reason="end_turn")
+                )
+            return _json_response(_message([{"type": "text", "text": "Recherchetext"}]))
 
         with pytest.raises(ResearchProviderError, match="submit_research_report"):
             _provider(handler).research(AAPL)
 
     def test_unbekannter_status_wert_wird_abgelehnt(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(status="MAYBE")]))
-
         with pytest.raises(ResearchProviderError, match="status"):
-            _provider(handler).research(AAPL)
+            _provider(_zweiphasig(submit=_submit_block(status="MAYBE"))).research(AAPL)
 
     def test_confidence_ausserhalb_des_gueltigen_bereichs(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(confidence=1.5)]))
-
         with pytest.raises(ResearchProviderError, match="confidence"):
-            _provider(handler).research(AAPL)
+            _provider(_zweiphasig(submit=_submit_block(confidence=1.5))).research(AAPL)
 
     def test_unerwartete_antwortform_wird_nicht_als_rohe_exception_durchgereicht(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block()]))
+        provider = _provider(_zweiphasig())
 
-        provider = _provider(handler)
-
-        def _boom(content: object, fetched_documents: object) -> dict[str, object] | None:
+        def _boom(content: object, fetched_documents: object) -> None:
             raise AttributeError("'NoneType' object has no attribute 'title'")
 
-        provider._scan_turn = _boom  # type: ignore[method-assign]
+        provider._scan_tool_results = _boom  # type: ignore[method-assign]
 
         with pytest.raises(ResearchProviderError, match="AAPL"):
             provider.research(AAPL)
@@ -358,32 +418,24 @@ class TestFalschTypisierteWerkzeugantwort:
     VORFALLWERT = '\n<parameter name="item">Drei aufeinanderfolgende Rekordquartale'
 
     def test_string_statt_liste_wird_abgelehnt_statt_in_zeichen_zerlegt(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(positive_factors=self.VORFALLWERT)]))
-
         with pytest.raises(ResearchProviderError, match="positive_factors"):
-            _provider(handler).research(AAPL)
+            _provider(
+                _zweiphasig(submit=_submit_block(positive_factors=self.VORFALLWERT))
+            ).research(AAPL)
 
     def test_liste_mit_nicht_text_eintrag_wird_abgelehnt(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(risks=["Zollrisiko", {"a": 1}])]))
-
         with pytest.raises(ResearchProviderError, match="risks"):
-            _provider(handler).research(AAPL)
+            _provider(_zweiphasig(submit=_submit_block(risks=["Zollrisiko", {"a": 1}]))).research(
+                AAPL
+            )
 
     def test_summary_als_liste_wird_abgelehnt(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(summary=["a", "b"])]))
-
         with pytest.raises(ResearchProviderError, match="summary"):
-            _provider(handler).research(AAPL)
+            _provider(_zweiphasig(submit=_submit_block(summary=["a", "b"]))).research(AAPL)
 
     def test_confidence_als_text_wird_abgelehnt(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(_message([_submit_block(confidence="hoch")]))
-
         with pytest.raises(ResearchProviderError, match="confidence"):
-            _provider(handler).research(AAPL)
+            _provider(_zweiphasig(submit=_submit_block(confidence="hoch"))).research(AAPL)
 
     def test_werkzeugschema_erzwingt_die_form_serverseitig(self) -> None:
         """Zweite Verteidigungslinie ist der Adapter -- die erste ist das
@@ -392,9 +444,8 @@ class TestFalschTypisierteWerkzeugantwort:
         gesendete_werkzeuge: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content)
-            gesendete_werkzeuge.extend(body["tools"])
-            return _json_response(_message([_submit_block()]))
+            gesendete_werkzeuge.extend(json.loads(request.content)["tools"])
+            return _zweiphasig()(request)
 
         _provider(handler).research(AAPL)
 
@@ -435,7 +486,7 @@ class TestWerkzeugbudget:
 
         def handler(request: httpx.Request) -> httpx.Response:
             aufzeichnung.extend(json.loads(request.content)["tools"])
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
 
@@ -453,7 +504,7 @@ class TestWerkzeugbudget:
 
         def handler(request: httpx.Request) -> httpx.Response:
             aufzeichnung.extend(json.loads(request.content)["tools"])
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
 
@@ -468,7 +519,7 @@ class TestWerkzeugbudget:
 
         def handler(request: httpx.Request) -> httpx.Response:
             aufzeichnung.extend(json.loads(request.content)["tools"])
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
 
@@ -520,7 +571,7 @@ class TestStichtag:
 
         def handler(request: httpx.Request) -> httpx.Response:
             anfragen.append(json.loads(request.content))
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         _provider(handler).research(AAPL)
 
@@ -539,22 +590,19 @@ class TestWerkzeugfehler:
     def test_suchfehler_wird_geloggt_und_bricht_den_lauf_nicht_ab(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        {
-                            "type": "web_search_tool_result",
-                            "tool_use_id": "srv_1",
-                            "content": {
-                                "type": "web_search_tool_result_error",
-                                "error_code": "max_uses_exceeded",
-                            },
-                        },
-                        _submit_block(),
-                    ]
-                )
-            )
+        handler = _zweiphasig(
+            recherche=[
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "srv_1",
+                    "content": {
+                        "type": "web_search_tool_result_error",
+                        "error_code": "max_uses_exceeded",
+                    },
+                },
+                {"type": "text", "text": "Trotzdem ein Befund"},
+            ]
+        )
 
         with caplog.at_level("WARNING"):
             report = _provider(handler).research(AAPL)
@@ -563,22 +611,19 @@ class TestWerkzeugfehler:
         assert "max_uses_exceeded" in caplog.text
 
     def test_abruffehler_wird_geloggt(self, caplog: pytest.LogCaptureFixture) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        {
-                            "type": "web_fetch_tool_result",
-                            "tool_use_id": "srv_2",
-                            "content": {
-                                "type": "web_fetch_tool_result_error",
-                                "error_code": "url_not_in_prior_context",
-                            },
-                        },
-                        _submit_block(),
-                    ]
-                )
-            )
+        handler = _zweiphasig(
+            recherche=[
+                {
+                    "type": "web_fetch_tool_result",
+                    "tool_use_id": "srv_2",
+                    "content": {
+                        "type": "web_fetch_tool_result_error",
+                        "error_code": "url_not_in_prior_context",
+                    },
+                },
+                {"type": "text", "text": "Trotzdem ein Befund"},
+            ]
+        )
 
         with caplog.at_level("WARNING"):
             report = _provider(handler).research(AAPL)
@@ -588,42 +633,59 @@ class TestWerkzeugfehler:
 
 
 class TestAbgeschnitteneAntwort:
-    def test_max_tokens_erzeugt_keinen_teilbericht(self) -> None:
+    def test_max_tokens_in_der_strukturierung_erzeugt_keinen_teilbericht(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message([_submit_block(positive_factors=["Rekord"])], stop_reason="max_tokens")
-            )
+            if _ist_strukturierungsphase(request):
+                return _json_response(
+                    _message(
+                        [_submit_block(positive_factors=["Rekord"])],
+                        stop_reason="max_tokens",
+                    )
+                )
+            return _json_response(_message([{"type": "text", "text": "Recherchetext"}]))
 
         with pytest.raises(ResearchProviderError, match="max_tokens"):
             _provider(handler).research(AAPL)
 
+    def test_abgeschnittener_recherchetext_wird_geloggt_aber_verarbeitet(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Anders als beim Werkzeugaufruf ist abgeschnittener Fliesstext kein
+        stiller Datenverlust -- er ist bis zum Abbruch vollstaendig."""
+        handler = _zweiphasig(
+            recherche=[{"type": "text", "text": "Befund bis hierhin"}],
+            recherche_stop_reason="max_tokens",
+        )
+
+        with caplog.at_level("WARNING"):
+            report = _provider(handler).research(AAPL)
+
+        assert report.status is ResearchStatus.COMPLETED
+        assert "abgeschnitten" in caplog.text
+
 
 class TestUnbekannteZitatTypen:
     def test_unbekannter_zitat_typ_wird_uebersprungen_statt_zu_crashen(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        {
-                            "type": "text",
-                            "text": "...",
-                            "citations": [
-                                {
-                                    "type": "page_location",
-                                    "document_index": 0,
-                                    "document_title": "Ein PDF-Filing",
-                                    "cited_text": "Ausschnitt",
-                                    "start_page_number": 1,
-                                    "end_page_number": 2,
-                                }
-                            ],
-                        },
-                        _submit_block(),
-                    ]
-                )
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    {
+                        "type": "text",
+                        "text": "...",
+                        "citations": [
+                            {
+                                "type": "page_location",
+                                "document_index": 0,
+                                "document_title": "Ein PDF-Filing",
+                                "cited_text": "Ausschnitt",
+                                "start_page_number": 1,
+                                "end_page_number": 2,
+                            }
+                        ],
+                    }
+                ]
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert report.status is ResearchStatus.COMPLETED
         assert report.citations == ()
 
@@ -643,7 +705,7 @@ class TestAusweichmodell:
                         "error": {"type": "authentication_error", "message": "invalid x-api-key"},
                     },
                 )
-            return _json_response(_message([_submit_block()]))
+            return _zweiphasig()(request)
 
         provider = AnthropicResearchProvider(
             _settings(fallback_model="claude-haiku-4-5-20251001"),
@@ -654,7 +716,12 @@ class TestAusweichmodell:
 
         assert report.status is ResearchStatus.COMPLETED
         assert report.model == "claude-haiku-4-5-20251001"
-        assert calls == ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
+        # Fehlversuch, dann Recherche und Strukturierung mit dem Ausweichmodell.
+        assert calls == [
+            "claude-sonnet-5",
+            "claude-haiku-4-5-20251001",
+            "claude-haiku-4-5-20251001",
+        ]
 
     def test_ohne_konfiguriertes_ausweichmodell_wird_direkt_ein_fehler_geworfen(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -689,18 +756,14 @@ class TestAusweichmodell:
 
 class TestDokumentTitelKollision:
     def test_erstes_dokument_gewinnt_bei_gleichem_titel(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            return _json_response(
-                _message(
-                    [
-                        _web_fetch_result("https://sec.gov/erstes-filing", "10-Q"),
-                        _web_fetch_result("https://sec.gov/zweites-filing", "10-Q"),
-                        _text_with_char_location_citation("10-Q"),
-                        _submit_block(),
-                    ]
-                )
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _web_fetch_result("https://sec.gov/erstes-filing", "10-Q"),
+                    _web_fetch_result("https://sec.gov/zweites-filing", "10-Q"),
+                    _text_with_char_location_citation("10-Q"),
+                ]
             )
-
-        report = _provider(handler).research(AAPL)
+        ).research(AAPL)
         assert len(report.citations) == 1
         assert report.citations[0].url == "https://sec.gov/erstes-filing"
