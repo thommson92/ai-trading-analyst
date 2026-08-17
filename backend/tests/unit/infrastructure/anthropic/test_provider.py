@@ -16,7 +16,10 @@ import pytest
 
 from ai_trading_analyst.domain.analysis import ResearchProviderError, Stock
 from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
-from ai_trading_analyst.infrastructure.anthropic.provider import AnthropicResearchProvider
+from ai_trading_analyst.infrastructure.anthropic.provider import (
+    AnthropicResearchProvider,
+    AnthropicResearchSettings,
+)
 
 AAPL = Stock(id=uuid.uuid4(), symbol="AAPL", exchange="NASDAQ")
 
@@ -101,16 +104,23 @@ def _web_fetch_result(url: str, title: str) -> dict[str, object]:
     }
 
 
+def _settings(**overrides: object) -> AnthropicResearchSettings:
+    defaults: dict[str, object] = {
+        "api_key": "test-key",
+        "model": "claude-sonnet-5",
+        "max_searches": 5,
+        "max_fetches": 5,
+        "allowed_domains": (),
+    }
+    defaults.update(overrides)
+    return AnthropicResearchSettings(**defaults)  # type: ignore[arg-type]
+
+
 def _provider(
     handler: Callable[[httpx.Request], httpx.Response],
 ) -> AnthropicResearchProvider:
     return AnthropicResearchProvider(
-        api_key="test-key",
-        model="claude-sonnet-5",
-        max_searches=5,
-        max_fetches=5,
-        allowed_domains=(),
-        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        _settings(), http_client=httpx.Client(transport=httpx.MockTransport(handler))
     )
 
 
@@ -280,10 +290,10 @@ class TestFehlerfaelle:
 
         provider = _provider(handler)
 
-        def _boom(content: object) -> dict[str, object] | None:
+        def _boom(content: object, fetched_documents: object) -> dict[str, object] | None:
             raise AttributeError("'NoneType' object has no attribute 'title'")
 
-        provider._find_submit_call = _boom  # type: ignore[method-assign]
+        provider._scan_turn = _boom  # type: ignore[method-assign]
 
         with pytest.raises(ResearchProviderError, match="AAPL"):
             provider.research(AAPL)
@@ -337,12 +347,7 @@ class TestAusweichmodell:
             return _json_response(_message([_submit_block()]))
 
         provider = AnthropicResearchProvider(
-            api_key="test-key",
-            model="claude-sonnet-5",
-            fallback_model="claude-haiku-4-5-20251001",
-            max_searches=5,
-            max_fetches=5,
-            allowed_domains=(),
+            _settings(fallback_model="claude-haiku-4-5-20251001"),
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         )
 
@@ -376,12 +381,7 @@ class TestAusweichmodell:
             )
 
         provider = AnthropicResearchProvider(
-            api_key="test-key",
-            model="claude-sonnet-5",
-            fallback_model="claude-haiku-4-5-20251001",
-            max_searches=5,
-            max_fetches=5,
-            allowed_domains=(),
+            _settings(fallback_model="claude-haiku-4-5-20251001"),
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         )
         with pytest.raises(ResearchProviderError, match="Ausweichmodell"):

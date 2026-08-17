@@ -33,7 +33,10 @@ from ai_trading_analyst.domain.screening import (
     IndicatorParameters,
     SessionParameters,
 )
-from ai_trading_analyst.infrastructure.anthropic import AnthropicResearchProvider
+from ai_trading_analyst.infrastructure.anthropic import (
+    AnthropicResearchProvider,
+    AnthropicResearchSettings,
+)
 from ai_trading_analyst.infrastructure.finnhub import (
     FinnhubConnectionSettings,
     FinnhubEarningsProvider,
@@ -145,9 +148,7 @@ def build_market_data_provider(
         return FixtureMarketDataProvider()
 
     return IbkrMarketDataProvider(
-        bar_source=bar_source
-        if bar_source is not None
-        else build_bar_source(config, uow_factory),
+        bar_source=bar_source if bar_source is not None else build_bar_source(config, uow_factory),
         watchlist=watchlist if watchlist is not None else build_watchlist(config, root),
         session_parameters=build_session_parameters(config),
         indicator_parameters=build_indicator_parameters(indicators),
@@ -155,9 +156,7 @@ def build_market_data_provider(
     )
 
 
-def build_finnhub_earnings_provider(
-    config: AppConfig, secrets: Secrets
-) -> FinnhubEarningsProvider:
+def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> FinnhubEarningsProvider:
     finnhub = config.earnings_filter.finnhub
     return FinnhubEarningsProvider(
         FinnhubConnectionSettings(
@@ -198,12 +197,14 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
     if config.research.provider == "fixture":
         return FixtureResearchProvider()
     return AnthropicResearchProvider(
-        api_key=secrets.require("llm_api_key"),
-        model=config.llm.research.model,
-        fallback_model=config.llm.research.fallback_model,
-        max_searches=config.research.max_searches,
-        max_fetches=config.research.max_fetches,
-        allowed_domains=config.research.allowed_domains,
+        AnthropicResearchSettings(
+            api_key=secrets.require("llm_api_key"),
+            model=config.llm.research.model,
+            fallback_model=config.llm.research.fallback_model,
+            max_searches=config.research.max_searches,
+            max_fetches=config.research.max_fetches,
+            allowed_domains=config.research.allowed_domains,
+        )
     )
 
 

@@ -17,6 +17,7 @@ Anthropic-API.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -110,26 +111,36 @@ def _classify_license(url: str) -> SourceLicenseClass:
     return SourceLicenseClass.UNKNOWN
 
 
+@dataclass(frozen=True, slots=True)
+class AnthropicResearchSettings:
+    """Buendelt die Verbindungs-/Budgetparameter des Research-Agent-Adapters
+    -- Muster ``FinnhubConnectionSettings``, damit ein neuer Parameter
+    (z. B. ein Timeout) nur das Schema hier und ``bootstrap.py`` beruehrt,
+    nicht jeden Konstruktor-Aufruf einzeln."""
+
+    api_key: str
+    model: str
+    max_searches: int
+    max_fetches: int
+    allowed_domains: Sequence[str]
+    fallback_model: str | None = None
+
+
 class AnthropicResearchProvider(ResearchProvider):
     """Implementiert ``ResearchProvider`` gegen die Anthropic Messages API."""
 
     def __init__(
         self,
-        api_key: str,
-        model: str,
-        max_searches: int,
-        max_fetches: int,
-        allowed_domains: Sequence[str],
-        fallback_model: str | None = None,
+        settings: AnthropicResearchSettings,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
-        self._model = model
-        self._fallback_model = fallback_model
-        self._max_searches = max_searches
-        self._max_fetches = max_fetches
-        self._allowed_domains = tuple(allowed_domains)
-        self._max_turns = max_searches + max_fetches + _MAX_TURNS_SLACK
+        self._client = anthropic.Anthropic(api_key=settings.api_key, http_client=http_client)
+        self._model = settings.model
+        self._fallback_model = settings.fallback_model
+        self._max_searches = settings.max_searches
+        self._max_fetches = settings.max_fetches
+        self._allowed_domains = tuple(settings.allowed_domains)
+        self._max_turns = settings.max_searches + settings.max_fetches + _MAX_TURNS_SLACK
 
     def research(self, stock: Stock) -> ResearchReport:
         try:
@@ -191,12 +202,11 @@ class AnthropicResearchProvider(ResearchProvider):
                 tools=tools,  # type: ignore[arg-type]
             )
 
-            self._collect_fetched_documents(response.content, fetched_documents)
+            submit_input = self._scan_turn(response.content, fetched_documents)
             citations.extend(
                 self._extract_citations(response.content, fetched_documents, evaluated_at)
             )
 
-            submit_input = self._find_submit_call(response.content)
             if submit_input is not None:
                 return self._build_report(stock, submit_input, citations, evaluated_at, model)
 
@@ -243,19 +253,33 @@ class AnthropicResearchProvider(ResearchProvider):
             web_fetch["allowed_domains"] = list(self._allowed_domains)
         return [web_search, web_fetch, _SUBMIT_REPORT_TOOL]
 
-    def _collect_fetched_documents(
+    def _scan_turn(
         self, content: Iterable[Any], fetched_documents: dict[str, str]
-    ) -> None:
+    ) -> dict[str, Any] | None:
+        """Sammelt abgerufene Dokumente und sucht den abschliessenden
+        ``submit_research_report``-Aufruf in einem gemeinsamen Durchlauf --
+        beide sind unabhaengig voneinander. Die Zitat-Extraktion
+        (``_extract_citations``) bleibt ein eigener, nachgelagerter
+        Durchlauf: sie braucht ``fetched_documents`` bereits vollstaendig
+        befuellt, um ``char_location``-Zitate aufzuloesen."""
+        submit_input: dict[str, Any] | None = None
         for block in content:
-            if block.type != "web_fetch_tool_result" or block.content.type != "web_fetch_result":
-                continue
-            title = block.content.content.title
-            if title:
-                # setdefault statt Ueberschreiben: zwei Dokumente mit
-                # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings) sollen
-                # nicht dazu fuehren, dass ein spaeterer Fund die URL eines
-                # frueher zitierten Dokuments verdraengt.
-                fetched_documents.setdefault(title, block.content.url)
+            if block.type == "web_fetch_tool_result" and block.content.type == "web_fetch_result":
+                title = block.content.content.title
+                if title:
+                    # setdefault statt Ueberschreiben: zwei Dokumente mit
+                    # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings)
+                    # sollen nicht dazu fuehren, dass ein spaeterer Fund die
+                    # URL eines frueher zitierten Dokuments verdraengt.
+                    fetched_documents.setdefault(title, block.content.url)
+            elif (
+                submit_input is None
+                and block.type == "tool_use"
+                and block.name == _SUBMIT_TOOL_NAME
+            ):
+                input_value = block.input
+                submit_input = input_value if isinstance(input_value, dict) else {}
+        return submit_input
 
     def _extract_citations(
         self,
@@ -306,17 +330,8 @@ class AnthropicResearchProvider(ResearchProvider):
                     # page_location bei per web_fetch geladenen PDFs)
                     # sind bisher nicht abgedeckt -- statt sie unbemerkt
                     # zu verlieren, wird das sichtbar geloggt (Quellenbindung).
-                    _logger.warning(
-                        "Unbekannter Zitat-Typ uebersprungen: %s", citation.type
-                    )
+                    _logger.warning("Unbekannter Zitat-Typ uebersprungen: %s", citation.type)
         return results
-
-    def _find_submit_call(self, content: Iterable[Any]) -> dict[str, Any] | None:
-        for block in content:
-            if block.type == "tool_use" and block.name == _SUBMIT_TOOL_NAME:
-                input_value = block.input
-                return input_value if isinstance(input_value, dict) else {}
-        return None
 
     def _build_report(
         self,

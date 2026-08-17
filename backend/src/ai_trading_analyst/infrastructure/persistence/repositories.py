@@ -132,6 +132,26 @@ class SqlAlchemyAnalysisRunRepository:
         row.error_message = run.error_message
 
 
+def _require_paired_evaluated_at(
+    row_id: uuid.UUID,
+    evaluated_at: datetime | None,
+    status_field: str,
+    evaluated_at_field: str,
+) -> datetime:
+    """Optionale Teilergebnisse (Earnings-Filter, Research) werden immer als
+    Paar aus Status- und Zeitstempel-Spalte geschrieben (siehe
+    ``SqlAlchemyScreeningResultRepository.add``) -- eine Zeile mit Status,
+    aber ohne Zeitstempel, ist ein inkonsistenter Datensatz. Gibt den
+    Zeitstempel zurueck (statt nur zu pruefen), damit mypy ihn am Aufrufort
+    als nicht-optional erkennt."""
+    if evaluated_at is None:
+        raise ValueError(
+            f"Screening-Ergebnis {row_id}: {evaluated_at_field} fehlt trotz gesetztem "
+            f"{status_field} -- beide Spalten werden immer gemeinsam geschrieben."
+        )
+    return evaluated_at
+
+
 def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     stock = Stock(id=row.stock.id, symbol=row.stock.symbol, exchange=row.stock.exchange)
     events = tuple(
@@ -147,14 +167,12 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     )
     earnings: EarningsFilterResult | None = None
     if row.earnings_status is not None:
-        if row.earnings_evaluated_at is None:
-            raise ValueError(
-                f"Screening-Ergebnis {row.id}: earnings_evaluated_at fehlt trotz gesetztem "
-                "earnings_status -- beide Spalten werden immer gemeinsam geschrieben."
-            )
+        earnings_evaluated_at = _require_paired_evaluated_at(
+            row.id, row.earnings_evaluated_at, "earnings_status", "earnings_evaluated_at"
+        )
         earnings = EarningsFilterResult(
             status=EarningsFilterStatus(row.earnings_status),
-            evaluated_at=row.earnings_evaluated_at,
+            evaluated_at=earnings_evaluated_at,
             next_earnings_date=row.earnings_next_date,
             candles_until_earnings=row.earnings_candles_until,
             source=row.earnings_source,
@@ -162,14 +180,12 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         )
     research: ResearchReport | None = None
     if row.research_status is not None:
-        if row.research_evaluated_at is None:
-            raise ValueError(
-                f"Screening-Ergebnis {row.id}: research_evaluated_at fehlt trotz gesetztem "
-                "research_status -- beide Spalten werden immer gemeinsam geschrieben."
-            )
+        research_evaluated_at = _require_paired_evaluated_at(
+            row.id, row.research_evaluated_at, "research_status", "research_evaluated_at"
+        )
         research = ResearchReport(
             status=ResearchStatus(row.research_status),
-            evaluated_at=row.research_evaluated_at,
+            evaluated_at=research_evaluated_at,
             model=row.research_model,
             prompt_version=row.research_prompt_version,
             summary=row.research_summary,
@@ -439,9 +455,9 @@ def _horizon_metrics_from_row(row: BacktestResultOrm) -> HorizonMetrics:
 def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[BacktestResult, ...]:
     """Fasst Zeilen (eine je Horizont) wieder zu einem ``BacktestResult`` je
     Aktie, Signalkombination und Berechnungszeitpunkt zusammen."""
-    grouped: dict[
-        tuple[uuid.UUID, frozenset[SignalType], datetime], list[BacktestResultOrm]
-    ] = defaultdict(list)
+    grouped: dict[tuple[uuid.UUID, frozenset[SignalType], datetime], list[BacktestResultOrm]] = (
+        defaultdict(list)
+    )
     for row in rows:
         signal_types = frozenset(SignalType(value) for value in row.signal_types)
         grouped[(row.stock_id, signal_types, row.evaluated_at)].append(row)

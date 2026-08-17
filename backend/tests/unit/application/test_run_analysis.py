@@ -345,6 +345,32 @@ class TestResearch:
         assert research.status is ResearchStatus.UNAVAILABLE
         assert research.reason == "provider_error"
 
+    def test_mehrere_kandidaten_werden_nebenlaeufig_recherchiert_ohne_verwechslung(self) -> None:
+        """Die Research-Aufrufe je Aktie laufen nebenlaeufig (siehe
+        ``RunAnalysisUseCase._run_research_concurrently``) -- trotzdem muss
+        jede Aktie exakt ihren eigenen Bericht bekommen, und die
+        Ausgabereihenfolge bleibt die urspruengliche Aktienreihenfolge."""
+        stocks = tuple(make_stock(symbol) for symbol in ("AAA", "BBB", "CCC", "DDD"))
+        provider = FakeMarketDataProvider(
+            stocks=stocks,
+            series_by_symbol={
+                s.symbol: make_series(_SERIES_LENGTH, candidate=True) for s in stocks
+            },
+        )
+        earnings_provider = FakeEarningsProvider(
+            next_by_symbol={s.symbol: self._EARNINGS_CLEAR for s in stocks}
+        )
+        research_provider = FakeResearchProvider()
+        use_case, *_ = _build_use_case(provider, earnings_provider, research_provider)
+
+        summary = use_case.execute()
+
+        assert [o.stock.symbol for o in summary.outcomes] == ["AAA", "BBB", "CCC", "DDD"]
+        assert set(research_provider.calls) == {"AAA", "BBB", "CCC", "DDD"}
+        for outcome in summary.outcomes:
+            assert outcome.research is not None
+            assert outcome.research.summary == f"Fake-Recherche fuer {outcome.stock.symbol}"
+
 
 class TestVollstaendigesScheiternAllerAktien:
     def test_scheitern_aller_aktien_nach_screeningbeginn_fuehrt_zu_failed(self) -> None:

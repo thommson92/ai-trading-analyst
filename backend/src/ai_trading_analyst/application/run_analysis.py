@@ -7,7 +7,9 @@ laeuft ausschliesslich ueber ``ai_trading_analyst.domain.screening.evaluate_cand
 
 from __future__ import annotations
 
+import concurrent.futures
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
@@ -36,12 +38,45 @@ from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
+    ScreeningResult,
     ScreeningStatus,
     evaluate_candidate,
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
+
+_MAX_CONCURRENT_RESEARCH = 4
+"""Obergrenze gleichzeitiger Research-Aufrufe. Jeder Aufruf ist unabhaengig
+(kein gemeinsamer veraenderlicher Zustand ausser dem laut Anthropic-SDK
+threadsicheren HTTP-Client) -- eine unbegrenzte Nebenlaeufigkeit wuerde bei
+vielen Kandidaten gleichzeitig ebenso viele teure LLM-Gespraeche parallel
+auslösen, statt nur die Wartezeit zu verkuerzen."""
+
+
+@dataclass
+class _PreparedOutcome:
+    """Ergebnis der schnellen, sequentiellen Screening-/Earnings-Phase einer
+    Aktie -- Research (Netzwerk, mehrere Sekunden bis Minuten) und
+    Persistenz folgen erst danach, siehe ``RunAnalysisUseCase.execute``."""
+
+    stock: Stock
+    result: ScreeningResult
+    decision_index: int
+    evaluated_at: datetime
+    earnings: EarningsFilterResult | None
+    needs_research: bool
+    research: ResearchReport | None = None
+    research_failure: Exception | None = None
+
+
+@dataclass
+class _PreparedError:
+    stock: Stock
+    exc: Exception
+
+
+_PreparedItem = _PreparedOutcome | _PreparedError
 
 
 class RunAnalysisUseCase:
@@ -109,51 +144,34 @@ class RunAnalysisUseCase:
             uow.analysis_runs.update(run)
             uow.commit()
 
+        # Phase 1 (sequentiell, schnell): Screening und Earnings-Filter je
+        # Aktie. Phase 2 (nebenlaeufig): die deutlich langsameren
+        # Research-Aufrufe fuer alle Kandidaten mit EARNINGS_CLEAR auf
+        # einmal. Phase 3 (sequentiell): Persistenz in der urspruenglichen
+        # Aktienreihenfolge -- fuer Aufrufer wie CLI/Frontend bleibt die
+        # Reihenfolge von ``outcomes``/``errors`` unveraendert, unabhaengig
+        # davon, welche Recherche zuerst fertig wurde.
+        prepared = [self._prepare_stock(stock) for stock in stocks]
+        self._run_research_concurrently(prepared)
+
         outcomes: list[StockScreeningOutcome] = []
         errors: list[StockProcessingError] = []
 
-        for stock in stocks:
+        for item in prepared:
+            if isinstance(item, _PreparedError):
+                errors.append(self._persist_error(run, item.stock, item.exc))
+                continue
+            if item.research_failure is not None:
+                # Fehlerisolation je Aktie (Doc 10) -- auch fuer den seltenen
+                # Fall, dass ein Research-Anbieter entgegen seinem Vertrag
+                # (Muster ``EarningsProvider``) eine rohe Exception statt
+                # ``ResearchProviderError`` wirft.
+                errors.append(self._persist_error(run, item.stock, item.research_failure))
+                continue
             try:
-                series = self._market_data_provider.get_candle_series(stock)
-                decision_index = len(series) - 1
-                result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
-                evaluated_at = datetime.now(UTC)
-
-                earnings: EarningsFilterResult | None = None
-                research: ResearchReport | None = None
-                if result.status == ScreeningStatus.CANDIDATE:
-                    earnings = self._evaluate_earnings(
-                        stock, series.candles[decision_index].timestamp.date(), evaluated_at
-                    )
-                    if earnings.status == EarningsFilterStatus.EARNINGS_CLEAR:
-                        research = self._evaluate_research(stock, evaluated_at)
-
-                outcome = StockScreeningOutcome(
-                    analysis_run_id=run.id,
-                    stock=stock,
-                    result=result,
-                    decision_candle_index=decision_index,
-                    evaluated_at=evaluated_at,
-                    signal_rule_version=SIGNAL_RULE_VERSION,
-                    earnings=earnings,
-                    research=research,
-                )
-                with self._uow_factory() as uow:
-                    uow.stocks.add(stock)
-                    uow.screening_results.add(outcome)
-                    uow.commit()
-                outcomes.append(outcome)
+                outcomes.append(self._persist_outcome(run, item))
             except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
-                error = StockProcessingError(
-                    analysis_run_id=run.id,
-                    stock_symbol=stock.symbol,
-                    message=str(exc),
-                    occurred_at=datetime.now(UTC),
-                )
-                with self._uow_factory() as uow:
-                    uow.processing_errors.add(error)
-                    uow.commit()
-                errors.append(error)
+                errors.append(self._persist_error(run, item.stock, exc))
 
         run.candidates_found = sum(
             1 for outcome in outcomes if outcome.result.status == ScreeningStatus.CANDIDATE
@@ -171,6 +189,87 @@ class RunAnalysisUseCase:
             uow.commit()
 
         return AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+
+    def _prepare_stock(self, stock: Stock) -> _PreparedItem:
+        """Screening und Earnings-Filter fuer eine Aktie -- ohne Research
+        (folgt nebenlaeufig in ``_run_research_concurrently``) und ohne
+        Persistenz (folgt sequentiell in ``_persist_outcome``)."""
+        try:
+            series = self._market_data_provider.get_candle_series(stock)
+            decision_index = len(series) - 1
+            result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
+            evaluated_at = datetime.now(UTC)
+
+            earnings: EarningsFilterResult | None = None
+            needs_research = False
+            if result.status == ScreeningStatus.CANDIDATE:
+                earnings = self._evaluate_earnings(
+                    stock, series.candles[decision_index].timestamp.date(), evaluated_at
+                )
+                needs_research = earnings.status == EarningsFilterStatus.EARNINGS_CLEAR
+
+            return _PreparedOutcome(
+                stock=stock,
+                result=result,
+                decision_index=decision_index,
+                evaluated_at=evaluated_at,
+                earnings=earnings,
+                needs_research=needs_research,
+            )
+        except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
+            return _PreparedError(stock=stock, exc=exc)
+
+    def _run_research_concurrently(self, prepared: list[_PreparedItem]) -> None:
+        pending = [
+            item for item in prepared if isinstance(item, _PreparedOutcome) and item.needs_research
+        ]
+        if not pending:
+            return
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(_MAX_CONCURRENT_RESEARCH, len(pending))
+        ) as executor:
+            futures = {
+                executor.submit(self._evaluate_research, item.stock, item.evaluated_at): item
+                for item in pending
+            }
+            for future in concurrent.futures.as_completed(futures):
+                item = futures[future]
+                try:
+                    item.research = future.result()
+                except Exception as exc:  # siehe Kommentar in execute()
+                    item.research_failure = exc
+
+    def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=item.stock,
+            result=item.result,
+            decision_candle_index=item.decision_index,
+            evaluated_at=item.evaluated_at,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            earnings=item.earnings,
+            research=item.research,
+        )
+        with self._uow_factory() as uow:
+            uow.stocks.add(item.stock)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        return outcome
+
+    def _persist_error(
+        self, run: AnalysisRun, stock: Stock, exc: Exception
+    ) -> StockProcessingError:
+        error = StockProcessingError(
+            analysis_run_id=run.id,
+            stock_symbol=stock.symbol,
+            message=str(exc),
+            occurred_at=datetime.now(UTC),
+        )
+        with self._uow_factory() as uow:
+            uow.processing_errors.add(error)
+            uow.commit()
+        return error
 
     def _evaluate_earnings(
         self, stock: Stock, as_of: date, evaluated_at: datetime
@@ -214,18 +313,27 @@ class RunAnalysisUseCase:
     def _evaluate_research(self, stock: Stock, evaluated_at: datetime) -> ResearchReport:
         """Wertet den Research Agent fuer eine bereits qualifizierte Aktie aus.
 
-        Muster ``_evaluate_earnings``: Ein Ausfall des Anbieters wird hier
-        abgefangen, nicht im aufrufenden Fehlerisolations-Block -- er soll
-        ``ResearchStatus.UNAVAILABLE`` ergeben, nicht die Aktie als Ganzes in
-        ``StockProcessingError`` verschieben (CLAUDE.md, Doc 10: Research
-        darf die technische Analyse nie blockieren).
+        Fehlerbehandlung nach dem Muster ``_evaluate_earnings``: Ein Ausfall
+        des Anbieters wird hier abgefangen, nicht im aufrufenden
+        Fehlerisolations-Block -- er soll ``ResearchStatus.UNAVAILABLE``
+        ergeben, nicht die Aktie als Ganzes in ``StockProcessingError``
+        verschieben (CLAUDE.md, Doc 10: Research darf die technische Analyse
+        nie blockieren).
+
+        Anders als bei ``_evaluate_earnings`` uebernimmt ein erfolgreicher
+        Bericht **nicht** das uebergebene ``evaluated_at``: Der Anbieter
+        stempelt seinen eigenen, tatsaechlichen Bearbeitungszeitpunkt --
+        Research ist ein mehrere Gespraechsrunden langer, nebenlaeufig zu
+        anderen Aktien laufender Vorgang (siehe
+        ``RunAnalysisUseCase._run_research_concurrently``), keine
+        Momentaufnahme wie der Earnings-Filter. ``evaluated_at`` wird nur im
+        Fehlerfall unten verwendet, wo kein eigener Zeitpunkt vom Anbieter
+        vorliegt.
         """
         try:
             return self._research_provider.research(stock)
         except ResearchProviderError as exc:
-            _logger.warning(
-                "Research fuer %s konnte nicht abgerufen werden: %s", stock.symbol, exc
-            )
+            _logger.warning("Research fuer %s konnte nicht abgerufen werden: %s", stock.symbol, exc)
             return ResearchReport(
                 status=ResearchStatus.UNAVAILABLE,
                 evaluated_at=evaluated_at,
