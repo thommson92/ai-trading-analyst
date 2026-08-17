@@ -135,14 +135,22 @@ class FakeEarningsProvider:
 class FakeResearchProvider:
     """Liefert standardmaessig einen kanonischen ``COMPLETED``-Bericht;
     ``error_symbols`` loest ``ResearchProviderError`` aus (Muster
-    ``FakeEarningsProvider``)."""
+    ``FakeEarningsProvider``), ``crash_symbols`` eine rohe Ausnahme --
+    also einen Anbieter, der seinen Vertrag bricht."""
 
-    def __init__(self, error_symbols: frozenset[str] = frozenset()) -> None:
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+    ) -> None:
         self._error_symbols = error_symbols
+        self._crash_symbols = crash_symbols
         self.calls: list[str] = []
 
     def research(self, stock: Stock) -> ResearchReport:
         self.calls.append(stock.symbol)
+        if stock.symbol in self._crash_symbols:
+            raise RuntimeError(f"Vertragsbruch des Anbieters fuer {stock.symbol}")
         if stock.symbol in self._error_symbols:
             raise ResearchProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
         return ResearchReport(

@@ -17,7 +17,7 @@ Anthropic-API.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -48,7 +48,10 @@ Abrufe in einer einzigen Runde erledigt. Die Schleife hier zaehlt also nur,
 wie oft wir eine pausierte Antwort fortsetzen, und ist bewusst von
 ``max_searches``/``max_fetches`` entkoppelt: Das Kostenbudget haengt am
 abgerufenen Inhalt (``max_fetch_content_tokens``), nicht an der Rundenzahl."""
-_MAX_TOKENS = 8192
+_CACHE_READ_FACTOR = 0.1
+_CACHE_WRITE_FACTOR = 1.25
+"""Anthropics Preisfaktoren fuer gecachte Eingabe, bezogen auf den normalen
+Eingabepreis. Wie ``ResearchPricingConfig`` von Hand gepflegt."""
 
 _PRIMARY_SOURCE_DOMAINS = ("sec.gov",)
 """Deterministische Lizenzklassifikation (ADR 0023, Zitierarchitektur Punkt
@@ -213,6 +216,21 @@ def _classify_license(url: str) -> SourceLicenseClass:
     return SourceLicenseClass.UNKNOWN
 
 
+def _parse_retrieved_at(value: str | None, fallback: datetime) -> datetime:
+    """Die API meldet den Abrufzeitpunkt als ISO-Text, aber nicht garantiert.
+
+    Ohne verwertbare Angabe bleibt der Laufbeginn -- ein plausibler Wert, der
+    nur ungenauer ist, nicht falsch.
+    """
+    if value is None:
+        return fallback
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        _logger.warning("Unlesbarer Abrufzeitpunkt vom Anbieter: %r", value)
+        return fallback
+
+
 def _require_string_list(symbol: str, field: str, value: object) -> tuple[str, ...]:
     """Prueft ein Listenfeld der Werkzeugantwort, statt es blind an ``tuple``
     zu geben.
@@ -242,6 +260,20 @@ def _require_optional_text(symbol: str, field: str, value: object) -> str | None
     )
 
 
+@dataclass(slots=True)
+class _FetchedDocument:
+    """Ein per ``web_fetch`` geholtes Dokument, ueber das sich
+    ``char_location``-Zitate aufloesen lassen."""
+
+    url: str
+    retrieved_at: datetime
+    ambiguous: bool = False
+    """Zwei Dokumente mit demselben Titel. Bei SEC-Filings ist das der
+    Normalfall ("Form 10-Q", "Quarterly Report"), nicht die Ausnahme -- eine
+    Zuordnung ueber den Titel waere dann geraten. Eine falsche Quellenangabe
+    ist schlechter als gar keine, deshalb werden solche Zitate ausgelassen."""
+
+
 @dataclass(frozen=True, slots=True)
 class AnthropicResearchPricing:
     """Preise fuer die Kostenschaetzung -- von Hand gepflegte Konfiguration,
@@ -264,28 +296,47 @@ class _UsageTotals:
     """
 
     pricing: AnthropicResearchPricing
-    input_tokens: int = 0
-    output_tokens: int = 0
+    uncached_input_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    output_tokens: int = 0
     web_searches: int = 0
     web_fetches: int = 0
     turns: int = 0
 
     def add(self, usage: Any) -> None:
         self.turns += 1
-        self.input_tokens += usage.input_tokens
-        self.output_tokens += usage.output_tokens
+        self.uncached_input_tokens += usage.input_tokens
         self.cache_read_tokens += usage.cache_read_input_tokens or 0
+        self.cache_write_tokens += usage.cache_creation_input_tokens or 0
+        self.output_tokens += usage.output_tokens
         server_tool_use = usage.server_tool_use
         if server_tool_use is not None:
             self.web_searches += server_tool_use.web_search_requests or 0
             self.web_fetches += server_tool_use.web_fetch_requests or 0
 
+    @property
+    def input_tokens(self) -> int:
+        """Der gesamte Eingabekontext, nicht nur der ungecachte Rest.
+
+        ``usage.input_tokens`` zaehlt allein, was *nicht* aus dem Cache kam.
+        Bei mehreren ``pause_turn``-Fortsetzungen greift automatisches
+        Prompt-Caching, sodass der wiederholt verrechnete Kontext groesstenteils
+        als ``cache_read`` erscheint -- eine Budgetgrenze auf
+        ``usage.input_tokens`` liefe genau an dem Fall vorbei, gegen den sie
+        eingebaut wurde.
+        """
+        return self.uncached_input_tokens + self.cache_read_tokens + self.cache_write_tokens
+
     def estimated_usd(self) -> float:
         """Websuche wird zusaetzlich zu den Token berechnet, nicht statt
-        ihrer -- deshalb beide Posten."""
+        ihrer -- deshalb beide Posten. Cache-Lesen und -Schreiben haben
+        eigene Preisfaktoren (0,1x bzw. 1,25x des Eingabepreises)."""
+        input_price = self.pricing.input_usd_per_million / 1_000_000
         return (
-            self.input_tokens / 1_000_000 * self.pricing.input_usd_per_million
+            self.uncached_input_tokens * input_price
+            + self.cache_read_tokens * input_price * _CACHE_READ_FACTOR
+            + self.cache_write_tokens * input_price * _CACHE_WRITE_FACTOR
             + self.output_tokens / 1_000_000 * self.pricing.output_usd_per_million
             + self.web_searches * self.pricing.usd_per_search
         )
@@ -293,13 +344,15 @@ class _UsageTotals:
     def log(self, symbol: str, model: str) -> None:
         _logger.info(
             "Research-Nutzung %s (%s): %d Runden, %d Eingabe-Token "
-            "(davon %d aus dem Cache), %d Ausgabe-Token, "
-            "%d Websuchen, %d Webabrufe, geschaetzt %.3f USD",
+            "(%d ungecacht, %d aus dem Cache, %d in den Cache), "
+            "%d Ausgabe-Token, %d Websuchen, %d Webabrufe, geschaetzt %.3f USD",
             symbol,
             model,
             self.turns,
             self.input_tokens,
+            self.uncached_input_tokens,
             self.cache_read_tokens,
+            self.cache_write_tokens,
             self.output_tokens,
             self.web_searches,
             self.web_fetches,
@@ -314,12 +367,16 @@ class AnthropicResearchSettings:
     (z. B. ein Timeout) nur das Schema hier und ``bootstrap.py`` beruehrt,
     nicht jeden Konstruktor-Aufruf einzeln."""
 
-    api_key: str
+    api_key: str = field(repr=False)
+    """``repr=False``: Der Schluessel soll nicht ueber eine beilaeufig
+    geloggte Settings-Instanz in einer Logdatei landen."""
     model: str
     max_searches: int
     max_fetches: int
     max_fetch_content_tokens: int
     max_input_tokens_per_symbol: int
+    max_output_tokens: int
+    request_timeout_seconds: int
     fetch_allowed_domains: Sequence[str]
     pricing: AnthropicResearchPricing
     fallback_model: str | None = None
@@ -333,13 +390,18 @@ class AnthropicResearchProvider(ResearchProvider):
         settings: AnthropicResearchSettings,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._client = anthropic.Anthropic(api_key=settings.api_key, http_client=http_client)
+        self._client = anthropic.Anthropic(
+            api_key=settings.api_key,
+            http_client=http_client,
+            timeout=float(settings.request_timeout_seconds),
+        )
         self._model = settings.model
         self._fallback_model = settings.fallback_model
         self._max_searches = settings.max_searches
         self._max_fetches = settings.max_fetches
         self._max_fetch_content_tokens = settings.max_fetch_content_tokens
         self._max_input_tokens = settings.max_input_tokens_per_symbol
+        self._max_output_tokens = settings.max_output_tokens
         self._fetch_allowed_domains = tuple(settings.fetch_allowed_domains)
         self._pricing = settings.pricing
 
@@ -420,7 +482,7 @@ class AnthropicResearchProvider(ResearchProvider):
             {"role": "user", "content": self._build_research_prompt(stock, evaluated_at.date())}
         ]
         tools = self._build_web_tools()
-        fetched_documents: dict[str, str] = {}
+        fetched_documents: dict[str, _FetchedDocument] = {}
         citations: list[Citation] = []
         narrative_parts: list[str] = []
 
@@ -430,16 +492,25 @@ class AnthropicResearchProvider(ResearchProvider):
             # aus Anthropics eigener Dokumentation. Die Versionsangabe steckt im
             # "type"-Feld, nicht im Python-Typ; ein Import wuerde an jede neue
             # Werkzeugversion binden, ohne einen Laufzeitvorteil zu bringen.
-            response = self._client.messages.create(
+            # thinking ausdruecklich statt implizit: Auf Sonnet 5 laeuft ein
+            # Aufruf ohne dieses Feld mit adaptivem Denken, auf frueheren
+            # Modellen ohne. Recherche ist echte Mehrschrittarbeit, hier ist
+            # Denken erwuenscht -- aber es soll nicht davon abhaengen, welches
+            # Modell konfiguriert ist.
+            # Ignore am Aufruf statt je Argument: Die Ueberladungsaufloesung
+            # des SDK scheitert an den rohen Dicts. Die Rueckgabe wird darum
+            # ausdruecklich annotiert, damit die Auswertung typgeprueft bleibt.
+            response: Message = self._client.messages.create(  # type: ignore[call-overload]
                 model=model,
-                max_tokens=_MAX_TOKENS,
+                max_tokens=self._max_output_tokens,
                 system=_RESEARCH_SYSTEM_PROMPT,
-                messages=messages,  # type: ignore[arg-type]
-                tools=tools,  # type: ignore[arg-type]
+                messages=messages,
+                tools=tools,
+                thinking={"type": "adaptive"},
             )
 
             usage.add(response.usage)
-            self._scan_tool_results(response.content, fetched_documents)
+            self._scan_tool_results(response.content, fetched_documents, evaluated_at)
             citations.extend(
                 self._extract_citations(response.content, fetched_documents, evaluated_at)
             )
@@ -476,7 +547,7 @@ class AnthropicResearchProvider(ResearchProvider):
                 _logger.warning(
                     "'%s': Recherchetext wurde bei max_tokens (%d) abgeschnitten",
                     stock.symbol,
-                    _MAX_TOKENS,
+                    self._max_output_tokens,
                 )
             return narrative, citations
 
@@ -500,13 +571,18 @@ class AnthropicResearchProvider(ResearchProvider):
         # Die Ueberladungsaufloesung des SDK scheitert an den rohen Dicts,
         # deshalb der Ignore am Aufruf -- die Rueckgabe wird darum ausdruecklich
         # annotiert, damit die Auswertung unten typgeprueft bleibt.
+        # Kein Denken: Diese Phase formt bereits vorhandenen Text um, mehr
+        # nicht. Auf Sonnet 5 teilt sich adaptives Denken das max_tokens-Budget
+        # mit der Antwort -- ein langer Werkzeugaufruf wuerde sonst abgeschnitten,
+        # obwohl die teure Recherchephase schon erfolgreich war.
         response: Message = self._client.messages.create(  # type: ignore[call-overload]
             model=model,
-            max_tokens=_MAX_TOKENS,
+            max_tokens=self._max_output_tokens,
             system=_STRUCTURE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": self._build_structure_prompt(stock, narrative)}],
             tools=[_SUBMIT_REPORT_TOOL],
             tool_choice={"type": "tool", "name": _SUBMIT_TOOL_NAME},
+            thinking={"type": "disabled"},
         )
         usage.add(response.usage)
 
@@ -516,7 +592,7 @@ class AnthropicResearchProvider(ResearchProvider):
             # aus, waere es aber nicht -- lieber gar keiner.
             raise ResearchProviderError(
                 f"'{stock.symbol}': Strukturierung wurde bei max_tokens "
-                f"({_MAX_TOKENS}) abgeschnitten -- kein vollstaendiger Bericht"
+                f"({self._max_output_tokens}) abgeschnitten -- kein vollstaendiger Bericht"
             )
 
         submit_input = self._find_submit_call(response.content)
@@ -595,7 +671,12 @@ class AnthropicResearchProvider(ResearchProvider):
         # dorthin schreiben statt in zitierbaren Fliesstext.
         return [web_search, web_fetch]
 
-    def _scan_tool_results(self, content: Iterable[Any], fetched_documents: dict[str, str]) -> None:
+    def _scan_tool_results(
+        self,
+        content: Iterable[Any],
+        fetched_documents: dict[str, _FetchedDocument],
+        fallback: datetime,
+    ) -> None:
         """Sammelt abgerufene Dokumente und protokolliert Werkzeugfehler.
 
         Laeuft vor ``_extract_citations``, das ``fetched_documents`` bereits
@@ -603,7 +684,7 @@ class AnthropicResearchProvider(ResearchProvider):
         aufzuloesen."""
         for block in content:
             if block.type in ("web_search_tool_result", "web_fetch_tool_result"):
-                self._scan_tool_result(block, fetched_documents)
+                self._scan_tool_result(block, fetched_documents, fallback)
 
     def _find_submit_call(self, content: Iterable[Any]) -> dict[str, Any] | None:
         for block in content:
@@ -612,7 +693,9 @@ class AnthropicResearchProvider(ResearchProvider):
                 return input_value if isinstance(input_value, dict) else {}
         return None
 
-    def _scan_tool_result(self, block: Any, fetched_documents: dict[str, str]) -> None:
+    def _scan_tool_result(
+        self, block: Any, fetched_documents: dict[str, _FetchedDocument], fallback: datetime
+    ) -> None:
         """Wertet das Ergebnis eines serverseitigen Werkzeugs aus.
 
         Fehler kommen hier als 200er-Antwort mit einem Fehlerblock an, nicht
@@ -633,19 +716,31 @@ class AnthropicResearchProvider(ResearchProvider):
                 result.error_code,
             )
             return
-        if result.type == "web_fetch_result":
-            title = result.content.title
-            if title:
-                # setdefault statt Ueberschreiben: zwei Dokumente mit
-                # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings)
-                # sollen nicht dazu fuehren, dass ein spaeterer Fund die
-                # URL eines frueher zitierten Dokuments verdraengt.
-                fetched_documents.setdefault(title, result.url)
+        if result.type != "web_fetch_result":
+            return
+        title = result.content.title
+        if not title:
+            return
+        known = fetched_documents.get(title)
+        if known is None:
+            fetched_documents[title] = _FetchedDocument(
+                url=result.url,
+                retrieved_at=_parse_retrieved_at(result.retrieved_at, fallback),
+            )
+        elif known.url != result.url:
+            # Der Titel taugt jetzt nicht mehr zur Zuordnung -- siehe
+            # ``_FetchedDocument.ambiguous``.
+            known.ambiguous = True
+            _logger.warning(
+                "Zwei abgerufene Dokumente tragen denselben Titel (%s) -- "
+                "Zitate darauf werden ausgelassen",
+                title,
+            )
 
     def _extract_citations(
         self,
         content: Iterable[Any],
-        fetched_documents: dict[str, str],
+        fetched_documents: dict[str, _FetchedDocument],
         retrieved_at: datetime,
     ) -> list[Citation]:
         results: list[Citation] = []
@@ -665,24 +760,28 @@ class AnthropicResearchProvider(ResearchProvider):
                         )
                     )
                 elif citation.type == "char_location":
-                    url = fetched_documents.get(citation.document_title or "")
-                    if url is None:
-                        # Titel konnte nicht auf einen abgerufenen Dokument-Fund
-                        # zurueckgefuehrt werden -- ohne URL kein belastbares
-                        # Zitat, lieber auslassen als eine falsche Quelle
+                    document = fetched_documents.get(citation.document_title or "")
+                    if document is None or document.ambiguous:
+                        # Titel konnte nicht eindeutig auf ein abgerufenes
+                        # Dokument zurueckgefuehrt werden -- ohne belastbare
+                        # URL lieber auslassen als eine falsche Quelle
                         # vorzutaeuschen.
                         _logger.warning(
-                            "Zitat ohne aufloesbare Quelle uebersprungen: %s",
+                            "Zitat ohne eindeutig aufloesbare Quelle uebersprungen: %s",
                             citation.document_title,
                         )
                         continue
                     results.append(
                         Citation(
-                            url=url,
-                            title=citation.document_title or url,
-                            retrieved_at=retrieved_at,
+                            url=document.url,
+                            title=citation.document_title or document.url,
+                            # Der vom Abruf gemeldete Zeitpunkt, nicht der
+                            # Laufbeginn: Bei mehreren Runden liegen dazwischen
+                            # Minuten (``Citation.retrieved_at`` verspricht die
+                            # eigene Abrufzeit).
+                            retrieved_at=document.retrieved_at,
                             cited_text=citation.cited_text,
-                            license_class=_classify_license(url),
+                            license_class=_classify_license(document.url),
                             transformation="zusammengefasst",
                         )
                     )
@@ -727,6 +826,22 @@ class AnthropicResearchProvider(ResearchProvider):
         for citation in citations:
             deduplicated.setdefault((citation.url, citation.cited_text), citation)
 
+        reason = _require_optional_text(stock.symbol, "reason", submit_input.get("reason"))
+        if status is ResearchStatus.COMPLETED and not deduplicated:
+            # Ein abgeschlossener Bericht ohne einen einzigen Beleg verletzt
+            # die Quellenbindung (CLAUDE.md). Genau dieser Zustand lag beim
+            # Fehllauf vom 2026-08-17 vor -- er sah vollstaendig aus und war
+            # es nicht. Bricht die Zitat-Extraktion kuenftig erneut (neue
+            # Werkzeugversion, geaendertes Blockformat), faellt das hier auf,
+            # statt still belegloses Research zu persistieren.
+            _logger.warning(
+                "'%s': Bericht als COMPLETED gemeldet, aber ohne ein einziges Zitat -- "
+                "wird auf INSUFFICIENT_DATA herabgestuft",
+                stock.symbol,
+            )
+            status = ResearchStatus.INSUFFICIENT_DATA
+            reason = "no_citations"
+
         return ResearchReport(
             status=status,
             evaluated_at=evaluated_at,
@@ -742,5 +857,5 @@ class AnthropicResearchProvider(ResearchProvider):
             risks=_require_string_list(stock.symbol, "risks", submit_input.get("risks")),
             confidence=confidence,
             citations=tuple(deduplicated.values()),
-            reason=_require_optional_text(stock.symbol, "reason", submit_input.get("reason")),
+            reason=reason,
         )

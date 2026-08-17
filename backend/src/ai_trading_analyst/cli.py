@@ -921,7 +921,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research.add_argument(
         "--max-searches",
-        type=int,
+        # model_copy(update=...) umgeht die Pydantic-Pruefung, deshalb hier
+        # validieren -- sonst erreichte '--max-searches 0' die API als
+        # 'max_uses: 0'.
+        type=_positive_count,
         default=None,
         help=(
             "Uebersteuert research.max_searches nur fuer diesen Lauf. Achtung: Ein "
@@ -932,7 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research.add_argument(
         "--max-fetches",
-        type=int,
+        type=_positive_count,
         default=None,
         help="Uebersteuert research.max_fetches nur fuer diesen Lauf.",
     )

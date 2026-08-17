@@ -131,8 +131,12 @@ def _zweiphasig(
     recherche_stop_reason: str = "end_turn",
 ) -> Callable[[httpx.Request], httpx.Response]:
     """Beantwortet Phase 1 mit Fliesstext (plus optionalen Bloecken) und
-    Phase 2 mit dem Werkzeugaufruf."""
-    standard: list[dict[str, object]] = [{"type": "text", "text": "Recherchetext"}]
+    Phase 2 mit dem Werkzeugaufruf.
+
+    Der Standardinhalt traegt ein Zitat, weil ein COMPLETED-Bericht ohne
+    jeden Beleg auf INSUFFICIENT_DATA herabgestuft wird -- ein Test, der das
+    nicht pruefen will, soll nicht daran haengenbleiben."""
+    standard: list[dict[str, object]] = [_text_with_citation("https://sec.gov/filing")]
     inhalt = recherche if recherche is not None else standard
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -151,6 +155,8 @@ def _settings(**overrides: object) -> AnthropicResearchSettings:
         "max_fetches": 3,
         "max_fetch_content_tokens": 8000,
         "max_input_tokens_per_symbol": 150_000,
+        "max_output_tokens": 16_000,
+        "request_timeout_seconds": 300,
         "fetch_allowed_domains": ("sec.gov",),
         "pricing": AnthropicResearchPricing(
             input_usd_per_million=2.0,
@@ -400,7 +406,7 @@ class TestFehlerfaelle:
     def test_unerwartete_antwortform_wird_nicht_als_rohe_exception_durchgereicht(self) -> None:
         provider = _provider(_zweiphasig())
 
-        def _boom(content: object, fetched_documents: object) -> None:
+        def _boom(content: object, fetched_documents: object, fallback: object) -> None:
             raise AttributeError("'NoneType' object has no attribute 'title'")
 
         provider._scan_tool_results = _boom  # type: ignore[method-assign]
@@ -552,13 +558,55 @@ class TestWerkzeugbudget:
                 output_usd_per_million=10.0,
                 usd_per_search=0.01,
             ),
-            input_tokens=250_000,
+            uncached_input_tokens=250_000,
             output_tokens=6_000,
             web_searches=5,
         )
 
         # 0,50 USD Eingabe + 0,06 USD Ausgabe + 0,05 USD Suchen
         assert totals.estimated_usd() == pytest.approx(0.61)
+
+    def test_gecachte_eingabe_zaehlt_gegen_budget_und_kosten(self) -> None:
+        """``usage.input_tokens`` ist nur der ungecachte Rest. Bei mehreren
+        Fortsetzungen laeuft der wiederholt verrechnete Kontext groesstenteils
+        als cache_read -- eine Grenze allein auf input_tokens liefe an dem
+        Fall vorbei, gegen den sie eingebaut wurde."""
+        totals = _UsageTotals(
+            pricing=AnthropicResearchPricing(
+                input_usd_per_million=2.0,
+                output_usd_per_million=10.0,
+                usd_per_search=0.0,
+            ),
+            uncached_input_tokens=10_000,
+            cache_read_tokens=100_000,
+            cache_write_tokens=40_000,
+        )
+
+        assert totals.input_tokens == 150_000
+        # 0,02 + 100k*0,1 + 40k*1,25, alles zum Eingabepreis von 2 USD/Mio.
+        assert totals.estimated_usd() == pytest.approx(0.02 + 0.02 + 0.10)
+
+    def test_budget_greift_auch_wenn_der_kontext_aus_dem_cache_kommt(self) -> None:
+        aufrufe: list[None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            aufrufe.append(None)
+            nachricht = _message([], stop_reason="pause_turn", input_tokens=1_000)
+            usage = nachricht["usage"]
+            assert isinstance(usage, dict)
+            usage["cache_read_input_tokens"] = 89_000
+            return _json_response(nachricht)
+
+        provider = AnthropicResearchProvider(
+            _settings(max_input_tokens_per_symbol=150_000),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        with pytest.raises(ResearchProviderError, match="Token-Budget"):
+            provider.research(AAPL)
+
+        # Je Runde 90k Gesamtkontext -- nach der zweiten ist Schluss.
+        assert len(aufrufe) == 2
 
 
 class TestStichtag:
@@ -600,7 +648,7 @@ class TestWerkzeugfehler:
                         "error_code": "max_uses_exceeded",
                     },
                 },
-                {"type": "text", "text": "Trotzdem ein Befund"},
+                _text_with_citation("https://sec.gov/filing"),
             ]
         )
 
@@ -621,7 +669,7 @@ class TestWerkzeugfehler:
                         "error_code": "url_not_in_prior_context",
                     },
                 },
-                {"type": "text", "text": "Trotzdem ein Befund"},
+                _text_with_citation("https://sec.gov/filing"),
             ]
         )
 
@@ -653,7 +701,7 @@ class TestAbgeschnitteneAntwort:
         """Anders als beim Werkzeugaufruf ist abgeschnittener Fliesstext kein
         stiller Datenverlust -- er ist bis zum Abbruch vollstaendig."""
         handler = _zweiphasig(
-            recherche=[{"type": "text", "text": "Befund bis hierhin"}],
+            recherche=[_text_with_citation("https://sec.gov/filing")],
             recherche_stop_reason="max_tokens",
         )
 
@@ -682,12 +730,37 @@ class TestUnbekannteZitatTypen:
                                 "end_page_number": 2,
                             }
                         ],
-                    }
+                    },
+                    _text_with_citation("https://sec.gov/filing"),
                 ]
             )
         ).research(AAPL)
         assert report.status is ResearchStatus.COMPLETED
-        assert report.citations == ()
+        # Nur das verwertbare Zitat bleibt uebrig.
+        assert [citation.url for citation in report.citations] == ["https://sec.gov/filing"]
+
+
+class TestBerichtOhneBelege:
+    """Ein abgeschlossener Bericht ohne einen einzigen Beleg verletzt die
+    Quellenbindung. Genau dieser Zustand lag beim Fehllauf vom 2026-08-17
+    vor -- er sah vollstaendig aus und war es nicht."""
+
+    def test_completed_ohne_zitate_wird_herabgestuft(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        handler = _zweiphasig(recherche=[{"type": "text", "text": "Text ohne jeden Beleg"}])
+
+        with caplog.at_level("WARNING"):
+            report = _provider(handler).research(AAPL)
+
+        assert report.status is ResearchStatus.INSUFFICIENT_DATA
+        assert report.reason == "no_citations"
+        assert "ohne ein einziges Zitat" in caplog.text
+
+    def test_mit_zitat_bleibt_es_bei_completed(self) -> None:
+        report = _provider(_zweiphasig()).research(AAPL)
+        assert report.status is ResearchStatus.COMPLETED
+        assert report.reason is None
 
 
 class TestAusweichmodell:
@@ -755,15 +828,54 @@ class TestAusweichmodell:
 
 
 class TestDokumentTitelKollision:
-    def test_erstes_dokument_gewinnt_bei_gleichem_titel(self) -> None:
+    """Bei SEC-Filings sind identische Titel ("Form 10-Q", "Quarterly
+    Report") der Normalfall. Eine Zuordnung ueber den Titel waere dann
+    geraten, und eine falsche Quellenangabe ist schlechter als gar keine."""
+
+    def test_mehrdeutiger_titel_laesst_das_zitat_entfallen(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        handler = _zweiphasig(
+            recherche=[
+                _web_fetch_result("https://sec.gov/erstes-filing", "10-Q"),
+                _web_fetch_result("https://sec.gov/zweites-filing", "10-Q"),
+                _text_with_char_location_citation("10-Q"),
+                _text_with_citation("https://sec.gov/eindeutig"),
+            ]
+        )
+
+        with caplog.at_level("WARNING"):
+            report = _provider(handler).research(AAPL)
+
+        assert [citation.url for citation in report.citations] == ["https://sec.gov/eindeutig"]
+        assert "denselben Titel" in caplog.text
+
+    def test_derselbe_titel_aus_derselben_quelle_bleibt_eindeutig(self) -> None:
+        """Zweimal dasselbe Dokument abgerufen ist keine Mehrdeutigkeit."""
         report = _provider(
             _zweiphasig(
                 recherche=[
-                    _web_fetch_result("https://sec.gov/erstes-filing", "10-Q"),
-                    _web_fetch_result("https://sec.gov/zweites-filing", "10-Q"),
+                    _web_fetch_result("https://sec.gov/filing", "10-Q"),
+                    _web_fetch_result("https://sec.gov/filing", "10-Q"),
                     _text_with_char_location_citation("10-Q"),
                 ]
             )
         ).research(AAPL)
-        assert len(report.citations) == 1
-        assert report.citations[0].url == "https://sec.gov/erstes-filing"
+        assert [citation.url for citation in report.citations] == ["https://sec.gov/filing"]
+
+
+class TestAbrufzeitpunkt:
+    def test_der_gemeldete_abrufzeitpunkt_gewinnt_gegen_den_laufbeginn(self) -> None:
+        """``Citation.retrieved_at`` verspricht die eigene Abrufzeit -- bei
+        mehreren Runden liegen zwischen Laufbeginn und Abruf Minuten."""
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _web_fetch_result("https://sec.gov/doc.htm", "Ein Dokument"),
+                    _text_with_char_location_citation("Ein Dokument"),
+                ]
+            )
+        ).research(AAPL)
+
+        (citation,) = report.citations
+        assert citation.retrieved_at == datetime(2026, 8, 16, 10, 0, tzinfo=UTC)

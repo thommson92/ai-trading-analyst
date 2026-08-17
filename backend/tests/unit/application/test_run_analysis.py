@@ -345,6 +345,63 @@ class TestResearch:
         assert research.status is ResearchStatus.UNAVAILABLE
         assert research.reason == "provider_error"
 
+    def test_roher_anbieterfehler_kostet_nicht_das_screening_ergebnis(self) -> None:
+        """CLAUDE.md: "Faellt Research aus, bleiben technische Analyse und
+        Backtesting vollstaendig." Ein Anbieter, der entgegen seinem Vertrag
+        eine rohe Ausnahme wirft, darf das fertig berechnete, deterministische
+        Screening-Ergebnis nicht mitreissen."""
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(next_by_symbol={"CAND": self._EARNINGS_CLEAR})
+        research_provider = FakeResearchProvider(crash_symbols=frozenset({"CAND"}))
+        use_case, _, _, results_repo, errors_repo = _build_use_case(
+            provider, earnings_provider, research_provider
+        )
+
+        summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert not summary.errors
+        assert not errors_repo.added
+        # Entscheidend: Das Screening-Ergebnis ist da, nicht verworfen.
+        assert len(results_repo.added) == 1
+        assert summary.run.candidates_found == 1
+        research = summary.outcomes[0].research
+        assert research is not None
+        assert research.status is ResearchStatus.UNAVAILABLE
+        assert research.reason == "provider_contract_violation"
+
+    def test_gemischter_ausgang_ordnet_die_berichte_richtig_zu(self) -> None:
+        """Scheitert eine von mehreren nebenlaeufigen Recherchen, muessen die
+        uebrigen trotzdem ihren eigenen Bericht behalten."""
+        stocks = tuple(make_stock(symbol) for symbol in ("AAA", "BBB", "CCC"))
+        provider = FakeMarketDataProvider(
+            stocks=stocks,
+            series_by_symbol={
+                s.symbol: make_series(_SERIES_LENGTH, candidate=True) for s in stocks
+            },
+        )
+        earnings_provider = FakeEarningsProvider(
+            next_by_symbol={s.symbol: self._EARNINGS_CLEAR for s in stocks}
+        )
+        research_provider = FakeResearchProvider(
+            error_symbols=frozenset({"BBB"}), crash_symbols=frozenset({"CCC"})
+        )
+        use_case, *_ = _build_use_case(provider, earnings_provider, research_provider)
+
+        summary = use_case.execute()
+
+        assert [o.stock.symbol for o in summary.outcomes] == ["AAA", "BBB", "CCC"]
+        berichte = {o.stock.symbol: o.research for o in summary.outcomes}
+        assert berichte["AAA"] is not None
+        assert berichte["AAA"].summary == "Fake-Recherche fuer AAA"
+        assert berichte["BBB"] is not None
+        assert berichte["BBB"].reason == "provider_error"
+        assert berichte["CCC"] is not None
+        assert berichte["CCC"].reason == "provider_contract_violation"
+
     def test_mehrere_kandidaten_werden_nebenlaeufig_recherchiert_ohne_verwechslung(self) -> None:
         """Die Research-Aufrufe je Aktie laufen nebenlaeufig (siehe
         ``RunAnalysisUseCase._run_research_concurrently``) -- trotzdem muss

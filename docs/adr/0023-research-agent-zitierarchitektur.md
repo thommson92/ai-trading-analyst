@@ -302,6 +302,51 @@ architekturrelevanten Entscheidungen.
   Der alte Name versprach eine Geltung, die er nach der Öffnung der Suche
   nicht mehr hat.
 
+### Nachtrag: Befunde der unabhängigen Review
+
+17. **Ein Bericht ohne Belege gilt nicht als abgeschlossen.** Meldet das
+    Modell `COMPLETED`, sind aber null Zitate zustande gekommen, wird auf
+    `INSUFFICIENT_DATA` mit `reason="no_citations"` herabgestuft. Ohne diese
+    Prüfung wäre der Fehllauf vom 2026-08-17 stillschweigend als vollständiger
+    Bericht in der Datenbank gelandet — und ein künftiger Bruch der
+    Zitat-Extraktion (neue Werkzeugversion, geändertes Blockformat) fiele
+    ebenso wenig auf.
+18. **Ein mehrdeutiger Dokumenttitel lässt das Zitat entfallen.** Zwei per
+    `web_fetch` geholte Dokumente mit gleichem Titel — bei SEC-Filings der
+    Normalfall — machen die Zuordnung über den Titel zu Raten. Vorher gewann
+    das zuerst gefundene, wodurch Zitate aus dem zweiten Dokument eine falsche
+    Quelle bekamen. Eine falsche Quellenangabe ist schlechter als gar keine,
+    konsistent zum Umgang mit unauflösbaren Titeln.
+19. **`Citation.retrieved_at` ist der vom Abruf gemeldete Zeitpunkt**, nicht
+    mehr der Laufbeginn — das Feld verspricht die eigene Abrufzeit, und
+    zwischen beiden liegen bei mehreren Runden Minuten. Für Suchtreffer bleibt
+    es beim Laufbeginn; einen besseren Wert liefert die API dort nicht.
+20. **Das Token-Budget zählt den gesamten Eingabekontext.**
+    `usage.input_tokens` ist nur der ungecachte Rest; bei
+    `pause_turn`-Fortsetzungen greift automatisches Prompt-Caching, sodass der
+    wiederholt verrechnete Kontext größtenteils als `cache_read` erscheint. Die
+    Notbremse hätte so an genau dem Fall vorbeilaufen können, gegen den sie
+    eingebaut wurde. Die Kostenschätzung rechnet Cache-Lesen und -Schreiben
+    jetzt mit ihren eigenen Faktoren (0,1× bzw. 1,25×).
+21. **`thinking` wird ausdrücklich gesetzt.** Auf Sonnet 5 läuft ein Aufruf
+    ohne dieses Feld mit adaptivem Denken, und `max_tokens` deckelt Denken und
+    Antworttext **gemeinsam**. Die Recherchephase bekommt `adaptive` (echte
+    Mehrschrittarbeit), die Strukturierungsphase `disabled` (sie formt nur
+    vorhandenen Text um) — dort hätte ein langer Werkzeugaufruf sonst
+    abgeschnitten werden können, obwohl die teure Recherche schon erfolgreich
+    war. `max_output_tokens` ist konfigurierbar und auf 16.000 angehoben.
+22. **Ein Zeitlimit am Anthropic-Client** (`request_timeout_seconds`, 300 s).
+    Der SDK-Standard sind 600 s Lesezeit mal zwei Wiederholungen — eine
+    hängende Anfrage hätte einen der vier nebenläufigen Arbeiter fast eine
+    Stunde blockiert.
+
+Ebenfalls behoben, im Application Layer: Ein Research-Anbieter, der entgegen
+seinem Vertrag eine rohe Ausnahme statt `ResearchProviderError` wirft, hat die
+Aktie als Ganzes in `StockProcessingError` verschoben — samt dem bereits
+fertig berechneten, deterministischen Screening-Ergebnis. Das war genau die
+Kopplung, die CLAUDE.md ausschließt. `_evaluate_research` fängt das jetzt ab
+und liefert `UNAVAILABLE` mit `reason="provider_contract_violation"`.
+
 ### Am ersten vollständigen Lauf sichtbar gewordene Folgepunkte
 
 Der erste Lauf mit funktionierender Quellenbindung (2026-08-17, rund 40 Zitate,

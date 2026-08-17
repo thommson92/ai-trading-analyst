@@ -147,6 +147,14 @@ research:
   # Anfrage laesst sich nicht abbrechen -- dort wirken nur max_uses und
   # max_fetch_content_tokens.
   max_input_tokens_per_symbol: 150000
+  # Deckelt Denken UND Antworttext gemeinsam: Auf Sonnet 5 laeuft ein Aufruf
+  # ohne thinking-Feld mit adaptivem Denken, und beides teilt sich dasselbe
+  # Budget. Zu knapp schneidet es den Werkzeugaufruf ab, statt zu sparen.
+  max_output_tokens: 16000
+  # Ohne eigenen Wert gilt der SDK-Standard von 600 s mal zwei Versuchen --
+  # eine haengende Anfrage blockierte damit einen der nebenlaeufigen
+  # Arbeiter fast eine Stunde.
+  request_timeout_seconds: 300
   # Allowlist statt Blockliste (ADR 0023, Zitierarchitektur Punkt 5) -- gilt
   # aber NUR fuer den Abruf. Die Suche laeuft bewusst offen: Eine Allowlist
   # auf der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
@@ -169,7 +177,10 @@ research:
     - nasdaq.com
   # Nur fuer die Kostenschaetzung im Log. VON HAND GEPFLEGT -- die Anwendung
   # fragt keine Preisliste ab, ein veralteter Wert faellt nirgends auf.
+  #
   # Stand 2026-08-17: Sonnet-5-Einfuehrungspreise, Websuche 10 USD je 1000.
+  # ACHTUNG: Die Einfuehrungspreise laufen am 2026-08-31 aus, danach gelten
+  # 3,00 / 15,00 USD je Million. Ab dann sind die Werte hier zu niedrig.
   pricing:
     input_usd_per_million: 2.0
     output_usd_per_million: 10.0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -306,8 +307,13 @@ class TestScreeningResultRepository:
 
         with uow_factory() as uow:
             (persisted,) = uow.screening_results.list_for_run(run.id)
-        assert persisted.research == research
         assert persisted.research is not None
+        # Die Zitat-Relationship hat kein ``order_by`` (wie ``signal_events``),
+        # die Lesereihenfolge ist also datenbankabhaengig. Geprueft wird
+        # deshalb die Menge der Zitate, nicht ihre Reihenfolge -- sonst haenge
+        # der Test an einer Zusage, die das Schema nicht gibt.
+        assert set(persisted.research.citations) == set(citations)
+        assert persisted.research == replace(research, citations=persisted.research.citations)
         assert len(persisted.research.citations) == 2
 
     def test_research_bericht_ohne_ergebnis_wird_mitgespeichert(

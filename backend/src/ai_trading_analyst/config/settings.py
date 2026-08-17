@@ -368,6 +368,16 @@ class ResearchConfig(_Section):
     max_fetches: PositiveInt = 3
     max_fetch_content_tokens: PositiveInt = 8000
     max_input_tokens_per_symbol: PositiveInt = 150_000
+    max_output_tokens: PositiveInt = 16_000
+    """Deckelt Denken **und** Antworttext gemeinsam: Auf Sonnet 5 laeuft ein
+    Aufruf ohne ``thinking``-Feld mit adaptivem Denken, und beides teilt sich
+    dasselbe Budget. Zu knapp bemessen schneidet es den Werkzeugaufruf ab,
+    statt Kosten zu sparen."""
+    request_timeout_seconds: PositiveInt = 300
+    """Ohne eigenen Wert gilt der SDK-Standard von 600 Sekunden Lesezeit mal
+    zwei Wiederholungen -- eine haengende Anfrage blockierte damit einen der
+    nebenlaeufigen Arbeiter fast eine Stunde (Muster
+    ``FinnhubConfig.request_timeout_seconds``)."""
     fetch_allowed_domains: tuple[str, ...] = (
         "sec.gov",
         "prnewswire.com",

@@ -67,7 +67,6 @@ class _PreparedOutcome:
     earnings: EarningsFilterResult | None
     needs_research: bool
     research: ResearchReport | None = None
-    research_failure: Exception | None = None
 
 
 @dataclass
@@ -161,13 +160,6 @@ class RunAnalysisUseCase:
             if isinstance(item, _PreparedError):
                 errors.append(self._persist_error(run, item.stock, item.exc))
                 continue
-            if item.research_failure is not None:
-                # Fehlerisolation je Aktie (Doc 10) -- auch fuer den seltenen
-                # Fall, dass ein Research-Anbieter entgegen seinem Vertrag
-                # (Muster ``EarningsProvider``) eine rohe Exception statt
-                # ``ResearchProviderError`` wirft.
-                errors.append(self._persist_error(run, item.stock, item.research_failure))
-                continue
             try:
                 outcomes.append(self._persist_outcome(run, item))
             except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
@@ -237,8 +229,16 @@ class RunAnalysisUseCase:
                 item = futures[future]
                 try:
                     item.research = future.result()
-                except Exception as exc:  # siehe Kommentar in execute()
-                    item.research_failure = exc
+                except Exception:
+                    # ``_evaluate_research`` faengt bereits alles ab; hier
+                    # bliebe nur ein Ausfall des Executors selbst. Auch der
+                    # darf das Screening-Ergebnis nicht kosten.
+                    _logger.exception(
+                        "Nebenlaeufige Recherche fuer %s ist ausgefallen", item.stock.symbol
+                    )
+                    item.research = self._unavailable_research(
+                        item.evaluated_at, "provider_error"
+                    )
 
     def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
         outcome = StockScreeningOutcome(
@@ -334,10 +334,27 @@ class RunAnalysisUseCase:
             return self._research_provider.research(stock)
         except ResearchProviderError as exc:
             _logger.warning("Research fuer %s konnte nicht abgerufen werden: %s", stock.symbol, exc)
-            return ResearchReport(
-                status=ResearchStatus.UNAVAILABLE,
-                evaluated_at=evaluated_at,
-                model=None,
-                prompt_version=None,
-                reason="provider_error",
+            return self._unavailable_research(evaluated_at, "provider_error")
+        except Exception as exc:
+            # Ein Anbieter, der entgegen seinem Vertrag eine rohe Exception
+            # wirft, darf das fertige Screening-Ergebnis nicht mitreissen --
+            # das waere genau die Kopplung, die CLAUDE.md ausschliesst
+            # ("Faellt Research aus, bleiben technische Analyse und
+            # Backtesting vollstaendig"). Deshalb hier abgefangen und nicht
+            # erst in der Fehlerisolation je Aktie, die die ganze Aktie
+            # verwerfen wuerde.
+            _logger.exception(
+                "Research-Anbieter hat fuer %s eine unerwartete Ausnahme geworfen (%s)",
+                stock.symbol,
+                type(exc).__name__,
             )
+            return self._unavailable_research(evaluated_at, "provider_contract_violation")
+
+    def _unavailable_research(self, evaluated_at: datetime, reason: str) -> ResearchReport:
+        return ResearchReport(
+            status=ResearchStatus.UNAVAILABLE,
+            evaluated_at=evaluated_at,
+            model=None,
+            prompt_version=None,
+            reason=reason,
+        )

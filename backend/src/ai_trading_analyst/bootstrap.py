@@ -206,6 +206,8 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
             max_fetches=config.research.max_fetches,
             max_fetch_content_tokens=config.research.max_fetch_content_tokens,
             max_input_tokens_per_symbol=config.research.max_input_tokens_per_symbol,
+            max_output_tokens=config.research.max_output_tokens,
+            request_timeout_seconds=config.research.request_timeout_seconds,
             fetch_allowed_domains=config.research.fetch_allowed_domains,
             pricing=AnthropicResearchPricing(
                 input_usd_per_million=config.research.pricing.input_usd_per_million,
