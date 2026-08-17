@@ -68,11 +68,22 @@ class TestHandelszeitenLesen:
             "2026112:CLOSED",
             "20261125:0930",
             "20261125:99-20261125:1600",
+            # Vier Ziffern, aber keine Uhrzeit: kam bis in strptime durch und
+            # verliess das Modul als roher ValueError.
+            "20261125:2400-20261125:1600",
+            "20261125:1265-20261125:1600",
+            # Acht Ziffern, aber kein Datum.
+            "20261301:0930-20261301:1600",
         ],
     )
     def test_unlesbares_wird_abgewiesen(self, kaputt: str) -> None:
         """Lieber ein Fehler als ein stillschweigend leerer Kalender -- der
-        saehe aus wie lauter Feiertage."""
+        saehe aus wie lauter Feiertage.
+
+        Und ausschliesslich als ``LiquidHoursError``: Der Dispatcher faengt
+        ``TradingCalendarError`` ab, um auf die angenommene Sitzung
+        auszuweichen. Ein roher ``ValueError`` liefe daran vorbei und braechte
+        den Lauf mit einem Traceback ab."""
         with pytest.raises(LiquidHoursError):
             parse_liquid_hours(kaputt, "America/New_York")
 

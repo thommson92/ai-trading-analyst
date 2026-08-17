@@ -497,6 +497,18 @@ class TestVeralteteDaten:
         assert len(bericht.errors) == 1  # type: ignore[attr-defined]
         assert "fehlen die Daten" in bericht.errors[0].message  # type: ignore[attr-defined]
 
+    def test_ein_teilausfall_schlaegt_auf_die_vollstaendigkeit_durch(self) -> None:
+        """Woran der Dispatcher erkennt, dass der Abend nichts geworden ist.
+
+        Der Lauf selbst wirft nicht -- er meldet je Aktie einen Fehler. Erst
+        diese Kennzahl macht aus 'eine von zwei' ein Signal, das der
+        Dispatcher auswerten kann.
+        """
+        veraltet = self._letzte_kerze() + timedelta(minutes=195)
+
+        assert self._lauf(veraltet).completion_ratio == 0.0  # type: ignore[attr-defined]
+        assert self._lauf(self._letzte_kerze()).completion_ratio == 1.0  # type: ignore[attr-defined]
+
     def test_ohne_erwartung_wird_nicht_geprueft(self) -> None:
         """Der manuelle Lauf: Dort entscheidet der Mensch, welchen Stand er
         sieht."""

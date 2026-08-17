@@ -80,17 +80,24 @@ def _parse_moment(rohwert: str, zone: ZoneInfo) -> datetime:
     tag, _, uhrzeit = rohwert.partition(":")
     if len(uhrzeit) != 4 or not uhrzeit.isdigit():
         raise LiquidHoursError(f"Unerwartete Uhrzeit: '{rohwert}'")
-    return datetime.combine(
-        _parse_day(tag),
-        datetime.strptime(uhrzeit, "%H%M").time(),  # noqa: DTZ007 -- nur die Uhrzeit
-        tzinfo=zone,
-    )
+    try:
+        # Vier Ziffern heisst noch nicht gueltig: '2400' und '1265' kommen bis
+        # hierher. Ein roher ValueError liefe am Aufrufer vorbei, der nur
+        # TradingCalendarError abfaengt -- der Dispatcher braeche dann mit
+        # einem Traceback ab, statt auf die angenommene Sitzung auszuweichen.
+        zeit = datetime.strptime(uhrzeit, "%H%M").time()  # noqa: DTZ007 -- nur die Uhrzeit
+    except ValueError as error:
+        raise LiquidHoursError(f"Unerwartete Uhrzeit: '{rohwert}'") from error
+    return datetime.combine(_parse_day(tag), zeit, tzinfo=zone)
 
 
 def _parse_day(rohwert: str) -> date:
     if len(rohwert) != 8 or not rohwert.isdigit():
         raise LiquidHoursError(f"Unerwartetes Datum: '{rohwert}'")
-    return date(int(rohwert[:4]), int(rohwert[4:6]), int(rohwert[6:]))
+    try:
+        return date(int(rohwert[:4]), int(rohwert[4:6]), int(rohwert[6:]))
+    except ValueError as error:
+        raise LiquidHoursError(f"Unerwartetes Datum: '{rohwert}'") from error
 
 
 class IbkrTradingCalendar:

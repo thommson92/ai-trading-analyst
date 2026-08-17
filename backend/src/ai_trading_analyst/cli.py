@@ -67,6 +67,7 @@ from ai_trading_analyst.config.settings import (
     Secrets,
 )
 from ai_trading_analyst.domain.analysis import (
+    AnalysisRunSummary,
     MarketDataProvider,
     MarketDataProviderError,
     ResearchProviderError,
@@ -779,6 +780,30 @@ def command_research(args: argparse.Namespace) -> int:
     return 0
 
 
+def require_complete_enough(zusammenfassung: AnalysisRunSummary, minimum: float) -> None:
+    """Hat der Lauf genug Aktien gerechnet, um als erledigt zu gelten?
+
+    Der Analyse-Lauf isoliert Fehler je Aktie und wirft deshalb nicht: Reisst
+    die Verbindung nach der ersten Aktie ab, kommt eine Zusammenfassung mit
+    einem Ergebnis und 191 Fehlern zurueck. Ohne diese Pruefung haette der
+    Dispatcher den Abend als erledigt vermerkt -- und ein erledigter Lauf wird
+    weder wiederholt noch nach Fristablauf gemeldet. Der Handelstag waere
+    still verlorengegangen.
+
+    Der Fehler geht denselben Weg wie ein TWS-Ausfall: Der Lauf gilt als
+    gescheitert, der naechste Start versucht es erneut.
+    """
+    anteil = zusammenfassung.completion_ratio
+    if anteil >= minimum:
+        return
+    gesamt = len(zusammenfassung.outcomes) + len(zusammenfassung.errors)
+    raise MarketDataProviderError(
+        f"Nur {len(zusammenfassung.outcomes)} von {gesamt} Aktien gerechnet "
+        f"({anteil:.0%}, verlangt sind mindestens {minimum:.0%}). Der Lauf gilt "
+        "nicht als erledigt."
+    )
+
+
 DISPATCH_EXIT_CODES = {
     DispatchDecision.RUN: 0,
     DispatchDecision.TOO_EARLY: 0,
@@ -838,7 +863,18 @@ def command_dispatch(args: argparse.Namespace) -> int:
         print("Die Watchlist ist leer -- es gibt nichts zu rechnen.", file=sys.stderr)
         return 2
 
+    # Vor dem Lauf, nicht in der Analyse: Ein fehlendes Geheimnis ist ein
+    # Konfigurationsfehler und kein voruebergehender Ausfall. Erst hinter dem
+    # Backfill bemerkt, haette er 192 Symbole lang gewartet, Rueckgabewert 1
+    # ergeben -- "versuch's in 15 Minuten" -- und am Ende als "die TWS laeuft
+    # nicht" gemeldet.
     secrets = Secrets()
+    try:
+        earnings_provider = build_earnings_provider(config, secrets)
+        research_provider = build_research_provider(config, secrets)
+    except MissingSecretError as error:
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
 
     engine = _open_database()
     if engine is None:
@@ -888,8 +924,8 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         zusammenfassung = RunAnalysisUseCase(
             provider,
-            build_earnings_provider(config, secrets),
-            build_research_provider(config, secrets),
+            earnings_provider,
+            research_provider,
             uow_factory,
             rule,
             build_earnings_filter_params(config),
@@ -906,6 +942,10 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         if kandidaten:
             print(f"Kandidaten: {', '.join(kandidaten)}")
+
+        require_complete_enough(
+            zusammenfassung, config.scheduler.minimum_completion_ratio
+        )
 
     def latest_stored_bar() -> datetime | None:
         with uow_factory() as uow:

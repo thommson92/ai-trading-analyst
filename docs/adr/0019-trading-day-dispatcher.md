@@ -85,6 +85,21 @@ Es wird ausdrücklich **kein** Analyse-Lauf auf dem Stand des Vortages erzeugt.
 Ein solcher Lauf sähe aus wie die heutige Analyse und wäre es nicht — dasselbe
 Prinzip wie „keine erfundenen Werte", eine Ebene höher.
 
+Das gilt auch für den **Teilausfall**: Der Analyse-Lauf isoliert Fehler je
+Aktie und bricht deshalb nicht ab. Reißt die Verbindung nach der ersten Aktie
+ab, kommt eine Zusammenfassung mit einem Ergebnis und 191 Fehlern zurück — für
+den Dispatcher zunächst ununterscheidbar von einem gelungenen Lauf. Erledigt
+ist der Lauf deshalb erst ab `scheduler.minimum_completion_ratio` gerechneter
+Aktien (ausgeliefert 0,9); darunter zählt er wie ein TWS-Ausfall und wird
+wiederholt.
+
+Bewusst **nicht 1,0**: Eine einzelne dauerhaft stumme Aktie — ausgesetzt, vom
+Handel genommen, im Kürzel veraltet — blockierte sonst jeden Abend den
+gesamten Tageslauf bis zum Fristablauf und stieße dabei jedes Mal Bestand und
+KI-Auswertung erneut an. Die Schwelle wiegt einen still übersprungenen
+Handelstag gegen wiederholte Läufe ab; sie ist der einzige Punkt dieser
+Entscheidung, an dem eine Zahl frei gewählt ist.
+
 ### 5. Alarm nach Frist, Kanal später
 
 Überschreitet ein unerledigter Lauf die Nachholfrist, geht eine Meldung mit

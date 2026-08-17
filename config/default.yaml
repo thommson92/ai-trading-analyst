@@ -207,6 +207,12 @@ scheduler:
   # Wert muss innerhalb des Startfensters der Aufgabenplanung liegen, sonst
   # kommt die Meldung erst am naechsten Tag (README).
   max_catch_up_seconds: 7200
+  # Ab welchem Anteil gerechneter Aktien der Lauf als erledigt gilt. Der
+  # Analyse-Lauf isoliert Fehler je Aktie und bricht nicht ab -- ohne diese
+  # Schwelle waere auch ein Abend als erledigt verbucht worden, an dem die
+  # Verbindung nach der ersten Aktie abriss. Nicht 1.0, weil eine einzelne
+  # dauerhaft stumme Aktie sonst jeden Abend den ganzen Lauf blockierte.
+  minimum_completion_ratio: 0.9
 
 notifications:
   send_when_no_candidates: false

@@ -441,6 +441,21 @@ class SchedulerConfig(_Section):
     am selben Abend unbemerkt -- er wird zwar am naechsten Start noch
     gemeldet, aber erst Stunden spaeter.
     """
+    minimum_completion_ratio: float = Field(default=0.9, gt=0.0, le=1.0)
+    """Ab welchem Anteil gerechneter Aktien der Lauf als erledigt gilt.
+
+    Der Analyse-Lauf isoliert Fehler je Aktie und bricht deshalb nicht ab.
+    Ohne diese Schwelle haette der Dispatcher auch einen Lauf als erledigt
+    verbucht, bei dem die Verbindung nach der ersten Aktie abriss und die
+    uebrigen 191 an fehlenden Daten scheiterten -- der Handelstag waere still
+    uebersprungen worden, denn ein erledigter Lauf wird nicht wiederholt und
+    nicht gemeldet.
+
+    Nicht 1.0: Eine einzelne dauerhaft stumme Aktie -- ausgesetzt, vom Handel
+    genommen, im Kuerzel veraltet -- wuerde den Tageslauf sonst jeden Abend
+    bis zum Fristablauf blockieren und dabei jedes Mal Bestand und
+    KI-Auswertung erneut anstossen.
+    """
 
 
 class NotificationsConfig(_Section):
