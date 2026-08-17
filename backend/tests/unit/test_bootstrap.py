@@ -21,6 +21,7 @@ from ai_trading_analyst.bootstrap import (
     build_bar_source,
     build_earnings_provider,
     build_market_data_provider,
+    build_research_provider,
     project_root,
 )
 from ai_trading_analyst.config.settings import (
@@ -30,13 +31,16 @@ from ai_trading_analyst.config.settings import (
     IndicatorConfig,
     MarketDataConfig,
     MissingSecretError,
+    ResearchConfig,
     Secrets,
 )
+from ai_trading_analyst.infrastructure.anthropic import AnthropicResearchProvider
 from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -156,6 +160,27 @@ class TestEarningsAnbieterauswahl:
         )
         provider = build_earnings_provider(config, Secrets(_env_file=None))
         assert isinstance(provider, FinnhubEarningsProvider)
+
+
+class TestResearchAnbieterauswahl:
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.research.provider == "fixture"
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FixtureResearchProvider)
+
+    def test_anthropic_ohne_secret_scheitert_verstaendlich(self) -> None:
+        config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
+        with pytest.raises(MissingSecretError, match="ATA_LLM_API_KEY"):
+            build_research_provider(config, Secrets(_env_file=None))
+
+    def test_anthropic_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, AnthropicResearchProvider)
 
 
 class TestBarquelle:

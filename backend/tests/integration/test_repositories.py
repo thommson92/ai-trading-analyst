@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,12 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.research import (
+    Citation,
+    ResearchReport,
+    ResearchStatus,
+    SourceLicenseClass,
+)
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     IntradayBar,
@@ -246,6 +253,104 @@ class TestScreeningResultRepository:
         assert persisted.result.fired_signal_types == frozenset(
             {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
         )
+
+    def test_research_bericht_mit_zitaten_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("WITHRESEARCH")
+        run = make_run()
+        citations = (
+            Citation(
+                url="https://sec.gov/filing",
+                title="SEC-Filing",
+                retrieved_at=datetime.now(UTC),
+                cited_text="ein zitierter Ausschnitt",
+                license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                transformation="zusammengefasst",
+            ),
+            Citation(
+                url="https://example.com/news",
+                title="Nachrichtenartikel",
+                retrieved_at=datetime.now(UTC),
+                cited_text=None,
+                license_class=SourceLicenseClass.UNKNOWN,
+                transformation="aggregiert aus mehreren Quellen",
+            ),
+        )
+        research = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            summary="Zusammenfassung",
+            positive_factors=("Faktor A",),
+            negative_factors=("Faktor B",),
+            risks=("Risiko A",),
+            confidence=0.7,
+            citations=citations,
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.research is not None
+        # Die Zitat-Relationship hat kein ``order_by`` (wie ``signal_events``),
+        # die Lesereihenfolge ist also datenbankabhaengig. Geprueft wird
+        # deshalb die Menge der Zitate, nicht ihre Reihenfolge -- sonst haenge
+        # der Test an einer Zusage, die das Schema nicht gibt.
+        assert set(persisted.research.citations) == set(citations)
+        assert persisted.research == replace(research, citations=persisted.research.citations)
+        assert len(persisted.research.citations) == 2
+
+    def test_research_bericht_ohne_ergebnis_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """UNAVAILABLE hat weder Modell noch Zitate -- beide Spalten bleiben NULL."""
+        stock = make_stock("WITHUNAVAILABLERESEARCH")
+        run = make_run()
+        research = ResearchReport(
+            status=ResearchStatus.UNAVAILABLE,
+            evaluated_at=datetime.now(UTC),
+            model=None,
+            prompt_version=None,
+            reason="provider_error",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.research == research
+        assert persisted.research is not None
+        assert persisted.research.model is None
+        assert persisted.research.citations == ()
 
     def test_zweites_ergebnis_fuer_dieselbe_aktie_im_selben_lauf_wird_abgelehnt(
         self, uow_factory: UowFactory

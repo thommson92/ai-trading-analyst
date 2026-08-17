@@ -24,6 +24,12 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.research import (
+    Citation,
+    ResearchReport,
+    ResearchStatus,
+    SourceLicenseClass,
+)
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
     ScreeningResult,
@@ -37,6 +43,7 @@ from .orm import (
     BacktestResultOrm,
     IntradayBarOrm,
     ProcessingErrorOrm,
+    ResearchCitationOrm,
     ScreeningResultOrm,
     SignalEventOrm,
     StockOrm,
@@ -125,6 +132,26 @@ class SqlAlchemyAnalysisRunRepository:
         row.error_message = run.error_message
 
 
+def _require_paired_evaluated_at(
+    row_id: uuid.UUID,
+    evaluated_at: datetime | None,
+    status_field: str,
+    evaluated_at_field: str,
+) -> datetime:
+    """Optionale Teilergebnisse (Earnings-Filter, Research) werden immer als
+    Paar aus Status- und Zeitstempel-Spalte geschrieben (siehe
+    ``SqlAlchemyScreeningResultRepository.add``) -- eine Zeile mit Status,
+    aber ohne Zeitstempel, ist ein inkonsistenter Datensatz. Gibt den
+    Zeitstempel zurueck (statt nur zu pruefen), damit mypy ihn am Aufrufort
+    als nicht-optional erkennt."""
+    if evaluated_at is None:
+        raise ValueError(
+            f"Screening-Ergebnis {row_id}: {evaluated_at_field} fehlt trotz gesetztem "
+            f"{status_field} -- beide Spalten werden immer gemeinsam geschrieben."
+        )
+    return evaluated_at
+
+
 def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     stock = Stock(id=row.stock.id, symbol=row.stock.symbol, exchange=row.stock.exchange)
     events = tuple(
@@ -140,18 +167,44 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     )
     earnings: EarningsFilterResult | None = None
     if row.earnings_status is not None:
-        if row.earnings_evaluated_at is None:
-            raise ValueError(
-                f"Screening-Ergebnis {row.id}: earnings_evaluated_at fehlt trotz gesetztem "
-                "earnings_status -- beide Spalten werden immer gemeinsam geschrieben."
-            )
+        earnings_evaluated_at = _require_paired_evaluated_at(
+            row.id, row.earnings_evaluated_at, "earnings_status", "earnings_evaluated_at"
+        )
         earnings = EarningsFilterResult(
             status=EarningsFilterStatus(row.earnings_status),
-            evaluated_at=row.earnings_evaluated_at,
+            evaluated_at=earnings_evaluated_at,
             next_earnings_date=row.earnings_next_date,
             candles_until_earnings=row.earnings_candles_until,
             source=row.earnings_source,
             reason=row.earnings_reason,
+        )
+    research: ResearchReport | None = None
+    if row.research_status is not None:
+        research_evaluated_at = _require_paired_evaluated_at(
+            row.id, row.research_evaluated_at, "research_status", "research_evaluated_at"
+        )
+        research = ResearchReport(
+            status=ResearchStatus(row.research_status),
+            evaluated_at=research_evaluated_at,
+            model=row.research_model,
+            prompt_version=row.research_prompt_version,
+            summary=row.research_summary,
+            positive_factors=tuple(row.research_positive_factors or ()),
+            negative_factors=tuple(row.research_negative_factors or ()),
+            risks=tuple(row.research_risks or ()),
+            confidence=row.research_confidence,
+            citations=tuple(
+                Citation(
+                    url=citation.url,
+                    title=citation.title,
+                    retrieved_at=citation.retrieved_at,
+                    cited_text=citation.cited_text,
+                    license_class=SourceLicenseClass(citation.license_class),
+                    transformation=citation.transformation,
+                )
+                for citation in row.research_citations
+            ),
+            reason=row.research_reason,
         )
     return StockScreeningOutcome(
         analysis_run_id=row.analysis_run_id,
@@ -161,6 +214,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         evaluated_at=row.evaluated_at,
         signal_rule_version=row.signal_rule_version,
         earnings=earnings,
+        research=research,
     )
 
 
@@ -170,6 +224,7 @@ class SqlAlchemyScreeningResultRepository:
 
     def add(self, outcome: StockScreeningOutcome) -> None:
         earnings = outcome.earnings
+        research = outcome.research
         row = ScreeningResultOrm(
             id=uuid.uuid4(),
             analysis_run_id=outcome.analysis_run_id,
@@ -188,12 +243,38 @@ class SqlAlchemyScreeningResultRepository:
             ),
             earnings_source=earnings.source if earnings is not None else None,
             earnings_reason=earnings.reason if earnings is not None else None,
+            research_status=research.status if research is not None else None,
+            research_evaluated_at=research.evaluated_at if research is not None else None,
+            research_model=research.model if research is not None else None,
+            research_prompt_version=research.prompt_version if research is not None else None,
+            research_summary=research.summary if research is not None else None,
+            research_positive_factors=(
+                list(research.positive_factors) if research is not None else None
+            ),
+            research_negative_factors=(
+                list(research.negative_factors) if research is not None else None
+            ),
+            research_risks=list(research.risks) if research is not None else None,
+            research_confidence=research.confidence if research is not None else None,
+            research_reason=research.reason if research is not None else None,
         )
         row.signal_events = [
             SignalEventOrm(
                 id=uuid.uuid4(), signal_type=event.signal_type, candle_index=event.candle_index
             )
             for event in outcome.result.signal_events
+        ]
+        row.research_citations = [
+            ResearchCitationOrm(
+                id=uuid.uuid4(),
+                url=citation.url,
+                title=citation.title,
+                retrieved_at=citation.retrieved_at,
+                cited_text=citation.cited_text,
+                license_class=citation.license_class,
+                transformation=citation.transformation,
+            )
+            for citation in (research.citations if research is not None else ())
         ]
         self._session.add(row)
 
@@ -374,9 +455,9 @@ def _horizon_metrics_from_row(row: BacktestResultOrm) -> HorizonMetrics:
 def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[BacktestResult, ...]:
     """Fasst Zeilen (eine je Horizont) wieder zu einem ``BacktestResult`` je
     Aktie, Signalkombination und Berechnungszeitpunkt zusammen."""
-    grouped: dict[
-        tuple[uuid.UUID, frozenset[SignalType], datetime], list[BacktestResultOrm]
-    ] = defaultdict(list)
+    grouped: dict[tuple[uuid.UUID, frozenset[SignalType], datetime], list[BacktestResultOrm]] = (
+        defaultdict(list)
+    )
     for row in rows:
         signal_types = frozenset(SignalType(value) for value in row.signal_types)
         grouped[(row.stock_id, signal_types, row.evaluated_at)].append(row)

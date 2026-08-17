@@ -30,6 +30,12 @@ dependencies = [
     # dev-Abhaengigkeit fuer den FastAPI-TestClient -- jetzt auch zur
     # Laufzeit gebraucht.
     "httpx>=0.27,<1",
+    # Offizielles SDK fuer den Research Agent (ADR 0021, ADR 0022). Der
+    # Web-Search-/Web-Fetch-Werkzeugzyklus (Mehrrundenantworten,
+    # "pause_turn"-Fortsetzung, verschluesselte Zitatbloecke) waere ueber
+    # rohes httpx fehleranfaellig nachzubauen -- anders als beim einzelnen
+    # GET-Aufruf des Finnhub-Adapters.
+    "anthropic>=0.100,<1",
 ]
 
 [project.optional-dependencies]
