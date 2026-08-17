@@ -320,19 +320,42 @@ class LlmConfig(_Section):
     report: ModelProfile = ModelProfile(model="claude-haiku-4-5-20251001")
 
 
+class ResearchPricingConfig(_Section):
+    """Preise fuer die Kostenschaetzung im Log (ADR 0021 Budget).
+
+    Rein informativ und **von Hand gepflegt** -- die Anwendung fragt keine
+    Preisliste ab. Vorbelegt mit den Sonnet-5-Einfuehrungspreisen; die
+    Websuche kostet zusaetzlich zu den Token (10 USD je 1000 Suchen).
+    Token allein beantworten die eigentliche Betreiberfrage nicht ("was
+    kostet mich ein Lauf"), ein Schaetzwert schon.
+    """
+
+    input_usd_per_million: NonNegativeFloat = 2.0
+    output_usd_per_million: NonNegativeFloat = 10.0
+    usd_per_search: NonNegativeFloat = 0.01
+
+
 class ResearchConfig(_Section):
-    """Recherchequellen des Research Agent (ADR 0022).
+    """Recherchequellen und Kostenbudget des Research Agent (ADR 0022).
 
     ``fixture`` bleibt Standard, damit Start und Tests ohne
     ``ATA_LLM_API_KEY`` funktionieren (Muster wie
-    ``earnings_filter.provider``). ``max_searches``/``max_fetches`` begrenzen
-    die Kosten je Aufruf hart (ADR 0021 Budget), ``allowed_domains`` ist
-    bewusst eine Allowlist statt einer Blockliste (ADR 0022, Zitier-
-    architektur Punkt 5) -- eine leere Allowlist bedeutet keine
-    Einschraenkung, ist aber nicht der ausgelieferte Standard. Die Allowlist
-    gilt fuer Suche und Abruf gleichermassen; sie enthaelt deshalb neben der
-    Primaerquelle auch Pressemitteilungsdienste, weil der Agent sonst die im
-    Prompt verlangten Nachrichten gar nicht erreichen kann.
+    ``earnings_filter.provider``).
+
+    Die Budgetwerte sind nicht kosmetisch: ``web_search``/``web_fetch`` sind
+    serverseitige Werkzeuge, deren Schleife bis zu zehn Iterationen *innerhalb
+    einer einzigen Anfrage* laeuft, und der angesammelte Kontext wird bei
+    jeder Iteration erneut als Eingabe verrechnet. Ein ungebremster Abruf
+    eines SEC-Filings (~125.000 Token) schlaegt deshalb vielfach zu Buche.
+    ``max_fetch_content_tokens`` ist der wirksamste Hebel dagegen;
+    ``max_fetches`` mal dieser Wert ist das eigentliche Kostenbudget.
+
+    ``fetch_allowed_domains`` gilt **nur fuer den Abruf**, nicht fuer die
+    Suche: Eine Allowlist auf der Suche laesst kaum Treffer uebrig, das Modell
+    verbrennt sein Suchkontingent, und ``web_fetch`` darf danach nichts mehr
+    holen (es erreicht ausschliesslich URLs, die vorher im Kontext standen).
+    Breit suchen, eng vertiefen -- ADR 0022, Abschnitt "Kostenkontrolle und
+    Reichweite der Allowlist".
 
     Eine Domain, die Anthropics Crawler aussperrt, laesst die *gesamte*
     Anfrage mit einem 400 scheitern -- nicht nur den einzelnen Abruf. Reuters
@@ -342,14 +365,17 @@ class ResearchConfig(_Section):
 
     provider: Literal["fixture", "anthropic"] = "fixture"
     max_searches: PositiveInt = 5
-    max_fetches: PositiveInt = 5
-    allowed_domains: tuple[str, ...] = (
+    max_fetches: PositiveInt = 3
+    max_fetch_content_tokens: PositiveInt = 8000
+    max_input_tokens_per_symbol: PositiveInt = 150_000
+    fetch_allowed_domains: tuple[str, ...] = (
         "sec.gov",
         "prnewswire.com",
         "businesswire.com",
         "globenewswire.com",
         "nasdaq.com",
     )
+    pricing: ResearchPricingConfig = ResearchPricingConfig()
 
 
 class DataAvailabilityConfig(_Section):

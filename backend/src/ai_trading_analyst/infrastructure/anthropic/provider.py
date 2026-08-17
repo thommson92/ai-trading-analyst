@@ -38,11 +38,15 @@ _logger = get_logger(__name__)
 
 _PROMPT_VERSION = "research-v1"
 _SUBMIT_TOOL_NAME = "submit_research_report"
-_MAX_TURNS_SLACK = 2
-"""Zusaetzliche Gespraechsrunden ueber ``max_searches + max_fetches`` hinaus,
-um Runden ohne Werkzeugaufruf (z. B. reines Nachfragen des Modells) nicht
-sofort als Endlosschleife zu werten -- die eigentliche Obergrenze ist das
-konfigurierte Kostenbudget (ADR 0021), nicht diese Zahl selbst."""
+_MAX_PAUSE_CONTINUATIONS = 5
+"""Obergrenze fuer ``pause_turn``-Fortsetzungen, nicht fuer Werkzeugaufrufe.
+
+Der serverseitige Sampling-Loop der Websuche laeuft bis zu zehn Iterationen
+*innerhalb einer einzigen Anfrage* -- ein realer Lauf hat 5 Suchen und 2
+Abrufe in einer einzigen Runde erledigt. Die Schleife hier zaehlt also nur,
+wie oft wir eine pausierte Antwort fortsetzen, und ist bewusst von
+``max_searches``/``max_fetches`` entkoppelt: Das Kostenbudget haengt am
+abgerufenen Inhalt (``max_fetch_content_tokens``), nicht an der Rundenzahl."""
 _MAX_TOKENS = 8192
 
 _PRIMARY_SOURCE_DOMAINS = ("sec.gov",)
@@ -64,14 +68,26 @@ Original-Pressemitteilungsdienste. Bewusst getrennt von
 Einreichung, und der Bericht soll diesen Unterschied sichtbar lassen.
 
 Beschreibt die Quellenart, nicht die Erreichbarkeit: Reuters und AP stehen
-hier, obwohl sie in ``ResearchConfig.allowed_domains`` fehlen (sie sperren
-Anthropics Crawler aus). Aendert sich das oder nimmt jemand sie in die
-eigene Konfiguration auf, stimmt die Einstufung sofort."""
+hier, obwohl sie in ``ResearchConfig.fetch_allowed_domains`` fehlen (sie
+sperren Anthropics Crawler fuer den Abruf aus). Als *Suchtreffer* koennen sie
+weiterhin auftauchen -- dann stimmt die Einstufung sofort."""
 
 _SYSTEM_PROMPT = """\
 Du bist der Research Agent eines Aktienanalyse-Systems. Deine Aufgabe ist \
 ausschliesslich Recherche und Zusammenfassung -- du triffst keine \
 Handelsentscheidung und veraenderst keine technischen Signale.
+
+So arbeitest du mit den Werkzeugen:
+- web_search durchsucht das offene Web und ist dein Mittel der Wahl, um \
+ueberhaupt erst herauszufinden, was es gibt. Stelle gezielte Anfragen; dein \
+Suchkontingent ist knapp.
+- web_fetch liest eine gefundene Seite vollstaendig und ist auf wenige \
+vertrauenswuerdige Domains beschraenkt. Es erreicht ausserdem nur URLs, die \
+vorher in Suchtreffern aufgetaucht sind. Hebe die wenigen Abrufe deshalb fuer \
+die wichtigsten Primaerquellen auf, statt sie fruehzeitig zu verbrauchen.
+- Schlaegt ein Werkzeug fehl oder ist das Kontingent erschoepft, arbeite mit \
+dem weiter, was du bereits hast. Ein Bericht aus wenigen belegten Quellen ist \
+besser als gar keiner -- nur erfinden darfst du nichts.
 
 Regeln fuer Quellen und Zitate:
 - Jede wesentliche Tatsachenbehauptung muss auf eine konkrete, mit \
@@ -196,6 +212,16 @@ def _require_optional_text(symbol: str, field: str, value: object) -> str | None
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AnthropicResearchPricing:
+    """Preise fuer die Kostenschaetzung -- von Hand gepflegte Konfiguration,
+    keine abgefragte Preisliste (siehe ``ResearchPricingConfig``)."""
+
+    input_usd_per_million: float
+    output_usd_per_million: float
+    usd_per_search: float
+
+
 @dataclass(slots=True)
 class _UsageTotals:
     """Summiert Tokens und serverseitige Werkzeugaufrufe ueber alle
@@ -207,6 +233,7 @@ class _UsageTotals:
     persistierter Kostenwert braucht eine eigene Entscheidung.
     """
 
+    pricing: AnthropicResearchPricing
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
@@ -224,11 +251,20 @@ class _UsageTotals:
             self.web_searches += server_tool_use.web_search_requests or 0
             self.web_fetches += server_tool_use.web_fetch_requests or 0
 
+    def estimated_usd(self) -> float:
+        """Websuche wird zusaetzlich zu den Token berechnet, nicht statt
+        ihrer -- deshalb beide Posten."""
+        return (
+            self.input_tokens / 1_000_000 * self.pricing.input_usd_per_million
+            + self.output_tokens / 1_000_000 * self.pricing.output_usd_per_million
+            + self.web_searches * self.pricing.usd_per_search
+        )
+
     def log(self, symbol: str, model: str) -> None:
         _logger.info(
             "Research-Nutzung %s (%s): %d Runden, %d Eingabe-Token "
             "(davon %d aus dem Cache), %d Ausgabe-Token, "
-            "%d Websuchen, %d Webabrufe",
+            "%d Websuchen, %d Webabrufe, geschaetzt %.3f USD",
             symbol,
             model,
             self.turns,
@@ -237,6 +273,7 @@ class _UsageTotals:
             self.output_tokens,
             self.web_searches,
             self.web_fetches,
+            self.estimated_usd(),
         )
 
 
@@ -251,7 +288,10 @@ class AnthropicResearchSettings:
     model: str
     max_searches: int
     max_fetches: int
-    allowed_domains: Sequence[str]
+    max_fetch_content_tokens: int
+    max_input_tokens_per_symbol: int
+    fetch_allowed_domains: Sequence[str]
+    pricing: AnthropicResearchPricing
     fallback_model: str | None = None
 
 
@@ -268,8 +308,10 @@ class AnthropicResearchProvider(ResearchProvider):
         self._fallback_model = settings.fallback_model
         self._max_searches = settings.max_searches
         self._max_fetches = settings.max_fetches
-        self._allowed_domains = tuple(settings.allowed_domains)
-        self._max_turns = settings.max_searches + settings.max_fetches + _MAX_TURNS_SLACK
+        self._max_fetch_content_tokens = settings.max_fetch_content_tokens
+        self._max_input_tokens = settings.max_input_tokens_per_symbol
+        self._fetch_allowed_domains = tuple(settings.fetch_allowed_domains)
+        self._pricing = settings.pricing
 
     def research(self, stock: Stock) -> ResearchReport:
         try:
@@ -316,13 +358,13 @@ class AnthropicResearchProvider(ResearchProvider):
         fetched_documents: dict[str, str] = {}
         citations: list[Citation] = []
         evaluated_at = datetime.now(UTC)
-        usage = _UsageTotals()
+        usage = _UsageTotals(pricing=self._pricing)
 
         # Die Nutzung wird auch beim Abbruch protokolliert -- gerade ein
         # gescheiterter Lauf hat schon Geld gekostet und soll nachvollziehbar
         # bleiben (ADR 0021 Budget).
         try:
-            for _ in range(self._max_turns):
+            for _ in range(_MAX_PAUSE_CONTINUATIONS):
                 # Rohe Dicts statt der SDK-eigenen, nach Werkzeugversion benannten
                 # TypedDicts (z. B. "WebSearchTool20250305Param") -- genau das Muster
                 # aus Anthropics eigener Dokumentation. Die Versionsangabe steckt im
@@ -356,6 +398,13 @@ class AnthropicResearchProvider(ResearchProvider):
                     return self._build_report(stock, submit_input, citations, evaluated_at, model)
 
                 if response.stop_reason == "pause_turn":
+                    if usage.input_tokens >= self._max_input_tokens:
+                        raise ResearchProviderError(
+                            f"'{stock.symbol}': Token-Budget erschoepft "
+                            f"({usage.input_tokens} von {self._max_input_tokens} "
+                            f"Eingabe-Token, geschaetzt {usage.estimated_usd():.3f} USD) "
+                            f"-- Recherche abgebrochen statt fortgesetzt"
+                        )
                     messages.append(
                         {
                             "role": "assistant",
@@ -383,8 +432,8 @@ class AnthropicResearchProvider(ResearchProvider):
                 )
 
             raise ResearchProviderError(
-                f"'{stock.symbol}': zu viele Gespraechsrunden ohne Abschluss ueber "
-                f"'{_SUBMIT_TOOL_NAME}' (Limit {self._max_turns})"
+                f"'{stock.symbol}': zu viele pausierte Runden ohne Abschluss ueber "
+                f"'{_SUBMIT_TOOL_NAME}' (Limit {_MAX_PAUSE_CONTINUATIONS})"
             )
         finally:
             usage.log(stock.symbol, model)
@@ -400,41 +449,45 @@ class AnthropicResearchProvider(ResearchProvider):
         # _20260209-Variante (dynamische Filterung serverseitig) statt der
         # aelteren _20250305/_20250910-Basisversion -- fuer Sonnet 5 sowie
         # Opus/Sonnet ab der 4.6-Generation verfuegbar, ohne Beta-Header.
+        # Die Suche laeuft bewusst ohne allowed_domains: Eine Allowlist auf
+        # der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein
+        # Kontingent, und web_fetch erreicht danach nichts mehr (es darf nur
+        # URLs holen, die vorher im Kontext standen). Breit suchen, eng
+        # vertiefen -- ADR 0022, "Kostenkontrolle und Reichweite der
+        # Allowlist".
         web_search: dict[str, Any] = {
             "type": "web_search_20260209",
             "name": "web_search",
             "max_uses": self._max_searches,
         }
+        # max_content_tokens ist der wirksamste Kostenhebel: Ein ungebremst
+        # abgerufenes SEC-Filing bringt rund 125.000 Token in den Kontext,
+        # und der wird bei jeder Iteration der serverseitigen Schleife erneut
+        # verrechnet.
         web_fetch: dict[str, Any] = {
             "type": "web_fetch_20260209",
             "name": "web_fetch",
             "max_uses": self._max_fetches,
+            "max_content_tokens": self._max_fetch_content_tokens,
             "citations": {"enabled": True},
         }
-        if self._allowed_domains:
-            web_search["allowed_domains"] = list(self._allowed_domains)
-            web_fetch["allowed_domains"] = list(self._allowed_domains)
+        if self._fetch_allowed_domains:
+            web_fetch["allowed_domains"] = list(self._fetch_allowed_domains)
         return [web_search, web_fetch, _SUBMIT_REPORT_TOOL]
 
     def _scan_turn(
         self, content: Iterable[Any], fetched_documents: dict[str, str]
     ) -> dict[str, Any] | None:
-        """Sammelt abgerufene Dokumente und sucht den abschliessenden
-        ``submit_research_report``-Aufruf in einem gemeinsamen Durchlauf --
-        beide sind unabhaengig voneinander. Die Zitat-Extraktion
-        (``_extract_citations``) bleibt ein eigener, nachgelagerter
-        Durchlauf: sie braucht ``fetched_documents`` bereits vollstaendig
-        befuellt, um ``char_location``-Zitate aufzuloesen."""
+        """Sammelt abgerufene Dokumente, protokolliert Werkzeugfehler und
+        sucht den abschliessenden ``submit_research_report``-Aufruf in einem
+        gemeinsamen Durchlauf -- die drei sind unabhaengig voneinander. Die
+        Zitat-Extraktion (``_extract_citations``) bleibt ein eigener,
+        nachgelagerter Durchlauf: sie braucht ``fetched_documents`` bereits
+        vollstaendig befuellt, um ``char_location``-Zitate aufzuloesen."""
         submit_input: dict[str, Any] | None = None
         for block in content:
-            if block.type == "web_fetch_tool_result" and block.content.type == "web_fetch_result":
-                title = block.content.content.title
-                if title:
-                    # setdefault statt Ueberschreiben: zwei Dokumente mit
-                    # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings)
-                    # sollen nicht dazu fuehren, dass ein spaeterer Fund die
-                    # URL eines frueher zitierten Dokuments verdraengt.
-                    fetched_documents.setdefault(title, block.content.url)
+            if block.type in ("web_search_tool_result", "web_fetch_tool_result"):
+                self._scan_tool_result(block, fetched_documents)
             elif (
                 submit_input is None
                 and block.type == "tool_use"
@@ -443,6 +496,36 @@ class AnthropicResearchProvider(ResearchProvider):
                 input_value = block.input
                 submit_input = input_value if isinstance(input_value, dict) else {}
         return submit_input
+
+    def _scan_tool_result(self, block: Any, fetched_documents: dict[str, str]) -> None:
+        """Wertet das Ergebnis eines serverseitigen Werkzeugs aus.
+
+        Fehler kommen hier als 200er-Antwort mit einem Fehlerblock an, nicht
+        als HTTP-Fehler. Wurden sie frueher stillschweigend uebergangen,
+        musste man sich fuer die Diagnose auf die Selbstbeschreibung des
+        Modells verlassen -- ``max_uses_exceeded`` und
+        ``url_not_in_prior_context`` standen genau hier drin.
+        """
+        result = block.content
+        # web_search liefert eine Liste von Treffern, im Fehlerfall stattdessen
+        # ein einzelnes Fehlerobjekt; web_fetch immer ein einzelnes Objekt.
+        if isinstance(result, list):
+            return
+        if result.type.endswith("_error"):
+            _logger.warning(
+                "Serverseitiges Werkzeug meldet einen Fehler (%s): %s",
+                block.type,
+                result.error_code,
+            )
+            return
+        if result.type == "web_fetch_result":
+            title = result.content.title
+            if title:
+                # setdefault statt Ueberschreiben: zwei Dokumente mit
+                # zufaellig gleichem Titel (z. B. zwei 10-Q-Filings)
+                # sollen nicht dazu fuehren, dass ein spaeterer Fund die
+                # URL eines frueher zitierten Dokuments verdraengt.
+                fetched_documents.setdefault(title, result.url)
 
     def _extract_citations(
         self,

@@ -18,14 +18,20 @@ from ai_trading_analyst.domain.analysis import ResearchProviderError, Stock
 from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
 from ai_trading_analyst.infrastructure.anthropic.provider import (
     _SUBMIT_REPORT_TOOL,
+    AnthropicResearchPricing,
     AnthropicResearchProvider,
     AnthropicResearchSettings,
+    _UsageTotals,
 )
 
 AAPL = Stock(id=uuid.uuid4(), symbol="AAPL", exchange="NASDAQ")
 
 
-def _message(content: list[dict[str, object]], stop_reason: str = "tool_use") -> dict[str, object]:
+def _message(
+    content: list[dict[str, object]],
+    stop_reason: str = "tool_use",
+    input_tokens: int = 10,
+) -> dict[str, object]:
     return {
         "id": "msg_1",
         "type": "message",
@@ -34,7 +40,7 @@ def _message(content: list[dict[str, object]], stop_reason: str = "tool_use") ->
         "content": content,
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {"input_tokens": 10, "output_tokens": 20},
+        "usage": {"input_tokens": input_tokens, "output_tokens": 20},
     }
 
 
@@ -110,8 +116,15 @@ def _settings(**overrides: object) -> AnthropicResearchSettings:
         "api_key": "test-key",
         "model": "claude-sonnet-5",
         "max_searches": 5,
-        "max_fetches": 5,
-        "allowed_domains": (),
+        "max_fetches": 3,
+        "max_fetch_content_tokens": 8000,
+        "max_input_tokens_per_symbol": 150_000,
+        "fetch_allowed_domains": ("sec.gov",),
+        "pricing": AnthropicResearchPricing(
+            input_usd_per_million=2.0,
+            output_usd_per_million=10.0,
+            usd_per_search=0.01,
+        ),
     }
     defaults.update(overrides)
     return AnthropicResearchSettings(**defaults)  # type: ignore[arg-type]
@@ -275,11 +288,11 @@ class TestPauseTurn:
         assert len(second_request_messages) == 2
         assert second_request_messages[1]["role"] == "assistant"
 
-    def test_zu_viele_gespraechsrunden_werden_abgebrochen(self) -> None:
+    def test_zu_viele_pausierte_runden_werden_abgebrochen(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return _json_response(_message([], stop_reason="pause_turn"))
 
-        with pytest.raises(ResearchProviderError, match="Gespraechsrunden"):
+        with pytest.raises(ResearchProviderError, match="pausierte Runden"):
             _provider(handler).research(AAPL)
 
 
@@ -404,6 +417,135 @@ class TestFalschTypisierteWerkzeugantwort:
             assert not nicht_unterstuetzt & set(definition), (
                 f"'{name}' verwendet ein im strict-Subset unzulaessiges Schluesselwort"
             )
+
+
+class TestWerkzeugbudget:
+    """Der Lauf vom 2026-08-17 hat 256.000 Eingabe-Token und ~0,62 USD
+    gekostet, ohne einen Bericht zu liefern (ADR 0022, "Kostenkontrolle")."""
+
+    def _gesendete_werkzeuge(
+        self, provider: AnthropicResearchProvider, aufzeichnung: list[dict[str, object]]
+    ) -> dict[str, dict[str, object]]:
+        provider.research(AAPL)
+        return {str(tool["name"]): tool for tool in aufzeichnung}
+
+    def test_abruf_ist_gedeckelt_und_auf_die_allowlist_beschraenkt(self) -> None:
+        aufzeichnung: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            aufzeichnung.extend(json.loads(request.content)["tools"])
+            return _json_response(_message([_submit_block()]))
+
+        werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
+
+        web_fetch = werkzeuge["web_fetch"]
+        assert web_fetch["max_content_tokens"] == 8000
+        assert web_fetch["allowed_domains"] == ["sec.gov"]
+
+    def test_die_suche_laeuft_bewusst_ohne_allowlist(self) -> None:
+        """Eine Allowlist auf der Suche laesst kaum Treffer uebrig, das Modell
+        verbrennt sein Kontingent, und web_fetch erreicht danach nichts mehr --
+        genau daran ist der Lauf gescheitert."""
+        aufzeichnung: list[dict[str, object]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            aufzeichnung.extend(json.loads(request.content)["tools"])
+            return _json_response(_message([_submit_block()]))
+
+        werkzeuge = self._gesendete_werkzeuge(_provider(handler), aufzeichnung)
+
+        assert "allowed_domains" not in werkzeuge["web_search"]
+
+    def test_erschoepftes_token_budget_bricht_die_fortsetzung_ab(self) -> None:
+        aufrufe: list[None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            aufrufe.append(None)
+            return _json_response(
+                _message([], stop_reason="pause_turn", input_tokens=90_000),
+            )
+
+        provider = AnthropicResearchProvider(
+            _settings(max_input_tokens_per_symbol=150_000),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        with pytest.raises(ResearchProviderError, match="Token-Budget"):
+            provider.research(AAPL)
+
+        # Erste Anfrage 90k, zweite 180k -- danach wird nicht mehr fortgesetzt.
+        assert len(aufrufe) == 2
+
+    def test_kostenschaetzung_rechnet_token_und_suchen_zusammen(self) -> None:
+        totals = _UsageTotals(
+            pricing=AnthropicResearchPricing(
+                input_usd_per_million=2.0,
+                output_usd_per_million=10.0,
+                usd_per_search=0.01,
+            ),
+            input_tokens=250_000,
+            output_tokens=6_000,
+            web_searches=5,
+        )
+
+        # 0,50 USD Eingabe + 0,06 USD Ausgabe + 0,05 USD Suchen
+        assert totals.estimated_usd() == pytest.approx(0.61)
+
+
+class TestWerkzeugfehler:
+    """Werkzeugfehler kommen als 200er-Antwort mit Fehlerblock an. Wurden sie
+    verschluckt, blieb fuer die Diagnose nur die Selbstbeschreibung des
+    Modells."""
+
+    def test_suchfehler_wird_geloggt_und_bricht_den_lauf_nicht_ab(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "srv_1",
+                            "content": {
+                                "type": "web_search_tool_result_error",
+                                "error_code": "max_uses_exceeded",
+                            },
+                        },
+                        _submit_block(),
+                    ]
+                )
+            )
+
+        with caplog.at_level("WARNING"):
+            report = _provider(handler).research(AAPL)
+
+        assert report.status is ResearchStatus.COMPLETED
+        assert "max_uses_exceeded" in caplog.text
+
+    def test_abruffehler_wird_geloggt(self, caplog: pytest.LogCaptureFixture) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return _json_response(
+                _message(
+                    [
+                        {
+                            "type": "web_fetch_tool_result",
+                            "tool_use_id": "srv_2",
+                            "content": {
+                                "type": "web_fetch_tool_result_error",
+                                "error_code": "url_not_in_prior_context",
+                            },
+                        },
+                        _submit_block(),
+                    ]
+                )
+            )
+
+        with caplog.at_level("WARNING"):
+            report = _provider(handler).research(AAPL)
+
+        assert report.status is ResearchStatus.COMPLETED
+        assert "url_not_in_prior_context" in caplog.text
 
 
 class TestAbgeschnitteneAntwort:

@@ -34,6 +34,7 @@ from ai_trading_analyst.domain.screening import (
     SessionParameters,
 )
 from ai_trading_analyst.infrastructure.anthropic import (
+    AnthropicResearchPricing,
     AnthropicResearchProvider,
     AnthropicResearchSettings,
 )
@@ -203,7 +204,14 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
             fallback_model=config.llm.research.fallback_model,
             max_searches=config.research.max_searches,
             max_fetches=config.research.max_fetches,
-            allowed_domains=config.research.allowed_domains,
+            max_fetch_content_tokens=config.research.max_fetch_content_tokens,
+            max_input_tokens_per_symbol=config.research.max_input_tokens_per_symbol,
+            fetch_allowed_domains=config.research.fetch_allowed_domains,
+            pricing=AnthropicResearchPricing(
+                input_usd_per_million=config.research.pricing.input_usd_per_million,
+                output_usd_per_million=config.research.pricing.output_usd_per_million,
+                usd_per_search=config.research.pricing.usd_per_search,
+            ),
         )
     )
 

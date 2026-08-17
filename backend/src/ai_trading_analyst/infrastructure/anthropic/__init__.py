@@ -1,5 +1,13 @@
 """Research-Agent-Anbindung ueber die Anthropic-API (ADR 0021, ADR 0022)."""
 
-from .provider import AnthropicResearchProvider, AnthropicResearchSettings
+from .provider import (
+    AnthropicResearchPricing,
+    AnthropicResearchProvider,
+    AnthropicResearchSettings,
+)
 
-__all__ = ["AnthropicResearchProvider", "AnthropicResearchSettings"]
+__all__ = [
+    "AnthropicResearchPricing",
+    "AnthropicResearchProvider",
+    "AnthropicResearchSettings",
+]

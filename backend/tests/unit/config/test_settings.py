@@ -101,7 +101,7 @@ class TestResearchConfig:
         assert ResearchConfig().provider == "fixture"
 
     def test_default_allowlist_enthaelt_sec_gov(self) -> None:
-        assert "sec.gov" in ResearchConfig().allowed_domains
+        assert "sec.gov" in ResearchConfig().fetch_allowed_domains
 
     def test_ein_unbekannter_anbieter_wird_abgelehnt(self) -> None:
         with pytest.raises(ValidationError):
@@ -109,7 +109,19 @@ class TestResearchConfig:
 
     def test_eine_leere_allowlist_ist_erlaubt(self) -> None:
         """Bewusst keine Einschraenkung -- aber nicht der ausgelieferte Standard."""
-        assert ResearchConfig(allowed_domains=()).allowed_domains == ()
+        assert ResearchConfig(fetch_allowed_domains=()).fetch_allowed_domains == ()
+
+    def test_kostenbudget_ist_vorbelegt(self) -> None:
+        """Ohne Deckel hat ein realer Lauf 256.000 Eingabe-Token verbraucht
+        (ADR 0022, "Kostenkontrolle") -- die Voreinstellung darf das nicht
+        wieder offenlassen."""
+        config = ResearchConfig()
+        assert config.max_fetch_content_tokens > 0
+        assert config.max_input_tokens_per_symbol > 0
+
+    def test_ein_budget_von_null_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValidationError):
+            ResearchConfig(max_fetch_content_tokens=0)
 
 
 class TestDataAvailabilityConfig:

@@ -717,13 +717,23 @@ def command_research(args: argparse.Namespace) -> int:
     Ein echter Aufruf gegen 'anthropic' kostet Geld (ADR 0021/0022
     Budget), deshalb keine automatische Uebersteuerung: 'fixture' bleibt
     Standard, bis ausdruecklich '--provider anthropic' gesetzt wird.
+    '--max-searches'/'--max-fetches' druecken das Budget fuer einen
+    einzelnen Probelauf zusaetzlich, damit sich die Kette fuer wenige Cent
+    pruefen laesst.
     """
     loaded = load_config(args.config)
     config = loaded.config
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
+    overrides: dict[str, object] = {}
     if args.provider is not None:
-        research = config.research.model_copy(update={"provider": args.provider})
+        overrides["provider"] = args.provider
+    if args.max_searches is not None:
+        overrides["max_searches"] = args.max_searches
+    if args.max_fetches is not None:
+        overrides["max_fetches"] = args.max_fetches
+    if overrides:
+        research = config.research.model_copy(update=overrides)
         config = config.model_copy(update={"research": research})
 
     try:
@@ -908,6 +918,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--exchange",
         default="NASDAQ",
         help="Nur fuer die Anfrage an das Sprachmodell relevant, nicht persistiert.",
+    )
+    research.add_argument(
+        "--max-searches",
+        type=int,
+        default=None,
+        help=(
+            "Uebersteuert research.max_searches nur fuer diesen Lauf. Mit 1 kostet "
+            "ein Probelauf wenige Cent statt des vollen Budgets."
+        ),
+    )
+    research.add_argument(
+        "--max-fetches",
+        type=int,
+        default=None,
+        help="Uebersteuert research.max_fetches nur fuer diesen Lauf.",
     )
     research.set_defaults(handler=command_research)
     return parser

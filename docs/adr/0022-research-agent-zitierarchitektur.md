@@ -94,27 +94,71 @@ Abschluss über ein Client-Werkzeug ist genau das, was Entscheidung 1 möglich
 macht. `strict` liefert die Garantie, ohne die Quellenbindung aufs Spiel zu
 setzen.
 
-### Nachtrag: Reichweite der Allowlist
+### Nachtrag: Kostenkontrolle und Reichweite der Allowlist
 
-Die ausgelieferte Allowlist enthielt zunächst nur `sec.gov`. Da sie für
-`web_search` **und** `web_fetch` gilt, konnte der Agent die im Systemprompt
-verlangten Nachrichten und Analystenkommentare gar nicht erreichen -- der
-erste echte Bericht stützte sich ausschließlich auf SEC-Einreichungen und hat
-das selbst vermerkt. Die Liste wurde deshalb um Original-Pressemitteilungs-
-dienste (`prnewswire.com`, `businesswire.com`, `globenewswire.com`,
-`nasdaq.com`) ergänzt. Entscheidung 3 bleibt unverändert: kuratierte
-Allowlist, keine Blockliste, keine offene Suche.
+Ein Lauf am 2026-08-17 verbrauchte **255.996 Eingabe-Token, 6.329
+Ausgabe-Token, 5 Websuchen und 2 Webabrufe — rund 0,62 $ — und lieferte
+`INSUFFICIENT_DATA`.** Zwei Ursachen, beide betreffen fehlende Parameter, nicht
+die Logik.
+
+**Kostenmechanik.** `web_search`/`web_fetch` sind serverseitige Werkzeuge: Ihre
+Schleife läuft bis zu zehn Iterationen *innerhalb einer einzigen Anfrage* —
+deshalb meldete das Log „1 Runde" bei sieben Werkzeugaufrufen. Abgerufene
+Inhalte zählen laut Anthropic-Doku „in search iterations executed during a
+single turn", der angesammelte Kontext wird also je Iteration erneut
+verrechnet. Ein ungebremst abgerufenes SEC-Filing (~125.000 Token) schlägt
+damit vielfach zu Buche.
+
+9. **`max_content_tokens` auf `web_fetch`** (`research.max_fetch_content_tokens`,
+   Standard 8.000). Das Produkt `max_fetches × max_fetch_content_tokens` ist
+   das eigentliche Kostenbudget — nicht der Wert je Abruf für sich.
+10. **`research.max_input_tokens_per_symbol`** (Standard 150.000) bricht den
+    Lauf ab, statt eine weitere `pause_turn`-Fortsetzung zu schicken.
+    **Reichweite ehrlich benannt:** Die Grenze greift *zwischen* Anfragen. Eine
+    bereits abgeschickte Anfrage läuft bis zum Ende durch; innerhalb dieser
+    einen Anfrage wirken ausschließlich `max_uses` und `max_content_tokens`.
+    Ein Netz gegen mehrrundigen Weglauf, kein Not-Aus.
+11. **Werkzeugfehler werden protokolliert.** `web_search_tool_result_error` und
+    `web_fetch_tool_result_error` kommen als 200er-Antwort mit Fehlerblock an
+    und wurden bisher stillschweigend übergangen. Genau darin stand die
+    Diagnose (`max_uses_exceeded`, `url_not_in_prior_context`); ohne sie blieb
+    nur die Selbstbeschreibung des Modells.
+12. **Kostenschätzung im Log** aus `research.pricing`. Von Hand gepflegte
+    Werte, im YAML als solche gekennzeichnet — Token allein beantworten die
+    Betreiberfrage „was kostet mich ein Lauf" nicht.
+
+**Revision von Entscheidung 3: Die Allowlist gilt nur noch für den Abruf.** Sie
+galt für Suche *und* Abruf. Bei fünf erlaubten Domains liefert die Websuche
+kaum Treffer, das Modell verbrennt sein Suchkontingent — und danach ist
+`web_fetch` wirkungslos, weil es ausschließlich URLs erreicht, die vorher im
+Kontext standen. Genau diesen Ablauf hat das Modell im `reason`-Feld
+beschrieben. Künftig: **breit suchen, eng vertiefen.** `web_search` läuft ohne
+`allowed_domains`, `web_fetch` bleibt auf `research.fetch_allowed_domains`
+beschränkt. Die Quellenbindung bleibt unberührt — Suchtreffer tragen URL und
+Titel im Zitatblock, und `_classify_license` stuft alles Unbekannte weiterhin
+als `UNKNOWN` ein. Das Prinzip aus Entscheidung 3 (Allowlist statt Blockliste)
+gilt unverändert für die Stelle, an der ganze Dokumente in den Kontext
+gelangen.
+
+Dass der Lauf `INSUFFICIENT_DATA` statt eines erfundenen Berichts lieferte, ist
+die Halluzinationsschutz-Regel aus CLAUDE.md — die hat funktioniert.
+
+### Nachtrag: Zusammensetzung der Abruf-Allowlist
+
+Die ausgelieferte Liste enthielt zunächst nur `sec.gov` und wurde um
+Original-Pressemitteilungsdienste (`prnewswire.com`, `businesswire.com`,
+`globenewswire.com`, `nasdaq.com`) ergänzt. Für die eigentlich interessanten
+Unternehmensmeldungen (Quartalszahlen, Rückkäufe, Personalien) sind die
+ohnehin die Originalquelle und damit die bessere Wahl als eine Agenturmeldung.
 
 **Einschränkung durch den Crawler-Zugang.** Nicht jede seriöse Quelle ist
-verwendbar. Steht in `allowed_domains` eine Domain, die Anthropics Crawler
+abrufbar. Steht in `fetch_allowed_domains` eine Domain, die Anthropics Crawler
 aussperrt, scheitert die **gesamte** Anfrage mit einem 400 -- nicht nur der
 einzelne Abruf. Reuters und AP tun genau das und sind deshalb nicht in der
 Voreinstellung; eine neue Domain gehört vor der Aufnahme einmal durch einen
-echten Lauf. Für die eigentlich interessanten Unternehmensmeldungen
-(Quartalszahlen, Rückkäufe, Personalien) sind die Pressemitteilungsdienste
-ohnehin die Originalquelle und damit die bessere Wahl. Die Klassifikation in
-`_NEWS_MEDIA_DOMAINS` führt Reuters und AP weiterhin, weil sie die Quellen-
-*art* beschreibt und nicht die Erreichbarkeit.
+echten Lauf. Die Klassifikation in `_NEWS_MEDIA_DOMAINS` führt Reuters und AP
+weiterhin, weil sie die Quellen*art* beschreibt und nicht die Erreichbarkeit:
+Als Suchtreffer können sie seit der Öffnung der Suche wieder auftauchen.
 
 ### Bekannte Abweichung von der Quellenbindungs-Regel
 
@@ -168,6 +212,15 @@ architekturrelevanten Entscheidungen.
   als abgeschlossen. Eine getrennte Abdeckungsangabe neben dem Status braucht
   eine eigene Entscheidung samt Migration.
 - Token- und Werkzeugnutzung werden je Lauf protokolliert
-  (`_UsageTotals`), damit sich das Budget aus ADR 0021 überhaupt überprüfen
-  lässt. Bewusst nur im Log: ein persistierter Kostenwert am Ergebnis wäre
-  eine eigene Entscheidung.
+  (`_UsageTotals`), samt Kostenschätzung, damit sich das Budget aus ADR 0021
+  überhaupt überprüfen lässt. Bewusst nur im Log: ein persistierter
+  Kostenwert am Ergebnis wäre eine eigene Entscheidung.
+- `cli research` kennt `--max-searches`/`--max-fetches`, damit sich die Kette
+  für wenige Cent prüfen lässt, statt jeden Testlauf mit dem vollen Budget zu
+  bezahlen.
+- Die Preise in `research.pricing` sind von Hand gepflegt und können still
+  veralten; die Logzeile kennzeichnet den Wert deshalb als Schätzung. Eine
+  automatische Preisabfrage gibt es bewusst nicht.
+- `research.allowed_domains` heißt jetzt `research.fetch_allowed_domains`.
+  Der alte Name versprach eine Geltung, die er nach der Öffnung der Suche
+  nicht mehr hat.
