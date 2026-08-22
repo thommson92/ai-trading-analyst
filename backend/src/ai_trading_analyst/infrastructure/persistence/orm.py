@@ -171,6 +171,13 @@ class ScreeningResultOrm(Base):
     technical_recent_low_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Weg bis zur naechsten Unterstuetzung, Weg bis zum naechsten Widerstand
+    # und ihr Verhaeltnis (ADR 0026) -- gespeichert und nicht beim Lesen
+    # abgeleitet, damit eine spaetere Aenderung der Herleitung die Zahlen
+    # abgeschlossener Analysen nicht rueckwirkend verschiebt.
+    technical_downside_to_support_pct: Mapped[float | None] = mapped_column(nullable=True)
+    technical_upside_to_resistance_pct: Mapped[float | None] = mapped_column(nullable=True)
+    technical_chance_risk_ratio: Mapped[float | None] = mapped_column(nullable=True)
 
     # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0023) --
     # wie bei den earnings_*-Spalten: einmal je Lauf und Aktie berechnet,

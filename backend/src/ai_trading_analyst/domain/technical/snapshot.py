@@ -18,10 +18,12 @@ from ai_trading_analyst.domain.screening import Candle, CandleSeries, wilder_mov
 
 from .values import (
     TECHNICAL_ANALYSIS_VERSION,
+    PriceZone,
     TechnicalAnalysisParameters,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
+    ZoneKind,
 )
 from .zones import build_zones
 
@@ -113,6 +115,34 @@ def _extremes(
     return highest.high, highest.timestamp, lowest.low, lowest.timestamp
 
 
+def _nearest_distance(zones: Sequence[PriceZone], kind: ZoneKind) -> float | None:
+    """Abstand zur naechstgelegenen Zone dieser Art, oder ``None``.
+
+    ``PriceZone.distance_pct`` misst bereits gegen die dem Kurs *zugewandte*
+    Kante -- bei einer Unterstuetzung gegen die Oberkante, bei einem
+    Widerstand gegen die Unterkante (``zones._classify``). Hier ist deshalb
+    nichts zu rechnen, nur auszuwaehlen. Und weil ``build_zones`` nach
+    Abstand aufsteigend sortiert, ist die erste Zone passender Art zugleich
+    die naechstgelegene.
+    """
+    return next((zone.distance_pct for zone in zones if zone.kind is kind), None)
+
+
+def _chance_risk_ratio(upside: float | None, downside: float | None) -> float | None:
+    """Verhaeltnis der beiden Wege, oder ``None``, wenn eine Seite fehlt.
+
+    Ohne Pruefung auf Division durch null: Eine Unterstuetzung liegt per
+    ``zones._classify`` **strikt** unterhalb des Schlusskurses (``upper <
+    close``), ihr Abstand ist damit immer echt positiv. Ein Kurs genau auf
+    der Oberkante ergibt ``PRICE_INSIDE`` und wird hier gar nicht erst
+    ausgewaehlt. Ein Zweig fuer den Fall waere toter Code (CLAUDE.md:
+    Fehlerbehandlung nur dort, wo Fehler tatsaechlich auftreten koennen).
+    """
+    if upside is None or downside is None:
+        return None
+    return upside / downside
+
+
 def compute_technical_snapshot(
     series: CandleSeries,
     index: int,
@@ -154,6 +184,10 @@ def compute_technical_snapshot(
         series.candles, available - params.extremes_lookback, available
     )
 
+    zones = build_zones(series.candles, window_start, available, close, params)
+    downside = _nearest_distance(zones, ZoneKind.SUPPORT)
+    upside = _nearest_distance(zones, ZoneKind.RESISTANCE)
+
     return TechnicalSnapshot(
         status=TechnicalStatus.COMPLETED,
         evaluated_at=evaluated_at,
@@ -173,5 +207,8 @@ def compute_technical_snapshot(
         recent_high_at=recent_high_at,
         recent_low=recent_low,
         recent_low_at=recent_low_at,
-        zones=build_zones(series.candles, window_start, available, close, params),
+        zones=zones,
+        downside_to_support_pct=downside,
+        upside_to_resistance_pct=upside,
+        chance_risk_ratio=_chance_risk_ratio(upside, downside),
     )

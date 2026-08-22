@@ -213,6 +213,9 @@ def _technical_from_row(row: ScreeningResultOrm) -> TechnicalSnapshot | None:
             )
             for zone in row.technical_zones
         ),
+        downside_to_support_pct=row.technical_downside_to_support_pct,
+        upside_to_resistance_pct=row.technical_upside_to_resistance_pct,
+        chance_risk_ratio=row.technical_chance_risk_ratio,
     )
 
 
@@ -236,6 +239,9 @@ _TECHNICAL_FIELDS = (
     "recent_high_at",
     "recent_low",
     "recent_low_at",
+    "downside_to_support_pct",
+    "upside_to_resistance_pct",
+    "chance_risk_ratio",
 )
 
 
@@ -272,6 +278,9 @@ def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
         "technical_recent_high_at": technical.recent_high_at,
         "technical_recent_low": technical.recent_low,
         "technical_recent_low_at": technical.recent_low_at,
+        "technical_downside_to_support_pct": technical.downside_to_support_pct,
+        "technical_upside_to_resistance_pct": technical.upside_to_resistance_pct,
+        "technical_chance_risk_ratio": technical.chance_risk_ratio,
     }
 
 

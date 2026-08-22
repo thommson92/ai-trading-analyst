@@ -549,6 +549,36 @@ class TestTechnicalKommando:
         assert "Toleranz 2.00 %" in ausgabe
         assert "min. 2 Beruehrungen" in ausgabe
 
+    def test_chance_risiko_steht_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_technical_snapshot(
+            "AAPL",
+            self._snapshot(
+                downside_to_support_pct=0.05,
+                upside_to_resistance_pct=0.10,
+                chance_risk_ratio=2.0,
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Bis zur naechsten Unterstuetzung: 5.00 %" in ausgabe
+        assert "Bis zum naechsten Widerstand:     10.00 %" in ausgabe
+        assert "Chance/Risiko:                   2.00" in ausgabe
+
+    def test_fehlendes_chance_risiko_wird_nicht_als_null_ausgegeben(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fehlt eine Seite, gibt es kein Verhaeltnis. Eine 0.00 an dieser
+        Stelle laese sich als besonders schlechtes Setup lesen."""
+        cli._print_technical_snapshot(
+            "AAPL", self._snapshot(downside_to_support_pct=0.05, upside_to_resistance_pct=None)
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Chance/Risiko:                   -- (eine Seite ohne Zone)" in ausgabe
+        assert "0.00" not in ausgabe.split("Chance/Risiko")[1]
+
     def test_die_verfahrensversion_steht_an_jeder_ausgabe(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:

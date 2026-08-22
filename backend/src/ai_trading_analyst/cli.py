@@ -796,6 +796,8 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
             f"am {snapshot.recent_low_at.date().isoformat()}"
         )
 
+    _print_chance_risk(snapshot)
+
     if not snapshot.zones:
         print("  Zonen: keine mehrfach getestete Preisregion im Fenster")
         return
@@ -809,6 +811,28 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
             f"{zone.last_confirmed_at.date().isoformat()}, "
             f"Abstand {zone.distance_pct * 100:.2f} %"
         )
+
+
+def _print_chance_risk(snapshot: TechnicalSnapshot) -> None:
+    """Weg nach unten, Weg nach oben und ihr Verhaeltnis (ADR 0026).
+
+    Steht bewusst *vor* der Zonenliste: Es ist die Zusammenfassung, aus der
+    die Liste darunter die Herleitung liefert.
+    """
+    print(
+        "  Bis zur naechsten Unterstuetzung: "
+        f"{_format_optional(_as_percent(snapshot.downside_to_support_pct), digits=2, suffix=' %')}"
+    )
+    print(
+        "  Bis zum naechsten Widerstand:     "
+        f"{_format_optional(_as_percent(snapshot.upside_to_resistance_pct), digits=2, suffix=' %')}"
+    )
+    if snapshot.chance_risk_ratio is None:
+        # Kein Ersatzwert: Fehlt eine der beiden Seiten, gibt es kein
+        # Verhaeltnis -- und eine Null saehe wie ein sehr schlechtes Setup aus.
+        print("  Chance/Risiko:                   -- (eine Seite ohne Zone)")
+    else:
+        print(f"  Chance/Risiko:                   {snapshot.chance_risk_ratio:.2f}")
 
 
 def _plural(count: int, singular: str, plural: str) -> str:
