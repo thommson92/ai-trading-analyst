@@ -38,11 +38,19 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.domain.technical import (
     TECHNICAL_ANALYSIS_VERSION,
+    BreakoutQuality,
+    FalseSignalRisk,
+    MomentumState,
     PriceZone,
+    RiskRewardRating,
+    SwingEntryPlausibility,
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
+    TrendStrength,
     ZoneKind,
     ZoneStrength,
 )
@@ -932,3 +940,134 @@ class TestIntradayBarRepository:
 
         with uow_factory() as uow:
             assert uow.intraday_bars.list_for("AAPL")[0] == bar
+
+
+class TestKiEinordnung:
+    """Die KI-Einordnung der Chartauswertung (ADR 0026).
+
+    Getrennt gespeichert von der deterministischen Auswertung, wie Doc 10,
+    Paragraph 6.8 es verlangt -- der letzte Test dieser Klasse sichert genau
+    das zu.
+    """
+
+    @staticmethod
+    def _assessment(**overrides: object) -> TechnicalAssessment:
+        felder: dict[str, object] = {
+            "status": TechnicalAssessmentStatus.COMPLETED,
+            "evaluated_at": datetime.now(UTC),
+            "model": "claude-haiku-4-5-20251001",
+            "prompt_version": "technical-agent-v1",
+            "interpreted_analysis_version": TECHNICAL_ANALYSIS_VERSION,
+            "summary": "Aufwaertstrend ueber beiden Durchschnitten, Widerstand in Reichweite.",
+            "trend_strength": TrendStrength.MODERATE,
+            "breakout_quality": BreakoutQuality.NO_BREAKOUT,
+            "momentum_state": MomentumState.NEUTRAL,
+            "false_signal_risk": FalseSignalRisk.MEDIUM,
+            "risk_reward_rating": RiskRewardRating.BALANCED,
+            "swing_entry_plausibility": SwingEntryPlausibility.QUESTIONABLE,
+            "false_signal_risks": ("Kurs dicht unter einer starken Widerstandszone",),
+            "confidence": 0.6,
+        }
+        felder.update(overrides)
+        return TechnicalAssessment(**felder)  # type: ignore[arg-type]
+
+    @staticmethod
+    def _snapshot() -> TechnicalSnapshot:
+        return TechnicalSnapshot(
+            status=TechnicalStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            analysis_version=TECHNICAL_ANALYSIS_VERSION,
+            parameters=TechnicalAnalysisParameters().as_mapping(),
+            close=100.0,
+            trend=TrendDirection.UP,
+            downside_to_support_pct=0.02,
+            upside_to_resistance_pct=0.05,
+            chance_risk_ratio=2.5,
+        )
+
+    def _persist(
+        self,
+        uow_factory: UowFactory,
+        symbol: str,
+        assessment: TechnicalAssessment | None,
+    ) -> StockScreeningOutcome:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            technical=self._snapshot(),
+            technical_assessment=assessment,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        return persisted
+
+    def test_eine_vollstaendige_einordnung_ueberlebt_die_datenbank(
+        self, uow_factory: UowFactory
+    ) -> None:
+        assessment = self._assessment()
+
+        persisted = self._persist(uow_factory, "WITHAI", assessment)
+
+        assert persisted.technical_assessment == assessment
+
+    def test_die_chance_risiko_werte_ueberleben_die_datenbank(
+        self, uow_factory: UowFactory
+    ) -> None:
+        persisted = self._persist(uow_factory, "WITHRATIO", self._assessment())
+
+        assert persisted.technical is not None
+        assert persisted.technical.downside_to_support_pct == 0.02
+        assert persisted.technical.upside_to_resistance_pct == 0.05
+        assert persisted.technical.chance_risk_ratio == 2.5
+
+    def test_ein_ausfall_wird_als_solcher_gespeichert(self, uow_factory: UowFactory) -> None:
+        """Kein Ersatztext: Bei UNAVAILABLE bleiben alle Inhaltsfelder leer,
+        und genau so kommen sie zurueck."""
+        assessment = TechnicalAssessment(
+            status=TechnicalAssessmentStatus.UNAVAILABLE,
+            evaluated_at=datetime.now(UTC),
+            model=None,
+            prompt_version=None,
+            reason="provider_error",
+        )
+
+        persisted = self._persist(uow_factory, "AIFAILED", assessment)
+
+        assert persisted.technical_assessment == assessment
+        assert persisted.technical_assessment is not None
+        assert persisted.technical_assessment.summary is None
+        assert persisted.technical_assessment.false_signal_risks == ()
+
+    def test_ohne_einordnung_bleibt_das_feld_leer(self, uow_factory: UowFactory) -> None:
+        """Eine Zeile aus der Zeit vor dem Technical Agent liest als ``None``
+        zurueck -- nie als Fehler."""
+        persisted = self._persist(uow_factory, "NOAI", None)
+
+        assert persisted.technical_assessment is None
+        assert persisted.technical is not None
+
+    def test_die_einordnung_veraendert_die_deterministischen_werte_nicht(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Doc 10, Paragraph 6.8: getrennt gespeichert. Derselbe Snapshot,
+        einmal mit und einmal ohne Einordnung, muss identisch zurueckkommen."""
+        mit = self._persist(uow_factory, "SEPARATEA", self._assessment())
+        ohne = self._persist(uow_factory, "SEPARATEB", None)
+
+        assert mit.technical is not None
+        assert ohne.technical is not None
+        assert mit.technical.close == ohne.technical.close
+        assert mit.technical.chance_risk_ratio == ohne.technical.chance_risk_ratio
+        assert mit.technical.trend == ohne.technical.trend
+        assert mit.technical.analysis_version == ohne.technical.analysis_version

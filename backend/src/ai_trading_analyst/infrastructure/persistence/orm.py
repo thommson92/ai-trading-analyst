@@ -25,8 +25,15 @@ from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 from ai_trading_analyst.domain.technical import (
+    BreakoutQuality,
+    FalseSignalRisk,
+    MomentumState,
+    RiskRewardRating,
+    SwingEntryPlausibility,
+    TechnicalAssessmentStatus,
     TechnicalStatus,
     TrendDirection,
+    TrendStrength,
     ZoneKind,
     ZoneStrength,
 )
@@ -178,6 +185,47 @@ class ScreeningResultOrm(Base):
     technical_downside_to_support_pct: Mapped[float | None] = mapped_column(nullable=True)
     technical_upside_to_resistance_pct: Mapped[float | None] = mapped_column(nullable=True)
     technical_chance_risk_ratio: Mapped[float | None] = mapped_column(nullable=True)
+
+    # Technical Agent: die KI-Einordnung der Chartauswertung (Doc 10,
+    # Paragraph 6.8 "Qualitative Interpretation"; ADR 0026). Ein eigener
+    # Spaltensatz -- keine der technical_*-Spalten darueber wird davon
+    # beruehrt, wie Doc 10 die getrennte Speicherung verlangt.
+    #
+    # Gesetzt, sobald technical_status gesetzt ist, und zwar unabhaengig vom
+    # Earnings-Filter: anders als research_*, das EARNINGS_CLEAR voraussetzt.
+    technical_ai_status: Mapped[TechnicalAssessmentStatus | None] = mapped_column(
+        _enum_column(TechnicalAssessmentStatus), nullable=True
+    )
+    technical_ai_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    technical_ai_model: Mapped[str | None] = mapped_column(nullable=True)
+    technical_ai_prompt_version: Mapped[str | None] = mapped_column(nullable=True)
+    technical_ai_interpreted_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    technical_ai_summary: Mapped[str | None] = mapped_column(nullable=True)
+    technical_ai_trend_strength: Mapped[TrendStrength | None] = mapped_column(
+        _enum_column(TrendStrength), nullable=True
+    )
+    technical_ai_breakout_quality: Mapped[BreakoutQuality | None] = mapped_column(
+        _enum_column(BreakoutQuality), nullable=True
+    )
+    technical_ai_momentum_state: Mapped[MomentumState | None] = mapped_column(
+        _enum_column(MomentumState), nullable=True
+    )
+    technical_ai_false_signal_risk: Mapped[FalseSignalRisk | None] = mapped_column(
+        _enum_column(FalseSignalRisk), nullable=True
+    )
+    technical_ai_risk_reward_rating: Mapped[RiskRewardRating | None] = mapped_column(
+        _enum_column(RiskRewardRating), nullable=True
+    )
+    technical_ai_swing_entry_plausibility: Mapped[SwingEntryPlausibility | None] = mapped_column(
+        _enum_column(SwingEntryPlausibility), nullable=True
+    )
+    technical_ai_false_signal_risks: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    technical_ai_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    technical_ai_reason: Mapped[str | None] = mapped_column(nullable=True)
 
     # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0023) --
     # wie bei den earnings_*-Spalten: einmal je Lauf und Aktie berechnet,
