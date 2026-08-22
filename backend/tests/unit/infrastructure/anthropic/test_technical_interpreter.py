@@ -455,6 +455,32 @@ class TestModelleingabe:
         assert "7 Wendepunkte" in text
         assert "9 Beruehrungen" in text
 
+    def test_ein_einzelner_wendepunkt_steht_im_singular(self) -> None:
+        """Genau der Fall, um den es geht: eine Zone mit einem Wendepunkt und
+        vielen Beruehrungen. "1 Wendepunkte" waere ausgerechnet dort ein
+        Stolperstein, wo das Modell genau hinsehen soll."""
+        einzeln = PriceZone(
+            lower=95.0,
+            upper=95.0,
+            kind=ZoneKind.SUPPORT,
+            strength=ZoneStrength.WEAK,
+            touch_count=12,
+            last_confirmed_at=datetime(2026, 8, 18, 20, 15, tzinfo=UTC),
+            distance_pct=0.05,
+            pivot_count=1,
+        )
+        text = render_snapshot(AAPL, snapshot(zones=(einzeln,)), EVALUATED_AT)
+
+        assert "1 Wendepunkt," in text
+        assert "1 Wendepunkte" not in text
+
+    def test_die_lage_zum_durchschnitt_wird_ausgeschrieben(self) -> None:
+        """"Kurs -1.50 % davon entfernt" laesst sich als Betrag lesen."""
+        text = render_snapshot(AAPL, snapshot(distance_to_ema20_pct=-0.015), EVALUATED_AT)
+
+        assert "1.50 % darunter" in text
+        assert "-1.50" not in text
+
 
 def _fehler(status: int, typ: str) -> httpx.Response:
     return httpx.Response(status, json={"type": "error", "error": {"type": typ, "message": "x"}})

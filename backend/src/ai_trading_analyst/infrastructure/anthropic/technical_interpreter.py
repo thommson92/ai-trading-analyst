@@ -296,6 +296,22 @@ def _format_percent(value: float | None) -> str:
     return _NICHT_VERFUEGBAR if value is None else f"{value * 100:.2f} %"
 
 
+def _plural(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _lage_zum_durchschnitt(distance: float | None) -> str:
+    """Positiv heisst oberhalb -- ausgeschrieben statt als Vorzeichen.
+
+    "Kurs -1.50 % davon entfernt" laesst sich als Betrag lesen; "1.50 %
+    darunter" nicht.
+    """
+    if distance is None:
+        return _NICHT_VERFUEGBAR
+    lage = "darueber" if distance >= 0 else "darunter"
+    return f"Kurs {abs(distance) * 100:.2f} % {lage}"
+
+
 def _format_zone(zone: PriceZone) -> str:
     spanne = (
         f"{zone.lower:.2f}"
@@ -304,7 +320,8 @@ def _format_zone(zone: PriceZone) -> str:
     )
     return (
         f"  {zone.kind.value}: {spanne}, Staerke {zone.strength.value}, "
-        f"{zone.pivot_count} Wendepunkte, {zone.touch_count} Beruehrungen, "
+        f"{_plural(zone.pivot_count, 'Wendepunkt', 'Wendepunkte')}, "
+        f"{_plural(zone.touch_count, 'Beruehrung', 'Beruehrungen')}, "
         f"zuletzt bestaetigt {zone.last_confirmed_at.date().isoformat()}, "
         f"Abstand {zone.distance_pct * 100:.2f} %"
     )
@@ -334,9 +351,9 @@ def render_snapshot(stock: Stock, snapshot: TechnicalSnapshot, today: datetime) 
         f"Trend: {_NICHT_VERFUEGBAR if snapshot.trend is None else snapshot.trend.value}",
         f"RSI: {_format_number(snapshot.rsi, digits=1)}",
         f"EMA5: {_format_number(snapshot.ema5)} "
-        f"(Kurs {_format_percent(snapshot.distance_to_ema5_pct)} davon entfernt)",
+        f"({_lage_zum_durchschnitt(snapshot.distance_to_ema5_pct)})",
         f"EMA20: {_format_number(snapshot.ema20)} "
-        f"(Kurs {_format_percent(snapshot.distance_to_ema20_pct)} davon entfernt)",
+        f"({_lage_zum_durchschnitt(snapshot.distance_to_ema20_pct)})",
         f"ATR: {_format_number(snapshot.atr)} ({_format_percent(snapshot.atr_pct)} vom Kurs)",
         f"Juengstes Hoch: {_format_number(snapshot.recent_high)}",
         f"Juengstes Tief: {_format_number(snapshot.recent_low)}",
