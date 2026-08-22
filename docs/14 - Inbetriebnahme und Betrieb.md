@@ -357,17 +357,19 @@ Adresse, und gehört in `--telegram-chat-id`, nicht in `.env`.
 
 ### Geheimnis setzen und Einzelprobe
 
-`ATA_NOTIFICATION_TOKEN` in der `.env` setzen. Danach eine Meldung auf dem
-kürzesten Weg auslösen, ohne auf einen echten Ausfall zu warten — am
-einfachsten über eine bewusst zu knappe Nachholfrist:
+`ATA_NOTIFICATION_TOKEN` in der `.env` setzen. Der Dispatcher selbst eignet
+sich **nicht** für die Probe: Er erreicht die Meldelogik nur bei einem
+überfälligen Lauf, und den gibt es bei einer frisch aufgesetzten
+`dispatcher_runs`-Tabelle nicht — an einem Tag ohne fälligen oder offenen Lauf
+endet `dispatch` schon bei der Handelstagsprüfung, ohne den Kanal je
+anzufassen. Stattdessen den Kanal direkt ansprechen:
 
 ```powershell
-.venv\Scripts\python.exe -m ai_trading_analyst.cli dispatch --provider ibkr `
-    --notification-channel telegram --telegram-chat-id <CHAT_ID>
+.venv\Scripts\python.exe -c "from ai_trading_analyst.config import NotificationsConfig, TelegramConfig, Secrets; from ai_trading_analyst.infrastructure.notifications import build_notifier; build_notifier(NotificationsConfig(channel='telegram', telegram=TelegramConfig(chat_id='<CHAT_ID>')), Secrets()).send('Testmeldung', 'Einzelprobe Stufe H.')"
 ```
 
-**Abbruch, wenn:** die Nachricht nicht in Telegram ankommt, oder das Kommando
-mit Rückgabewert 2 endet, bevor überhaupt etwas versucht wurde — dann fehlt
+**Abbruch, wenn:** die Nachricht nicht in Telegram ankommt, oder der Aufruf mit
+einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 `ATA_NOTIFICATION_TOKEN` oder die Chat-ID, und der Fehler benennt, welches.
 
 ### In die Aufgabenplanung übernehmen
