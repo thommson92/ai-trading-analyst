@@ -84,13 +84,21 @@ class TelegramNotifier:
                     json={"chat_id": self._settings.chat_id, "text": f"{subject}\n\n{body}"},
                 )
             response.raise_for_status()
-        except httpx.HTTPError as error:
-            # Der Token steckt im Pfad und damit in httpx' Fehlertext. Nur der
-            # Typ und die Statuszeile wandern deshalb weiter -- eine
-            # Fehlermeldung landet im Protokoll, und dort hat er nichts zu
-            # suchen.
+        except httpx.HTTPStatusError as error:
+            # Der Statuscode allein verraet nichts -- der Token steckt im
+            # Pfad und damit in httpx' eigenem Fehlertext, der deshalb NICHT
+            # weiterwandert. Der Code unterscheidet aber "Token falsch" (401)
+            # von "zu viele Anfragen" (429) von "Telegram ist down" (5xx),
+            # und genau das braucht, wer die Meldung im Protokoll liest.
             raise NotifierError(
-                f"Telegram hat die Meldung nicht angenommen ({type(error).__name__})."
+                f"Telegram hat die Meldung mit Status {error.response.status_code} "
+                "abgelehnt."
+            ) from None
+        except httpx.HTTPError as error:
+            # Verbindungsfehler tragen keinen Status -- nur der Ausnahmetyp
+            # wandert weiter, aus demselben Grund wie oben.
+            raise NotifierError(
+                f"Telegram war nicht erreichbar ({type(error).__name__})."
             ) from None
 
 

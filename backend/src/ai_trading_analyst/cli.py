@@ -865,16 +865,15 @@ def command_dispatch(args: argparse.Namespace) -> int:
     if args.research_provider is not None:
         research = config.research.model_copy(update={"provider": args.research_provider})
         config = config.model_copy(update={"research": research})
-    if args.notification_channel is not None:
-        notifications = config.notifications.model_copy(
-            update={"channel": args.notification_channel}
-        )
-        config = config.model_copy(update={"notifications": notifications})
-    if args.telegram_chat_id is not None:
-        telegram = config.notifications.telegram.model_copy(
-            update={"chat_id": args.telegram_chat_id}
-        )
-        notifications = config.notifications.model_copy(update={"telegram": telegram})
+    if args.notification_channel is not None or args.telegram_chat_id is not None:
+        aenderung: dict[str, object] = {}
+        if args.notification_channel is not None:
+            aenderung["channel"] = args.notification_channel
+        if args.telegram_chat_id is not None:
+            aenderung["telegram"] = config.notifications.telegram.model_copy(
+                update={"chat_id": args.telegram_chat_id}
+            )
+        notifications = config.notifications.model_copy(update=aenderung)
         config = config.model_copy(update={"notifications": notifications})
 
     # Vor dem Lauf, nicht in der Analyse: Ein fehlendes Geheimnis ist ein

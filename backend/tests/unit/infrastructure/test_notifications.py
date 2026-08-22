@@ -119,6 +119,23 @@ class TestTelegramAusgang:
         with pytest.raises(NotifierError):
             _notifier(transport).send("Betreff", "Text")
 
+    @pytest.mark.parametrize("status", [401, 429, 500])
+    def test_der_statuscode_landet_in_der_fehlermeldung(self, status: int) -> None:
+        """401, 429 und 5xx sind verschiedene Ursachen -- falscher Token,
+        Ratenlimit, Telegram-Ausfall -- und sollen im Protokoll unterscheidbar
+        bleiben, ohne dass der Token dafuer noetig ist."""
+        transport = httpx.MockTransport(lambda request: httpx.Response(status))
+
+        with pytest.raises(NotifierError, match=str(status)):
+            _notifier(transport).send("Betreff", "Text")
+
+    def test_ein_verbindungsfehler_wird_zu_notifiererror(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Verbindung abgelehnt", request=request)
+
+        with pytest.raises(NotifierError, match="ConnectError"):
+            _notifier(httpx.MockTransport(handler)).send("Betreff", "Text")
+
     def test_der_bot_token_erscheint_nicht_im_fehlertext(self) -> None:
         """Der Token steckt im Pfad und damit in httpx' eigenem Fehlertext --
         der darf nicht ins Protokoll wandern."""
