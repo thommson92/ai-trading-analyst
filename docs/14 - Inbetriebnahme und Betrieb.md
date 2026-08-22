@@ -256,6 +256,10 @@ Worauf beim Vergleich zu achten ist:
   der Kurs durchläuft — sie soll `WEAK` sein.
 - Ein nie wieder angelaufenes Verlaufshoch bildet **keine** Zone
   (`min_touches`). Es steht als „jüngstes Hoch" in derselben Ausgabe.
+- Eine Zone mit **einem** Wendepunkt und vielen Berührungen ist bekanntes
+  Rauschen in Kursnähe — der Kurs läuft dort durch, statt umzukehren. Sie ist
+  als `WEAK` gekennzeichnet, belegt aber einen Platz je Seite. Siehe ADR 0025,
+  „Negativ / offen".
 
 ---
 

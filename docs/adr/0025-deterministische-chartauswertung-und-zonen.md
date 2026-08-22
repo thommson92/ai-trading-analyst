@@ -293,6 +293,23 @@ still uminterpretiert zu werden.
 - Zonen können jetzt die Breite null haben. Für die Optionsanalyse in
   Sprint 5 ist das zu beachten: Ein Preisniveau ist eine gültige Zone, keine
   fehlerhafte.
+- **`min_touches` filtert nach der falschen Größe — erste Nachziehkandidatin.**
+  Im v2-Lauf blieb bei AAPL `SUPPORT 307,05 — WEAK, 12 Berührungen aus 1
+  Wendepunkt` stehen. Zwölf Berührungen bei einem Wendepunkt heißt, dass der
+  Kurs dort ständig durchläuft; ein Halt ist das nicht. Die Zone ist korrekt
+  als `WEAK` gekennzeichnet, belegt aber einen der drei Plätze je Seite und
+  verdrängt eine entferntere, tragende Zone — die Sortierung nach Nähe
+  bevorzugt Rauschen in Kursnähe.
+
+  Die Ursache ist dieselbe wie bei Befund 2 des Revisionsabschnitts:
+  `min_touches` misst Antreffen statt Umkehr. Der naheliegende Schritt ist
+  ein Filter auf `pivot_count` (mindestens zwei Wendepunkte), was Doc 10s
+  „mehrfach getestete Preiszonen" genauer trifft. Bewusst nicht mehr in
+  diesem Feature: Es ändert erneut das Verfahren und gehört hinter einen
+  weiteren Lauf an echten Kursen.
+
+  Für den Technical Agent (Sprint 4) ist das kein Hindernis — `strength` und
+  `pivot_count` stehen an jeder Zone, er kann also unterscheiden.
 
 ## Alternativen
 
