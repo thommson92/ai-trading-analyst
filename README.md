@@ -51,6 +51,11 @@ Aus Sprint 4 steht der **Research Agent** mit Quellenbindung und
 Kostensteuerung ([ADR 0022](docs/adr/0022-research-agent-quellen.md),
 [ADR 0023](docs/adr/0023-research-agent-zitierarchitektur.md)).
 
+Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt: Ein
+ausgefallener Tageslauf meldet sich über Telegram
+([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)), statt nur im
+Protokoll zu erscheinen.
+
 Welcher Anbieter jeweils läuft, entscheidet `config/default.yaml`. Alle drei
 externen Quellen stehen dort bewusst auf `fixture`, damit Start und Tests ohne
 Zugangsdaten auskommen; scharf geschaltet wird je Lauf über Argumente — siehe
@@ -63,7 +68,6 @@ Noch offen:
 | Technical, Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
-| Benachrichtigungskanal (F10) | Anbieterwahl offen, braucht ein eigenes ADR; der Dispatcher-Alarm landet bis dahin nur im Protokoll |
 
 ## Struktur
 

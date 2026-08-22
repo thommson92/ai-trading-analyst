@@ -331,6 +331,59 @@ Erst danach in die Aufgabenplanung übernehmen:
 
 ---
 
+# Stufe H — Benachrichtigungskanal (F10)
+
+Kann unabhängig von Stufe G eingerichtet werden, sobald Stufe F über mindestens
+einen Handelstag getragen hat. Kanal, Trennung von Geheimnis und Adresse sowie
+die Fehlerisolation stehen in
+[ADR 0024](adr/0024-benachrichtigungskanal-telegram.md).
+
+### Bot anlegen
+
+In Telegram mit **@BotFather** chatten, `/newbot` senden, Namen vergeben. Die
+Antwort enthält den Bot-Token (`123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`)
+— das ist das Geheimnis.
+
+### Chat-ID ermitteln
+
+Dem neuen Bot in Telegram eine beliebige Nachricht schreiben, dann:
+
+```powershell
+Invoke-RestMethod -Uri "https://api.telegram.org/bot<TOKEN>/getUpdates"
+```
+
+Die Antwort enthält `message.chat.id` — das ist **kein Geheimnis**, nur eine
+Adresse, und gehört in `--telegram-chat-id`, nicht in `.env`.
+
+### Geheimnis setzen und Einzelprobe
+
+`ATA_NOTIFICATION_TOKEN` in der `.env` setzen. Der Dispatcher selbst eignet
+sich **nicht** für die Probe: Er erreicht die Meldelogik nur bei einem
+überfälligen Lauf, und den gibt es bei einer frisch aufgesetzten
+`dispatcher_runs`-Tabelle nicht — an einem Tag ohne fälligen oder offenen Lauf
+endet `dispatch` schon bei der Handelstagsprüfung, ohne den Kanal je
+anzufassen. Stattdessen den Kanal direkt ansprechen:
+
+```powershell
+.venv\Scripts\python.exe -c "from ai_trading_analyst.config import NotificationsConfig, TelegramConfig, Secrets; from ai_trading_analyst.infrastructure.notifications import build_notifier; build_notifier(NotificationsConfig(channel='telegram', telegram=TelegramConfig(chat_id='<CHAT_ID>')), Secrets()).send('Testmeldung', 'Einzelprobe Stufe H.')"
+```
+
+**Abbruch, wenn:** die Nachricht nicht in Telegram ankommt, oder der Aufruf mit
+einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
+`ATA_NOTIFICATION_TOKEN` oder die Chat-ID, und der Fehler benennt, welches.
+
+### In die Aufgabenplanung übernehmen
+
+```
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
+```
+
+Der Kanal wird nur im Fehlerfall angefasst — im Regelfall sendet er nichts.
+Die Meldung enthält bewusst nur Handelstag, Kerzenzeitpunkt und Ursache, keine
+Kurse oder Analyseergebnisse (ADR 0024).
+
+---
+
 # Laufender Betrieb
 
 ## Nach jedem Serverneustart
@@ -343,10 +396,15 @@ und versucht es beim nächsten Start erneut, bis die Nachholfrist abläuft.
 
 Überschreitet ein unerledigter Lauf die Nachholfrist
 (`scheduler.max_catch_up_seconds`, ausgeliefert zwei Stunden, also 14:50 New
-Yorker Zeit), geht eine Meldung raus. **Der Kanal ist noch nicht entschieden
-(F10);** bis dahin erscheint sie im Protokoll, ausdrücklich als *nicht versendet*
-gekennzeichnet. Ein stiller Ausfall wird deshalb heute nur beim Blick ins
-Protokoll sichtbar — das ist die wichtigste offene Lücke des Betriebs.
+Yorker Zeit), geht eine Meldung raus — über Telegram, sofern Stufe H eingerichtet
+ist ([ADR 0024](adr/0024-benachrichtigungskanal-telegram.md)). Ohne Stufe H
+erscheint sie nur im Protokoll, ausdrücklich als *nicht versendet* gekennzeichnet,
+und ein stiller Ausfall wird dann nur beim Blick ins Protokoll sichtbar.
+
+Ein Ausfall des Kanals selbst — Telegram nicht erreichbar, Token abgelaufen —
+hält den Tageslauf **nicht** an: Die Zustellung ist eine Systemgrenze wie jeder
+externe Anbieter und wird isoliert. Die Meldung gilt dann als nicht gesendet und
+wird beim nächsten Start in 15 Minuten erneut versucht.
 
 Die Frist liegt bewusst **innerhalb** des Startfensters; wer eines von beiden
 verschiebt, muss das andere mitziehen. Ein Test hält die Bedingung fest.

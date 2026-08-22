@@ -11,6 +11,7 @@ from .models import (
 from .ports import (
     DispatcherRunRepository,
     Notifier,
+    NotifierError,
     TradingCalendar,
     TradingCalendarError,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "DispatchDecision",
     "DispatcherRunRepository",
     "Notifier",
+    "NotifierError",
     "ScheduledRun",
     "SchedulerParameters",
     "TradingCalendar",
