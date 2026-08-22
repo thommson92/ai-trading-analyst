@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from ai_trading_analyst.domain.technical import (
@@ -92,26 +94,42 @@ class TestZonenbildung:
         mitten = sorted(round(zone.midpoint) for zone in zones if zone.kind is ZoneKind.RESISTANCE)
         assert mitten == [110, 130]
 
-    def test_zone_enthaelt_alle_eigenen_swing_punkte(self) -> None:
-        """Die Grenzen entstehen aus dem Toleranzband um den Mittelwert.
-
-        Weil das Buendel waehrend des Fuellens am jeweils aktuellen Mittelwert
-        gemessen wird, kann ein frueher Punkt am Ende knapp ausserhalb dieses
-        Bandes liegen -- die Grenzen werden dann geweitet. Eine Zone, die
-        einen ihrer eigenen Punkte nicht enthaelt, waere nicht erklaerbar.
-        """
+    def test_zonengrenzen_sind_genau_die_spanne_der_wendepunkte(self) -> None:
+        """Kein aufgeweitetes Band um den Mittelwert -- genau das erzeugte in
+        ``v1`` durchgaengig ueberlappende Zonen (ADR 0025, Revision)."""
         params = small_params(zone_tolerance_pct=0.02, min_touches=1)
-        preise = [100.0, 110.0, 100.0, 111.5, 100.0, 113.0, 100.0, 114.4, 100.0]
-        series = series_from_prices(preise)
+        series = series_from_prices([100.0, 110.0, 100.0, 111.5, 100.0])
 
         zones = build_zones(series.candles, 0, len(series), close=100.0, params=params)
-        widerstand = next(zone for zone in zones if zone.kind is ZoneKind.RESISTANCE)
+        widerstand = zone_of_kind(zones, ZoneKind.RESISTANCE)
 
-        hochs = [preis for preis in preise if preis > 100.0]
-        beruehrt = [preis for preis in hochs if widerstand.lower <= preis <= widerstand.upper]
-        assert beruehrt, "keine der Spitzen liegt in der Zone"
-        for preis in beruehrt:
-            assert widerstand.lower <= preis <= widerstand.upper
+        assert (widerstand.lower, widerstand.upper) == (110.0, 111.5)
+
+    def test_ein_einzelner_wendepunkt_ergibt_ein_niveau_ohne_breite(self) -> None:
+        """Eine Mindestbreite haette das Niveau zu einem Band gemacht, das
+        allein durch seine Breite Beruehrungen einsammelt -- in ``v1`` kam ein
+        einzelner Wendepunkt so auf acht Beruehrungen und wurde STRONG."""
+        params = small_params(min_touches=1)
+        series = series_from_prices([100.0, 110.0, 100.0])
+
+        zones = build_zones(series.candles, 0, len(series), close=100.0, params=params)
+        widerstand = zone_of_kind(zones, ZoneKind.RESISTANCE)
+
+        assert widerstand.lower == widerstand.upper == 110.0
+        assert widerstand.pivot_count == 1
+        assert widerstand.strength is ZoneStrength.WEAK
+
+    def test_benachbarte_zonen_ueberlappen_einander_nicht(self) -> None:
+        """Der Kernfehler von ``v1``: Die Buendelung trennte ab einer
+        Toleranz, das Band war aber zwei Toleranzen breit. Bei AAPL
+        ueberlappte dadurch jede Zone ihre Nachbarn."""
+        series = series_from_prices([100.0, 110.0, 100.0, 110.0, 100.0, 111.5, 100.0, 111.5, 100.0])
+
+        zones = build_zones(series.candles, 0, len(series), close=100.0, params=small_params())
+
+        nach_preis = sorted(zones, key=lambda zone: zone.lower)
+        for unten, oben in itertools.pairwise(nach_preis):
+            assert unten.upper < oben.lower, f"{unten.upper} und {oben.lower} ueberlappen"
 
     def test_zone_unterhalb_des_kurses_ist_unterstuetzung(self) -> None:
         series = series_from_prices([100, 90, 100, 90, 100])
@@ -193,22 +211,37 @@ class TestBeruehrungen:
 
 
 class TestStaerkeUndAuswahl:
-    def test_staerke_folgt_der_zahl_der_beruehrungen(self) -> None:
-        params = small_params(moderate_touch_count=3, strong_touch_count=4)
-        zwei = series_from_prices([100, 110, 100, 110, 100])
-        vier = series_from_prices([100, 110, 100, 110, 100, 110, 100, 110, 100])
+    def test_staerke_folgt_der_zahl_der_wendepunkte(self) -> None:
+        """Nicht der Beruehrungen: Eine Preisregion, in der der Kurs nur
+        herumwandert, sammelt ebenso viele Beruehrungen wie eine, an der er
+        umkehrt -- in ``v1`` wurden beide STRONG."""
+        params = small_params(moderate_pivot_count=2, strong_pivot_count=3)
+        preise = [100.0, 110.0, 100.0, 110.0, 100.0, 110.0, 100.0, 110.0, 100.0]
+        preise += [130.0, 100.0, 130.0, 100.0]
+        series = series_from_prices(preise)
 
-        schwach = zone_of_kind(
-            build_zones(zwei.candles, 0, len(zwei), 100.0, params), ZoneKind.RESISTANCE
-        )
-        stark = next(
-            zone
-            for zone in build_zones(vier.candles, 0, len(vier), 100.0, params)
-            if zone.kind is ZoneKind.RESISTANCE
-        )
+        zones = build_zones(series.candles, 0, len(series), close=100.0, params=params)
+        nach_preis = {round(zone.midpoint): zone for zone in zones}
 
-        assert schwach.strength is ZoneStrength.WEAK
-        assert stark.strength is ZoneStrength.STRONG
+        assert nach_preis[110].pivot_count == 4
+        assert nach_preis[110].strength is ZoneStrength.STRONG
+        assert nach_preis[130].pivot_count == 2
+        assert nach_preis[130].strength is ZoneStrength.MODERATE
+
+    def test_viele_beruehrungen_machen_eine_zone_ohne_wendepunkte_nicht_stark(self) -> None:
+        """Der Fall aus dem AAPL-Lauf: ein Wendepunkt, acht Beruehrungen.
+        Der Kurs wandert durch die Region, kehrt dort aber nicht um."""
+        params = small_params(min_touches=2, moderate_pivot_count=3, strong_pivot_count=5)
+        # 105 wird einmal zum Wendepunkt und danach mehrfach durchlaufen.
+        preise = [100.0, 105.0, 100.0, 105.0, 110.0, 105.0, 100.0, 105.0, 110.0]
+        series = series_from_prices(preise)
+
+        zones = build_zones(series.candles, 0, len(series), close=110.0, params=params)
+        bei_105 = next(zone for zone in zones if zone.lower <= 105.0 <= zone.upper)
+
+        assert bei_105.touch_count >= 3
+        assert bei_105.pivot_count <= 2
+        assert bei_105.strength is ZoneStrength.WEAK
 
     def test_je_seite_bleiben_nur_die_naechstgelegenen_zonen(self) -> None:
         preise = [100.0]

@@ -94,23 +94,30 @@ die Zone allein dadurch stärker erscheinen.
 hinge die Stärke einer Zone daran, wie lange der Kurs in ihr feststeckte,
 statt daran, wie oft er an ihr abgeprallt ist.
 
-**Die Zonengrenzen sind das Toleranzband um den Bündelmittelwert**, nicht die
-Spanne der Punkte selbst. Ein Bündel aus einem einzigen Punkt hätte sonst die
-Breite null, und die Zahl seiner Berührungen wäre nicht mit der einer
-breiteren Zone vergleichbar — die Stärke hinge dann an der Bandbreite statt
-am Verhalten des Kurses. Enthielte das Band ausnahmsweise einen eigenen
-Punkt nicht, wird es geweitet: Eine Zone, die einen ihrer eigenen Punkte
-ausschließt, wäre nicht erklärbar.
+**Die Zonengrenzen sind die tatsächliche Spanne der Wendepunkte.** Ein Bündel
+aus einem einzigen Wendepunkt ergibt damit eine Zone der Breite null — ein
+Preisniveau statt einer Spanne. Das ist beabsichtigt; die Kerzen bringen ihre
+eigene Toleranz mit, denn eine Kerze berührt das Niveau, wenn ihre Spanne es
+enthält.
 
-### 4. Stärke als Stufe, nicht als Kommazahl
+> Diese Festlegung ersetzt die ursprüngliche (Toleranzband um den
+> Bündelmittelwert). Siehe „Revision nach dem ersten Lauf an echten Kursen".
+
+### 4. Stärke als Stufe, nicht als Kommazahl — und aus Wendepunkten
 
 `ZoneStrength` ist ordinal (`WEAK`/`MODERATE`/`STRONG`) und wird allein aus
-der Zahl der Berührungen abgeleitet. Eine Formel mit gewichteten Summanden
-aus Berührungen, Alter und Nähe sähe präziser aus, ohne es zu sein — die
-Gewichte wären frei gewählt und würden als gerechnete Größe gelesen. Die
-Rohgrößen (`touch_count`, `last_confirmed_at`, `pivot_count`) stehen an jeder
-Zone und lassen sich im Scoring anders verrechnen, ohne dass hier ein
-Zahlenwert vorgibt, wie.
+der Zahl der **Wendepunkte** abgeleitet. Eine Berührung ist jedes Antreffen
+der Zone, auch das bloße Durchlaufen; ein Wendepunkt ist ein Anlauf mit
+Umkehr — und nur der sagt etwas darüber, ob die Zone trägt.
+
+Eine Formel mit gewichteten Summanden aus Berührungen, Alter und Nähe sähe
+präziser aus, ohne es zu sein — die Gewichte wären frei gewählt und würden
+als gerechnete Größe gelesen. Die Rohgrößen (`pivot_count`, `touch_count`,
+`last_confirmed_at`) stehen an jeder Zone und lassen sich im Scoring anders
+verrechnen, ohne dass hier ein Zahlenwert vorgibt, wie.
+
+> Auch diese Festlegung ersetzt die ursprüngliche (Stärke aus
+> `touch_count`). Siehe den Revisionsabschnitt.
 
 ### 5. Art der Zone ist relativ zum aktuellen Kurs
 
@@ -156,9 +163,9 @@ Auswertung, der man den Unterschied später nicht ansieht.
 | Parameter | Wert | Überlegung |
 |---|---|---|
 | `pivot_reach` | 3 | Auf der 195-Minuten-Kerze rund anderthalb Handelstage je Seite. |
-| `zone_tolerance_pct` | 0,015 | Halbe Zonenbreite; rund eine halbe bis ganze Tagesspanne. |
+| `zone_tolerance_pct` | 0,015 | Abstand vom Bündelmittelwert, bis zu dem ein Wendepunkt noch dazugehört. Bestimmt **nur** die Bündelung, nicht die Zonenbreite. |
 | `min_touches` | 2 | Eine einmal berührte Preisregion ist keine Zone. |
-| `moderate_touch_count` / `strong_touch_count` | 3 / 5 | Stufen der Stärke. |
+| `moderate_pivot_count` / `strong_pivot_count` | 3 / 5 | Stufen der Stärke, gemessen an Wendepunkten. |
 | `max_zones_per_side` | 3 | Ohne Grenze meldet eine lange Historie zwei Dutzend Zonen, von denen die entfernten für die Einstiegsfrage nichts beitragen. |
 | `history_candles` | 250 | Bei zwei Kerzen je Handelstag rund ein halbes Jahr — der Horizont eines Swing-Trades. |
 | `atr_length` | 14 | Übliche Länge. |
@@ -196,6 +203,69 @@ Parameterklasse: Abgeschlossene Analysen werden nicht überschrieben
 (`CLAUDE.md`), und ein künftig umbenannter oder entfallener Parameter darf
 ein altes Ergebnis nicht unlesbar machen.
 
+## Revision nach dem ersten Lauf an echten Kursen
+
+**Datum: 2026-08-22. Verfahrensversion steigt von `technical-v1` auf
+`technical-v2`.**
+
+Der erste Lauf gegen echten IBKR-Bestand (AAPL und MSFT, 250 Kerzen, Stand
+2026-08-21) hat zwei Festlegungen widerlegt, die an synthetischen Testreihen
+plausibel aussahen. Genau dafür war der Zwischenschritt in Doc 14 gedacht.
+
+### Befund 1: Die Zonenbänder überlappten durchgängig
+
+Jedes ausgegebene Band war exakt Mittelwert ± 1,50 %, unabhängig davon, wie
+eng die Wendepunkte tatsächlich lagen:
+
+| AAPL-Zone (v1) | Mitte | Halbe Breite |
+|---|---|---|
+| 302,44 – 311,66 | 307,05 | 1,50 % |
+| 311,47 – 320,95 | 316,21 | 1,50 % |
+| 297,78 – 306,85 | 302,32 | 1,50 % |
+
+Die Ursache ist ein Missverhältnis im Verfahren selbst: Die Bündelung trennt
+zwei Wendepunkte ab einem Abstand von **einer** Toleranz, das Band war aber
+**zwei** Toleranzen breit. Zwei Bündel, deren Mittelwerte knapp über einer
+Toleranz auseinanderliegen, überlappten deshalb um fast eine halbe
+Bandbreite — 297,78–306,85 und 302,44–311,66 teilten sich 4,41 Kurspunkte.
+Bei AAPL überlappte jede Zone ihre Nachbarn. Das ist kein
+Kalibrierungsproblem: Es tritt bei jeder Toleranz auf.
+
+**Neu:** Die Zone ist die tatsächliche Spanne ihrer Wendepunkte.
+`zone_tolerance_pct` steuert nur noch die Bündelung. Benachbarte Zonen können
+damit konstruktionsbedingt nicht mehr überlappen.
+
+### Befund 2: Die Stärke maß das Falsche
+
+```
+PRICE_INSIDE  302.44 - 311.66  STRONG   8 Beruehrungen aus 1 Wendepunkt
+RESISTANCE    311.47 - 320.95  STRONG  11 Beruehrungen aus 9 Wendepunkten
+```
+
+Beide waren `STRONG`. Die zweite ist eine echte Zone, die erste eine
+Preisregion, in der der Kurs herumwanderte. Bei einer ATR von 4,77 und einem
+Band von ±4,6 Punkten sammelte ein *einzelner* Wendepunkt mühelos acht
+Berührungen. Sechs von sieben AAPL-Zonen waren `STRONG` — die Stufe
+unterschied nichts mehr.
+
+`pivot_count` trennte dagegen sauber: 9, 8, 7 und 6 Wendepunkte bei den
+überzeugenden Zonen, 1 bis 2 bei den fragwürdigen. Bei MSFT ebenso (8 und 6
+Wendepunkte bei den beiden tragenden Unterstützungen).
+
+**Neu:** Die Stärke folgt `pivot_count`. `touch_count` bleibt als Kontext an
+der Zone, ist aber kein Stärkemaß mehr.
+
+### Was daraus folgt
+
+Ein nie wieder angelaufenes Verlaufshoch (AAPL 344,57) fällt durch
+`min_touches` heraus. Das ist richtig — Doc 10 spricht von *mehrfach
+getesteten* Preiszonen — und es geht nicht verloren: `recent_high` weist es
+gesondert aus.
+
+Der Fall zeigt außerdem, wozu die Verfahrensversion da ist. Ergebnisse aus
+`technical-v1` bleiben als nach altem Verfahren gerechnet erkennbar, statt
+still uminterpretiert zu werden.
+
 ## Konsequenzen
 
 **Positiv**
@@ -211,16 +281,18 @@ ein altes Ergebnis nicht unlesbar machen.
 
 **Negativ / offen**
 
-- Die Parameter sind an synthetischen Testreihen entwickelt, nicht an realen
-  Kursverläufen. Sie werden sich beim Gegenprüfen an echten Charts
-  voraussichtlich noch verschieben.
+- Die Parameter sind an einem einzigen Lauf über zwei Titel geprüft. Die
+  Schwellen `moderate_pivot_count`/`strong_pivot_count` trennen auf diesen
+  Daten sauber, sind damit aber nicht breit belegt.
 - Volumenprofile, Gap-Zonen und psychologische Niveaus fehlen gegenüber der
   Aufzählung in Doc 10. Das ist eine bewusste Zurückstellung, keine
   Vollständigkeit.
 - `zone_tolerance_pct` ist relativ und damit für alle Aktien gleich, obwohl
-  eine volatile Aktie breitere Zonen rechtfertigte. Eine Kopplung an die ATR
-  wäre der naheliegende nächste Schritt, wenn sich das an echten Charts als
-  Problem zeigt.
+  eine volatile Aktie breitere Bündel rechtfertigte. Eine Kopplung an die ATR
+  wäre der naheliegende nächste Schritt.
+- Zonen können jetzt die Breite null haben. Für die Optionsanalyse in
+  Sprint 5 ist das zu beachten: Ein Preisniveau ist eine gültige Zone, keine
+  fehlerhafte.
 
 ## Alternativen
 

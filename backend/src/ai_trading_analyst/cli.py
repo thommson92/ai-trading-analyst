@@ -803,11 +803,16 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
     for zone in snapshot.zones:
         print(
             f"    {zone.kind.value:<13} {zone.lower:.2f} - {zone.upper:.2f}  "
-            f"{zone.strength.value:<8} {zone.touch_count} Beruehrungen aus "
-            f"{zone.pivot_count} Wendepunkten, zuletzt "
+            f"{zone.strength.value:<8} "
+            f"{_plural(zone.touch_count, 'Beruehrung', 'Beruehrungen')} aus "
+            f"{_plural(zone.pivot_count, 'Wendepunkt', 'Wendepunkten')}, zuletzt "
             f"{zone.last_confirmed_at.date().isoformat()}, "
             f"Abstand {zone.distance_pct * 100:.2f} %"
         )
+
+
+def _plural(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
 
 
 def _as_percent(value: float | None) -> float | None:

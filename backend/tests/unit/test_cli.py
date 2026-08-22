@@ -43,6 +43,7 @@ from ai_trading_analyst.domain.screening import (
     compute_indicator_values,
 )
 from ai_trading_analyst.domain.technical import (
+    TECHNICAL_ANALYSIS_VERSION,
     PriceZone,
     TechnicalAnalysisParameters,
     TechnicalSnapshot,
@@ -553,7 +554,7 @@ class TestTechnicalKommando:
     ) -> None:
         cli._print_technical_snapshot("AAPL", self._snapshot())
 
-        assert "technical-v1" in capsys.readouterr().out
+        assert TECHNICAL_ANALYSIS_VERSION in capsys.readouterr().out
 
     def test_symbole_werden_eingelesen(self) -> None:
         args = build_parser().parse_args(["technical", "--symbols", "AAPL,MSFT"])

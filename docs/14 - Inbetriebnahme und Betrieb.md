@@ -246,7 +246,16 @@ sind bewusst Konventionen und keine gemessenen Optima. Wer die Zonen neben dem
 Chart in der TWS betrachtet und sie für zu breit, zu eng oder zu zahlreich
 hält, zieht `zone_tolerance_pct`, `min_touches` oder `max_zones_per_side`
 entsprechend nach. Ein neuer Lauf zeigt die Wirkung sofort; gespeicherte
-Ergebnisse bleiben davon unberührt.
+Ergebnisse bleiben davon unberührt — sie führen ihre eigenen Parameter mit.
+
+Worauf beim Vergleich zu achten ist:
+
+- **Zonen überlappen einander nicht.** Tun sie es doch, stimmt etwas nicht.
+- **Die Stärke folgt der Zahl der Wendepunkte**, nicht der Berührungen. Eine
+  Zone mit einem Wendepunkt und vielen Berührungen ist eine Preisregion, die
+  der Kurs durchläuft — sie soll `WEAK` sein.
+- Ein nie wieder angelaufenes Verlaufshoch bildet **keine** Zone
+  (`min_touches`). Es steht als „jüngstes Hoch" in derselben Ausgabe.
 
 ---
 

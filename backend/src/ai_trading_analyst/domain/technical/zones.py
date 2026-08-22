@@ -8,7 +8,13 @@ Verfahren in drei Schritten, jeder einzeln nachpruefbar -- Doc 10, Paragraph
 2. **Zusammenfassen** -- benachbarte Swing-Punkte werden zu einer Preiszone
    gebuendelt, solange sie nahe genug an deren Mittelwert liegen.
 3. **Beruehrungen zaehlen** -- wie oft der Kurs die entstandene Zone
-   spaeter getestet hat.
+   spaeter angetroffen hat.
+
+Die Zone ist dabei die tatsaechliche Spanne ihrer Wendepunkte, und ihre
+Staerke folgt deren Zahl. Beides war in ``v1`` anders und ist nach dem ersten
+Lauf gegen echte Kurse geaendert worden -- siehe ``_zone_bounds`` und
+``_strength`` sowie ADR 0025, Abschnitt "Revision nach dem ersten Lauf an
+echten Kursen".
 
 Hoch- und Tiefpunkte werden dabei **gemeinsam** gebuendelt und nicht getrennt.
 Eine Preisregion, die erst als Widerstand gedient hat und nach dem Durchbruch
@@ -108,24 +114,27 @@ def _cluster_by_price(
     return clusters
 
 
-def _zone_bounds(cluster: Sequence[SwingPoint], tolerance_pct: float) -> tuple[float, float]:
-    """Grenzen einer Zone: das Toleranzband um den Mittelwert des Buendels.
+def _zone_bounds(cluster: Sequence[SwingPoint]) -> tuple[float, float]:
+    """Grenzen einer Zone: die tatsaechliche Spanne ihrer Wendepunkte.
 
-    Nicht die Spanne der Punkte selbst: Ein Buendel aus einem einzigen Punkt
-    haette dann die Breite null, und die Zahl seiner Beruehrungen waere nicht
-    mit der einer breiteren Zone vergleichbar -- die Staerke haenge dann an
-    der Bandbreite statt am Verhalten des Kurses.
+    Kein kuenstlich aufgeweitetes Band um den Mittelwert. Genau das tat ``v1``
+    und erzeugte damit durchgaengig ueberlappende Zonen: Die Buendelung trennt
+    zwei Punkte ab einem Abstand von einer Toleranz, das Band war aber zwei
+    Toleranzen breit. Zwei Buendel, deren Mittelwerte knapp ueber einer
+    Toleranz auseinanderlagen, ueberlappten deshalb um fast eine halbe
+    Bandbreite -- im ersten Lauf gegen echte Kurse ueberlappte jede AAPL-Zone
+    ihre Nachbarn (ADR 0025, Revisionsabschnitt).
 
-    Der Vergleich mit den tatsaechlichen Punkten bleibt trotzdem stehen: Weil
-    das Buendel nach dem Mittelwert *waehrend* des Fuellens gebildet wurde,
-    kann ein frueh aufgenommener Punkt am Ende knapp ausserhalb des Bandes um
-    den *endgueltigen* Mittelwert liegen. Eine Zone, die einen ihrer eigenen
-    Punkte nicht enthaelt, waere nicht erklaerbar.
+    Ein Buendel aus einem einzigen Wendepunkt ergibt eine Zone der Breite
+    null. Das ist beabsichtigt: Sie ist dann ein Preisniveau und keine
+    Spanne. Eine Mindestbreite haette dieses Niveau zu einem Band gemacht,
+    das allein durch seine Breite Beruehrungen einsammelt -- in ``v1`` kam ein
+    einzelner Wendepunkt so auf acht Beruehrungen und wurde STRONG. Die
+    Kerzen bringen ihre eigene Toleranz mit: Eine Kerze beruehrt das Niveau,
+    wenn ihre Spanne es enthaelt.
     """
-    mean = sum(point.price for point in cluster) / len(cluster)
-    lower = min(mean * (1 - tolerance_pct), min(point.price for point in cluster))
-    upper = max(mean * (1 + tolerance_pct), max(point.price for point in cluster))
-    return lower, upper
+    prices = [point.price for point in cluster]
+    return min(prices), max(prices)
 
 
 def _count_touches(
@@ -163,10 +172,16 @@ def _classify(lower: float, upper: float, close: float) -> tuple[ZoneKind, float
     return ZoneKind.PRICE_INSIDE, 0.0
 
 
-def _strength(touch_count: int, params: TechnicalAnalysisParameters) -> ZoneStrength:
-    if touch_count >= params.strong_touch_count:
+def _strength(pivot_count: int, params: TechnicalAnalysisParameters) -> ZoneStrength:
+    """Staerke aus der Zahl der Wendepunkte, nicht der Beruehrungen.
+
+    Eine Beruehrung ist jedes Antreffen der Zone, auch das blosse
+    Durchlaufen. Ein Wendepunkt ist ein Anlauf mit Umkehr -- und nur der sagt
+    etwas darueber, ob die Zone traegt.
+    """
+    if pivot_count >= params.strong_pivot_count:
         return ZoneStrength.STRONG
-    if touch_count >= params.moderate_touch_count:
+    if pivot_count >= params.moderate_pivot_count:
         return ZoneStrength.MODERATE
     return ZoneStrength.WEAK
 
@@ -209,7 +224,7 @@ def build_zones(
 
     zones: list[PriceZone] = []
     for cluster in _cluster_by_price(points, params.zone_tolerance_pct):
-        lower, upper = _zone_bounds(cluster, params.zone_tolerance_pct)
+        lower, upper = _zone_bounds(cluster)
         touch_count, last_confirmed_at = _count_touches(candles, start, end, lower, upper)
         if touch_count < params.min_touches or last_confirmed_at is None:
             continue
@@ -219,7 +234,7 @@ def build_zones(
                 lower=lower,
                 upper=upper,
                 kind=kind,
-                strength=_strength(touch_count, params),
+                strength=_strength(len(cluster), params),
                 touch_count=touch_count,
                 last_confirmed_at=last_confirmed_at,
                 distance_pct=distance_pct,

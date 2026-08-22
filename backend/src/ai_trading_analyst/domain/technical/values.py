@@ -19,12 +19,18 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
 
-TECHNICAL_ANALYSIS_VERSION = "technical-v1"
+TECHNICAL_ANALYSIS_VERSION = "technical-v2"
 """Version des Auswertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung). Aendert sich das Zonenverfahren oder die
 Trenddefinition, steigt diese Nummer -- alte Ergebnisse bleiben dadurch als
 nach altem Verfahren gerechnet erkennbar, statt still uminterpretiert zu
-werden."""
+werden.
+
+``v2`` gegenueber ``v1``: Das Zonenband ist die tatsaechliche Spanne der
+Wendepunkte statt eines festen Toleranzbandes um deren Mittelwert, und die
+Staerke folgt der Zahl der Wendepunkte statt der Beruehrungen. Begruendung
+und Messwerte in ADR 0025, Abschnitt "Revision nach dem ersten Lauf an echten
+Kursen"."""
 
 
 class TechnicalStatus(StrEnum):
@@ -70,13 +76,21 @@ class ZoneKind(StrEnum):
 
 
 class ZoneStrength(StrEnum):
-    """Ordinale Staerke, abgeleitet allein aus der Zahl der Beruehrungen.
+    """Ordinale Staerke, abgeleitet allein aus der Zahl der Wendepunkte.
+
+    Nicht aus der Zahl der Beruehrungen: Eine Beruehrung ist jedes Antreffen
+    der Zone, auch das blosse Durchlaufen. Am ersten Lauf gegen echte Kurse
+    zeigte sich, dass eine Preisregion, in der der Kurs nur herumwandert,
+    damit ebenso viele Beruehrungen sammelt wie eine, an der er tatsaechlich
+    umkehrt -- beide wurden STRONG (ADR 0025, Revisionsabschnitt). Ein *Test*
+    einer Zone ist ein Anlauf mit Umkehr, und genau das ist ein Wendepunkt.
 
     Bewusst eine Stufe und keine Kommazahl: Eine Formel mit gewichteten
     Summanden sieht praezise aus, ohne es zu sein -- die Gewichte waeren
-    frei gewaehlt. Die Rohgroessen (``touch_count``, ``last_confirmed_at``)
-    stehen ohnehin an jeder Zone und lassen sich spaeter im Scoring anders
-    verrechnen, ohne dass hier ein Zahlenwert vorgibt, wie.
+    frei gewaehlt. Die Rohgroessen (``pivot_count``, ``touch_count``,
+    ``last_confirmed_at``) stehen ohnehin an jeder Zone und lassen sich
+    spaeter im Scoring anders verrechnen, ohne dass hier ein Zahlenwert
+    vorgibt, wie.
     """
 
     WEAK = "WEAK"
@@ -99,13 +113,23 @@ class TechnicalAnalysisParameters:
     noch kein Pivot bilden -- ein noch nicht bestaetigter Wendepunkt ist
     keiner."""
     zone_tolerance_pct: float = 0.015
-    """Halbe Breite einer Zone als **Bruchteil** ihres Mittelwerts -- 0.015
-    sind 1,5 %, nicht 1,5. Bestimmt zugleich, welche Swing-Punkte noch zu
-    derselben Zone gehoeren."""
+    """Wie weit ein Swing-Punkt vom Mittelwert eines Buendels entfernt sein
+    darf, um noch dazuzugehoeren -- als **Bruchteil**, 0.015 sind 1,5 %.
+
+    Bestimmt ausschliesslich die Buendelung, **nicht** die Breite der
+    ausgegebenen Zone: Die ist die tatsaechliche Spanne der enthaltenen
+    Wendepunkte. Beides zu koppeln erzeugte in ``v1`` durchgaengig
+    ueberlappende Zonen, weil die Buendelung bei einer Toleranz trennte, das
+    Band aber zwei Toleranzen breit war (ADR 0025, Revisionsabschnitt)."""
     min_touches: int = 2
-    """Eine einmal beruehrte Preisregion ist noch keine Zone."""
-    moderate_touch_count: int = 3
-    strong_touch_count: int = 5
+    """Eine einmal beruehrte Preisregion ist noch keine Zone -- Doc 10,
+    Paragraph 6.8 spricht von *mehrfach* getesteten Preiszonen.
+
+    Ein nie wieder angelaufenes Verlaufshoch faellt damit heraus. Es geht
+    trotzdem nicht verloren: ``recent_high``/``recent_low`` weisen es
+    gesondert aus."""
+    moderate_pivot_count: int = 3
+    strong_pivot_count: int = 5
     max_zones_per_side: int = 3
     """Obergrenze je Seite, nach Naehe zum Kurs. Ohne sie meldet eine lange
     Historie zwei Dutzend Zonen, von denen die entfernten fuer die
@@ -139,11 +163,10 @@ class TechnicalAnalysisParameters:
             )
         if self.min_touches < 1:
             raise ValueError(f"min_touches muss mindestens 1 sein, war {self.min_touches}")
-        if not self.min_touches <= self.moderate_touch_count <= self.strong_touch_count:
+        if not 1 <= self.moderate_pivot_count <= self.strong_pivot_count:
             raise ValueError(
-                f"min_touches ({self.min_touches}) <= moderate_touch_count "
-                f"({self.moderate_touch_count}) <= strong_touch_count "
-                f"({self.strong_touch_count}) ist verletzt"
+                f"1 <= moderate_pivot_count ({self.moderate_pivot_count}) <= "
+                f"strong_pivot_count ({self.strong_pivot_count}) ist verletzt"
             )
         if self.max_zones_per_side < 1:
             raise ValueError(
@@ -221,20 +244,26 @@ class PriceZone:
 
     lower: float
     upper: float
+    """Die tatsaechliche Spanne der enthaltenen Wendepunkte. Bei einem
+    einzelnen Wendepunkt fallen beide zusammen -- die Zone ist dann ein
+    Preisniveau und keine Spanne, und die Ausgabe sagt das auch so. Eine
+    kuenstlich aufgeweitete Mindestbreite haette dieses Niveau zu einem Band
+    gemacht, das allein durch seine Breite Beruehrungen einsammelt."""
     kind: ZoneKind
     strength: ZoneStrength
     touch_count: int
-    """Zahl der getrennten Beruehrungen. Aufeinanderfolgende Kerzen innerhalb
-    der Zone zaehlen als **eine** Beruehrung -- eine mehrwoechige Seitwaerts-
-    bewegung in der Zone ist ein Test, nicht dreissig."""
+    """Zahl der getrennten Beruehrungen -- jedes Antreffen der Zone, auch das
+    blosse Durchlaufen. Aufeinanderfolgende Kerzen innerhalb der Zone zaehlen
+    als **eine** Beruehrung. Kontext, nicht Staerkemass: dafuer siehe
+    ``pivot_count``."""
     last_confirmed_at: datetime
     """Beginn der juengsten Kerze, die die Zone beruehrt hat."""
     distance_pct: float
     """Relativer Abstand vom Schlusskurs zur naechsten Zonenkante. ``0.0``,
     wenn der Kurs in der Zone liegt."""
     pivot_count: int
-    """Zahl der Swing-Punkte, aus denen die Zone gebildet wurde -- die
-    Herkunft der Zone, getrennt von der Zahl ihrer spaeteren Tests."""
+    """Zahl der Wendepunkte, aus denen die Zone gebildet wurde -- wie oft der
+    Kurs hier angelaufen und umgekehrt ist. Grundlage von ``strength``."""
 
     @property
     def midpoint(self) -> float:

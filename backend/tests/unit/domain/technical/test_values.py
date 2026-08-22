@@ -40,8 +40,8 @@ class TestParameterValidierung:
             small_params(**{feld: 1.5})
 
     def test_staerkeschwellen_muessen_aufsteigend_sein(self) -> None:
-        with pytest.raises(ValueError, match="strong_touch_count"):
-            small_params(min_touches=2, moderate_touch_count=5, strong_touch_count=3)
+        with pytest.raises(ValueError, match="strong_pivot_count"):
+            small_params(moderate_pivot_count=5, strong_pivot_count=3)
 
     def test_zonenfenster_muss_das_laengste_benoetigte_fenster_abdecken(self) -> None:
         """Sonst waere ein Teil der Auswertung dauerhaft nicht berechenbar,

@@ -309,8 +309,8 @@ class TechnicalAnalysisConfig(_Section):
     pivot_reach: PositiveInt = 3
     zone_tolerance_pct: float = 0.015
     min_touches: PositiveInt = 2
-    moderate_touch_count: PositiveInt = 3
-    strong_touch_count: PositiveInt = 5
+    moderate_pivot_count: PositiveInt = 3
+    strong_pivot_count: PositiveInt = 5
     max_zones_per_side: PositiveInt = 3
     history_candles: PositiveInt = 250
     atr_length: PositiveInt = 14
@@ -341,9 +341,9 @@ class TechnicalAnalysisConfig(_Section):
                 "trend_flat_pct muss ein Bruchteil zwischen 0 und 1 sein "
                 f"(0.005 entspricht 0,5 %), war {self.trend_flat_pct}"
             )
-        if not self.min_touches <= self.moderate_touch_count <= self.strong_touch_count:
+        if not 1 <= self.moderate_pivot_count <= self.strong_pivot_count:
             raise ValueError(
-                "min_touches <= moderate_touch_count <= strong_touch_count ist verletzt"
+                "1 <= moderate_pivot_count <= strong_pivot_count ist verletzt"
             )
         laengstes_fenster = max(
             2 * self.pivot_reach + 1,

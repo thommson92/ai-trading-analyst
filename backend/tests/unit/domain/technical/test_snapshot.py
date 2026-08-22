@@ -149,7 +149,7 @@ class TestSnapshot:
         """Ohne sie waere die Verfahrensversion eine leere Zusage: Doc 14
         fordert ausdruecklich dazu auf, die Zonenparameter zwischen Laeufen
         nachzuziehen."""
-        params = small_params(zone_tolerance_pct=0.04, min_touches=3, moderate_touch_count=3)
+        params = small_params(zone_tolerance_pct=0.04, min_touches=3)
         series = series_from_prices([100.0] * 6)
 
         snapshot = compute_technical_snapshot(series, 5, params, EVALUATED_AT)

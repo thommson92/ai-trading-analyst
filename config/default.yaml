@@ -114,14 +114,20 @@ technical_analysis:
   # koennen deshalb noch keinen Wendepunkt bilden: Ein unbestaetigter
   # Wendepunkt ist keiner.
   pivot_reach: 3
-  # Halbe Zonenbreite als Bruchteil des Zonenmittelwerts: 0.015 sind
-  # 1,5 %, nicht 1,5. Auf der 195-Minuten-Kerze rund eine halbe bis ganze
-  # Tagesspanne.
+  # Wie weit ein Wendepunkt vom Mittelwert eines Buendels entfernt sein
+  # darf, um noch dazuzugehoeren -- ein Bruchteil: 0.015 sind 1,5 %, nicht
+  # 1,5. Bestimmt nur die Buendelung; die Zone selbst ist so breit wie die
+  # Spanne ihrer Wendepunkte (ADR 0025, Revisionsabschnitt).
   zone_tolerance_pct: 0.015
-  # Eine einmal beruehrte Preisregion ist noch keine Zone.
+  # Eine einmal beruehrte Preisregion ist noch keine Zone. Ein nie wieder
+  # angelaufenes Verlaufshoch faellt damit heraus -- es steht weiterhin
+  # als juengstes Hoch in der Auswertung.
   min_touches: 2
-  moderate_touch_count: 3
-  strong_touch_count: 5
+  # Staerke folgt der Zahl der Wendepunkte, nicht der Beruehrungen: Eine
+  # Beruehrung ist auch das blosse Durchlaufen, ein Wendepunkt ist ein
+  # Anlauf mit Umkehr.
+  moderate_pivot_count: 3
+  strong_pivot_count: 5
   # Obergrenze je Seite, nach Naehe zum Kurs.
   max_zones_per_side: 3
   # Fenster der Zonensuche in Kerzen -- bei zwei Kerzen je Handelstag rund

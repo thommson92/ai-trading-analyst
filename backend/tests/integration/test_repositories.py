@@ -37,6 +37,7 @@ from ai_trading_analyst.domain.screening import (
     SignalType,
 )
 from ai_trading_analyst.domain.technical import (
+    TECHNICAL_ANALYSIS_VERSION,
     PriceZone,
     TechnicalAnalysisParameters,
     TechnicalSnapshot,
@@ -304,7 +305,7 @@ class TestScreeningResultRepository:
         technical = TechnicalSnapshot(
             status=TechnicalStatus.COMPLETED,
             evaluated_at=datetime.now(UTC),
-            analysis_version="technical-v1",
+            analysis_version=TECHNICAL_ANALYSIS_VERSION,
             parameters=TechnicalAnalysisParameters(zone_tolerance_pct=0.02).as_mapping(),
             candle_timestamp=datetime.now(UTC) - timedelta(minutes=195),
             close=100.0,
