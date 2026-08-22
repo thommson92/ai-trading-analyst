@@ -316,40 +316,61 @@ class RunAnalysisUseCase:
             max_workers=min(_MAX_CONCURRENT_AGENT_CALLS, len(auftraege))
         ) as executor:
             futures = {
-                executor.submit(self._run_agent, item, art): (item, art)
+                executor.submit(self._agent_result, item, art): (item, art)
                 for item, art in auftraege
             }
             for future in concurrent.futures.as_completed(futures):
                 item, art = futures[future]
                 try:
-                    future.result()
+                    self._assign_agent_result(item, art, future.result())
                 except Exception:
-                    # ``_run_agent`` faengt bereits alles ab; hier bliebe nur
-                    # ein Ausfall des Executors selbst. Auch der darf das
+                    # ``_agent_result`` faengt bereits alles ab; hier bliebe
+                    # nur ein Ausfall des Executors selbst. Auch der darf das
                     # Screening-Ergebnis nicht kosten.
                     _logger.exception(
                         "Nebenlaeufiger Agentenlauf (%s) fuer %s ist ausgefallen",
                         art,
                         item.stock.symbol,
                     )
-                    self._store_agent_failure(item, art, "provider_error")
+                    self._assign_agent_result(
+                        item, art, self._unavailable_result(item, art, "provider_error")
+                    )
 
-    def _run_agent(self, item: _PreparedOutcome, art: str) -> None:
-        if art == "research":
-            item.research = self._evaluate_research(item.stock, item.evaluated_at)
-        else:
-            assert item.technical is not None
-            item.technical_assessment = self._evaluate_technical_assessment(
-                item.stock, item.technical, item.evaluated_at
-            )
+    def _agent_result(
+        self, item: _PreparedOutcome, art: str
+    ) -> ResearchReport | TechnicalAssessment:
+        """Laeuft im Arbeitsthread und **liefert** nur -- er schreibt nichts.
 
-    def _store_agent_failure(self, item: _PreparedOutcome, art: str, reason: str) -> None:
+        Die Zuweisung bleibt dem Hauptthread vorbehalten
+        (``_assign_agent_result``). Bei zwei Auftragsarten je Aktie schrieben
+        sonst zwei Threads in dasselbe Objekt; dass sie verschiedene Felder
+        traefen, waere eine Zusicherung, die man beim naechsten Agenten
+        vergisst.
+        """
         if art == "research":
-            item.research = self._unavailable_research(item.evaluated_at, reason)
+            return self._evaluate_research(item.stock, item.evaluated_at)
+        assert item.technical is not None
+        return self._evaluate_technical_assessment(
+            item.stock, item.technical, item.evaluated_at
+        )
+
+    @staticmethod
+    def _assign_agent_result(
+        item: _PreparedOutcome, art: str, ergebnis: ResearchReport | TechnicalAssessment
+    ) -> None:
+        if art == "research":
+            assert isinstance(ergebnis, ResearchReport)
+            item.research = ergebnis
         else:
-            item.technical_assessment = self._unavailable_assessment(
-                item.evaluated_at, reason, item.technical
-            )
+            assert isinstance(ergebnis, TechnicalAssessment)
+            item.technical_assessment = ergebnis
+
+    def _unavailable_result(
+        self, item: _PreparedOutcome, art: str, reason: str
+    ) -> ResearchReport | TechnicalAssessment:
+        if art == "research":
+            return self._unavailable_research(item.evaluated_at, reason)
+        return self._unavailable_assessment(item.evaluated_at, reason, item.technical)
 
     def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
         outcome = StockScreeningOutcome(
