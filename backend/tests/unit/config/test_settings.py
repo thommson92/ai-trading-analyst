@@ -191,6 +191,29 @@ class TestSecrets:
         monkeypatch.setenv("ATA_SESSION_SECRET", "s3cret")
         assert "s3cret" not in repr(Secrets(_env_file=None))
 
+    @pytest.mark.parametrize("leer", ["", "   ", "\t"])
+    def test_an_empty_value_counts_as_not_set(
+        self, monkeypatch: pytest.MonkeyPatch, leer: str
+    ) -> None:
+        """``.env.example`` liefert die noch ungebrauchten Schluessel leer aus.
+
+        Ohne diese Normalisierung liefe ``require`` glatt durch und gaebe eine
+        leere Zeichenkette weiter -- der Frueh-Abbruch vor dem halbstuendigen
+        Backfill waere uebersprungen, und der Abend endete mit lauter
+        degradierten Kandidaten und Rueckgabewert 0.
+        """
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", leer)
+        with pytest.raises(MissingSecretError, match="ATA_FINNHUB_API_KEY"):
+            Secrets(_env_file=None).require("finnhub_api_key")
+
+    def test_a_value_with_surrounding_whitespace_is_kept_as_is(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Normalisiert wird nur der leere Fall -- ein echter Schluessel
+        bleibt unangetastet, auch wenn er versehentlich Leerzeichen traegt."""
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", " abc123 ")
+        assert Secrets(_env_file=None).require("finnhub_api_key") == " abc123 "
+
 
 class TestSecretsAusDatei:
     """Ohne die ``.env`` bleibt der Backfill auf dem Server unbedienbar.

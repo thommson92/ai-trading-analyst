@@ -16,16 +16,21 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from ai_trading_analyst import cli
 from ai_trading_analyst.cli import build_parser, main, require_complete_enough
+from ai_trading_analyst.config import AppConfig, MissingSecretError, Secrets
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    EarningsProvider,
     MarketDataProviderError,
+    ResearchProvider,
     RunStatus,
     Stock,
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     Candle,
@@ -656,3 +661,102 @@ class TestVollstaendigkeitDesLaufs:
         """Sonst waere ein leerer Lauf die bequemste Art, als erledigt zu gelten."""
         with pytest.raises(MarketDataProviderError):
             require_complete_enough(self._zusammenfassung(0, 0), 0.9)
+
+
+class TestDispatchAnbieterUebersteuerung:
+    """Der taegliche Lauf schaltet Earnings-Filter und Research Agent ueber
+    Argumente scharf, nicht ueber die ausgelieferte Konfiguration.
+
+    Beide stehen in ``config/default.yaml`` bewusst auf ``fixture``, damit
+    Start und Tests ohne Zugangsdaten auskommen. Den produktiven Schalter
+    traegt deshalb der Eintrag in der Aufgabenplanung -- so findet ein
+    ``git pull`` auf dem Server keinen lokalen Diff vor, dieselbe Begruendung
+    wie bei ``--provider ibkr``.
+
+    Geprueft wird an der Stelle, an der die Anbieter gebaut werden: Dort
+    liegen die Uebersteuerungen bereits an, und der Lauf hat weder TWS noch
+    Datenbank angefasst.
+    """
+
+    @staticmethod
+    def _spione(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Faengt die gebauten Anbieter ab und meldet, was sie sahen.
+
+        Der Research-Anbieter bricht mit ``MissingSecretError`` ab -- der Weg,
+        auf dem ``command_dispatch`` ohne Datenbank mit Rueckgabewert 2
+        endet.
+        """
+        gesehen: dict[str, str] = {}
+
+        class _StummerEarningsProvider:
+            def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+                return None
+
+        def earnings(config: AppConfig, secrets: Secrets) -> EarningsProvider:
+            gesehen["earnings"] = config.earnings_filter.provider
+            return _StummerEarningsProvider()
+
+        def research(config: AppConfig, secrets: Secrets) -> ResearchProvider:
+            gesehen["research"] = config.research.provider
+            raise MissingSecretError("Abbruch fuer den Test")
+
+        monkeypatch.setattr(cli, "build_earnings_provider", earnings)
+        monkeypatch.setattr(cli, "build_research_provider", research)
+        return gesehen
+
+    def test_ohne_argumente_bleibt_die_konfiguration_unberuehrt(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._spione(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+
+        assert gesehen == {"earnings": "fixture", "research": "fixture"}
+
+    def test_die_argumente_uebersteuern_beide_anbieter(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._spione(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(
+                [
+                    "--config",
+                    str(config),
+                    "dispatch",
+                    "--earnings-provider",
+                    "finnhub",
+                    "--research-provider",
+                    "anthropic",
+                ]
+            )
+            == 2
+        )
+
+        assert gesehen == {"earnings": "finnhub", "research": "anthropic"}
+
+    def test_jedes_argument_wirkt_fuer_sich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der stufenweise Weg: erst Finnhub scharf, Research noch nicht."""
+        gesehen = self._spione(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
+        )
+
+        assert gesehen == {"earnings": "finnhub", "research": "fixture"}
+
+    def test_ein_unbekannter_anbieter_wird_abgewiesen(self, projekt: Path) -> None:
+        """``model_copy(update=...)`` umgeht die Pydantic-Pruefung -- die
+        Argumentliste ist deshalb die einzige Stelle, die einen Tippfehler
+        noch abfaengt."""
+        config = write_config(projekt, provider="ibkr")
+
+        with pytest.raises(SystemExit) as abbruch:
+            main(["--config", str(config), "dispatch", "--research-provider", "openai"])
+
+        assert abbruch.value.code == 2

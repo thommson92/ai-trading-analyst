@@ -27,31 +27,43 @@ getrennt.
 
 ## Projektstand
 
-**Sprint 2 — Marktdaten.** Toolchain, Konfiguration, Logging, Schichtstruktur
-und CI stehen (Sprint 0 Teil A). Gate G1 ist fachlich freigegeben
+**Sprints 1–3 abgeschlossen, Sprint 4 begonnen.** Die deterministische Kette
+läuft durchgehend: Watchlist-Import, resumierbarer Backfill, Bildung
+abgeschlossener 195-Minuten-Kerzen aus nativen 15-Minuten-Bars,
+Indikatorberechnung, Screener, Earnings-Filter, Backtesting und der
+Trading-Day-Dispatcher.
+
+Gate G1 ist fachlich freigegeben
 ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei Signalregeln und
-die 2-aus-3-Kandidatenregel sind als reiner Domain-Code implementiert
-(`backend/src/ai_trading_analyst/domain/screening`, Tag `sprint-1a-baseline`).
-Die durchgehend lauffähige Kette aus Sprint 1B steht: Marktdatenanbieter →
-Application Use Case → Screener → PostgreSQL → REST API (`/api/v1`).
+die 2-aus-3-Kandidatenregel sind reiner Domain-Code
+(`backend/src/ai_trading_analyst/domain/screening`).
 
 Als Datenquelle ist **Interactive Brokers** freigegeben
 ([ADR 0014](docs/adr/0014-ibkr-produktivintegration-freigegeben.md), technisch
 `GO_WITH_LIMITATIONS`, vertraglich `GO`); TradingView ist mit **NO_GO**
 ausgeschieden ([ADR 0012](docs/adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)).
-Der `IbkrMarketDataProvider` baut aus nativen 15-Minuten-Bars abgeschlossene
-195-Minuten-Kerzen und berechnet RSI, RSI-MA, EMA5 und EMA20 selbst. Welcher
-Anbieter läuft, entscheidet `market_data.provider` in `config/default.yaml`;
-der Standard bleibt `fixture`.
+Earnings-Termine kommen von Finnhub
+([ADR 0017](docs/adr/0017-finnhub-fuer-earnings-und-ratings.md)), die
+KI-Anbindung von Anthropic
+([ADR 0021](docs/adr/0021-ki-anbindung-anthropic-api.md)).
 
-Noch offen: Watchlist-Import aus IBKR, historischer Backfill, Scheduler,
-Frontend-Ausbau.
+Aus Sprint 4 steht der **Research Agent** mit Quellenbindung und
+Kostensteuerung ([ADR 0022](docs/adr/0022-research-agent-quellen.md),
+[ADR 0023](docs/adr/0023-research-agent-zitierarchitektur.md)).
 
-Bewusst noch nicht begonnen:
+Welcher Anbieter jeweils läuft, entscheidet `config/default.yaml`. Alle drei
+externen Quellen stehen dort bewusst auf `fixture`, damit Start und Tests ohne
+Zugangsdaten auskommen; scharf geschaltet wird je Lauf über Argumente — siehe
+[Doc 14](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md).
 
-| Thema | Blockiert durch |
+Noch offen:
+
+| Thema | Stand |
 |---|---|
-| Earnings-Termine | Anbieterwahl offen — IBKR liefert sie nicht (ADR 0014, E1) |
+| Technical, Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
+| Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
+| Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
+| Benachrichtigungskanal (F10) | Anbieterwahl offen, braucht ein eigenes ADR; der Dispatcher-Alarm landet bis dahin nur im Protokoll |
 
 ## Struktur
 
@@ -79,7 +91,7 @@ backend/          Python 3.12, FastAPI-Anwendung
     architecture/   Schichtgrenzen (bricht bei Verstoß die CI)
 frontend/         Next.js 15, TypeScript strict
 config/           default.yaml — fachliche Konfiguration ohne Geheimnisse
-docs/             Fachdokumente 01–13
+docs/             Fachdokumente 01–14 (14: Inbetriebnahme und Betrieb)
 docs/adr/         Architecture Decision Records
 ```
 
@@ -287,45 +299,35 @@ Analyse und wäre es nicht. Die Entscheidungen dahinter stehen in
 
 Gerechnet wird über denselben Anwendungsfall wie beim manuellen Lauf.
 Earnings-Filter und Research Agent hängen darin und laufen deshalb automatisch
-mit — mit den Anbietern aus `earnings_filter.provider` und
-`research.provider`. Beide stehen ausgeliefert auf `fixture`; der tägliche Lauf
-braucht also weder einen Finnhub- noch einen Anthropic-Zugang, liefert dann
-aber auch keine echten Termine und keine echte Recherche.
+mit. Beide stehen ausgeliefert auf `fixture`; der tägliche Lauf braucht also
+weder einen Finnhub- noch einen Anthropic-Zugang, liefert dann aber auch keine
+echten Termine und keine echte Recherche.
+
+Scharf geschaltet werden sie **nicht** in `config/default.yaml`, sondern je
+Lauf über Argumente:
+
+```bash
+.venv/bin/python -m ai_trading_analyst.cli dispatch --provider ibkr \
+    --earnings-provider finnhub --research-provider anthropic
+```
+
+Damit trägt der Eintrag in der Aufgabenplanung die produktiven Schalter und
+`git pull` findet auf dem Server keinen lokalen Diff vor — dieselbe Begründung
+wie bei `--provider ibkr`. `--research-provider anthropic` löst je Kandidat
+einen echten, kostenpflichtigen API-Aufruf aus.
 
 ### Eintrag in der Windows-Aufgabenplanung
 
-Das ist die **einzige Stelle im ganzen System mit einer deutschen Uhrzeit**,
-und sie steht bewusst hier und nicht im Code:
+Ausgelöst wird der Lauf von der Windows-Aufgabenplanung, alle 15 Minuten in
+einem großzügigen Abendfenster. Der Auslöser ist dumm, das Programm
+entscheidet. Das Startfenster ist die **einzige Stelle im ganzen System mit
+einer deutschen Uhrzeit** und steht deshalb nicht im Code, sondern in der
+Betriebsdokumentation: **[Doc 14 — Inbetriebnahme und
+Betrieb](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md)**.
 
-| Feld | Wert |
-|---|---|
-| Trigger | Täglich, Mo–Fr, Beginn **17:30**, Wiederholung alle **15 Minuten** für **4 Stunden** |
-| Programm | `C:\...\backend\.venv\Scripts\python.exe` |
-| Argumente | `-m ai_trading_analyst.cli dispatch --provider ibkr` |
-| Starten in | `C:\...\backend` |
-
-Das Fenster ist absichtlich großzügig: 12:50 New Yorker Zeit liegen
-normalerweise auf 18:50 unserer Zeit, in den zwei bis drei Wochen, in denen
-die USA und Europa an verschiedenen Tagen umstellen, aber auf 17:50. Beide
-Fälle liegen darin.
-
-Die Rückgabewerte sind so gewählt, dass die Aufgabenplanung nur meldet, was
-wirklich schiefging:
-
-| Wert | Bedeutung |
-|---|---|
-| 0 | Lauf durchgeführt — oder nichts zu tun (zu früh, kein Handelstag, bereits erledigt) |
-| 1 | Versucht und gescheitert, oder Nachholfrist abgelaufen |
-| 2 | Konfigurations- oder Umgebungsfehler; erneutes Starten hilft nicht |
-| 130 | Abgebrochen |
-
-Bleibt der Lauf länger als `scheduler.max_catch_up_seconds` (Standard: zwei
-Stunden, also bis 14:50 New Yorker Zeit) unerledigt, geht eine Meldung raus.
-Die Frist liegt bewusst **innerhalb** des Startfensters — sonst käme die
-Meldung erst am nächsten Tag. Wer eines von beiden verschiebt, muss das
-andere mitziehen; ein Test hält die Bedingung fest. Der Kanal ist noch nicht
-entschieden (F10); bis dahin erscheint sie im Protokoll, ausdrücklich als
-*nicht versendet* gekennzeichnet.
+Dort stehen auch die Abnahme in sieben Stufen, die Rückgabewerte, mit denen die
+Aufgabenplanung nur meldet was wirklich schiefging, und das Vorgehen im
+laufenden Betrieb.
 
 ### Geheimnisse
 
@@ -382,9 +384,10 @@ cp ../.env.example ../.env   # ATA_DATABASE_URL und ATA_SESSION_SECRET setzen
 .venv/bin/uvicorn ai_trading_analyst.main:app --reload
 ```
 
-`POST /api/v1/analysis-runs` startet in Sprint 1B ausschließlich einen
-fixture-basierten manuellen Lauf (`FixtureMarketDataProvider`) — noch keine
-produktiven Marktdaten.
+`POST /api/v1/analysis-runs` startet einen manuellen Lauf mit den Anbietern
+aus `config/default.yaml` — ausgeliefert also `fixture`. Anders als die
+Kommandozeile kennt der Endpunkt keine Übersteuerung je Aufruf; der produktive
+Lauf läuft über `cli dispatch`.
 
 ## Konfiguration
 

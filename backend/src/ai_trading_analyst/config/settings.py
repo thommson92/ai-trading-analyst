@@ -324,14 +324,18 @@ class ResearchPricingConfig(_Section):
     """Preise fuer die Kostenschaetzung im Log (ADR 0021 Budget).
 
     Rein informativ und **von Hand gepflegt** -- die Anwendung fragt keine
-    Preisliste ab. Vorbelegt mit den Sonnet-5-Einfuehrungspreisen; die
+    Preisliste ab. Vorbelegt mit den regulaeren Sonnet-5-Preisen; die
     Websuche kostet zusaetzlich zu den Token (10 USD je 1000 Suchen).
     Token allein beantworten die eigentliche Betreiberfrage nicht ("was
     kostet mich ein Lauf"), ein Schaetzwert schon.
+
+    Die Werte spiegeln ``config/default.yaml`` und werden mit ihm zusammen
+    gepflegt: Eine Konfiguration, die ``research.pricing`` weglaesst, soll
+    nicht anders schaetzen als die ausgelieferte.
     """
 
-    input_usd_per_million: NonNegativeFloat = 2.0
-    output_usd_per_million: NonNegativeFloat = 10.0
+    input_usd_per_million: NonNegativeFloat = 3.0
+    output_usd_per_million: NonNegativeFloat = 15.0
     usd_per_search: NonNegativeFloat = 0.01
 
 
@@ -575,6 +579,26 @@ class Secrets(BaseSettings):
     market_data_api_key: SecretStr | None = None
     notification_token: SecretStr | None = None
     finnhub_api_key: SecretStr | None = None
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _leer_ist_nicht_gesetzt(cls, value: object) -> object:
+        """Ein leerer Wert zaehlt als nicht gesetzt.
+
+        ``.env.example`` liefert die noch nicht gebrauchten Schluessel als
+        ``ATA_FINNHUB_API_KEY=`` aus, also leer. Ohne diese Normalisierung
+        kaeme dort eine leere Zeichenkette an, ``require`` liefe glatt durch
+        und der Fehler faende erst beim Anbieter statt.
+
+        Das waere die teuerste Stelle dafuer: Der Frueh-Abbruch in
+        ``command_dispatch`` sitzt bewusst **vor** dem halbstuendigen
+        Backfill. Uebersprungen, laeuft der ganze Abend durch, jeder Kandidat
+        faellt einzeln auf einen Anbieterfehler zurueck -- und der Lauf endet
+        mit Rueckgabewert 0. Er saehe aus wie ein gelungener Tag.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     def require(self, field_name: str) -> str:
         """Liefert den Klartextwert eines Geheimnisses oder scheitert eindeutig."""

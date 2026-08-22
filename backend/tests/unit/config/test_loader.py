@@ -8,6 +8,7 @@ import pytest
 
 from ai_trading_analyst.config import ConfigError, default_config_path, load_config
 from ai_trading_analyst.config.loader import DEFAULT_CONFIG_ENV_VAR
+from ai_trading_analyst.config.settings import ResearchPricingConfig
 
 
 class TestLoadConfig:
@@ -124,6 +125,20 @@ class TestShippedDefaultConfig:
         assert "sec.gov" in research.fetch_allowed_domains
         assert research.max_fetch_content_tokens > 0
         assert research.max_input_tokens_per_symbol > 0
+
+    def test_the_shipped_prices_match_the_defaults(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Beide Stellen tragen dieselben Preise.
+
+        Sie werden von Hand gepflegt, und beim letzten Nachziehen blieb die
+        eine zurueck: Eine Konfiguration ohne ``research.pricing`` haette
+        danach um ein Drittel zu niedrig geschaetzt, ohne dass irgendwo etwas
+        auffiele.
+        """
+        monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
+        ausgeliefert = load_config().config.research.pricing
+        assert ausgeliefert == ResearchPricingConfig()
 
     def test_it_contains_no_secret_like_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Geheimnisse gehoeren ausschliesslich in ATA_-Umgebungsvariablen

@@ -178,12 +178,19 @@ research:
   # Nur fuer die Kostenschaetzung im Log. VON HAND GEPFLEGT -- die Anwendung
   # fragt keine Preisliste ab, ein veralteter Wert faellt nirgends auf.
   #
-  # Stand 2026-08-17: Sonnet-5-Einfuehrungspreise, Websuche 10 USD je 1000.
-  # ACHTUNG: Die Einfuehrungspreise laufen am 2026-08-31 aus, danach gelten
-  # 3,00 / 15,00 USD je Million. Ab dann sind die Werte hier zu niedrig.
+  # Stand 2026-08-22, gegen den Anthropic-Katalog geprueft: Sonnet 5 kostet
+  # regulaer 3,00 / 15,00 USD je Million, die Websuche 10 USD je 1000.
+  #
+  # Hier stehen bewusst die REGULAEREN Preise, obwohl bis einschliesslich
+  # 2026-08-31 noch die Einfuehrungspreise (2,00 / 10,00) gelten: Die Werte
+  # speisen ausschliesslich die Schaetzung im Protokoll, nicht die
+  # eigentliche Bremse (max_input_tokens_per_symbol). Zu hoch schaetzen ist
+  # damit die ungefaehrliche Richtung -- und es erspart eine zweite Aenderung
+  # mitten im Betrieb. Bis zum Stichtag liegt die Schaetzung rund ein Drittel
+  # ueber den tatsaechlichen Kosten.
   pricing:
-    input_usd_per_million: 2.0
-    output_usd_per_million: 10.0
+    input_usd_per_million: 3.0
+    output_usd_per_million: 15.0
     usd_per_search: 0.01
 
 data_availability:

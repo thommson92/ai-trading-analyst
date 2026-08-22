@@ -851,6 +851,21 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Earnings-Filter und Research Agent stehen ausgeliefert auf 'fixture',
+    # damit Start und Tests ohne Zugangsdaten auskommen. Der produktive
+    # Schalter gehoert deshalb hierher und nicht in config/default.yaml: Die
+    # Aufgabenplanung traegt ihn in ihren Argumenten, und ein 'git pull' auf
+    # dem Server findet keinen lokalen Diff vor -- dieselbe Begruendung wie
+    # bei '--provider ibkr'.
+    if args.earnings_provider is not None:
+        earnings_filter = config.earnings_filter.model_copy(
+            update={"provider": args.earnings_provider}
+        )
+        config = config.model_copy(update={"earnings_filter": earnings_filter})
+    if args.research_provider is not None:
+        research = config.research.model_copy(update={"provider": args.research_provider})
+        config = config.model_copy(update={"research": research})
+
     try:
         standardzeitraum = duration_in_days(config.market_data.ibkr.history_duration)
         notifier = build_notifier(config.notifications)
@@ -1129,6 +1144,26 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("fixture", "ibkr"),
         default=None,
         help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    dispatch.add_argument(
+        "--earnings-provider",
+        choices=("fixture", "finnhub"),
+        default=None,
+        help=(
+            "Uebersteuert earnings_filter.provider nur fuer diesen Lauf. 'finnhub' "
+            "braucht ATA_FINNHUB_API_KEY und liefert echte Termine statt der "
+            "Fixture-Daten."
+        ),
+    )
+    dispatch.add_argument(
+        "--research-provider",
+        choices=("fixture", "anthropic"),
+        default=None,
+        help=(
+            "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' braucht "
+            "ATA_LLM_API_KEY und loest je Kandidat einen echten, kostenpflichtigen "
+            "API-Aufruf aus."
+        ),
     )
     dispatch.set_defaults(handler=command_dispatch)
 
