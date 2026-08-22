@@ -104,17 +104,37 @@ Alembic mehr als einen Head sieht.
 Beweist die Kette Konfiguration → Watchlist → Domain → Datenbank, bevor die TWS
 als Fehlerquelle dazukommt.
 
+Zuerst die Watchlist. Sie kontaktiert die TWS nicht und liest nur die Dateien
+aus `watchlists/`:
+
 ```powershell
 .venv\Scripts\python.exe -m ai_trading_analyst.cli watchlist
-.venv\Scripts\python.exe -m ai_trading_analyst.cli screen --provider fixture
 ```
 
-`watchlist` kontaktiert die TWS nicht und liest nur die Dateien aus
-`watchlists/`. `screen --provider fixture` legt einen echten Analyse-Lauf in
-PostgreSQL ab, ohne externe Abhängigkeit.
+Dann ein vollständiger Analyse-Lauf ohne externe Abhängigkeit. Der Weg dahin
+führt über die API, nicht über die Kommandozeile: `cli screen` ist das
+IBKR-Kommando und weist einen Lauf mit `fixture` ausdrücklich ab
+(Rückgabewert 2), weil es sonst mit dem ausgelieferten Standard eine
+TWS-Verbindung aufbaute. `POST /api/v1/analysis-runs` dagegen läuft mit den
+Anbietern aus der Konfiguration — ausgeliefert also `fixture` — und legt das
+Ergebnis in PostgreSQL ab.
 
-**Abbruch, wenn:** die Watchlist leer ist oder der Fixture-Lauf keinen
-Analyse-Lauf schreibt.
+```powershell
+# In einem ersten Fenster:
+.venv\Scripts\uvicorn.exe ai_trading_analyst.main:app
+
+# In einem zweiten:
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/system/readiness
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/analysis-runs
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/analysis-runs
+```
+
+`readiness` muss `ready` und `ok` melden — damit ist die Datenbank
+nachgewiesen erreichbar. Der `POST` liefert den angelegten Lauf zurück, der
+abschließende `GET` zeigt ihn in der Liste.
+
+**Abbruch, wenn:** die Watchlist leer ist, `readiness` nicht `ready` meldet oder
+der `POST` keinen Analyse-Lauf zurückgibt.
 
 ---
 
@@ -198,7 +218,12 @@ die Ablage lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet
 
 # Stufe F — Erster Tageslauf und Aufgabenplanung
 
-An einem Handelstag nach 12:50 New Yorker Zeit von Hand:
+An einem Handelstag **zwischen 12:50 und 14:50 New Yorker Zeit** von Hand.
+Beide Grenzen sind echt: Vor 12:50 ist der Sicherheitspuffer nach Kerzenschluss
+noch nicht abgelaufen und der Lauf meldet „zu früh" (Rückgabewert 0, aber ohne
+Ergebnis); nach 14:50 ist die Nachholfrist
+(`scheduler.max_catch_up_seconds`, zwei Stunden) abgelaufen, und der Lauf endet
+mit Rückgabewert 1 samt Überfälligkeitsmeldung.
 
 ```powershell
 .venv\Scripts\python.exe -m ai_trading_analyst.cli dispatch --provider ibkr
@@ -255,17 +280,33 @@ produktive Schalter gehört in die Argumente der Aufgabenplanung, damit ein
 
 ## Schritt 1 — Earnings-Termine über Finnhub
 
-`ATA_FINNHUB_API_KEY` setzen, dann einmal von Hand:
+> **Erst die Aufgabenplanung anhalten.** Seit Stufe F läuft sie alle 15 Minuten
+> und hat den Tageslauf um diese Uhrzeit meistens schon erledigt. Ein manueller
+> Aufruf endete dann mit „bereits erledigt" und Rückgabewert 0, ohne Finnhub
+> auch nur anzufassen — der Schritt sähe grün aus und hätte nichts geprüft.
+
+`ATA_FINNHUB_API_KEY` setzen, die Aufgabe in der Aufgabenplanung deaktivieren,
+dann im Fenster zwischen 12:50 und 14:50 New Yorker Zeit von Hand:
 
 ```powershell
 .venv\Scripts\python.exe -m ai_trading_analyst.cli dispatch --provider ibkr `
     --earnings-provider finnhub
 ```
 
+Ist der Tageslauf bereits erledigt, hilft nur der nächste Handelstag — ein
+erledigter Lauf wird nicht wiederholt, und das ist beabsichtigt.
+
+Danach die Aufgabe mit dem ergänzten Argument wieder aktivieren.
+
 Quelle und akzeptierte Einschränkungen stehen in
 [ADR 0017](adr/0017-finnhub-fuer-earnings-und-ratings.md), das Statusmodell in
 [ADR 0020](adr/0020-earnings-filter-status-und-handelstagskalender.md). Die
 kostenlose Stufe genügt.
+
+Ein fehlender oder leerer Schlüssel bricht den Lauf **vor** dem Backfill ab
+(Rückgabewert 2). Das ist Absicht: Erst dahinter bemerkt, hätte er eine halbe
+Stunde lang Daten geholt und dann einen Abend voller degradierter Kandidaten
+erzeugt.
 
 ## Schritt 2 — Research Agent über Anthropic
 
