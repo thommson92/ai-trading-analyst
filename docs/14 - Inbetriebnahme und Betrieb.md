@@ -214,6 +214,30 @@ die Ablage lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet
 
 **Abbruch, wenn:** mehr als eine Handvoll Symbole ohne Daten zurückkommt.
 
+## Zwischenschritt: Chartauswertung gegenprüfen (optional)
+
+Kein Abnahmekriterium, sondern eine Gelegenheit. Sobald der Bestand steht,
+lässt sich die deterministische Chartauswertung für einzelne Symbole ansehen
+([ADR 0025](adr/0025-deterministische-chartauswertung-und-zonen.md)):
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli technical --symbols AAPL,MSFT
+```
+
+Ausgegeben werden Trend, RSI, Lage zu EMA5/EMA20, ATR, die jüngsten Hoch- und
+Tiefpunkte und die Unterstützungs-/Widerstandszonen mit Spanne, Stärke,
+Berührungszahl, letzter Bestätigung und Abstand zum Kurs.
+
+Das Kommando rechnet ausschließlich auf dem gespeicherten Bestand, nie gegen
+die TWS — es kann also nichts stören und ist beliebig wiederholbar.
+
+Die Zonenparameter in `config/default.yaml` (Abschnitt `technical_analysis`)
+sind bewusst Konventionen und keine gemessenen Optima. Wer die Zonen neben dem
+Chart in der TWS betrachtet und sie für zu breit, zu eng oder zu zahlreich
+hält, zieht `zone_tolerance_pct`, `min_touches` oder `max_zones_per_side`
+entsprechend nach. Ein neuer Lauf zeigt die Wirkung sofort; gespeicherte
+Ergebnisse bleiben davon unberührt.
+
 ---
 
 # Stufe F — Erster Tageslauf und Aufgabenplanung

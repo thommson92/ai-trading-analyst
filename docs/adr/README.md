@@ -58,6 +58,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0021](0021-ki-anbindung-anthropic-api.md) | KI-Anbindung — Anthropic API mit Modellprofilen je Analyseaufgabe | Angenommen |
 | [0022](0022-research-agent-quellen.md) | Research Agent — Anthropic Web Search/Web Fetch, SEC EDGAR deterministisch für Fundamentaldaten | Angenommen (GO_WITH_LIMITATIONS) |
 | [0023](0023-research-agent-zitierarchitektur.md) | Research Agent — Zitierarchitektur | Angenommen |
+| [0024](0024-benachrichtigungskanal-telegram.md) | Benachrichtigungskanal — Telegram Bot API | Angenommen |
+| [0025](0025-deterministische-chartauswertung-und-zonen.md) | Deterministische Chartauswertung — Swing-Pivots mit Clustering für Zonen | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -92,7 +94,8 @@ ADR, sobald die nötigen Informationen vorliegen:
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
-- Benachrichtigungskanal (F10)
+- Benachrichtigungskanal (F10) — **entschieden.** Telegram Bot API, siehe
+  [ADR 0024](0024-benachrichtigungskanal-telegram.md).
 - KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
   gestuften Modellprofilen je Analyseaufgabe, siehe
   [ADR 0021](0021-ki-anbindung-anthropic-api.md).
