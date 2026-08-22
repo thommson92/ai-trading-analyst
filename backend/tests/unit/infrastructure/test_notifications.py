@@ -1,32 +1,67 @@
 """Der Benachrichtigungsausgang.
 
-Der Kanal ist als F10 noch nicht entschieden. Geprueft wird deshalb vor
-allem, dass niemand faelschlich glaubt, es sei etwas versendet worden.
+Zwei Umsetzungen (ADR 0024): ``LoggingNotifier`` als ausgelieferter
+Standard -- geprueft wird vor allem, dass niemand faelschlich glaubt, es sei
+etwas versendet worden -- und ``TelegramNotifier``, der tatsaechlich
+zustellt. Wie bei ``FinnhubEarningsProvider`` laeuft alles, was sich ohne
+echtes Netzwerk pruefen laesst, ueber ``httpx.MockTransport``.
 """
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
-from ai_trading_analyst.config import NotificationsConfig
+from ai_trading_analyst.config import NotificationsConfig, Secrets, TelegramConfig
+from ai_trading_analyst.domain.scheduling import NotifierError
 from ai_trading_analyst.infrastructure.notifications import (
     LoggingNotifier,
     NotificationChannelNotConfiguredError,
+    TelegramNotifier,
+    TelegramSettings,
     build_notifier,
 )
 
 
+def _secrets(token: str | None = "bot-token") -> Secrets:
+    return Secrets(_env_file=None, notification_token=token)
+
+
 class TestAuswahl:
     def test_dry_run_ergibt_den_protokollierenden_ausgang(self) -> None:
-        assert isinstance(build_notifier(NotificationsConfig()), LoggingNotifier)
+        notifier = build_notifier(NotificationsConfig(), _secrets(token=None))
+        assert isinstance(notifier, LoggingNotifier)
 
-    @pytest.mark.parametrize("kanal", ["telegram", "pushover"])
-    def test_ein_nicht_gebauter_kanal_faellt_beim_start_auf(self, kanal: str) -> None:
-        """Und nicht erst abends, wenn die Meldung ausbleibt."""
-        config = NotificationsConfig(channel=kanal)
+    def test_telegram_ergibt_den_telegram_ausgang(self) -> None:
+        config = NotificationsConfig(
+            channel="telegram", telegram=TelegramConfig(chat_id="12345")
+        )
+        notifier = build_notifier(config, _secrets())
+        assert isinstance(notifier, TelegramNotifier)
 
-        with pytest.raises(NotificationChannelNotConfiguredError, match="F10"):
-            build_notifier(config)
+    def test_telegram_ohne_chat_id_faellt_beim_start_auf(self) -> None:
+        config = NotificationsConfig(channel="telegram")
+
+        with pytest.raises(NotificationChannelNotConfiguredError, match="chat_id"):
+            build_notifier(config, _secrets())
+
+    def test_telegram_ohne_token_faellt_beim_start_auf(self) -> None:
+        """Derselbe Fehler wie bei den Anbieter-Geheimnissen -- vor dem
+        Backfill, nicht erst beim ersten Sendeversuch."""
+        config = NotificationsConfig(
+            channel="telegram", telegram=TelegramConfig(chat_id="12345")
+        )
+
+        with pytest.raises(Exception, match="ATA_NOTIFICATION_TOKEN"):
+            build_notifier(config, _secrets(token=None))
+
+    def test_pushover_ist_weiterhin_nicht_gebaut(self) -> None:
+        """Ein nicht gebauter Kanal faellt beim Start auf, nicht erst
+        abends, wenn die Meldung ausbleibt."""
+        config = NotificationsConfig(channel="pushover")
+
+        with pytest.raises(NotificationChannelNotConfiguredError, match="ADR 0024"):
+            build_notifier(config, _secrets())
 
 
 class TestProtokollierenderAusgang:
@@ -46,3 +81,50 @@ class TestProtokollierenderAusgang:
             LoggingNotifier().send("Betreff", "Text")
 
         assert "nicht versendet" in caplog.text
+
+
+SETTINGS = TelegramSettings(
+    token="bot-token",
+    chat_id="12345",
+    base_url="https://api.telegram.org",
+    request_timeout_seconds=1.0,
+)
+
+
+def _notifier(handler: httpx.MockTransport) -> TelegramNotifier:
+    return TelegramNotifier(SETTINGS, transport=handler)
+
+
+class TestTelegramAusgang:
+    def test_stellt_ueber_sendmessage_zu(self) -> None:
+        gesehen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesehen.append(request)
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "Text")
+
+        assert len(gesehen) == 1
+        anfrage = gesehen[0]
+        assert anfrage.url.path == "/botbot-token/sendMessage"
+        payload = anfrage.read()
+        assert b'"chat_id":"12345"' in payload
+        assert b"Betreff" in payload
+        assert b"Text" in payload
+
+    def test_ein_fehlerstatus_wird_zu_notifiererror(self) -> None:
+        transport = httpx.MockTransport(lambda request: httpx.Response(401))
+
+        with pytest.raises(NotifierError):
+            _notifier(transport).send("Betreff", "Text")
+
+    def test_der_bot_token_erscheint_nicht_im_fehlertext(self) -> None:
+        """Der Token steckt im Pfad und damit in httpx' eigenem Fehlertext --
+        der darf nicht ins Protokoll wandern."""
+        transport = httpx.MockTransport(lambda request: httpx.Response(401))
+
+        with pytest.raises(NotifierError) as fehler:
+            _notifier(transport).send("Betreff", "Text")
+
+        assert "bot-token" not in str(fehler.value)

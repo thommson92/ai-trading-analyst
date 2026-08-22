@@ -25,6 +25,7 @@ from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
     DispatcherRunRepository,
     Notifier,
+    NotifierError,
     ScheduledRun,
     SchedulerParameters,
     TradingCalendar,
@@ -180,20 +181,42 @@ class DispatchDailyRunUseCase:
         """
         if self._runs.alert_sent(geplant.session_date, geplant.candle_close):
             return False
-        self._notify(geplant.session_date, geplant.candle_close, jetzt)
-        return True
+        return self._notify(geplant.session_date, geplant.candle_close, jetzt)
 
-    def _notify(self, session_date: date, candle_close: datetime, jetzt: datetime) -> None:
-        self._notifier.send(
-            f"Analyse-Lauf {session_date.isoformat()} ausgefallen",
-            f"Die Kerze {candle_close.isoformat()} wurde bis {jetzt.isoformat()} nicht "
-            "gerechnet; die Nachholfrist ist abgelaufen. Haeufigste Ursache: Die TWS "
-            "laeuft nicht oder ist nicht angemeldet.",
-        )
+    def _notify(self, session_date: date, candle_close: datetime, jetzt: datetime) -> bool:
+        """Stellt die Meldung zu. ``False``, wenn der Kanal nicht erreichbar war.
+
+        Der Kanal ist eine Systemgrenze und darf den Lauf nicht anhalten
+        (ADR 0024): ``_report_overdue`` laeuft **vor** der Entscheidung ueber
+        den heutigen Lauf, ein ungefangener Fehler beim Melden eines gestrigen
+        Ausfalls verhinderte also die heutige Analyse.
+
+        Gescheiterte Zustellung setzt **keinen** Vermerk. Die Meldung gilt
+        damit als offen und wird beim naechsten Start erneut versucht -- die
+        Alternative erzeugte genau den stillen Ausfall, gegen den dieser Kanal
+        gebaut ist, eine Ebene hoeher.
+        """
+        try:
+            self._notifier.send(
+                f"Analyse-Lauf {session_date.isoformat()} ausgefallen",
+                f"Die Kerze {candle_close.isoformat()} wurde bis {jetzt.isoformat()} nicht "
+                "gerechnet; die Nachholfrist ist abgelaufen. Haeufigste Ursache: Die TWS "
+                "laeuft nicht oder ist nicht angemeldet.",
+            )
+        except NotifierError as error:
+            _logger.error(
+                "Nachholfrist fuer %s abgelaufen, aber die Meldung ging nicht raus: %s "
+                "-- naechster Start versucht es erneut.",
+                session_date.isoformat(),
+                error,
+            )
+            return False
+
         self._runs.mark_alert_sent(session_date, candle_close, jetzt)
         _logger.error(
             "Nachholfrist fuer %s abgelaufen -- Meldung abgesetzt.", session_date.isoformat()
         )
+        return True
 
     def _report_overdue(self, jetzt: datetime) -> bool:
         """Meldet Laeufe, deren Nachholfrist abgelaufen ist -- aus **allen**
@@ -213,8 +236,7 @@ class DispatchDailyRunUseCase:
             )
             if jetzt <= frist:
                 continue
-            self._notify(session_date, candle_close, jetzt)
-            gemeldet = True
+            gemeldet = self._notify(session_date, candle_close, jetzt) or gemeldet
         return gemeldet
 
     def _run(self, geplant: ScheduledRun, jetzt: datetime) -> DispatchOutcome:

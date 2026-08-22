@@ -223,8 +223,18 @@ scheduler:
 
 notifications:
   send_when_no_candidates: false
-  # Bis zur Auswahl des Kanals (F10) wird nicht wirklich versendet.
+  # Ausgeliefert bewusst 'dry_run' -- der Kanal ist seit ADR 0024 Telegram,
+  # aber ein produktiver Server soll ihn ueber das Argument in der
+  # Aufgabenplanung scharf schalten, nicht ueber diese Datei (dasselbe Muster
+  # wie bei den Anbietern von Earnings-Filter und Research Agent).
   channel: dry_run
+  telegram:
+    # Kein Geheimnis: Die Chat-ID adressiert nur, ohne den Bot-Token aus
+    # ATA_NOTIFICATION_TOKEN kann niemand damit senden. Ohne gesetzte chat_id
+    # bricht 'channel: telegram' vor dem Lauf ab (ADR 0024).
+    chat_id: null
+    base_url: https://api.telegram.org
+    request_timeout_seconds: 10
 
 scoring:
   swing_version: "1.0"

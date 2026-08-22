@@ -28,6 +28,7 @@ from ai_trading_analyst.config.settings import (
     ScoringConfig,
     ScreeningConfig,
     Secrets,
+    TelegramConfig,
 )
 
 __all__ = [
@@ -53,6 +54,7 @@ __all__ = [
     "ScoringConfig",
     "ScreeningConfig",
     "Secrets",
+    "TelegramConfig",
     "default_config_path",
     "load_config",
     "load_secrets",

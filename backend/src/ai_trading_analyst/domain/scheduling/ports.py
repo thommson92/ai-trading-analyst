@@ -86,13 +86,25 @@ class DispatcherRunRepository(Protocol):
     ) -> None: ...
 
 
+class NotifierError(Exception):
+    """Eine Meldung konnte nicht zugestellt werden.
+
+    Wird vom Application-Layer isoliert: Ein Kanal, der gerade nicht
+    erreichbar ist, darf den Analyse-Lauf nicht anhalten (ADR 0024). Die
+    Meldung gilt dann als nicht gesendet und wird beim naechsten Start erneut
+    versucht.
+    """
+
+
 class Notifier(Protocol):
     """Ausgang fuer Meldungen an den Nutzer.
 
-    Der Kanal ist als F10 noch nicht entschieden; bis dahin protokolliert die
-    Umsetzung nur. Der Ausloeser gehoert trotzdem hierher und nicht in den
-    Dispatcher -- sonst muesste der spaeter angefasst werden, nur weil ein
-    Push-Dienst dazukommt.
+    Der Ausloeser gehoert hierher und nicht in den Dispatcher -- sonst
+    muesste der angefasst werden, nur weil ein Push-Dienst dazukommt
+    (ADR 0019). Welcher Kanal zustellt, entscheidet ADR 0024.
+
+    Raises:
+        NotifierError: wenn die Meldung nicht zugestellt werden konnte.
     """
 
     def send(self, subject: str, body: str) -> None: ...

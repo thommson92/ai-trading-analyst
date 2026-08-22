@@ -462,11 +462,25 @@ class SchedulerConfig(_Section):
     """
 
 
+class TelegramConfig(_Section):
+    """Adresse des Telegram-Bots (ADR 0024).
+
+    Hier steht **kein** Geheimnis: Der Bot-Token kommt ausschliesslich aus
+    ``ATA_NOTIFICATION_TOKEN``. Die Chat-ID ist demgegenueber nur eine
+    Adresse -- wer sie kennt, kann ohne Token nichts damit anfangen.
+    """
+
+    chat_id: str | None = None
+    base_url: str = "https://api.telegram.org"
+    request_timeout_seconds: PositiveInt = 10
+
+
 class NotificationsConfig(_Section):
     """Benachrichtigungsverhalten (Doc 10, Paragraph 6.13)."""
 
     send_when_no_candidates: bool = False
     channel: Literal["dry_run", "telegram", "pushover"] = "dry_run"
+    telegram: TelegramConfig = TelegramConfig()
 
 
 class ScoringConfig(_Section):

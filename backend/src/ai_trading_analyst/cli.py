@@ -865,30 +865,37 @@ def command_dispatch(args: argparse.Namespace) -> int:
     if args.research_provider is not None:
         research = config.research.model_copy(update={"provider": args.research_provider})
         config = config.model_copy(update={"research": research})
+    if args.notification_channel is not None:
+        notifications = config.notifications.model_copy(
+            update={"channel": args.notification_channel}
+        )
+        config = config.model_copy(update={"notifications": notifications})
+    if args.telegram_chat_id is not None:
+        telegram = config.notifications.telegram.model_copy(
+            update={"chat_id": args.telegram_chat_id}
+        )
+        notifications = config.notifications.model_copy(update={"telegram": telegram})
+        config = config.model_copy(update={"notifications": notifications})
 
+    # Vor dem Lauf, nicht in der Analyse: Ein fehlendes Geheimnis ist ein
+    # Konfigurationsfehler und kein voruebergehender Ausfall. Erst hinter dem
+    # Backfill bemerkt, haette er 192 Symbole lang gewartet, Rueckgabewert 1
+    # ergeben -- "versuch's in 15 Minuten" -- und am Ende als "die TWS laeuft
+    # nicht" gemeldet. Derselbe Grund gilt fuer den Benachrichtigungskanal
+    # (ADR 0024): eine unvollstaendige Einstellung soll sofort auffallen.
+    secrets = Secrets()
     try:
         standardzeitraum = duration_in_days(config.market_data.ibkr.history_duration)
-        notifier = build_notifier(config.notifications)
-    except (ValueError, NotificationChannelNotConfiguredError) as error:
+        notifier = build_notifier(config.notifications, secrets)
+        earnings_provider = build_earnings_provider(config, secrets)
+        research_provider = build_research_provider(config, secrets)
+    except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
 
     watchlist = tuple(build_watchlist(config, project_root(loaded.source_path)))
     if not watchlist:
         print("Die Watchlist ist leer -- es gibt nichts zu rechnen.", file=sys.stderr)
-        return 2
-
-    # Vor dem Lauf, nicht in der Analyse: Ein fehlendes Geheimnis ist ein
-    # Konfigurationsfehler und kein voruebergehender Ausfall. Erst hinter dem
-    # Backfill bemerkt, haette er 192 Symbole lang gewartet, Rueckgabewert 1
-    # ergeben -- "versuch's in 15 Minuten" -- und am Ende als "die TWS laeuft
-    # nicht" gemeldet.
-    secrets = Secrets()
-    try:
-        earnings_provider = build_earnings_provider(config, secrets)
-        research_provider = build_research_provider(config, secrets)
-    except MissingSecretError as error:
-        print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
 
     engine = _open_database()
@@ -1163,6 +1170,24 @@ def build_parser() -> argparse.ArgumentParser:
             "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' braucht "
             "ATA_LLM_API_KEY und loest je Kandidat einen echten, kostenpflichtigen "
             "API-Aufruf aus."
+        ),
+    )
+    dispatch.add_argument(
+        "--notification-channel",
+        choices=("dry_run", "telegram"),
+        default=None,
+        help=(
+            "Uebersteuert notifications.channel nur fuer diesen Lauf. 'telegram' "
+            "braucht ATA_NOTIFICATION_TOKEN und --telegram-chat-id (ADR 0024)."
+        ),
+    )
+    dispatch.add_argument(
+        "--telegram-chat-id",
+        default=None,
+        help=(
+            "Uebersteuert notifications.telegram.chat_id nur fuer diesen Lauf. Kein "
+            "Geheimnis, gehoert aber wie die Anbieter-Schalter in die Argumente der "
+            "Aufgabenplanung statt in config/default.yaml."
         ),
     )
     dispatch.set_defaults(handler=command_dispatch)

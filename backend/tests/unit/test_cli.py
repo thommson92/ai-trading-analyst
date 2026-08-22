@@ -18,7 +18,7 @@ import pytest
 
 from ai_trading_analyst import cli
 from ai_trading_analyst.cli import build_parser, main, require_complete_enough
-from ai_trading_analyst.config import AppConfig, MissingSecretError, Secrets
+from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -31,6 +31,7 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.scheduling import Notifier
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     Candle,
@@ -680,17 +681,28 @@ class TestDispatchAnbieterUebersteuerung:
 
     @staticmethod
     def _spione(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-        """Faengt die gebauten Anbieter ab und meldet, was sie sahen.
+        """Faengt Notifier und Anbieter ab und meldet, was sie sahen.
 
-        Der Research-Anbieter bricht mit ``MissingSecretError`` ab -- der Weg,
-        auf dem ``command_dispatch`` ohne Datenbank mit Rueckgabewert 2
-        endet.
+        ``build_notifier`` laeuft im Handler zuerst, danach Earnings und
+        Research; der Research-Anbieter bricht mit ``MissingSecretError`` ab
+        -- der Weg, auf dem ``command_dispatch`` ohne Datenbank mit
+        Rueckgabewert 2 endet.
         """
         gesehen: dict[str, str] = {}
 
         class _StummerEarningsProvider:
             def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
                 return None
+
+        class _StummerNotifier:
+            def send(self, subject: str, body: str) -> None:
+                pass
+
+        def notifier(config: NotificationsConfig, secrets: Secrets) -> Notifier:
+            gesehen["notification_channel"] = config.channel
+            if config.telegram.chat_id is not None:
+                gesehen["telegram_chat_id"] = config.telegram.chat_id
+            return _StummerNotifier()
 
         def earnings(config: AppConfig, secrets: Secrets) -> EarningsProvider:
             gesehen["earnings"] = config.earnings_filter.provider
@@ -700,6 +712,7 @@ class TestDispatchAnbieterUebersteuerung:
             gesehen["research"] = config.research.provider
             raise MissingSecretError("Abbruch fuer den Test")
 
+        monkeypatch.setattr(cli, "build_notifier", notifier)
         monkeypatch.setattr(cli, "build_earnings_provider", earnings)
         monkeypatch.setattr(cli, "build_research_provider", research)
         return gesehen
@@ -712,7 +725,58 @@ class TestDispatchAnbieterUebersteuerung:
 
         assert main(["--config", str(config), "dispatch"]) == 2
 
-        assert gesehen == {"earnings": "fixture", "research": "fixture"}
+        assert gesehen == {
+            "notification_channel": "dry_run",
+            "earnings": "fixture",
+            "research": "fixture",
+        }
+
+    def test_das_argument_uebersteuert_den_benachrichtigungskanal(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._spione(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(
+                [
+                    "--config",
+                    str(config),
+                    "dispatch",
+                    "--notification-channel",
+                    "telegram",
+                    "--telegram-chat-id",
+                    "12345",
+                ]
+            )
+            == 2
+        )
+
+        assert gesehen["notification_channel"] == "telegram"
+        assert gesehen["telegram_chat_id"] == "12345"
+
+    def test_die_chat_id_wirkt_auch_ohne_kanalwechsel(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Die Konfiguration kann bereits auf 'telegram' stehen -- dann
+        uebersteuert nur die Chat-ID, ohne den Kanal erneut zu nennen."""
+        gesehen = self._spione(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(["--config", str(config), "dispatch", "--telegram-chat-id", "999"]) == 2
+        )
+
+        assert gesehen["notification_channel"] == "dry_run"
+        assert gesehen["telegram_chat_id"] == "999"
+
+    def test_ein_unbekannter_kanal_wird_abgewiesen(self, projekt: Path) -> None:
+        config = write_config(projekt, provider="ibkr")
+
+        with pytest.raises(SystemExit) as abbruch:
+            main(["--config", str(config), "dispatch", "--notification-channel", "pushover"])
+
+        assert abbruch.value.code == 2
 
     def test_die_argumente_uebersteuern_beide_anbieter(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
@@ -735,7 +799,11 @@ class TestDispatchAnbieterUebersteuerung:
             == 2
         )
 
-        assert gesehen == {"earnings": "finnhub", "research": "anthropic"}
+        assert gesehen == {
+            "notification_channel": "dry_run",
+            "earnings": "finnhub",
+            "research": "anthropic",
+        }
 
     def test_jedes_argument_wirkt_fuer_sich(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
@@ -748,7 +816,11 @@ class TestDispatchAnbieterUebersteuerung:
             main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
         )
 
-        assert gesehen == {"earnings": "finnhub", "research": "fixture"}
+        assert gesehen == {
+            "notification_channel": "dry_run",
+            "earnings": "finnhub",
+            "research": "fixture",
+        }
 
     def test_ein_unbekannter_anbieter_wird_abgewiesen(self, projekt: Path) -> None:
         """``model_copy(update=...)`` umgeht die Pydantic-Pruefung -- die
