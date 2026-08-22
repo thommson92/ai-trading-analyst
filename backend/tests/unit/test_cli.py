@@ -559,6 +559,30 @@ class TestTechnicalKommando:
         args = build_parser().parse_args(["technical", "--symbols", "AAPL,MSFT"])
 
         assert args.symbols == "AAPL,MSFT"
+        assert args.provider is None
+
+    def test_verweigert_den_lauf_wenn_der_anbieter_nicht_ibkr_ist(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Fixture-Anbieter kennt nur seine Kunstsymbole. Ohne diese
+        Pruefung meldete das Kommando fuer jedes echte Symbol 'Nicht in der
+        Watchlist gefunden' -- eine Meldung, die auf die Watchlist zeigt,
+        waehrend der Anbieter das Problem ist."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "technical", "--symbols", "AAPL"])
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "'fixture'" in fehler
+        assert "Nicht in der Watchlist gefunden" not in fehler
+
+    def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
+        args = build_parser().parse_args(
+            ["technical", "--symbols", "AAPL", "--provider", "ibkr"]
+        )
+
+        assert args.provider == "ibkr"
 
 
 class TestResearchKommando:

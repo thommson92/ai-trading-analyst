@@ -57,8 +57,8 @@ Average True Range, jüngste Hoch- und Tiefpunkte und Unterstützungs-/
 Widerstandszonen aus Swing-Pivots mit Clustering
 ([ADR 0025](docs/adr/0025-deterministische-chartauswertung-und-zonen.md)).
 Sie läuft für jeden Kandidaten und hängt an keinem anderen Analysemodul.
-`cli technical --symbols AAPL` gibt sie samt Zonen aus, damit die Parameter
-am echten Chart gegengeprüft werden können. Die KI-Interpretation darauf --
+`cli technical --provider ibkr --symbols AAPL` gibt sie samt Zonen aus, damit
+die Parameter am echten Chart gegengeprüft werden können. Die KI-Interpretation darauf --
 der eigentliche Technical Agent -- steht noch aus.
 
 Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt: Ein

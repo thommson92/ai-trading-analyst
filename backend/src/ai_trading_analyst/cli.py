@@ -821,12 +821,33 @@ def command_technical(args: argparse.Namespace) -> int:
     Verfahrens, dessen Parameter sich nur an realen Kursverlaeufen beurteilen
     lassen (ADR 0025). Wie 'backtest' rechnet das Kommando ausschliesslich auf
     dem gespeicherten Bestand und nie gegen die TWS -- damit dieselbe Frage
-    zweimal dieselbe Antwort ergibt.
+    zweimal dieselbe Antwort ergibt. Und wie dort wird 'provider' nicht
+    stillschweigend uebersteuert: Der Fixture-Anbieter kennt nur seine eigenen
+    Kunstsymbole, eine Auswertung von AAPL gaebe es dort gar nicht.
     """
     loaded = load_config(args.config)
     config = loaded.config
     indicators = config.require_indicators()
     configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        # Muster 'backtest': Der Fixture-Anbieter kennt nur seine eigenen
+        # Kunstsymbole. Ohne diese Pruefung meldete das Kommando fuer jedes
+        # echte Symbol "Nicht in der Watchlist gefunden" -- eine Meldung, die
+        # auf die Watchlist zeigt, waehrend der Anbieter das Problem ist.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Die Chartauswertung braucht den ueber "
+            "IBKR gefuellten Bestand -- entweder '--provider ibkr' setzen, "
+            "market_data.provider auf 'ibkr' stellen oder zuerst 'backfill' laufen "
+            "lassen.",
+            file=sys.stderr,
+        )
+        return 2
 
     market_data = config.market_data.model_copy(update={"source": "stored"})
     config = config.model_copy(update={"market_data": market_data})
@@ -849,11 +870,22 @@ def command_technical(args: argparse.Namespace) -> int:
         print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
         return 2
 
-    stocks = [stock for stock in provider.list_stocks() if stock.symbol in wanted]
+    verfuegbar = list(provider.list_stocks())
+    stocks = [stock for stock in verfuegbar if stock.symbol in wanted]
     fehlend = wanted - {stock.symbol for stock in stocks}
     if fehlend:
         print(f"Nicht in der Watchlist gefunden: {', '.join(sorted(fehlend))}", file=sys.stderr)
     if not stocks:
+        # Passte kein einziges Symbol, ist die Watchlist selbst die naechste
+        # Frage. Sie hier zu zeigen erspart den Umweg ueber 'watchlist'.
+        namen = sorted(stock.symbol for stock in verfuegbar)
+        gezeigt = ", ".join(namen[:20]) + (" ..." if len(namen) > 20 else "")
+        print(
+            f"Die Watchlist enthaelt {len(namen)} Symbole: {gezeigt}"
+            if namen
+            else "Die Watchlist ist leer.",
+            file=sys.stderr,
+        )
         return 2
 
     fehler = 0
@@ -1363,6 +1395,16 @@ def build_parser() -> argparse.ArgumentParser:
     technical = subparsers.add_parser(
         "technical",
         help="Deterministische Chartauswertung eines Symbols aus dem Bestand anzeigen.",
+    )
+    technical.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider nur fuer diesen Lauf. Die "
+            "Chartauswertung braucht 'ibkr' -- ohne laufende TWS, aber mit "
+            "gefuelltem Bestand."
+        ),
     )
     technical.add_argument(
         "--symbols",

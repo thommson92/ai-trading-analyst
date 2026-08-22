@@ -167,8 +167,9 @@ Auswertung, der man den Unterschied später nicht ansieht.
 
 **Diese Werte sind Konventionen, keine gemessenen Optima.** Sie stehen
 vollständig in `config/default.yaml` und sind ohne Codeänderung nachziehbar.
-Das Kommando `cli technical --symbols ...` gibt die Auswertung samt Zonen
-aus, damit sie am echten Chart gegengeprüft werden kann.
+Das Kommando `cli technical --provider ibkr --symbols ...` gibt die Auswertung
+samt Zonen und den wirksamen Parametern aus, damit sie am echten Chart
+gegengeprüft werden kann.
 
 `zone_tolerance_pct` und `trend_flat_pct` sind **Bruchteile, keine
 Prozentwerte** — 0,015 sind 1,5 %. Beide werden gegen eine obere Grenze von 1
