@@ -74,6 +74,8 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProviderError,
     ResearchProviderError,
     Stock,
+    TechnicalInterpreter,
+    TechnicalInterpreterError,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
@@ -87,10 +89,13 @@ from ai_trading_analyst.domain.screening import (
     evaluate_candidate,
 )
 from ai_trading_analyst.domain.technical import (
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     compute_technical_snapshot,
 )
+from ai_trading_analyst.infrastructure.anthropic.technical_interpreter import render_snapshot
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbkrMarketDataProvider,
@@ -844,6 +849,42 @@ def _as_percent(value: float | None) -> float | None:
     return None if value is None else value * 100
 
 
+def _print_technical_assessment(symbol: str, assessment: TechnicalAssessment) -> None:
+    """Die KI-Einordnung (ADR 0026), im Anschluss an den Snapshot.
+
+    Eingerueckt unter demselben Symbol, damit beim Gegenpruefen sichtbar
+    bleibt, worauf sie sich bezieht -- und damit auffaellt, wenn die Worte
+    nicht zu den Zahlen darueber passen.
+    """
+    herkunft = (
+        ""
+        if assessment.model is None
+        else f" -- {assessment.model}, Prompt {assessment.prompt_version}"
+    )
+    print(f"  Einordnung: {assessment.status.value}{herkunft}")
+    if assessment.reason:
+        print(f"    Grund: {assessment.reason}")
+    if assessment.status is not TechnicalAssessmentStatus.COMPLETED:
+        return
+
+    def _stufe(bezeichnung: str, wert: object) -> None:
+        gezeigt = "--" if wert is None else getattr(wert, "value", wert)
+        print(f"    {bezeichnung:<24} {gezeigt}")
+
+    _stufe("Trendstaerke:", assessment.trend_strength)
+    _stufe("Breakout:", assessment.breakout_quality)
+    _stufe("Momentum:", assessment.momentum_state)
+    _stufe("Fehlsignalrisiko:", assessment.false_signal_risk)
+    _stufe("Chance/Risiko:", assessment.risk_reward_rating)
+    _stufe("Swing-Einstieg:", assessment.swing_entry_plausibility)
+    if assessment.confidence is not None:
+        print(f"    {'Konfidenz:':<24} {assessment.confidence:.2f}")
+    if assessment.summary:
+        print(f"    Fazit: {assessment.summary}")
+    for risiko in assessment.false_signal_risks:
+        print(f"    Risiko: {risiko}")
+
+
 def command_technical(args: argparse.Namespace) -> int:
     """Deterministische Chartauswertung eines Symbols aus dem Bestand.
 
@@ -895,6 +936,19 @@ def command_technical(args: argparse.Namespace) -> int:
     )
     params = build_technical_analysis_params(config)
 
+    interpreter: TechnicalInterpreter | None = None
+    if args.interpret:
+        if args.agent_provider is not None:
+            agent = config.technical_agent.model_copy(update={"provider": args.agent_provider})
+            config = config.model_copy(update={"technical_agent": agent})
+        try:
+            interpreter = build_technical_interpreter(config, Secrets())
+        except MissingSecretError as error:
+            # Frueh und mit klarer Meldung, statt erst nach dem Laden der
+            # Kerzenserien (Muster 'dispatch').
+            print(f"Konfiguration: {error}", file=sys.stderr)
+            return 2
+
     wanted = {symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()}
     if not wanted:
         print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
@@ -930,6 +984,20 @@ def command_technical(args: argparse.Namespace) -> int:
             series, len(series) - 1, params, datetime.now(UTC)
         )
         _print_technical_snapshot(stock.symbol, snapshot)
+        if interpreter is not None:
+            if args.show_prompt:
+                # Die Zusage "das Modell sieht nur den Snapshot" laesst sich
+                # sonst nicht nachpruefen, sondern nur behaupten.
+                print("  Modelleingabe:")
+                for zeile in render_snapshot(stock, snapshot, datetime.now(UTC)).splitlines():
+                    print(f"    {zeile}")
+            try:
+                _print_technical_assessment(
+                    stock.symbol, interpreter.interpret(stock, snapshot)
+                )
+            except TechnicalInterpreterError as error:
+                print(f"{stock.symbol}: {error}", file=sys.stderr)
+                fehler += 1
         print()
     return 1 if fehler else 0
 
@@ -1442,6 +1510,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--symbols",
         required=True,
         help="Kommagetrennte Symbole, z. B. 'AAPL,MSFT'.",
+    )
+    technical.add_argument(
+        "--interpret",
+        action="store_true",
+        help=(
+            "Laesst die Auswertung zusaetzlich vom Technical Agent einordnen "
+            "(ADR 0026). Ohne diese Angabe bleibt das Kommando kostenfrei."
+        ),
+    )
+    technical.add_argument(
+        "--agent-provider",
+        choices=("fixture", "anthropic"),
+        default=None,
+        help=(
+            "Uebersteuert technical_agent.provider nur fuer diesen Lauf. "
+            "'anthropic' loest je Symbol einen kostenpflichtigen Modellaufruf aus. "
+            "Bewusst getrennt von '--provider', das die Marktdaten steuert."
+        ),
+    )
+    technical.add_argument(
+        "--show-prompt",
+        action="store_true",
+        help="Zeigt zusaetzlich, welche Daten dem Modell uebergeben wurden.",
     )
     technical.set_defaults(handler=command_technical)
 

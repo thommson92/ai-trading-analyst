@@ -45,10 +45,14 @@ from ai_trading_analyst.domain.screening import (
 from ai_trading_analyst.domain.technical import (
     TECHNICAL_ANALYSIS_VERSION,
     PriceZone,
+    RiskRewardRating,
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
+    TrendStrength,
     ZoneKind,
     ZoneStrength,
 )
@@ -625,6 +629,78 @@ class TestTechnicalKommando:
 
         assert technical.config == pfad
         assert technical.config == backtest.config
+
+    def test_ohne_interpret_bleibt_das_kommando_kostenfrei(self) -> None:
+        args = build_parser().parse_args(["technical", "--symbols", "AAPL"])
+
+        assert args.interpret is False
+        assert args.agent_provider is None
+        assert args.show_prompt is False
+
+    def test_der_agentenanbieter_ist_von_den_marktdaten_getrennt(self) -> None:
+        """Zwei Bedeutungen an einem Flag waeren ein Bedienfehler mit
+        Kostenfolge: '--provider' steuert die Marktdaten, '--agent-provider'
+        das Sprachmodell."""
+        args = build_parser().parse_args(
+            [
+                "technical",
+                "--symbols",
+                "AAPL",
+                "--provider",
+                "ibkr",
+                "--interpret",
+                "--agent-provider",
+                "anthropic",
+            ]
+        )
+
+        assert args.provider == "ibkr"
+        assert args.agent_provider == "anthropic"
+        assert args.interpret is True
+
+    def test_die_einordnung_wird_ausgegeben(self, capsys: pytest.CaptureFixture[str]) -> None:
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="claude-haiku-4-5-20251001",
+                prompt_version="technical-agent-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=RiskRewardRating.BALANCED,
+                summary="Aufwaertstrend, Widerstand in Reichweite.",
+                false_signal_risks=("Kurs dicht unter einer starken Zone",),
+                confidence=0.6,
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "COMPLETED" in ausgabe
+        assert "claude-haiku-4-5-20251001" in ausgabe
+        assert "MODERATE" in ausgabe
+        assert "BALANCED" in ausgabe
+        assert "Kurs dicht unter einer starken Zone" in ausgabe
+
+    def test_ein_ausfall_zeigt_keine_leeren_stufen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei UNAVAILABLE gibt es nichts zu zeigen -- eine Liste aus lauter
+        '--' laese sich als Einordnung missverstehen."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.UNAVAILABLE,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model=None,
+                prompt_version=None,
+                reason="provider_error",
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "UNAVAILABLE" in ausgabe
+        assert "provider_error" in ausgabe
+        assert "Trendstaerke" not in ausgabe
 
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
         args = build_parser().parse_args(
