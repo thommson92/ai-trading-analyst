@@ -20,9 +20,10 @@ LLM-Freitext uebernommen"), nicht bloss eine Bitte im Prompt.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx
@@ -50,6 +51,8 @@ from ai_trading_analyst.domain.technical import (
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
+
+_MARKET_TIMEZONE = ZoneInfo("America/New_York")
 
 _PROMPT_VERSION = "technical-agent-v1"
 """Bewusst nicht ``technical-v1``: Die Verfahrensversion der
@@ -327,7 +330,20 @@ def _format_zone(zone: PriceZone) -> str:
     )
 
 
-def render_snapshot(stock: Stock, snapshot: TechnicalSnapshot, today: datetime) -> str:
+def market_today() -> date:
+    """Das heutige Datum an der Boerse, nicht in UTC.
+
+    Der Scheduler rechnet durchgehend in ``America/New_York`` (CLAUDE.md).
+    Ein Lauf nach 20:00 Ortszeit liegt bereits im UTC-Folgetag -- dem Modell
+    dann "morgen" als heutiges Datum zu nennen, waere derselbe Fehler wie der
+    in ADR 0023, Punkt 14, nur andersherum.
+    """
+    return datetime.now(_MARKET_TIMEZONE).date()
+
+
+def render_snapshot(
+    stock: Stock, snapshot: TechnicalSnapshot, today: date | None = None
+) -> str:
     """Die vollstaendige Modelleingabe als Text.
 
     Eine reine Funktion und oeffentlich, damit die CLI genau das anzeigen
@@ -401,7 +417,7 @@ def render_snapshot(stock: Stock, snapshot: TechnicalSnapshot, today: datetime) 
     return (
         f"Ordne die folgende Chartauswertung fuer {stock.symbol} "
         f"({stock.exchange}) ein.\n"
-        f"Heutiges Datum: {today.date().isoformat()}.\n\n"
+        f"Heutiges Datum: {(today or market_today()).isoformat()}.\n\n"
         f"<chartauswertung>\n{daten}\n</chartauswertung>"
     )
 
@@ -493,7 +509,7 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
                 messages=[
                     {
                         "role": "user",
-                        "content": render_snapshot(stock, snapshot, evaluated_at),
+                        "content": render_snapshot(stock, snapshot),
                     }
                 ],
                 tools=[_SUBMIT_ASSESSMENT_TOOL],
@@ -632,16 +648,22 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
         symbol: str,
         snapshot: TechnicalSnapshot,
         gemeldet: RiskRewardRating | None,
-    ) -> RiskRewardRating:
+    ) -> RiskRewardRating | None:
         """Erzwingt ``NOT_ASSESSABLE``, wenn nichts zu bewerten war.
 
         Der Kern von CLAUDE.mds Regel, dass Bewertungen nie ungeprueft aus
         LLM-Freitext uebernommen werden: Konnte das Verhaeltnis gar nicht
         berechnet werden, darf keine Einstufung dazu im Bericht stehen -- egal
         wie ueberzeugt das Modell antwortet.
+
+        Umgekehrt bleibt eine ausgelassene Antwort ``None`` und wird **nicht**
+        zu ``NOT_ASSESSABLE``: "niemand hat eingestuft" ist etwas anderes als
+        "war nicht einstufbar". Die beiden zu verwechseln erzeugte genau die
+        Kombination, die Doc 14 als Fehlerzeichen nennt -- NOT_ASSESSABLE,
+        waehrend darueber eine Zahl steht.
         """
         if snapshot.chance_risk_ratio is not None:
-            return gemeldet if gemeldet is not None else RiskRewardRating.NOT_ASSESSABLE
+            return gemeldet
         if gemeldet is not None and gemeldet is not RiskRewardRating.NOT_ASSESSABLE:
             _logger.warning(
                 "Einordnung fuer %s stuft das Chance-Risiko-Verhaeltnis als %s ein, "
@@ -652,13 +674,31 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
         return RiskRewardRating.NOT_ASSESSABLE
 
 
+_STATUS_VOM_MODELL = frozenset(
+    {TechnicalAssessmentStatus.COMPLETED, TechnicalAssessmentStatus.INSUFFICIENT_DATA}
+)
+"""Die einzigen beiden Status, die aus einer Modellantwort stammen duerfen --
+dieselben zwei, die das Werkzeugschema zulaesst.
+
+``UNAVAILABLE`` beschreibt einen Anbieterausfall: einen Zustand, den das
+System feststellt, nie das Modell. Ohne diese Einschraenkung fiele ein vom
+Modell gemeldetes ``UNAVAILABLE`` durch den INSUFFICIENT_DATA-Zweig hindurch
+und stuende am Ende als abgeschlossene Einordnung in der Datenbank."""
+
+
 def _require_status(symbol: str, value: object) -> TechnicalAssessmentStatus:
     try:
-        return TechnicalAssessmentStatus(str(value))
+        status = TechnicalAssessmentStatus(str(value))
     except ValueError as error:
         raise TechnicalInterpreterError(
             f"'{symbol}': '{_SUBMIT_TOOL_NAME}' lieferte einen unerwarteten status: {value!r}"
         ) from error
+    if status not in _STATUS_VOM_MODELL:
+        raise TechnicalInterpreterError(
+            f"'{symbol}': '{_SUBMIT_TOOL_NAME}' lieferte den status '{status.value}', "
+            "den ausschliesslich der Application Layer setzen darf"
+        )
+    return status
 
 
 def _require_optional_enum[E: StrEnum](

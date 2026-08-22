@@ -11,6 +11,7 @@ import concurrent.futures
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import uuid4
 
 from ai_trading_analyst.domain.analysis import (
@@ -55,6 +56,14 @@ from ai_trading_analyst.domain.technical import (
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
+
+_Agentenart = Literal["research", "technical"]
+"""Diskriminator der beiden Auftragsarten in der nebenlaeufigen Phase.
+
+Ein ``Literal`` und kein freier ``str``: mypy prueft damit jede Aufrufstelle.
+Ein Tippfehler landete sonst im ``else``-Zweig und wiese ein
+Research-Ergebnis dem Feld der Einordnung zu.
+"""
 
 _MAX_CONCURRENT_AGENT_CALLS = 4
 """Obergrenze gleichzeitiger Modellaufrufe ueber **beide** Agenten hinweg.
@@ -296,7 +305,7 @@ class RunAnalysisUseCase:
         Zugewiesen wird ausschliesslich im Hauptthread aus ``as_completed``
         heraus -- die Arbeiter schreiben nichts.
         """
-        auftraege: list[tuple[_PreparedOutcome, str]] = []
+        auftraege: list[tuple[_PreparedOutcome, _Agentenart]] = []
         for item in prepared:
             if not isinstance(item, _PreparedOutcome):
                 continue
@@ -337,7 +346,7 @@ class RunAnalysisUseCase:
                     )
 
     def _agent_result(
-        self, item: _PreparedOutcome, art: str
+        self, item: _PreparedOutcome, art: _Agentenart
     ) -> ResearchReport | TechnicalAssessment:
         """Laeuft im Arbeitsthread und **liefert** nur -- er schreibt nichts.
 
@@ -356,17 +365,17 @@ class RunAnalysisUseCase:
 
     @staticmethod
     def _assign_agent_result(
-        item: _PreparedOutcome, art: str, ergebnis: ResearchReport | TechnicalAssessment
+        item: _PreparedOutcome,
+        art: _Agentenart,
+        ergebnis: ResearchReport | TechnicalAssessment,
     ) -> None:
-        if art == "research":
-            assert isinstance(ergebnis, ResearchReport)
+        if isinstance(ergebnis, ResearchReport):
             item.research = ergebnis
         else:
-            assert isinstance(ergebnis, TechnicalAssessment)
             item.technical_assessment = ergebnis
 
     def _unavailable_result(
-        self, item: _PreparedOutcome, art: str, reason: str
+        self, item: _PreparedOutcome, art: _Agentenart, reason: str
     ) -> ResearchReport | TechnicalAssessment:
         if art == "research":
             return self._unavailable_research(item.evaluated_at, reason)

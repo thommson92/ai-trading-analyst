@@ -37,16 +37,26 @@ _ASSESSMENT = TechnicalAssessment(
 )
 
 
-def _spalten_der_tabelle() -> set[str]:
-    return {spalte.name for spalte in ScreeningResultOrm.__table__.columns}
+def _spalten_der_tabelle(praefix: str) -> set[str]:
+    return {
+        spalte.name
+        for spalte in ScreeningResultOrm.__table__.columns
+        if spalte.name.startswith(praefix)
+    }
 
 
 class TestChartauswertung:
     def test_beide_zweige_liefern_dieselben_schluessel(self) -> None:
         assert set(_technical_columns(None)) == set(_technical_columns(_SNAPSHOT))
 
-    def test_jeder_schluessel_ist_eine_echte_spalte(self) -> None:
-        assert set(_technical_columns(_SNAPSHOT)) <= _spalten_der_tabelle()
+    def test_die_spalten_decken_sich_genau(self) -> None:
+        """Gleichheit statt Teilmenge: Eine ORM-Spalte mit demselben Praefix,
+        die nie geschrieben wird, faellt sonst nicht auf."""
+        gesetzt = set(_technical_columns(_SNAPSHOT))
+        # ``technical_ai_`` traegt denselben Anfang und gehoert nicht dazu.
+        assert gesetzt == _spalten_der_tabelle("technical_") - _spalten_der_tabelle(
+            "technical_ai_"
+        )
 
     def test_ohne_auswertung_wird_jede_spalte_ausdruecklich_geleert(self) -> None:
         assert all(wert is None for wert in _technical_columns(None).values())
@@ -56,8 +66,8 @@ class TestKiEinordnung:
     def test_beide_zweige_liefern_dieselben_schluessel(self) -> None:
         assert set(_technical_ai_columns(None)) == set(_technical_ai_columns(_ASSESSMENT))
 
-    def test_jeder_schluessel_ist_eine_echte_spalte(self) -> None:
-        assert set(_technical_ai_columns(_ASSESSMENT)) <= _spalten_der_tabelle()
+    def test_die_spalten_decken_sich_genau(self) -> None:
+        assert set(_technical_ai_columns(_ASSESSMENT)) == _spalten_der_tabelle("technical_ai_")
 
     def test_ohne_einordnung_wird_jede_spalte_ausdruecklich_geleert(self) -> None:
         assert all(wert is None for wert in _technical_ai_columns(None).values())

@@ -278,6 +278,16 @@ class TestSchemaDurchsetzung:
         assert assessment.status is TechnicalAssessmentStatus.INSUFFICIENT_DATA
         assert assessment.reason == "no_ratings"
 
+    def test_ein_vom_modell_gemeldetes_unavailable_wird_abgewiesen(self) -> None:
+        """UNAVAILABLE beschreibt einen Anbieterausfall -- einen Zustand, den
+        das System feststellt, nie das Modell. Ohne diese Pruefung fiele der
+        Wert durch den INSUFFICIENT_DATA-Zweig hindurch und stuende als
+        abgeschlossene Einordnung in der Datenbank."""
+        with pytest.raises(TechnicalInterpreterError, match="UNAVAILABLE"):
+            _interpreter(
+                _antwortet(_message([_submit_block(status="UNAVAILABLE")]))
+            ).interpret(AAPL, snapshot())
+
     def test_vom_modell_gemeldete_unzulaenglichkeit_wird_uebernommen(self) -> None:
         assessment = _interpreter(
             _antwortet(
@@ -315,6 +325,17 @@ class TestChanceRisikoUebersteuerung:
         ).interpret(AAPL, snapshot())
 
         assert assessment.risk_reward_rating is RiskRewardRating.FAVOURABLE
+
+    def test_keine_einstufung_ist_nicht_dasselbe_wie_nicht_einstufbar(self) -> None:
+        """Laesst das Modell das Feld aus, obwohl eine Zahl vorliegt, bleibt
+        es leer. NOT_ASSESSABLE waere hier falsch -- und erzeugte genau die
+        Kombination, die Doc 14 als Fehlerzeichen nennt: "nicht beurteilbar",
+        waehrend darueber eine Zahl steht."""
+        assessment = _interpreter(
+            _antwortet(_message([_submit_block(risk_reward_rating=None)]))
+        ).interpret(AAPL, snapshot())
+
+        assert assessment.risk_reward_rating is None
 
 
 class TestAnfrage:

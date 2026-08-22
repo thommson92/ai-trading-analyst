@@ -522,6 +522,40 @@ class TestKiEinordnung:
         assert summary.outcomes[0].research is not None
         assert summary.outcomes[0].technical_assessment is not None
 
+    def test_bei_mehreren_aktien_landet_jedes_ergebnis_beim_richtigen_symbol(self) -> None:
+        """Der eigentliche Test der nebenlaeufigen Phase.
+
+        Mit nur einer Aktie laeuft die Zuordnung Future -> Auftrag faktisch
+        sequentiell und beweist nichts. Hier scheitern zwei von vier Aktien
+        auf verschiedene Weise -- wenn die Zuordnung rutscht, bekommt der
+        falsche Titel den Ausfall.
+        """
+        symbole = ["AAA", "BBB", "CCC", "DDD"]
+        provider = FakeMarketDataProvider(
+            stocks=tuple(make_stock(name) for name in symbole),
+            series_by_symbol={
+                name: make_series(_SERIES_LENGTH, candidate=True) for name in symbole
+            },
+        )
+        interpreter = FakeTechnicalInterpreter(
+            error_symbols=frozenset({"BBB"}), crash_symbols=frozenset({"CCC"})
+        )
+        use_case, *_ = _build_use_case(provider, technical_interpreter=interpreter)
+
+        summary = use_case.execute()
+
+        # Aus Arbeitsthreads gefuellt -- die Reihenfolge ist nicht zugesichert.
+        assert set(interpreter.calls) == set(symbole)
+        nach_symbol = {o.stock.symbol: o.technical_assessment for o in summary.outcomes}
+        assert nach_symbol["AAA"] is not None
+        assert nach_symbol["AAA"].status is TechnicalAssessmentStatus.COMPLETED
+        assert nach_symbol["DDD"] is not None
+        assert nach_symbol["DDD"].status is TechnicalAssessmentStatus.COMPLETED
+        assert nach_symbol["BBB"] is not None
+        assert nach_symbol["BBB"].reason == "provider_error"
+        assert nach_symbol["CCC"] is not None
+        assert nach_symbol["CCC"].reason == "provider_contract_violation"
+
 
 class TestResearch:
     _EARNINGS_CLEAR = NextEarningsDate(

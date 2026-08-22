@@ -984,13 +984,15 @@ def command_technical(args: argparse.Namespace) -> int:
             series, len(series) - 1, params, datetime.now(UTC)
         )
         _print_technical_snapshot(stock.symbol, snapshot)
+        if args.show_prompt:
+            # Bewusst unabhaengig von --interpret: "zeig mir, was gesendet
+            # wuerde, ohne dass es etwas kostet" ist der nuetzlichste Fall.
+            # Die Zusage "das Modell sieht nur den Snapshot" laesst sich sonst
+            # nicht nachpruefen, sondern nur behaupten.
+            print("  Modelleingabe:")
+            for zeile in render_snapshot(stock, snapshot).splitlines():
+                print(f"    {zeile}")
         if interpreter is not None:
-            if args.show_prompt:
-                # Die Zusage "das Modell sieht nur den Snapshot" laesst sich
-                # sonst nicht nachpruefen, sondern nur behaupten.
-                print("  Modelleingabe:")
-                for zeile in render_snapshot(stock, snapshot, datetime.now(UTC)).splitlines():
-                    print(f"    {zeile}")
             try:
                 _print_technical_assessment(
                     stock.symbol, interpreter.interpret(stock, snapshot)

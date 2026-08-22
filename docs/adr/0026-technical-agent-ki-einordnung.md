@@ -82,8 +82,17 @@ eigenen Zahl bestreiten. Die Modulentkopplung aus `CLAUDE.md` wird damit
 nicht nur eingehalten, sondern ist an der Eingabe ablesbar.
 
 `render_snapshot` ist deshalb eine öffentliche reine Funktion, und
-`technical --interpret --show-prompt` gibt sie im Wortlaut aus. Ohne diese
-Möglichkeit ließe sich die Zusage nur behaupten, nicht prüfen.
+`technical --show-prompt` gibt sie im Wortlaut aus — bewusst auch ohne
+`--interpret`, damit sich ansehen lässt, was gesendet *würde*, ohne dass es
+etwas kostet. Ohne diese Möglichkeit ließe sich die Zusage nur behaupten,
+nicht prüfen.
+
+Die Angriffsfläche für Prompt-Injection ist damit praktisch null: Es gibt
+keine Werkzeuge, keinen Research-Text und keine Rohkerzen. Die einzigen
+interpolierten Fremddaten sind Symbol und Börsenplatz aus der Watchlist, und
+sie stehen außerhalb des `<chartauswertung>`-Blocks. Solange die Watchlist aus
+`config/` stammt, ist das folgenlos; käme sie je aus einer fremden Quelle,
+wäre das die Stelle, an der man ansetzen müsste.
 
 ### 5. Der Kurs *in* einer Zone wird ausdrücklich ausgewiesen
 
@@ -214,6 +223,10 @@ Ausgang statt eines generischen LLM-Layers — ist eingehalten.
   Agent gehalten, damit beide Adapter sich gleich verhalten — sichtbar bleibt
   es über die Warnung im Log und über das an jedem Ergebnis gespeicherte
   Modell.
+- **Beide Agenten teilen sich einen Thread-Pool.** Eine hängende Recherche
+  kann bis zu fünf Minuten einen der vier Plätze belegen, während die kurzen
+  Einordnungen warten. Bei der Größe der Watchlist unkritisch; getrennte
+  Pools wären der Ausweg, falls die Kandidatenzahl wächst.
 - **`min_touches` filtert weiterhin nach der falschen Größe** (ADR 0025,
   „Negativ / offen"). Für den Agenten ist das kein Hindernis: `strength` und
   `pivot_count` stehen an jeder Zone, und der Prompt weist ausdrücklich
