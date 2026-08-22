@@ -80,12 +80,15 @@ KI-Analyse
 - Research Agent -- **umgesetzt**, mit Quellenbindung und Kostensteuerung
   ([ADR 0022](adr/0022-research-agent-quellen.md),
   [ADR 0023](adr/0023-research-agent-zitierarchitektur.md))
-- Technical Agent -- die **deterministische Hälfte** des Moduls (Doc 10,
-  Paragraph 6.8) ist umgesetzt: Trend, Volatilität über die ATR, jüngste
-  Extrempunkte und Unterstützungs-/Widerstandszonen aus Swing-Pivots
+- Technical Agent -- **umgesetzt**, beide Hälften des Moduls (Doc 10,
+  Paragraph 6.8). Deterministisch: Trend, Volatilität über die ATR, jüngste
+  Extrempunkte, Unterstützungs-/Widerstandszonen aus Swing-Pivots und das
+  Chance-Risiko-Verhältnis
   ([ADR 0025](adr/0025-deterministische-chartauswertung-und-zonen.md)).
-  Nachprüfbar über `cli technical`. Die KI-Interpretation darauf steht noch
-  aus
+  Darauf die KI-Einordnung der sechs Punkte aus Paragraph 6.8, getrennt
+  gespeichert und gegen ein festes Schema validiert
+  ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)). Nachprüfbar über
+  `cli technical --interpret`; der Lauf gegen echte Kurse steht noch aus
 - Fundamental Agent -- Quelle entschieden (SEC EDGAR XBRL, deterministisch,
   [ADR 0022](adr/0022-research-agent-quellen.md)), noch nicht begonnen
 - Report Generator

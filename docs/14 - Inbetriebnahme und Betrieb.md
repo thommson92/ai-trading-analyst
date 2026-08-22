@@ -261,6 +261,42 @@ Worauf beim Vergleich zu achten ist:
   als `WEAK` gekennzeichnet, belegt aber einen Platz je Seite. Siehe ADR 0025,
   „Negativ / offen".
 
+### Die KI-Einordnung dazu
+
+Mit `--interpret` ordnet der Technical Agent dieselbe Auswertung qualitativ
+ein ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)):
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli technical --provider ibkr `
+    --symbols AAPL,MSFT --interpret --agent-provider anthropic --show-prompt
+```
+
+`--agent-provider` ist bewusst getrennt von `--provider`: Letzteres steuert
+die Marktdaten, Ersteres das Sprachmodell. Ausgeliefert steht
+`technical_agent.provider` auf `fixture`; ohne die Übersteuerung läuft eine
+Attrappe, die immer dasselbe antwortet — nützlich als Rauchtest der
+Verdrahtung, aussagelos für den Inhalt. Mit `anthropic` kostet jeder Aufruf
+Geld; das Protokoll weist Token und geschätzte Kosten je Symbol aus.
+
+`--show-prompt` gibt aus, was dem Modell übergeben wurde. Es lohnt sich beim
+ersten Mal: Man sieht schwarz auf weiß, dass dort nur der fertige Snapshot
+steht — keine Rohkerzen, keine Signale, kein Earnings- oder
+Research-Ergebnis.
+
+Worauf beim Vergleich zu achten ist:
+
+- **Die Einordnung darf keiner Zahl widersprechen**, die darüber steht. Ein
+  als stark beschriebener Trend bei `Trend: SIDEWAYS` ist ein Prompt-Fehler,
+  kein Geschmacksurteil.
+- **Eine `WEAK`-Zone mit vielen Berührungen darf nicht als starker Halt
+  gelesen werden.** Genau dafür steht die Auslegungsregel im Prompt; greift
+  sie nicht, gehört sie geschärft.
+- **Steht bei Chance/Risiko `NOT_ASSESSABLE`, während oben eine Zahl steht**,
+  stimmt etwas nicht. Umgekehrt setzt der Adapter `NOT_ASSESSABLE` selbst
+  durch, wenn die Zahl fehlt — das ist Absicht und kein Fehler.
+- Es dürfen **keine Zahlen im Fazit** auftauchen, die nicht in der
+  Modelleingabe stehen.
+
 ---
 
 # Stufe F — Erster Tageslauf und Aufgabenplanung
