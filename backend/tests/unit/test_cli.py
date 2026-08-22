@@ -586,12 +586,14 @@ class TestTechnicalKommando:
         ausgelieferte ``config/default.yaml`` -- mit anderen Zonenparametern
         als angegeben."""
         parser = build_parser()
-        pfad = "/tmp/meine.yaml"
+        # Ueber ``Path`` gebildet statt als Literal: Windows normalisiert
+        # Trennzeichen, ein fester POSIX-Pfad waere dort nie deckungsgleich.
+        pfad = Path("tmp") / "meine.yaml"
 
-        technical = parser.parse_args(["--config", pfad, "technical", "--symbols", "AAPL"])
-        backtest = parser.parse_args(["--config", pfad, "backtest"])
+        technical = parser.parse_args(["--config", str(pfad), "technical", "--symbols", "AAPL"])
+        backtest = parser.parse_args(["--config", str(pfad), "backtest"])
 
-        assert str(technical.config) == pfad
+        assert technical.config == pfad
         assert technical.config == backtest.config
 
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
