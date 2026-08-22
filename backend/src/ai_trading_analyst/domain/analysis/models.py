@@ -16,7 +16,7 @@ from enum import StrEnum
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import ScreeningResult
-from ai_trading_analyst.domain.technical import TechnicalSnapshot
+from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
 
 class RunStatus(StrEnum):
@@ -80,6 +80,19 @@ class StockScreeningOutcome:
     Research Agent. Beide koennen ausfallen, ohne dass hier etwas fehlt
     (CLAUDE.md: faellt Research aus, bleiben technische Analyse und
     Backtesting vollstaendig)."""
+    technical_assessment: TechnicalAssessment | None = None
+    """Die KI-Einordnung der Chartauswertung (Doc 10, Paragraph 6.8
+    "Qualitative Interpretation"; ADR 0026).
+
+    Gesetzt, sobald ``technical`` gesetzt ist -- und zwar unabhaengig vom
+    Earnings-Filter und vom Research Agent. Anders als der Research Agent,
+    der nur bei ``EARNINGS_CLEAR` laeuft, gilt hier die Entkopplung der
+    Analysemodule ohne Einschraenkung: Gerade bei einem Kandidaten mit nahem
+    Earnings-Termin ist die Chartlage interessant.
+
+    Getrennt von ``technical`` gefuehrt und getrennt gespeichert, wie Doc 10
+    es verlangt -- kein Feld dieses Objekts fliesst je in den Snapshot
+    zurueck."""
     earnings: EarningsFilterResult | None = None
     """Nur bei ``ScreeningStatus.CANDIDATE`` gesetzt -- der Earnings-Filter
     laeuft ausschliesslich fuer bereits qualifizierte Kandidaten (Doc 10,
