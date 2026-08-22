@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -40,6 +41,16 @@ from ai_trading_analyst.domain.screening import (
     ScreeningResult,
     ScreeningStatus,
     compute_indicator_values,
+)
+from ai_trading_analyst.domain.technical import (
+    TECHNICAL_ANALYSIS_VERSION,
+    PriceZone,
+    TechnicalAnalysisParameters,
+    TechnicalSnapshot,
+    TechnicalStatus,
+    TrendDirection,
+    ZoneKind,
+    ZoneStrength,
 )
 
 
@@ -427,6 +438,168 @@ class TestArgumente:
         assert args.symbols == "AAPL,MSFT"
         assert args.limit == 5
         assert args.no_pacing is True
+
+
+class TestTechnicalKommando:
+    """Die Ausgabe ist der Zweck dieses Kommandos: An ihr werden die Zonen am
+    echten Chart gegengeprueft (ADR 0025)."""
+
+    @staticmethod
+    def _snapshot(**overrides: object) -> TechnicalSnapshot:
+        felder: dict[str, Any] = {
+            "status": TechnicalStatus.COMPLETED,
+            "evaluated_at": datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+            "candle_timestamp": datetime(2026, 8, 21, 20, 15, tzinfo=ZoneInfo("UTC")),
+            "close": 100.0,
+            "trend": TrendDirection.UP,
+            "rsi": 61.5,
+            "ema5": 99.0,
+            "ema20": 96.0,
+            "distance_to_ema5_pct": 0.0101,
+            "distance_to_ema20_pct": 0.0417,
+            "atr": 2.5,
+            "atr_pct": 0.025,
+            "recent_high": 107.0,
+            "recent_high_at": datetime(2026, 8, 18, 20, 15, tzinfo=ZoneInfo("UTC")),
+            "recent_low": 88.0,
+            "recent_low_at": datetime(2026, 8, 11, 20, 15, tzinfo=ZoneInfo("UTC")),
+        }
+        felder.update(overrides)
+        return TechnicalSnapshot(**felder)
+
+    def test_zonen_erscheinen_mit_allen_geforderten_angaben(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Doc 10, Paragraph 6.8 verlangt je Zone sieben Angaben -- eine
+        Ausgabe ohne sie waere am Chart nicht nachpruefbar."""
+        zone = PriceZone(
+            lower=104.0,
+            upper=107.0,
+            kind=ZoneKind.RESISTANCE,
+            strength=ZoneStrength.MODERATE,
+            touch_count=3,
+            last_confirmed_at=datetime(2026, 8, 18, 20, 15, tzinfo=ZoneInfo("UTC")),
+            distance_pct=0.04,
+            pivot_count=2,
+        )
+
+        cli._print_technical_snapshot("AAPL", self._snapshot(zones=(zone,)))
+
+        ausgabe = capsys.readouterr().out
+        assert "RESISTANCE" in ausgabe
+        assert "104.00 - 107.00" in ausgabe
+        assert "MODERATE" in ausgabe
+        assert "3 Beruehrungen" in ausgabe
+        assert "2026-08-18" in ausgabe
+        assert "4.00 %" in ausgabe
+
+    def test_ohne_zonen_sagt_die_ausgabe_das_ausdruecklich(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Eine fehlende Zonenliste soll nicht wie ein vergessener Abschnitt
+        aussehen."""
+        cli._print_technical_snapshot("AAPL", self._snapshot())
+
+        assert "keine mehrfach getestete Preisregion" in capsys.readouterr().out
+
+    def test_fehlende_werte_erscheinen_als_strich_statt_als_null(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Unterschied zwischen 'nicht berechenbar' und 'null' darf in
+        der Ausgabe nicht verschwinden (CLAUDE.md: keine erfundenen Werte)."""
+        cli._print_technical_snapshot(
+            "AAPL", self._snapshot(rsi=None, atr=None, atr_pct=None, trend=None)
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "RSI: --" in ausgabe
+        assert "ATR: --" in ausgabe
+        assert "Trend: --" in ausgabe
+
+    def test_unvollstaendige_auswertung_nennt_den_grund_und_hoert_auf(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_technical_snapshot(
+            "AAPL",
+            TechnicalSnapshot(
+                status=TechnicalStatus.INSUFFICIENT_DATA,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                reason="too_few_candles",
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "INSUFFICIENT_DATA" in ausgabe
+        assert "too_few_candles" in ausgabe
+        assert "Schlusskurs" not in ausgabe
+
+    def test_die_wirksamen_zonenparameter_stehen_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wer sie nach Doc 14 nachzieht, soll in derselben Ausgabe sehen,
+        welche gerade gewirkt haben."""
+        cli._print_technical_snapshot(
+            "AAPL",
+            self._snapshot(
+                parameters=TechnicalAnalysisParameters(zone_tolerance_pct=0.02).as_mapping()
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Toleranz 2.00 %" in ausgabe
+        assert "min. 2 Beruehrungen" in ausgabe
+
+    def test_die_verfahrensversion_steht_an_jeder_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_technical_snapshot("AAPL", self._snapshot())
+
+        assert TECHNICAL_ANALYSIS_VERSION in capsys.readouterr().out
+
+    def test_symbole_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(["technical", "--symbols", "AAPL,MSFT"])
+
+        assert args.symbols == "AAPL,MSFT"
+        assert args.provider is None
+
+    def test_verweigert_den_lauf_wenn_der_anbieter_nicht_ibkr_ist(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Fixture-Anbieter kennt nur seine Kunstsymbole. Ohne diese
+        Pruefung meldete das Kommando fuer jedes echte Symbol 'Nicht in der
+        Watchlist gefunden' -- eine Meldung, die auf die Watchlist zeigt,
+        waehrend der Anbieter das Problem ist."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "technical", "--symbols", "AAPL"])
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "'fixture'" in fehler
+        assert "Nicht in der Watchlist gefunden" not in fehler
+
+    def test_die_globale_konfigurationsdatei_kommt_im_kommando_an(self) -> None:
+        """Ein eigenes ``--config`` am Unterkommando ueberschreibt den
+        globalen Wert mit ``None``: argparse kopiert *alle* Schluessel des
+        Unterkommandos in den Hauptnamensraum, auch die ungesetzten
+        Voreinstellungen. Der Lauf rechnete dann stillschweigend gegen die
+        ausgelieferte ``config/default.yaml`` -- mit anderen Zonenparametern
+        als angegeben."""
+        parser = build_parser()
+        pfad = "/tmp/meine.yaml"
+
+        technical = parser.parse_args(["--config", pfad, "technical", "--symbols", "AAPL"])
+        backtest = parser.parse_args(["--config", pfad, "backtest"])
+
+        assert str(technical.config) == pfad
+        assert technical.config == backtest.config
+
+    def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
+        args = build_parser().parse_args(
+            ["technical", "--symbols", "AAPL", "--provider", "ibkr"]
+        )
+
+        assert args.provider == "ibkr"
 
 
 class TestResearchKommando:

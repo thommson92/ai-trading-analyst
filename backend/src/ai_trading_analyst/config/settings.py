@@ -292,6 +292,73 @@ class EarningsFilterConfig(_Section):
         return self
 
 
+class TechnicalAnalysisConfig(_Section):
+    """Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025).
+
+    Nicht Teil von Gate G1: Diese Werte beeinflussen weder eine Signalformel
+    noch die Kandidatenentscheidung. Sie bestimmen ausschliesslich, wie die
+    Lage beschrieben wird, in der eine bereits gefallene Entscheidung
+    zustande kam.
+
+    Die Voreinstellungen sind Konventionen, keine gemessenen Optima -- ADR
+    0025 nennt die Ueberlegung hinter jeder einzelnen. Sie sind bewusst
+    konfigurierbar, damit sie sich an echten Charts nachziehen lassen, ohne
+    dass Code geaendert werden muss.
+    """
+
+    pivot_reach: PositiveInt = 3
+    zone_tolerance_pct: float = 0.015
+    min_touches: PositiveInt = 2
+    moderate_pivot_count: PositiveInt = 3
+    strong_pivot_count: PositiveInt = 5
+    max_zones_per_side: PositiveInt = 3
+    history_candles: PositiveInt = 250
+    atr_length: PositiveInt = 14
+    trend_lookback: PositiveInt = 10
+    trend_flat_pct: float = 0.005
+    extremes_lookback: PositiveInt = 40
+
+    @model_validator(mode="after")
+    def _ranges_must_be_usable(self) -> TechnicalAnalysisConfig:
+        """Prueft, was Pydantic ueber ``PositiveInt`` hinaus nicht sieht.
+
+        Die Domain-Parameter pruefen dasselbe noch einmal. Doppelt und
+        absichtlich: Hier faellt eine unbrauchbare Konfigurationsdatei beim
+        Start auf, dort auch ein Programmierfehler beim direkten Aufruf des
+        Domain-Kerns.
+        """
+        # Bruchteile, keine Prozentwerte: 0.015 sind 1,5 %. Die obere
+        # Grenze faengt genau diese Verwechslung ab -- ohne sie ergaebe ein
+        # Zahlendreher keine Fehlermeldung, sondern ein plausibel aussehendes
+        # Ergebnis ohne Zonen beziehungsweise mit dauerhaftem Seitwaertstrend.
+        if not 0 < self.zone_tolerance_pct < 1:
+            raise ValueError(
+                "zone_tolerance_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.015 entspricht 1,5 %), war {self.zone_tolerance_pct}"
+            )
+        if not 0 <= self.trend_flat_pct < 1:
+            raise ValueError(
+                "trend_flat_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.005 entspricht 0,5 %), war {self.trend_flat_pct}"
+            )
+        if not 1 <= self.moderate_pivot_count <= self.strong_pivot_count:
+            raise ValueError(
+                "1 <= moderate_pivot_count <= strong_pivot_count ist verletzt"
+            )
+        laengstes_fenster = max(
+            2 * self.pivot_reach + 1,
+            self.atr_length + 1,
+            self.trend_lookback + 1,
+            self.extremes_lookback,
+        )
+        if self.history_candles < laengstes_fenster:
+            raise ValueError(
+                f"history_candles ({self.history_candles}) ist kleiner als das laengste "
+                f"benoetigte Fenster ({laengstes_fenster})"
+            )
+        return self
+
+
 class ModelProfile(_Section):
     """Modell fuer eine Analyseaufgabe, mit Ausweichmodell (ADR 0021).
 
@@ -505,6 +572,7 @@ class AppConfig(_Section):
     screening: ScreeningConfig = ScreeningConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
+    technical_analysis: TechnicalAnalysisConfig = TechnicalAnalysisConfig()
     llm: LlmConfig = LlmConfig()
     research: ResearchConfig = ResearchConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()

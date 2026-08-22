@@ -55,6 +55,7 @@ from ai_trading_analyst.bootstrap import (
     build_ibkr_bar_source,
     build_market_data_provider,
     build_research_provider,
+    build_technical_analysis_params,
     build_watchlist,
     project_root,
 )
@@ -83,6 +84,11 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
     SignalType,
     evaluate_candidate,
+)
+from ai_trading_analyst.domain.technical import (
+    TechnicalSnapshot,
+    TechnicalStatus,
+    compute_technical_snapshot,
 )
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
@@ -735,6 +741,174 @@ def _print_research_report(symbol: str, report: ResearchReport) -> None:
                 print(f'      "{citation.cited_text}"')
 
 
+def _format_optional(value: float | None, *, digits: int = 2, suffix: str = "") -> str:
+    """Fehlende Werte bleiben als solche sichtbar.
+
+    Ein Strich statt einer 0,00: Der Unterschied zwischen 'nicht berechenbar'
+    und 'berechnet und null' darf in der Ausgabe nicht verschwinden
+    (CLAUDE.md: keine erfundenen Werte).
+    """
+    return "--" if value is None else f"{value:.{digits}f}{suffix}"
+
+
+def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
+    print(f"{symbol}: {snapshot.status.value} (Verfahren {snapshot.analysis_version})")
+    if snapshot.reason:
+        print(f"  Grund: {snapshot.reason}")
+    if snapshot.status is not TechnicalStatus.COMPLETED:
+        return
+
+    if snapshot.parameters is not None:
+        # Wer die Parameter nach Doc 14 nachzieht, soll in derselben Ausgabe
+        # sehen, welche gerade gewirkt haben.
+        print(
+            "  Zonenparameter: "
+            f"Toleranz {snapshot.parameters['zone_tolerance_pct'] * 100:.2f} %, "
+            f"Reichweite {snapshot.parameters['pivot_reach']:.0f}, "
+            f"min. {snapshot.parameters['min_touches']:.0f} Beruehrungen, "
+            f"Fenster {snapshot.parameters['history_candles']:.0f} Kerzen"
+        )
+    if snapshot.candle_timestamp is not None:
+        print(f"  Entscheidungskerze: {snapshot.candle_timestamp.isoformat()}")
+    print(f"  Schlusskurs: {_format_optional(snapshot.close)}")
+    trend = "--" if snapshot.trend is None else snapshot.trend.value
+    print(f"  Trend: {trend}")
+    print(f"  RSI: {_format_optional(snapshot.rsi, digits=1)}")
+    print(
+        f"  EMA5: {_format_optional(snapshot.ema5)} "
+        f"({_format_optional(_as_percent(snapshot.distance_to_ema5_pct), digits=2, suffix=' %')})"
+    )
+    print(
+        f"  EMA20: {_format_optional(snapshot.ema20)} "
+        f"({_format_optional(_as_percent(snapshot.distance_to_ema20_pct), digits=2, suffix=' %')})"
+    )
+    print(
+        f"  ATR: {_format_optional(snapshot.atr)} "
+        f"({_format_optional(_as_percent(snapshot.atr_pct), digits=2, suffix=' %')})"
+    )
+    if snapshot.recent_high_at is not None and snapshot.recent_low_at is not None:
+        print(
+            f"  Juengstes Hoch: {_format_optional(snapshot.recent_high)} "
+            f"am {snapshot.recent_high_at.date().isoformat()}"
+        )
+        print(
+            f"  Juengstes Tief: {_format_optional(snapshot.recent_low)} "
+            f"am {snapshot.recent_low_at.date().isoformat()}"
+        )
+
+    if not snapshot.zones:
+        print("  Zonen: keine mehrfach getestete Preisregion im Fenster")
+        return
+    print("  Zonen (nach Abstand zum Kurs):")
+    for zone in snapshot.zones:
+        print(
+            f"    {zone.kind.value:<13} {zone.lower:.2f} - {zone.upper:.2f}  "
+            f"{zone.strength.value:<8} "
+            f"{_plural(zone.touch_count, 'Beruehrung', 'Beruehrungen')} aus "
+            f"{_plural(zone.pivot_count, 'Wendepunkt', 'Wendepunkten')}, zuletzt "
+            f"{zone.last_confirmed_at.date().isoformat()}, "
+            f"Abstand {zone.distance_pct * 100:.2f} %"
+        )
+
+
+def _plural(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _as_percent(value: float | None) -> float | None:
+    return None if value is None else value * 100
+
+
+def command_technical(args: argparse.Namespace) -> int:
+    """Deterministische Chartauswertung eines Symbols aus dem Bestand.
+
+    Gedacht zum Gegenpruefen am echten Chart: Die Zonen sind der Teil des
+    Verfahrens, dessen Parameter sich nur an realen Kursverlaeufen beurteilen
+    lassen (ADR 0025). Wie 'backtest' rechnet das Kommando ausschliesslich auf
+    dem gespeicherten Bestand und nie gegen die TWS -- damit dieselbe Frage
+    zweimal dieselbe Antwort ergibt. Und wie dort wird 'provider' nicht
+    stillschweigend uebersteuert: Der Fixture-Anbieter kennt nur seine eigenen
+    Kunstsymbole, eine Auswertung von AAPL gaebe es dort gar nicht.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    indicators = config.require_indicators()
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        # Muster 'backtest': Der Fixture-Anbieter kennt nur seine eigenen
+        # Kunstsymbole. Ohne diese Pruefung meldete das Kommando fuer jedes
+        # echte Symbol "Nicht in der Watchlist gefunden" -- eine Meldung, die
+        # auf die Watchlist zeigt, waehrend der Anbieter das Problem ist.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Die Chartauswertung braucht den ueber "
+            "IBKR gefuellten Bestand -- entweder '--provider ibkr' setzen, "
+            "market_data.provider auf 'ibkr' stellen oder zuerst 'backfill' laufen "
+            "lassen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    market_data = config.market_data.model_copy(update={"source": "stored"})
+    config = config.model_copy(update={"market_data": market_data})
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    provider = build_market_data_provider(
+        config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+    )
+    params = build_technical_analysis_params(config)
+
+    wanted = {symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()}
+    if not wanted:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return 2
+
+    verfuegbar = list(provider.list_stocks())
+    stocks = [stock for stock in verfuegbar if stock.symbol in wanted]
+    fehlend = wanted - {stock.symbol for stock in stocks}
+    if fehlend:
+        print(f"Nicht in der Watchlist gefunden: {', '.join(sorted(fehlend))}", file=sys.stderr)
+    if not stocks:
+        # Passte kein einziges Symbol, ist die Watchlist selbst die naechste
+        # Frage. Sie hier zu zeigen erspart den Umweg ueber 'watchlist'.
+        namen = sorted(stock.symbol for stock in verfuegbar)
+        gezeigt = ", ".join(namen[:20]) + (" ..." if len(namen) > 20 else "")
+        print(
+            f"Die Watchlist enthaelt {len(namen)} Symbole: {gezeigt}"
+            if namen
+            else "Die Watchlist ist leer.",
+            file=sys.stderr,
+        )
+        return 2
+
+    fehler = 0
+    for stock in stocks:
+        try:
+            series = provider.get_candle_series(stock)
+        except MarketDataProviderError as error:
+            print(f"{stock.symbol}: {error}", file=sys.stderr)
+            fehler += 1
+            continue
+        snapshot = compute_technical_snapshot(
+            series, len(series) - 1, params, datetime.now(UTC)
+        )
+        _print_technical_snapshot(stock.symbol, snapshot)
+        print()
+    return 1 if fehler else 0
+
+
 def command_research(args: argparse.Namespace) -> int:
     """Manueller Probelauf des Research Agent fuer ein einzelnes Symbol.
 
@@ -950,6 +1124,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             uow_factory,
             rule,
             build_earnings_filter_params(config),
+            build_technical_analysis_params(config),
             expected_last_candle=erwartete_kerze,
         ).execute()
         kandidaten = [
@@ -1221,6 +1396,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
+
+    technical = subparsers.add_parser(
+        "technical",
+        help="Deterministische Chartauswertung eines Symbols aus dem Bestand anzeigen.",
+    )
+    technical.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider nur fuer diesen Lauf. Die "
+            "Chartauswertung braucht 'ibkr' -- ohne laufende TWS, aber mit "
+            "gefuelltem Bestand."
+        ),
+    )
+    technical.add_argument(
+        "--symbols",
+        required=True,
+        help="Kommagetrennte Symbole, z. B. 'AAPL,MSFT'.",
+    )
+    technical.set_defaults(handler=command_technical)
 
     research = subparsers.add_parser(
         "research",

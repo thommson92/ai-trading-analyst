@@ -51,6 +51,16 @@ Aus Sprint 4 steht der **Research Agent** mit Quellenbindung und
 Kostensteuerung ([ADR 0022](docs/adr/0022-research-agent-quellen.md),
 [ADR 0023](docs/adr/0023-research-agent-zitierarchitektur.md)).
 
+Ebenfalls aus Sprint 4 steht die **deterministische Hälfte der technischen
+Analyse** (Doc 10, Paragraph 6.8): Trendrichtung, Volatilität über die
+Average True Range, jüngste Hoch- und Tiefpunkte und Unterstützungs-/
+Widerstandszonen aus Swing-Pivots mit Clustering
+([ADR 0025](docs/adr/0025-deterministische-chartauswertung-und-zonen.md)).
+Sie läuft für jeden Kandidaten und hängt an keinem anderen Analysemodul.
+`cli technical --provider ibkr --symbols AAPL` gibt sie samt Zonen aus, damit
+die Parameter am echten Chart gegengeprüft werden können. Die KI-Interpretation darauf --
+der eigentliche Technical Agent -- steht noch aus.
+
 Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt: Ein
 ausgefallener Tageslauf meldet sich über Telegram
 ([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)), statt nur im
@@ -65,7 +75,8 @@ Noch offen:
 
 | Thema | Stand |
 |---|---|
-| Technical, Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
+| Technical Agent (KI-Interpretation) | Sprint 4 — die deterministische Hälfte steht |
+| Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
 
@@ -77,6 +88,8 @@ backend/          Python 3.12, FastAPI-Anwendung
     domain/         Fachregeln, Provider-Schnittstellen (ohne Infrastruktur)
       screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1),
                       Indikatorberechnung, 195-Minuten-Kerzenbildung
+      technical/      Deterministische Chartauswertung: Zonen, Trend, ATR
+                      (ADR 0025) -- fliesst nie in eine Signalentscheidung
       analysis/       AnalysisRun/Stock-Modelle, Provider-Ports
     application/    Use Cases, Orchestrierung (run_analysis.py)
     infrastructure/ Repositories, Adapter

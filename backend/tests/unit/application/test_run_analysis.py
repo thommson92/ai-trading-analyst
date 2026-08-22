@@ -20,6 +20,10 @@ from ai_trading_analyst.domain.earnings import (
 )
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
+from ai_trading_analyst.domain.technical import (
+    TechnicalAnalysisParameters,
+    TechnicalStatus,
+)
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeEarningsProvider,
@@ -40,12 +44,25 @@ _PARAMS = CandidateRuleParameters(
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11
+_TECHNICAL_PARAMS = TechnicalAnalysisParameters(
+    pivot_reach=1,
+    atr_length=2,
+    trend_lookback=2,
+    extremes_lookback=3,
+    history_candles=100,
+)
+"""Kleine Fenster, damit die elf Kerzen der Testreihe fuer eine
+vollstaendige Chartauswertung reichen -- die Voreinstellungen aus ADR 0025
+brauchen 40. Was die Auswertung inhaltlich rechnet, prueft
+``tests/unit/domain/technical``; hier zaehlt nur, dass der Use Case sie
+zur richtigen Zeit aufruft."""
 
 
 def _build_use_case(
     provider: FakeMarketDataProvider,
     earnings_provider: FakeEarningsProvider | None = None,
     research_provider: FakeResearchProvider | None = None,
+    technical_params: TechnicalAnalysisParameters | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -69,6 +86,7 @@ def _build_use_case(
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
+        technical_params or _TECHNICAL_PARAMS,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -269,6 +287,102 @@ class TestEarningsFilter:
         assert earnings is not None
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "invalid_data"
+
+
+class TestTechnischeChartauswertung:
+    """Doc 10, Paragraph 6.8 -- und vor allem die Entkopplung aus CLAUDE.md:
+    Faellt Research oder der Earnings-Anbieter aus, bleibt die technische
+    Analyse vollstaendig."""
+
+    def test_laeuft_fuer_kandidaten(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        summary = use_case.execute()
+
+        technical = summary.outcomes[0].technical
+        assert technical is not None
+        assert technical.status is TechnicalStatus.COMPLETED
+
+    def test_laeuft_nicht_fuer_nicht_kandidaten(self) -> None:
+        stock = make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        summary = use_case.execute()
+
+        assert summary.outcomes[0].technical is None
+
+    def test_ausfall_des_earnings_anbieters_laesst_sie_vollstaendig(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(error_symbols=frozenset({"CAND"}))
+        use_case, *_ = _build_use_case(provider, earnings_provider)
+
+        summary = use_case.execute()
+
+        earnings = summary.outcomes[0].earnings
+        assert earnings is not None
+        assert earnings.status is EarningsFilterStatus.UNKNOWN
+        technical = summary.outcomes[0].technical
+        assert technical is not None
+        assert technical.status is TechnicalStatus.COMPLETED
+
+    def test_ausfall_des_research_anbieters_laesst_sie_vollstaendig(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        earnings_provider = FakeEarningsProvider(
+            next_by_symbol={
+                "CAND": NextEarningsDate(
+                    date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
+                )
+            }
+        )
+        research_provider = FakeResearchProvider(error_symbols=frozenset({"CAND"}))
+        use_case, *_ = _build_use_case(provider, earnings_provider, research_provider)
+
+        summary = use_case.execute()
+
+        research = summary.outcomes[0].research
+        assert research is not None
+        assert research.status is ResearchStatus.UNAVAILABLE
+        technical = summary.outcomes[0].technical
+        assert technical is not None
+        assert technical.status is TechnicalStatus.COMPLETED
+
+    def test_zu_kurze_historie_ist_kein_verarbeitungsfehler(self) -> None:
+        """Sie ergibt ein Ergebnis mit ``INSUFFICIENT_DATA`` -- die Aktie
+        bleibt ein normales Screening-Ergebnis, statt ganz zu verschwinden."""
+        stock = make_stock("SHORT")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"SHORT": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+        # Fenster groesser als die Testreihe -- der Fall einer Aktie, die
+        # erst seit Kurzem gehandelt wird.
+        use_case, _, _, _, errors_repo = _build_use_case(
+            provider,
+            technical_params=TechnicalAnalysisParameters(
+                extremes_lookback=40, history_candles=250
+            ),
+        )
+
+        summary = use_case.execute()
+
+        technical = summary.outcomes[0].technical
+        assert technical is not None
+        assert technical.status is TechnicalStatus.INSUFFICIENT_DATA
+        assert technical.reason == "too_few_candles"
+        assert errors_repo.added == []
 
 
 class TestResearch:
@@ -475,6 +589,7 @@ class TestVeralteteDaten:
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
             expected_last_candle=erwartet,
         ).execute()
 

@@ -214,6 +214,53 @@ die Ablage lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet
 
 **Abbruch, wenn:** mehr als eine Handvoll Symbole ohne Daten zurückkommt.
 
+## Zwischenschritt: Chartauswertung gegenprüfen (optional)
+
+Kein Abnahmekriterium, sondern eine Gelegenheit. Sobald der Bestand steht,
+lässt sich die deterministische Chartauswertung für einzelne Symbole ansehen
+([ADR 0025](adr/0025-deterministische-chartauswertung-und-zonen.md)):
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli technical --provider ibkr `
+    --symbols AAPL,MSFT
+```
+
+`--provider ibkr` ist nötig: Ausgeliefert steht `market_data.provider` auf
+`fixture`, und der Fixture-Anbieter kennt nur seine eigenen Kunstsymbole —
+ohne die Übersteuerung bricht das Kommando mit einem entsprechenden Hinweis
+ab. Wie bei `backfill` und `backtest` wird der Anbieter bewusst nicht
+stillschweigend umgestellt.
+
+Ausgegeben werden die wirksamen Zonenparameter, Trend, RSI, Lage zu
+EMA5/EMA20, ATR, die jüngsten Hoch- und Tiefpunkte und die Unterstützungs-/
+Widerstandszonen mit Spanne, Stärke, Berührungszahl, letzter Bestätigung und
+Abstand zum Kurs.
+
+Das Kommando rechnet ausschließlich auf dem gespeicherten Bestand, nie gegen
+die TWS — die TWS muss also **nicht** laufen, und es kann nichts stören. Ein
+Symbol muss aber in der Watchlist stehen **und** über `backfill` gefüllt
+sein; passt kein einziges, zeigt das Kommando die verfügbaren Symbole an.
+
+Die Zonenparameter in `config/default.yaml` (Abschnitt `technical_analysis`)
+sind bewusst Konventionen und keine gemessenen Optima. Wer die Zonen neben dem
+Chart in der TWS betrachtet und sie für zu breit, zu eng oder zu zahlreich
+hält, zieht `zone_tolerance_pct`, `min_touches` oder `max_zones_per_side`
+entsprechend nach. Ein neuer Lauf zeigt die Wirkung sofort; gespeicherte
+Ergebnisse bleiben davon unberührt — sie führen ihre eigenen Parameter mit.
+
+Worauf beim Vergleich zu achten ist:
+
+- **Zonen überlappen einander nicht.** Tun sie es doch, stimmt etwas nicht.
+- **Die Stärke folgt der Zahl der Wendepunkte**, nicht der Berührungen. Eine
+  Zone mit einem Wendepunkt und vielen Berührungen ist eine Preisregion, die
+  der Kurs durchläuft — sie soll `WEAK` sein.
+- Ein nie wieder angelaufenes Verlaufshoch bildet **keine** Zone
+  (`min_touches`). Es steht als „jüngstes Hoch" in derselben Ausgabe.
+- Eine Zone mit **einem** Wendepunkt und vielen Berührungen ist bekanntes
+  Rauschen in Kursnähe — der Kurs läuft dort durch, statt umzukehren. Sie ist
+  als `WEAK` gekennzeichnet, belegt aber einen Platz je Seite. Siehe ADR 0025,
+  „Negativ / offen".
+
 ---
 
 # Stufe F — Erster Tageslauf und Aufgabenplanung

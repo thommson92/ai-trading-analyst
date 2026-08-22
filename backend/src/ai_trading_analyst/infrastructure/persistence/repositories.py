@@ -6,6 +6,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -37,6 +38,14 @@ from ai_trading_analyst.domain.screening import (
     SignalEvent,
     SignalType,
 )
+from ai_trading_analyst.domain.technical import (
+    PriceZone,
+    TechnicalSnapshot,
+    TechnicalStatus,
+    TrendDirection,
+    ZoneKind,
+    ZoneStrength,
+)
 
 from .orm import (
     AnalysisRunOrm,
@@ -47,6 +56,7 @@ from .orm import (
     ScreeningResultOrm,
     SignalEventOrm,
     StockOrm,
+    TechnicalZoneOrm,
 )
 
 
@@ -152,6 +162,119 @@ def _require_paired_evaluated_at(
     return evaluated_at
 
 
+def _technical_from_row(row: ScreeningResultOrm) -> TechnicalSnapshot | None:
+    """Liest die Chartauswertung zurueck, sofern eine gespeichert wurde.
+
+    Die Zonen kommen ueber die nach ``position`` sortierte Beziehung -- die
+    Sortierung nach Abstand zum Kurs ist Teil der Aussage und darf beim
+    Wiedereinlesen nicht der Datenbank ueberlassen bleiben.
+    """
+    if row.technical_status is None:
+        return None
+    evaluated_at = _require_paired_evaluated_at(
+        row.id, row.technical_evaluated_at, "technical_status", "technical_evaluated_at"
+    )
+    if row.technical_analysis_version is None:
+        raise ValueError(
+            f"Screening-Ergebnis {row.id}: technical_analysis_version fehlt trotz gesetztem "
+            "technical_status -- ohne die Verfahrensversion ist nicht mehr feststellbar, "
+            "nach welchem Verfahren gerechnet wurde."
+        )
+    return TechnicalSnapshot(
+        status=TechnicalStatus(row.technical_status),
+        evaluated_at=evaluated_at,
+        analysis_version=row.technical_analysis_version,
+        parameters=row.technical_parameters,
+        reason=row.technical_reason,
+        candle_timestamp=row.technical_candle_timestamp,
+        close=row.technical_close,
+        trend=None if row.technical_trend is None else TrendDirection(row.technical_trend),
+        rsi=row.technical_rsi,
+        ema5=row.technical_ema5,
+        ema20=row.technical_ema20,
+        distance_to_ema5_pct=row.technical_distance_to_ema5_pct,
+        distance_to_ema20_pct=row.technical_distance_to_ema20_pct,
+        atr=row.technical_atr,
+        atr_pct=row.technical_atr_pct,
+        recent_high=row.technical_recent_high,
+        recent_high_at=row.technical_recent_high_at,
+        recent_low=row.technical_recent_low,
+        recent_low_at=row.technical_recent_low_at,
+        zones=tuple(
+            PriceZone(
+                lower=zone.lower,
+                upper=zone.upper,
+                kind=ZoneKind(zone.kind),
+                strength=ZoneStrength(zone.strength),
+                touch_count=zone.touch_count,
+                last_confirmed_at=zone.last_confirmed_at,
+                distance_pct=zone.distance_pct,
+                pivot_count=zone.pivot_count,
+            )
+            for zone in row.technical_zones
+        ),
+    )
+
+
+_TECHNICAL_FIELDS = (
+    "status",
+    "evaluated_at",
+    "analysis_version",
+    "parameters",
+    "reason",
+    "candle_timestamp",
+    "close",
+    "trend",
+    "rsi",
+    "ema5",
+    "ema20",
+    "distance_to_ema5_pct",
+    "distance_to_ema20_pct",
+    "atr",
+    "atr_pct",
+    "recent_high",
+    "recent_high_at",
+    "recent_low",
+    "recent_low_at",
+)
+
+
+def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
+    """Spaltenwerte der Chartauswertung, ``technical_``-praefigiert.
+
+    Ohne Auswertung werden alle Spalten ausdruecklich auf ``None`` gesetzt,
+    statt sie wegzulassen: Beim Wiederverwenden einer Zeile haenge sonst am
+    Spalten-Default, ob ein alter Wert stehen bleibt.
+    """
+    if technical is None:
+        return {f"technical_{name}": None for name in _TECHNICAL_FIELDS}
+    return {
+        "technical_status": technical.status,
+        "technical_evaluated_at": technical.evaluated_at,
+        "technical_analysis_version": technical.analysis_version,
+        # ``dict(...)``, weil die Domain eine ``Mapping`` fuehrt und
+        # SQLAlchemy einen serialisierbaren Wert braucht.
+        "technical_parameters": (
+            None if technical.parameters is None else dict(technical.parameters)
+        ),
+        "technical_reason": technical.reason,
+        "technical_candle_timestamp": technical.candle_timestamp,
+        "technical_close": technical.close,
+        "technical_trend": technical.trend,
+        "technical_rsi": technical.rsi,
+        "technical_ema5": technical.ema5,
+        "technical_ema20": technical.ema20,
+        "technical_distance_to_ema5_pct": technical.distance_to_ema5_pct,
+        "technical_distance_to_ema20_pct": technical.distance_to_ema20_pct,
+        "technical_atr": technical.atr,
+        "technical_atr_pct": technical.atr_pct,
+        "technical_recent_high": technical.recent_high,
+        "technical_recent_high_at": technical.recent_high_at,
+        "technical_recent_low": technical.recent_low,
+        "technical_recent_low_at": technical.recent_low_at,
+    }
+
+
 def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     stock = Stock(id=row.stock.id, symbol=row.stock.symbol, exchange=row.stock.exchange)
     events = tuple(
@@ -213,6 +336,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         decision_candle_index=row.decision_candle_index,
         evaluated_at=row.evaluated_at,
         signal_rule_version=row.signal_rule_version,
+        technical=_technical_from_row(row),
         earnings=earnings,
         research=research,
     )
@@ -257,6 +381,7 @@ class SqlAlchemyScreeningResultRepository:
             research_risks=list(research.risks) if research is not None else None,
             research_confidence=research.confidence if research is not None else None,
             research_reason=research.reason if research is not None else None,
+            **_technical_columns(outcome.technical),
         )
         row.signal_events = [
             SignalEventOrm(
@@ -275,6 +400,22 @@ class SqlAlchemyScreeningResultRepository:
                 transformation=citation.transformation,
             )
             for citation in (research.citations if research is not None else ())
+        ]
+        technical = outcome.technical
+        row.technical_zones = [
+            TechnicalZoneOrm(
+                id=uuid.uuid4(),
+                position=position,
+                lower=zone.lower,
+                upper=zone.upper,
+                kind=zone.kind,
+                strength=zone.strength,
+                touch_count=zone.touch_count,
+                last_confirmed_at=zone.last_confirmed_at,
+                distance_pct=zone.distance_pct,
+                pivot_count=zone.pivot_count,
+            )
+            for position, zone in enumerate(technical.zones if technical is not None else ())
         ]
         self._session.add(row)
 

@@ -17,6 +17,7 @@ EXPECTED_TABLES = {
     "screening_results",
     "signal_events",
     "analysis_run_errors",
+    "technical_zones",
 }
 
 
