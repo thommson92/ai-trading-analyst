@@ -36,6 +36,14 @@ from ai_trading_analyst.domain.screening import (
     SignalEvent,
     SignalType,
 )
+from ai_trading_analyst.domain.technical import (
+    PriceZone,
+    TechnicalSnapshot,
+    TechnicalStatus,
+    TrendDirection,
+    ZoneKind,
+    ZoneStrength,
+)
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from tests.integration.conftest import make_outcome, make_run, make_stock
 
@@ -253,6 +261,193 @@ class TestScreeningResultRepository:
         assert persisted.result.fired_signal_types == frozenset(
             {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
         )
+
+    def test_chartauswertung_mit_zonen_wird_mitgespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("WITHTECHNICAL")
+        run = make_run()
+        bestaetigt = datetime.now(UTC)
+        zones = (
+            PriceZone(
+                lower=98.0,
+                upper=101.0,
+                kind=ZoneKind.PRICE_INSIDE,
+                strength=ZoneStrength.STRONG,
+                touch_count=6,
+                last_confirmed_at=bestaetigt,
+                distance_pct=0.0,
+                pivot_count=4,
+            ),
+            PriceZone(
+                lower=104.0,
+                upper=107.0,
+                kind=ZoneKind.RESISTANCE,
+                strength=ZoneStrength.MODERATE,
+                touch_count=3,
+                last_confirmed_at=bestaetigt - timedelta(days=2),
+                distance_pct=0.04,
+                pivot_count=2,
+            ),
+            PriceZone(
+                lower=88.0,
+                upper=91.0,
+                kind=ZoneKind.SUPPORT,
+                strength=ZoneStrength.WEAK,
+                touch_count=2,
+                last_confirmed_at=bestaetigt - timedelta(days=9),
+                distance_pct=0.09,
+                pivot_count=2,
+            ),
+        )
+        technical = TechnicalSnapshot(
+            status=TechnicalStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            analysis_version="technical-v1",
+            candle_timestamp=datetime.now(UTC) - timedelta(minutes=195),
+            close=100.0,
+            trend=TrendDirection.UP,
+            rsi=61.5,
+            ema5=99.5,
+            ema20=97.25,
+            distance_to_ema5_pct=0.005,
+            distance_to_ema20_pct=0.028,
+            atr=2.4,
+            atr_pct=0.024,
+            recent_high=107.0,
+            recent_high_at=bestaetigt - timedelta(days=2),
+            recent_low=88.5,
+            recent_low_at=bestaetigt - timedelta(days=9),
+            zones=zones,
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            technical=technical,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.technical == technical
+
+    def test_zonenreihenfolge_ueberlebt_die_datenbank(self, uow_factory: UowFactory) -> None:
+        """Die Sortierung nach Abstand zum Kurs ist Teil der Aussage.
+
+        Anders als bei den Zitaten hat die Zonen-Relationship deshalb ein
+        ``order_by`` -- ohne das gaebe die Datenbank die Zonen in
+        unbestimmter Reihenfolge zurueck, und die naechstgelegene Zone waere
+        beim Wiedereinlesen nicht mehr die erste.
+        """
+        stock = make_stock("ZONEORDER")
+        run = make_run()
+        bestaetigt = datetime.now(UTC)
+        abstaende = (0.0, 0.02, 0.05, 0.11)
+        zones = tuple(
+            PriceZone(
+                lower=100.0 - index,
+                upper=101.0 - index,
+                kind=ZoneKind.SUPPORT,
+                strength=ZoneStrength.WEAK,
+                touch_count=2,
+                last_confirmed_at=bestaetigt,
+                distance_pct=abstand,
+                pivot_count=2,
+            )
+            for index, abstand in enumerate(abstaende)
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            technical=TechnicalSnapshot(
+                status=TechnicalStatus.COMPLETED,
+                evaluated_at=datetime.now(UTC),
+                close=100.0,
+                zones=zones,
+            ),
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.technical is not None
+        assert tuple(zone.distance_pct for zone in persisted.technical.zones) == abstaende
+
+    def test_unvollstaendige_chartauswertung_wird_ohne_ersatzwerte_gespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """INSUFFICIENT_DATA hat weder Kurs noch Zonen -- die Spalten bleiben
+        NULL, statt beim Wiedereinlesen einen gerechneten Wert vorzutaeuschen."""
+        stock = make_stock("TECHNICALINSUFFICIENT")
+        run = make_run()
+        technical = TechnicalSnapshot(
+            status=TechnicalStatus.INSUFFICIENT_DATA,
+            evaluated_at=datetime.now(UTC),
+            reason="too_few_candles",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=12,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            technical=technical,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.technical == technical
+        assert persisted.technical is not None
+        assert persisted.technical.close is None
+        assert persisted.technical.zones == ()
+
+    def test_ergebnis_ohne_chartauswertung_bleibt_ohne(self, uow_factory: UowFactory) -> None:
+        """Ein Nichtkandidat wird nicht ausgewertet -- und liest sich als
+        ``None`` zurueck, nicht als leere Auswertung."""
+        stock = make_stock("NOTECHNICAL")
+        run = make_run()
+        outcome = make_outcome(
+            stock, ScreeningStatus.NOT_CANDIDATE, analysis_run_id=run.id
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.technical is None
 
     def test_research_bericht_mit_zitaten_wird_mitgespeichert(
         self, uow_factory: UowFactory

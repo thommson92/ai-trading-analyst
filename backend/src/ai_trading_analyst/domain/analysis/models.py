@@ -16,6 +16,7 @@ from enum import StrEnum
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import ScreeningResult
+from ai_trading_analyst.domain.technical import TechnicalSnapshot
 
 
 class RunStatus(StrEnum):
@@ -71,6 +72,14 @@ class StockScreeningOutcome:
     decision_candle_index: int
     evaluated_at: datetime
     signal_rule_version: str
+    technical: TechnicalSnapshot | None = None
+    """Nur bei ``ScreeningStatus.CANDIDATE`` gesetzt -- die Chartauswertung
+    beschreibt die Lage eines Kandidaten (Doc 10, Paragraph 6.8).
+
+    Haengt an **keinem** anderen Modul: weder am Earnings-Filter noch am
+    Research Agent. Beide koennen ausfallen, ohne dass hier etwas fehlt
+    (CLAUDE.md: faellt Research aus, bleiben technische Analyse und
+    Backtesting vollstaendig)."""
     earnings: EarningsFilterResult | None = None
     """Nur bei ``ScreeningStatus.CANDIDATE`` gesetzt -- der Earnings-Filter
     laeuft ausschliesslich fuer bereits qualifizierte Kandidaten (Doc 10,

@@ -105,6 +105,35 @@ earnings_filter:
     request_timeout_seconds: 10
     lookahead_calendar_days: 30
 
+technical_analysis:
+  # Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025).
+  # Nicht Teil von Gate G1 -- diese Werte beeinflussen keine Signalformel und
+  # keine Kandidatenentscheidung, sondern nur die Beschreibung der Lage.
+  #
+  # Kerzen links und rechts eines Swing-Punktes. Die juengsten 3 Kerzen
+  # koennen deshalb noch keinen Wendepunkt bilden: Ein unbestaetigter
+  # Wendepunkt ist keiner.
+  pivot_reach: 3
+  # Halbe Zonenbreite, relativ zum Mittelwert der Zone -- 1,5 % ist auf der
+  # 195-Minuten-Kerze rund eine halbe bis ganze Tagesspanne.
+  zone_tolerance_pct: 0.015
+  # Eine einmal beruehrte Preisregion ist noch keine Zone.
+  min_touches: 2
+  moderate_touch_count: 3
+  strong_touch_count: 5
+  # Obergrenze je Seite, nach Naehe zum Kurs.
+  max_zones_per_side: 3
+  # Fenster der Zonensuche in Kerzen -- bei zwei Kerzen je Handelstag rund
+  # ein halbes Jahr, der Horizont eines Swing-Trades.
+  history_candles: 250
+  atr_length: 14
+  # Kerzen, ueber die die Steigung des EMA20 gemessen wird, und die relative
+  # Aenderung, unterhalb derer der Trend als seitwaerts gilt.
+  trend_lookback: 10
+  trend_flat_pct: 0.005
+  # Fenster fuer die juengsten Hoch- und Tiefpunkte (rund vier Wochen).
+  extremes_lookback: 40
+
 llm:
   # Anbieter und Modellstufen je Analyseaufgabe
   # (docs/adr/0021-ki-anbindung-anthropic-api.md). Guenstigere Modelle fuer

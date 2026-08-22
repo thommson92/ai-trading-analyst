@@ -55,6 +55,7 @@ from ai_trading_analyst.bootstrap import (
     build_ibkr_bar_source,
     build_market_data_provider,
     build_research_provider,
+    build_technical_analysis_params,
     build_watchlist,
     project_root,
 )
@@ -950,6 +951,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             uow_factory,
             rule,
             build_earnings_filter_params(config),
+            build_technical_analysis_params(config),
             expected_last_candle=erwartete_kerze,
         ).execute()
         kandidaten = [

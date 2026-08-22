@@ -43,6 +43,11 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
     evaluate_candidate,
 )
+from ai_trading_analyst.domain.technical import (
+    TechnicalAnalysisParameters,
+    TechnicalSnapshot,
+    compute_technical_snapshot,
+)
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
@@ -65,6 +70,7 @@ class _PreparedOutcome:
     result: ScreeningResult
     decision_index: int
     evaluated_at: datetime
+    technical: TechnicalSnapshot | None
     earnings: EarningsFilterResult | None
     needs_research: bool
     research: ResearchReport | None = None
@@ -104,6 +110,14 @@ class RunAnalysisUseCase:
     Ergebnis, statt in ``StockProcessingError`` zu landen (ADR 0017: die
     technische Analyse laeuft unabhaengig vom Earnings-Filter weiter).
 
+    Die deterministische Chartauswertung (Doc 10, Paragraph 6.8) laeuft
+    ebenfalls nur fuer Kandidaten, aber **vor** dem Earnings-Filter und
+    unabhaengig von dessen Ergebnis: Sie rechnet allein auf der bereits
+    geholten Kerzenserie und kann deshalb gar nicht an einer externen Quelle
+    scheitern. Reicht die Historie nicht, ist ihr Ergebnis
+    ``TechnicalStatus.INSUFFICIENT_DATA`` -- kein Verarbeitungsfehler der
+    Aktie.
+
     Der Research Agent (Doc 10, Paragraph 6.7; ADR 0021, ADR 0023) laeuft
     danach, ausschliesslich fuer Aktien, die zusaetzlich den Earnings-Filter
     mit ``EARNINGS_CLEAR`` bestanden haben. Ein Ausfall des
@@ -121,6 +135,7 @@ class RunAnalysisUseCase:
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
+        technical_params: TechnicalAnalysisParameters,
         expected_last_candle: datetime | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
@@ -129,6 +144,7 @@ class RunAnalysisUseCase:
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
+        self._technical_params = technical_params
         self._expected_last_candle = expected_last_candle
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
@@ -230,9 +246,19 @@ class RunAnalysisUseCase:
             result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
             evaluated_at = datetime.now(UTC)
 
+            technical: TechnicalSnapshot | None = None
             earnings: EarningsFilterResult | None = None
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
+                # Bewusst vor dem Earnings-Filter und unabhaengig von dessen
+                # Ergebnis: Die Chartauswertung rechnet ausschliesslich auf
+                # der ohnehin geholten Kerzenserie. Sie hinter den Filter zu
+                # haengen wuerde sie ohne Not von einer externen Quelle
+                # abhaengig machen, die ausfallen kann (CLAUDE.md:
+                # Analysemodule sind entkoppelt).
+                technical = compute_technical_snapshot(
+                    series, decision_index, self._technical_params, evaluated_at
+                )
                 earnings = self._evaluate_earnings(
                     stock, series.candles[decision_index].timestamp.date(), evaluated_at
                 )
@@ -243,6 +269,7 @@ class RunAnalysisUseCase:
                 result=result,
                 decision_index=decision_index,
                 evaluated_at=evaluated_at,
+                technical=technical,
                 earnings=earnings,
                 needs_research=needs_research,
             )
@@ -286,6 +313,7 @@ class RunAnalysisUseCase:
             decision_candle_index=item.decision_index,
             evaluated_at=item.evaluated_at,
             signal_rule_version=SIGNAL_RULE_VERSION,
+            technical=item.technical,
             earnings=item.earnings,
             research=item.research,
         )

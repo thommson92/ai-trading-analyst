@@ -33,6 +33,7 @@ from ai_trading_analyst.domain.screening import (
     IndicatorParameters,
     SessionParameters,
 )
+from ai_trading_analyst.domain.technical import TechnicalAnalysisParameters
 from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicResearchPricing,
     AnthropicResearchProvider,
@@ -188,6 +189,24 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     )
 
 
+def build_technical_analysis_params(config: AppConfig) -> TechnicalAnalysisParameters:
+    """Uebersetzt den Konfigurationsabschnitt in die Domain-Parameter (ADR 0025)."""
+    section = config.technical_analysis
+    return TechnicalAnalysisParameters(
+        pivot_reach=section.pivot_reach,
+        zone_tolerance_pct=section.zone_tolerance_pct,
+        min_touches=section.min_touches,
+        moderate_touch_count=section.moderate_touch_count,
+        strong_touch_count=section.strong_touch_count,
+        max_zones_per_side=section.max_zones_per_side,
+        history_candles=section.history_candles,
+        atr_length=section.atr_length,
+        trend_lookback=section.trend_lookback,
+        trend_flat_pct=section.trend_flat_pct,
+        extremes_lookback=section.extremes_lookback,
+    )
+
+
 def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProvider:
     """Waehlt den Research-Anbieter anhand der Konfiguration.
 
@@ -257,6 +276,7 @@ def build_app() -> FastAPI:
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,
+        build_technical_analysis_params(loaded.config),
     )
 
     def check_database_ready() -> bool:

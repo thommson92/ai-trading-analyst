@@ -23,6 +23,12 @@ from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
+from ai_trading_analyst.domain.technical import (
+    TechnicalStatus,
+    TrendDirection,
+    ZoneKind,
+    ZoneStrength,
+)
 
 
 class Base(DeclarativeBase):
@@ -118,6 +124,42 @@ class ScreeningResultOrm(Base):
     earnings_source: Mapped[str | None] = mapped_column(nullable=True)
     earnings_reason: Mapped[str | None] = mapped_column(nullable=True)
 
+    # Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025) --
+    # wie bei den earnings_*-Spalten nur bei CANDIDATE gesetzt. Getrennt von
+    # jeder KI-Interpretation gespeichert, wie Doc 10, Paragraph 6.8
+    # ausdruecklich verlangt: Der Technical Agent schreibt spaeter in eigene
+    # Spalten und veraendert keine einzige der folgenden.
+    technical_status: Mapped[TechnicalStatus | None] = mapped_column(
+        _enum_column(TechnicalStatus), nullable=True
+    )
+    technical_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    technical_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    technical_reason: Mapped[str | None] = mapped_column(nullable=True)
+    technical_candle_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    technical_close: Mapped[float | None] = mapped_column(nullable=True)
+    technical_trend: Mapped[TrendDirection | None] = mapped_column(
+        _enum_column(TrendDirection), nullable=True
+    )
+    technical_rsi: Mapped[float | None] = mapped_column(nullable=True)
+    technical_ema5: Mapped[float | None] = mapped_column(nullable=True)
+    technical_ema20: Mapped[float | None] = mapped_column(nullable=True)
+    technical_distance_to_ema5_pct: Mapped[float | None] = mapped_column(nullable=True)
+    technical_distance_to_ema20_pct: Mapped[float | None] = mapped_column(nullable=True)
+    technical_atr: Mapped[float | None] = mapped_column(nullable=True)
+    technical_atr_pct: Mapped[float | None] = mapped_column(nullable=True)
+    technical_recent_high: Mapped[float | None] = mapped_column(nullable=True)
+    technical_recent_high_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    technical_recent_low: Mapped[float | None] = mapped_column(nullable=True)
+    technical_recent_low_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Research Agent (Doc 10, Paragraph 6.7 und 10; ADR 0021, ADR 0023) --
     # wie bei den earnings_*-Spalten: einmal je Lauf und Aktie berechnet,
     # nie unabhaengig vom Screening-Ergebnis abgefragt. Nur gesetzt, wenn
@@ -148,6 +190,11 @@ class ScreeningResultOrm(Base):
     research_citations: Mapped[list[ResearchCitationOrm]] = relationship(
         back_populates="screening_result", cascade="all, delete-orphan"
     )
+    technical_zones: Mapped[list[TechnicalZoneOrm]] = relationship(
+        back_populates="screening_result",
+        cascade="all, delete-orphan",
+        order_by="TechnicalZoneOrm.position",
+    )
 
 
 class SignalEventOrm(Base):
@@ -159,6 +206,35 @@ class SignalEventOrm(Base):
     candle_index: Mapped[int]
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="signal_events")
+
+
+class TechnicalZoneOrm(Base):
+    """Eine Unterstuetzungs- oder Widerstandszone eines Screening-Ergebnisses.
+
+    Eigene Tabelle statt Spalten: Anders als beim Earnings-Filter ist die Zahl
+    der Zonen nicht fest, und jede einzelne traegt die sieben Angaben, die
+    Doc 10, Paragraph 6.8 verlangt.
+    """
+
+    __tablename__ = "technical_zones"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
+    position: Mapped[int]
+    """Rang in der nach Abstand zum Kurs sortierten Ausgabe. Ohne ihn gaebe
+    die Datenbank die Zonen in unbestimmter Reihenfolge zurueck, und die
+    Naehe zum Kurs -- die eigentliche Aussage der Sortierung -- ginge beim
+    Wiedereinlesen verloren."""
+    lower: Mapped[float]
+    upper: Mapped[float]
+    kind: Mapped[ZoneKind] = mapped_column(_enum_column(ZoneKind))
+    strength: Mapped[ZoneStrength] = mapped_column(_enum_column(ZoneStrength))
+    touch_count: Mapped[int]
+    last_confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    distance_pct: Mapped[float]
+    pivot_count: Mapped[int]
+
+    screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="technical_zones")
 
 
 class ResearchCitationOrm(Base):
