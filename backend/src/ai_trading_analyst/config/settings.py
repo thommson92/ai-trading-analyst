@@ -409,6 +409,55 @@ class DataAvailabilityConfig(_Section):
         return self
 
 
+class SchedulerConfig(_Section):
+    """Zeitsteuerung des taeglichen Laufs (ADR 0019).
+
+    Die Aufgabenplanung startet den Dispatcher alle 15 Minuten in einem
+    Abendfenster; entschieden wird hier, in der Zeitzone der Boerse.
+    """
+
+    safety_buffer_seconds: PositiveInt = 300
+    """Wartezeit nach Kerzenschluss, bevor ueberhaupt gefragt wird.
+
+    Die Kerze ist um 12:45 New Yorker Zeit zu, beim Anbieter aber nicht
+    zwingend im selben Augenblick vollstaendig. 300 Sekunden ergeben einen
+    fruehesten Start um 12:50.
+
+    Nicht zu verwechseln mit ``data_availability.grace_period_seconds``: Jener
+    Abschnitt beschreibt ein Polling waehrend eines laufenden Abrufs und wird
+    vom Dispatcher nicht verwendet -- bei ihm uebernimmt der 15-Minuten-Takt
+    das Wiederholen.
+    """
+    max_catch_up_seconds: PositiveInt = 2 * 3600
+    """Wie lange ein verpasster Lauf noch nachgeholt werden darf.
+
+    Danach gilt er als ausgefallen. Zwei Stunden ab dem fruehesten Start um
+    12:50 ergeben eine Frist um 14:50 New Yorker Zeit; eine Analyse noch
+    spaeter am Tag bildete den Handelstag kaum noch ab.
+
+    Der Wert muss **innerhalb** des Zeitfensters liegen, in dem die
+    Aufgabenplanung startet (README, Abschnitt "Der automatische Tageslauf").
+    Mit einer Frist jenseits des letzten Starts bliebe ein ausgefallener Lauf
+    am selben Abend unbemerkt -- er wird zwar am naechsten Start noch
+    gemeldet, aber erst Stunden spaeter.
+    """
+    minimum_completion_ratio: float = Field(default=0.9, gt=0.0, le=1.0)
+    """Ab welchem Anteil gerechneter Aktien der Lauf als erledigt gilt.
+
+    Der Analyse-Lauf isoliert Fehler je Aktie und bricht deshalb nicht ab.
+    Ohne diese Schwelle haette der Dispatcher auch einen Lauf als erledigt
+    verbucht, bei dem die Verbindung nach der ersten Aktie abriss und die
+    uebrigen 191 an fehlenden Daten scheiterten -- der Handelstag waere still
+    uebersprungen worden, denn ein erledigter Lauf wird nicht wiederholt und
+    nicht gemeldet.
+
+    Nicht 1.0: Eine einzelne dauerhaft stumme Aktie -- ausgesetzt, vom Handel
+    genommen, im Kuerzel veraltet -- wuerde den Tageslauf sonst jeden Abend
+    bis zum Fristablauf blockieren und dabei jedes Mal Bestand und
+    KI-Auswertung erneut anstossen.
+    """
+
+
 class NotificationsConfig(_Section):
     """Benachrichtigungsverhalten (Doc 10, Paragraph 6.13)."""
 
@@ -441,6 +490,7 @@ class AppConfig(_Section):
     llm: LlmConfig = LlmConfig()
     research: ResearchConfig = ResearchConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
+    scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     scoring: ScoringConfig = ScoringConfig()
     logging: LoggingConfig = LoggingConfig()

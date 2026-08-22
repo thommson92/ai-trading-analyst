@@ -213,28 +213,58 @@ class IbAsyncBarSource:
         with self._lock:
             return self._fetch(contract, days)
 
+    def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
+        """Handelszeiten der regulaeren Sitzung und die Zeitzone der Boerse.
+
+        Der Boersenkalender (ADR 0019) kommt aus derselben Verbindung wie die
+        Bars -- IBKR laesst je Client-ID nur eine zu, und derselbe Lock
+        serialisiert beide Zugriffe.
+
+        Nicht ``tradingHours``: Gerechnet wird auf der regulaeren Sitzung, und
+        ``tradingHours`` enthaelt auch vor- und nachboerslichen Handel.
+        """
+        with self._lock:
+            try:
+                ib = self._connection()
+                details = ib.reqContractDetails(self._qualified(ib, contract))
+            except IbkrBarSourceError:
+                raise
+            except Exception as error:  # Systemgrenze: jede Bibliotheksausnahme
+                raise IbkrBarSourceError(
+                    f"Handelszeiten fuer '{contract.symbol}' nicht abrufbar: {error}"
+                ) from error
+            if not details:
+                raise IbkrBarSourceError(
+                    f"IBKR liefert keine Kontraktdetails fuer '{contract.symbol}'"
+                )
+            return str(details[0].liquidHours), str(details[0].timeZoneId)
+
+    def _qualified(self, ib: Any, contract: ContractSpec) -> Any:
+        from ib_async import Stock
+
+        stock = Stock(
+            contract.symbol,
+            contract.exchange,
+            contract.currency,
+            primaryExchange=contract.primary_exchange or "",
+        )
+        contracts = ib.qualifyContracts(stock)
+        if not contracts:
+            # Die Heimatboerse gehoert in die Meldung: Sie stammt aus der
+            # Watchlist, und eine Abweichung zwischen deren Bezeichnung
+            # und der von IBKR ist die wahrscheinlichste Ursache.
+            raise IbkrBarSourceError(
+                f"IBKR kennt keinen Kontrakt fuer '{contract.symbol}' an "
+                f"'{contract.exchange}' ({contract.currency}, Heimatboerse "
+                f"{contract.primary_exchange or 'nicht angegeben'})"
+            )
+        return contracts[0]
+
     def _fetch(self, contract: ContractSpec, days: int | None) -> Sequence[IntradayBar]:
         symbol = contract.symbol
         try:
             ib = self._connection()
-            from ib_async import Stock
-
-            stock = Stock(
-                symbol,
-                contract.exchange,
-                contract.currency,
-                primaryExchange=contract.primary_exchange or "",
-            )
-            contracts = ib.qualifyContracts(stock)
-            if not contracts:
-                # Die Heimatboerse gehoert in die Meldung: Sie stammt aus der
-                # Watchlist, und eine Abweichung zwischen deren Bezeichnung
-                # und der von IBKR ist die wahrscheinlichste Ursache.
-                raise IbkrBarSourceError(
-                    f"IBKR kennt keinen Kontrakt fuer '{symbol}' an "
-                    f"'{contract.exchange}' ({contract.currency}, Heimatboerse "
-                    f"{contract.primary_exchange or 'nicht angegeben'})"
-                )
+            contracts = [self._qualified(ib, contract)]
             self._wait_for_pacing()
             bars = ib.reqHistoricalData(
                 contracts[0],

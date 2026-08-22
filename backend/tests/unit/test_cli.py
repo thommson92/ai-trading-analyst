@@ -16,14 +16,36 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from ai_trading_analyst.cli import build_parser, main
-from ai_trading_analyst.domain.analysis import Stock
+from ai_trading_analyst.cli import build_parser, main, require_complete_enough
+from ai_trading_analyst.domain.analysis import (
+    AnalysisRun,
+    AnalysisRunSummary,
+    MarketDataProviderError,
+    RunStatus,
+    Stock,
+    StockProcessingError,
+    StockScreeningOutcome,
+)
 from ai_trading_analyst.domain.screening import (
+    SIGNAL_RULE_VERSION,
     Candle,
     CandleSeries,
     IndicatorParameters,
+    ScreeningResult,
+    ScreeningStatus,
     compute_indicator_values,
 )
+
+
+def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
+    return StockScreeningOutcome(
+        analysis_run_id=lauf_id,
+        stock=Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ"),
+        result=ScreeningResult(status=ScreeningStatus.NOT_CANDIDATE),
+        decision_candle_index=0,
+        evaluated_at=datetime.now(ZoneInfo("UTC")),
+        signal_rule_version=SIGNAL_RULE_VERSION,
+    )
 
 CONFIG_TEMPLATE = """
 market_data:
@@ -584,3 +606,53 @@ class TestBarquelleFuerDasScreening:
 
         assert exit_code == 2
         assert "Datenbank" in capsys.readouterr().err
+
+
+class TestVollstaendigkeitDesLaufs:
+    """Wann ein Analyse-Lauf dem Dispatcher als erledigt gilt.
+
+    Der Lauf isoliert Fehler je Aktie und wirft nicht -- ohne diese Schwelle
+    haette ein Abend, an dem die Verbindung nach der ersten Aktie abriss, als
+    erledigt gegolten. Ein erledigter Lauf wird weder wiederholt noch nach
+    Fristablauf gemeldet; der Handelstag waere still verlorengegangen.
+    """
+
+    @staticmethod
+    def _zusammenfassung(gerechnet: int, gescheitert: int) -> AnalysisRunSummary:
+        lauf_id = uuid.uuid4()
+        run = AnalysisRun(
+            id=lauf_id, status=RunStatus.COMPLETED, started_at=datetime.now(ZoneInfo("UTC"))
+        )
+        return AnalysisRunSummary(
+            run=run,
+            outcomes=tuple(_outcome(lauf_id, f"OK{nummer}") for nummer in range(gerechnet)),
+            errors=tuple(
+                StockProcessingError(
+                    analysis_run_id=lauf_id,
+                    stock_symbol=f"FEHLT{nummer}",
+                    message="Fuer diese Aktie fehlen die Daten des laufenden Handelstages.",
+                    occurred_at=datetime.now(ZoneInfo("UTC")),
+                )
+                for nummer in range(gescheitert)
+            ),
+        )
+
+    def test_ein_vollstaendiger_lauf_geht_durch(self) -> None:
+        require_complete_enough(self._zusammenfassung(192, 0), 0.9)
+
+    def test_einzelne_ausfaelle_blockieren_den_tag_nicht(self) -> None:
+        """Eine dauerhaft stumme Aktie darf nicht jeden Abend alles aufhalten."""
+        require_complete_enough(self._zusammenfassung(188, 4), 0.9)
+
+    def test_ein_abriss_nach_der_ersten_aktie_gilt_nicht_als_erledigt(self) -> None:
+        with pytest.raises(MarketDataProviderError, match="1 von 192"):
+            require_complete_enough(self._zusammenfassung(1, 191), 0.9)
+
+    def test_knapp_unter_der_schwelle_ebenfalls_nicht(self) -> None:
+        with pytest.raises(MarketDataProviderError):
+            require_complete_enough(self._zusammenfassung(89, 11), 0.9)
+
+    def test_ein_lauf_ganz_ohne_aktien_ist_kein_vollstaendiger(self) -> None:
+        """Sonst waere ein leerer Lauf die bequemste Art, als erledigt zu gelten."""
+        with pytest.raises(MarketDataProviderError):
+            require_complete_enough(self._zusammenfassung(0, 0), 0.9)

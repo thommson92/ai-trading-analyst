@@ -100,6 +100,18 @@ class AnalysisRunSummary:
     outcomes: tuple[StockScreeningOutcome, ...] = field(default_factory=tuple)
     errors: tuple[StockProcessingError, ...] = field(default_factory=tuple)
 
+    @property
+    def completion_ratio(self) -> float:
+        """Anteil der Aktien mit Ergebnis an allen betrachteten.
+
+        Ein Lauf ohne betrachtete Aktien ergibt 0.0 und nicht 1.0: Nichts
+        gerechnet zu haben ist kein vollstaendiger Lauf.
+        """
+        betrachtet = len(self.outcomes) + len(self.errors)
+        if betrachtet == 0:
+            return 0.0
+        return len(self.outcomes) / betrachtet
+
 
 @dataclass(frozen=True, slots=True)
 class ContractSpec:

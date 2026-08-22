@@ -356,6 +356,9 @@ class SqlAlchemyIntradayBarRepository:
             select(func.max(IntradayBarOrm.start)).where(IntradayBarOrm.symbol == symbol)
         ).scalar_one_or_none()
 
+    def latest_start_overall(self) -> datetime | None:
+        return self._session.execute(select(func.max(IntradayBarOrm.start))).scalar_one_or_none()
+
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         if not bars:
             return 0

@@ -242,6 +242,10 @@ class InMemoryIntradayBarRepository:
         vorhanden = self._bars.get(symbol)
         return max(vorhanden) if vorhanden else None
 
+    def latest_start_overall(self) -> datetime | None:
+        alle = [start for bestand in self._bars.values() for start in bestand]
+        return max(alle) if alle else None
+
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         bestand = self._bars.setdefault(symbol, {})
         neu = [bar for bar in bars if bar.start not in bestand]

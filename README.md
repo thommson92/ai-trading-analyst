@@ -263,6 +263,70 @@ gelten dabei verbindlich:
 Ohne erreichbare TWS meldet der Provider einen klaren Fehler; erfundene oder
 zwischengespeicherte Kurse gibt es nicht.
 
+## Der automatische Tageslauf
+
+Beide Schritte — Bestand auffüllen und rechnen — laufen im Betrieb über ein
+einziges Kommando:
+
+```bash
+.venv/bin/python -m ai_trading_analyst.cli dispatch --provider ibkr
+```
+
+Es entscheidet selbst, ob etwas zu tun ist, und endet meistens sofort. Die
+Zielkerze ist die erste des Tages (09:30–12:45 New Yorker Zeit,
+`market.daily_candle_index`); gerechnet wird ab 12:50, also nach dem
+Sicherheitspuffer aus `scheduler.safety_buffer_seconds`.
+
+Die Entscheidung fällt **in der Zeitzone der Börse**. Feiertage und verkürzte
+Handelstage kommen aus IBKRs Handelszeiten, nicht aus einer gepflegten Liste.
+Ein bereits erledigter Lauf wird nicht wiederholt, ein gescheiterter beim
+nächsten Start erneut versucht. Ohne die Daten der Zielkerze entsteht **kein**
+Analyse-Lauf — ein Ergebnis auf dem Stand von gestern sähe aus wie die heutige
+Analyse und wäre es nicht. Die Entscheidungen dahinter stehen in
+[ADR 0019](docs/adr/0019-trading-day-dispatcher.md).
+
+Gerechnet wird über denselben Anwendungsfall wie beim manuellen Lauf.
+Earnings-Filter und Research Agent hängen darin und laufen deshalb automatisch
+mit — mit den Anbietern aus `earnings_filter.provider` und
+`research.provider`. Beide stehen ausgeliefert auf `fixture`; der tägliche Lauf
+braucht also weder einen Finnhub- noch einen Anthropic-Zugang, liefert dann
+aber auch keine echten Termine und keine echte Recherche.
+
+### Eintrag in der Windows-Aufgabenplanung
+
+Das ist die **einzige Stelle im ganzen System mit einer deutschen Uhrzeit**,
+und sie steht bewusst hier und nicht im Code:
+
+| Feld | Wert |
+|---|---|
+| Trigger | Täglich, Mo–Fr, Beginn **17:30**, Wiederholung alle **15 Minuten** für **4 Stunden** |
+| Programm | `C:\...\backend\.venv\Scripts\python.exe` |
+| Argumente | `-m ai_trading_analyst.cli dispatch --provider ibkr` |
+| Starten in | `C:\...\backend` |
+
+Das Fenster ist absichtlich großzügig: 12:50 New Yorker Zeit liegen
+normalerweise auf 18:50 unserer Zeit, in den zwei bis drei Wochen, in denen
+die USA und Europa an verschiedenen Tagen umstellen, aber auf 17:50. Beide
+Fälle liegen darin.
+
+Die Rückgabewerte sind so gewählt, dass die Aufgabenplanung nur meldet, was
+wirklich schiefging:
+
+| Wert | Bedeutung |
+|---|---|
+| 0 | Lauf durchgeführt — oder nichts zu tun (zu früh, kein Handelstag, bereits erledigt) |
+| 1 | Versucht und gescheitert, oder Nachholfrist abgelaufen |
+| 2 | Konfigurations- oder Umgebungsfehler; erneutes Starten hilft nicht |
+| 130 | Abgebrochen |
+
+Bleibt der Lauf länger als `scheduler.max_catch_up_seconds` (Standard: zwei
+Stunden, also bis 14:50 New Yorker Zeit) unerledigt, geht eine Meldung raus.
+Die Frist liegt bewusst **innerhalb** des Startfensters — sonst käme die
+Meldung erst am nächsten Tag. Wer eines von beiden verschiebt, muss das
+andere mitziehen; ein Test hält die Bedingung fest. Der Kanal ist noch nicht
+entschieden (F10); bis dahin erscheint sie im Protokoll, ausdrücklich als
+*nicht versendet* gekennzeichnet.
+
 ### Geheimnisse
 
 ```bash
