@@ -137,6 +137,10 @@ def compute_technical_snapshot(
             status=TechnicalStatus.INSUFFICIENT_DATA,
             evaluated_at=evaluated_at,
             analysis_version=TECHNICAL_ANALYSIS_VERSION,
+            # Auch hier: Welches Fenster verlangt wurde, entscheidet, ob die
+            # Historie zu kurz war -- ohne die Parameter ist "zu wenige
+            # Kerzen" spaeter nicht mehr nachvollziehbar.
+            parameters=params.as_mapping(),
             reason="too_few_candles",
         )
 
@@ -154,6 +158,7 @@ def compute_technical_snapshot(
         status=TechnicalStatus.COMPLETED,
         evaluated_at=evaluated_at,
         analysis_version=TECHNICAL_ANALYSIS_VERSION,
+        parameters=params.as_mapping(),
         candle_timestamp=candle.timestamp,
         close=close,
         trend=_trend(series, index, params),

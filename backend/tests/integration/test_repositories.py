@@ -38,6 +38,7 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.domain.technical import (
     PriceZone,
+    TechnicalAnalysisParameters,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
@@ -304,6 +305,7 @@ class TestScreeningResultRepository:
             status=TechnicalStatus.COMPLETED,
             evaluated_at=datetime.now(UTC),
             analysis_version="technical-v1",
+            parameters=TechnicalAnalysisParameters(zone_tolerance_pct=0.02).as_mapping(),
             candle_timestamp=datetime.now(UTC) - timedelta(minutes=195),
             close=100.0,
             trend=TrendDirection.UP,
@@ -340,6 +342,11 @@ class TestScreeningResultRepository:
             (persisted,) = uow.screening_results.list_for_run(run.id)
 
         assert persisted.technical == technical
+        assert persisted.technical is not None
+        assert persisted.technical.parameters is not None
+        # Die Parameter machen erst nachvollziehbar, nach welchem Massstab
+        # gerechnet wurde -- Doc 14 fordert dazu auf, sie nachzuziehen.
+        assert persisted.technical.parameters["zone_tolerance_pct"] == 0.02
 
     def test_zonenreihenfolge_ueberlebt_die_datenbank(self, uow_factory: UowFactory) -> None:
         """Die Sortierung nach Abstand zum Kurs ist Teil der Aussage.

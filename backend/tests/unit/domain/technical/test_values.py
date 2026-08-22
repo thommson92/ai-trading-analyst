@@ -29,6 +29,16 @@ class TestParameterValidierung:
         with pytest.raises(ValueError, match=feld):
             small_params(**{feld: wert})
 
+    @pytest.mark.parametrize("feld", ["zone_tolerance_pct", "trend_flat_pct"])
+    def test_bruchteile_ueber_eins_werden_abgelehnt(self, feld: str) -> None:
+        """1.5 statt 0.015 ist der naheliegende Zahlendreher -- der Suffix
+        ``_pct`` legt Prozentwerte nahe, gespeichert sind Bruchteile. Ohne
+        obere Grenze ergaebe er keinen Fehler, sondern ein plausibel
+        aussehendes Ergebnis: keine einzige Zone beziehungsweise dauerhaft
+        Seitwaertstrend."""
+        with pytest.raises(ValueError, match="Bruchteil"):
+            small_params(**{feld: 1.5})
+
     def test_staerkeschwellen_muessen_aufsteigend_sein(self) -> None:
         with pytest.raises(ValueError, match="strong_touch_count"):
             small_params(min_touches=2, moderate_touch_count=5, strong_touch_count=3)

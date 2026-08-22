@@ -15,6 +15,7 @@ from datetime import date, datetime
 
 from sqlalchemy import ARRAY, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -136,6 +137,17 @@ class ScreeningResultOrm(Base):
         DateTime(timezone=True), nullable=True
     )
     technical_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    technical_parameters: Mapped[dict[str, float] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    """Die Parameter, mit denen gerechnet wurde. Zusammen mit
+    ``technical_analysis_version`` die vollstaendige Auskunft darueber, wie
+    dieses Ergebnis zustande kam -- Doc 14 fordert ausdruecklich dazu auf,
+    Zonenbreite und Schwellen zwischen Laeufen nachzuziehen.
+
+    JSONB und keine elf einzelnen Spalten: Sie werden nur geschrieben und
+    gelesen, nie gefiltert oder sortiert. Ein neuer Parameter braucht so
+    keine Migration, und ein alter bleibt in alten Zeilen lesbar."""
     technical_reason: Mapped[str | None] = mapped_column(nullable=True)
     technical_candle_timestamp: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

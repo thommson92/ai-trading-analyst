@@ -114,8 +114,9 @@ technical_analysis:
   # koennen deshalb noch keinen Wendepunkt bilden: Ein unbestaetigter
   # Wendepunkt ist keiner.
   pivot_reach: 3
-  # Halbe Zonenbreite, relativ zum Mittelwert der Zone -- 1,5 % ist auf der
-  # 195-Minuten-Kerze rund eine halbe bis ganze Tagesspanne.
+  # Halbe Zonenbreite als Bruchteil des Zonenmittelwerts: 0.015 sind
+  # 1,5 %, nicht 1,5. Auf der 195-Minuten-Kerze rund eine halbe bis ganze
+  # Tagesspanne.
   zone_tolerance_pct: 0.015
   # Eine einmal beruehrte Preisregion ist noch keine Zone.
   min_touches: 2
@@ -127,8 +128,9 @@ technical_analysis:
   # ein halbes Jahr, der Horizont eines Swing-Trades.
   history_candles: 250
   atr_length: 14
-  # Kerzen, ueber die die Steigung des EMA20 gemessen wird, und die relative
-  # Aenderung, unterhalb derer der Trend als seitwaerts gilt.
+  # Kerzen, ueber die die Steigung des EMA20 gemessen wird, und die
+  # Aenderung, unterhalb derer der Trend als seitwaerts gilt -- ebenfalls
+  # ein Bruchteil: 0.005 sind 0,5 %.
   trend_lookback: 10
   trend_flat_pct: 0.005
   # Fenster fuer die juengsten Hoch- und Tiefpunkte (rund vier Wochen).

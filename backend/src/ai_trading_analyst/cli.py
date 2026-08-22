@@ -758,6 +758,16 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
     if snapshot.status is not TechnicalStatus.COMPLETED:
         return
 
+    if snapshot.parameters is not None:
+        # Wer die Parameter nach Doc 14 nachzieht, soll in derselben Ausgabe
+        # sehen, welche gerade gewirkt haben.
+        print(
+            "  Zonenparameter: "
+            f"Toleranz {snapshot.parameters['zone_tolerance_pct'] * 100:.2f} %, "
+            f"Reichweite {snapshot.parameters['pivot_reach']:.0f}, "
+            f"min. {snapshot.parameters['min_touches']:.0f} Beruehrungen, "
+            f"Fenster {snapshot.parameters['history_candles']:.0f} Kerzen"
+        )
     if snapshot.candle_timestamp is not None:
         print(f"  Entscheidungskerze: {snapshot.candle_timestamp.isoformat()}")
     print(f"  Schlusskurs: {_format_optional(snapshot.close)}")

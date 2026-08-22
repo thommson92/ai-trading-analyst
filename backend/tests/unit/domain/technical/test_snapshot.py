@@ -145,6 +145,31 @@ class TestSnapshot:
             snapshot = compute_technical_snapshot(series, index, small_params(), EVALUATED_AT)
             assert snapshot.analysis_version == TECHNICAL_ANALYSIS_VERSION
 
+    def test_jedes_ergebnis_traegt_die_verwendeten_parameter(self) -> None:
+        """Ohne sie waere die Verfahrensversion eine leere Zusage: Doc 14
+        fordert ausdruecklich dazu auf, die Zonenparameter zwischen Laeufen
+        nachzuziehen."""
+        params = small_params(zone_tolerance_pct=0.04, min_touches=3, moderate_touch_count=3)
+        series = series_from_prices([100.0] * 6)
+
+        snapshot = compute_technical_snapshot(series, 5, params, EVALUATED_AT)
+
+        assert snapshot.parameters is not None
+        assert snapshot.parameters["zone_tolerance_pct"] == 0.04
+        assert snapshot.parameters["min_touches"] == 3
+
+    def test_auch_ein_unvollstaendiges_ergebnis_traegt_die_parameter(self) -> None:
+        """Welches Fenster verlangt wurde, entscheidet, ob die Historie zu
+        kurz war."""
+        params = small_params(extremes_lookback=5, history_candles=100)
+        series = series_from_prices([100.0, 101.0, 102.0])
+
+        snapshot = compute_technical_snapshot(series, 2, params, EVALUATED_AT)
+
+        assert snapshot.status is TechnicalStatus.INSUFFICIENT_DATA
+        assert snapshot.parameters is not None
+        assert snapshot.parameters["extremes_lookback"] == 5
+
     def test_abstaende_zu_den_gleitenden_durchschnitten(self) -> None:
         series = series_from_prices(
             [100.0] * 6, indicators={3: _indicators(rsi=60, ema5=100.0, ema20=80.0)}

@@ -14,7 +14,8 @@ die Beschreibung der Lage, in der die Entscheidung gefallen ist.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
 
@@ -98,8 +99,9 @@ class TechnicalAnalysisParameters:
     noch kein Pivot bilden -- ein noch nicht bestaetigter Wendepunkt ist
     keiner."""
     zone_tolerance_pct: float = 0.015
-    """Halbe Breite einer Zone, relativ zu ihrem Mittelwert. Bestimmt
-    zugleich, welche Swing-Punkte noch zu derselben Zone gehoeren."""
+    """Halbe Breite einer Zone als **Bruchteil** ihres Mittelwerts -- 0.015
+    sind 1,5 %, nicht 1,5. Bestimmt zugleich, welche Swing-Punkte noch zu
+    derselben Zone gehoeren."""
     min_touches: int = 2
     """Eine einmal beruehrte Preisregion ist noch keine Zone."""
     moderate_touch_count: int = 3
@@ -115,17 +117,25 @@ class TechnicalAnalysisParameters:
     trend_lookback: int = 10
     """Kerzen, ueber die die Steigung des EMA20 gemessen wird."""
     trend_flat_pct: float = 0.005
-    """Relative Aenderung des EMA20 ueber ``trend_lookback`` Kerzen, unterhalb
-    derer der Trend als seitwaerts gilt."""
+    """Aenderung des EMA20 ueber ``trend_lookback`` Kerzen als **Bruchteil**,
+    unterhalb derer der Trend als seitwaerts gilt -- 0.005 sind 0,5 %."""
     extremes_lookback: int = 40
     """Fenster fuer die juengsten Hoch- und Tiefpunkte (Doc 10, Paragraph 6.8)."""
 
     def __post_init__(self) -> None:
         if self.pivot_reach < 1:
             raise ValueError(f"pivot_reach muss mindestens 1 sein, war {self.pivot_reach}")
-        if self.zone_tolerance_pct <= 0:
+        if not 0 < self.zone_tolerance_pct < 1:
+            # Die obere Grenze ist nicht kosmetisch: Ab 1 wird die untere
+            # Zonenkante negativ, alle Swing-Punkte fallen in ein einziges
+            # Buendel, und ``build_zones`` liefert am Ende eine leere Liste.
+            # Das Ergebnis saehe aus wie eine Aktie ohne mehrfach getestete
+            # Preisregionen -- ein Zahlendreher gaebe also ein plausibles
+            # falsches Ergebnis statt eines Fehlers. Der Wert ist ein
+            # Bruchteil (0.015 = 1,5 %), die Verwechslung mit 1.5 liegt nahe.
             raise ValueError(
-                f"zone_tolerance_pct muss groesser als 0 sein, war {self.zone_tolerance_pct}"
+                "zone_tolerance_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.015 entspricht 1,5 %), war {self.zone_tolerance_pct}"
             )
         if self.min_touches < 1:
             raise ValueError(f"min_touches muss mindestens 1 sein, war {self.min_touches}")
@@ -143,9 +153,13 @@ class TechnicalAnalysisParameters:
             raise ValueError(f"atr_length muss mindestens 1 sein, war {self.atr_length}")
         if self.trend_lookback < 1:
             raise ValueError(f"trend_lookback muss mindestens 1 sein, war {self.trend_lookback}")
-        if self.trend_flat_pct < 0:
+        if not 0 <= self.trend_flat_pct < 1:
+            # Ab 1 gilt jede erreichbare EMA20-Aenderung als flach, und der
+            # Trend waere dauerhaft SIDEWAYS -- wieder ein plausibel
+            # aussehendes Ergebnis statt eines Fehlers.
             raise ValueError(
-                f"trend_flat_pct darf nicht negativ sein, war {self.trend_flat_pct}"
+                "trend_flat_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.005 entspricht 0,5 %), war {self.trend_flat_pct}"
             )
         if self.extremes_lookback < 1:
             raise ValueError(
@@ -156,6 +170,14 @@ class TechnicalAnalysisParameters:
                 f"history_candles ({self.history_candles}) ist kleiner als das laengste "
                 f"benoetigte Fenster ({self.minimum_candles})"
             )
+
+    def as_mapping(self) -> dict[str, float]:
+        """Die Parameter als flache Abbildung, zum Speichern am Ergebnis.
+
+        Ein einfaches ``dict`` und keine eigene Serialisierungsklasse: Es
+        wird nur geschrieben und gelesen, nie gerechnet.
+        """
+        return {field.name: getattr(self, field.name) for field in fields(self)}
 
     @property
     def minimum_candles(self) -> int:
@@ -232,6 +254,23 @@ class TechnicalSnapshot:
     status: TechnicalStatus
     evaluated_at: datetime
     analysis_version: str = TECHNICAL_ANALYSIS_VERSION
+    parameters: Mapping[str, float] | None = None
+    """Die Parameter, mit denen gerechnet wurde -- zusammen mit
+    ``analysis_version`` die vollstaendige Auskunft darueber, wie dieses
+    Ergebnis zustande kam (CLAUDE.md: Versionierung an jedem Ergebnis).
+
+    Ohne sie waere die Versionsnummer eine leere Zusage: Doc 14 fordert den
+    Betreiber ausdruecklich auf, Zonenbreite und Beruehrungsschwellen an
+    echten Charts nachzuziehen. Zwei Ergebnisse traegen dann dieselbe
+    ``technical-v1`` und waeren doch nach verschiedenen Massstaeben
+    gerechnet -- ein Unterschied, den man spaeter nicht mehr von einer
+    Marktveraenderung unterscheiden koennte.
+
+    Bewusst eine Abbildung und nicht ``TechnicalAnalysisParameters``:
+    Abgeschlossene Analysen werden nicht ueberschrieben (CLAUDE.md). Ein
+    kuenftig umbenannter oder entfallener Parameter darf ein altes Ergebnis
+    nicht unlesbar machen.
+    """
     reason: str | None = None
     """Nur bei ``INSUFFICIENT_DATA``: ``"too_few_candles"``."""
 

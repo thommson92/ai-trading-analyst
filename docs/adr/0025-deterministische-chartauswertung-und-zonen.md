@@ -170,6 +170,31 @@ vollständig in `config/default.yaml` und sind ohne Codeänderung nachziehbar.
 Das Kommando `cli technical --symbols ...` gibt die Auswertung samt Zonen
 aus, damit sie am echten Chart gegengeprüft werden kann.
 
+`zone_tolerance_pct` und `trend_flat_pct` sind **Bruchteile, keine
+Prozentwerte** — 0,015 sind 1,5 %. Beide werden gegen eine obere Grenze von 1
+geprüft. Das ist nicht kosmetisch: Ab 1 wird die untere Zonenkante negativ,
+alle Swing-Punkte fallen in ein einziges Bündel, und die Zonenliste bleibt
+leer — der Zahlendreher ergäbe also kein Fehlerbild, sondern eine Aktie, die
+aussieht, als habe sie keine mehrfach getesteten Preisregionen. Bei
+`trend_flat_pct` wäre die Folge ein dauerhafter Seitwärtstrend.
+
+### 10. Die Parameter stehen an jedem Ergebnis
+
+`TECHNICAL_ANALYSIS_VERSION` allein genügt nicht. Die Parameter sind
+konfigurierbar, und dieses ADR fordert ausdrücklich dazu auf, sie an echten
+Charts nachzuziehen — zwei Ergebnisse trügen dann dieselbe `technical-v1` und
+wären doch nach verschiedenen Maßstäben gerechnet. Der Unterschied ließe sich
+später nicht mehr von einer Marktveränderung unterscheiden.
+
+Jeder `TechnicalSnapshot` führt deshalb die verwendeten Parameter mit und
+speichert sie als JSONB an der Zeile — auch bei `INSUFFICIENT_DATA`, weil
+erst das verlangte Fenster erklärt, warum die Historie zu kurz war.
+
+Gespeichert wird eine flache Abbildung und nicht die typisierte
+Parameterklasse: Abgeschlossene Analysen werden nicht überschrieben
+(`CLAUDE.md`), und ein künftig umbenannter oder entfallener Parameter darf
+ein altes Ergebnis nicht unlesbar machen.
+
 ## Konsequenzen
 
 **Positiv**
@@ -179,9 +204,9 @@ aus, damit sie am echten Chart gegengeprüft werden kann.
   deterministischen Zonen, ohne selbst welche ableiten zu müssen.
 - Die Zonenberechnung ist in drei Schritten einzeln nachprüfbar, wie Doc 10
   verlangt.
-- Jedes Ergebnis trägt `TECHNICAL_ANALYSIS_VERSION`. Ändert sich das
-  Verfahren, bleiben alte Ergebnisse als nach altem Verfahren gerechnet
-  erkennbar.
+- Jedes Ergebnis trägt `TECHNICAL_ANALYSIS_VERSION` **und** die verwendeten
+  Parameter. Ändert sich Verfahren oder Parametrisierung, bleiben alte
+  Ergebnisse als nach altem Maßstab gerechnet erkennbar.
 
 **Negativ / offen**
 

@@ -327,10 +327,20 @@ class TechnicalAnalysisConfig(_Section):
         Start auf, dort auch ein Programmierfehler beim direkten Aufruf des
         Domain-Kerns.
         """
-        if self.zone_tolerance_pct <= 0:
-            raise ValueError("zone_tolerance_pct muss groesser als 0 sein")
-        if self.trend_flat_pct < 0:
-            raise ValueError("trend_flat_pct darf nicht negativ sein")
+        # Bruchteile, keine Prozentwerte: 0.015 sind 1,5 %. Die obere
+        # Grenze faengt genau diese Verwechslung ab -- ohne sie ergaebe ein
+        # Zahlendreher keine Fehlermeldung, sondern ein plausibel aussehendes
+        # Ergebnis ohne Zonen beziehungsweise mit dauerhaftem Seitwaertstrend.
+        if not 0 < self.zone_tolerance_pct < 1:
+            raise ValueError(
+                "zone_tolerance_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.015 entspricht 1,5 %), war {self.zone_tolerance_pct}"
+            )
+        if not 0 <= self.trend_flat_pct < 1:
+            raise ValueError(
+                "trend_flat_pct muss ein Bruchteil zwischen 0 und 1 sein "
+                f"(0.005 entspricht 0,5 %), war {self.trend_flat_pct}"
+            )
         if not self.min_touches <= self.moderate_touch_count <= self.strong_touch_count:
             raise ValueError(
                 "min_touches <= moderate_touch_count <= strong_touch_count ist verletzt"

@@ -184,6 +184,7 @@ def _technical_from_row(row: ScreeningResultOrm) -> TechnicalSnapshot | None:
         status=TechnicalStatus(row.technical_status),
         evaluated_at=evaluated_at,
         analysis_version=row.technical_analysis_version,
+        parameters=row.technical_parameters,
         reason=row.technical_reason,
         candle_timestamp=row.technical_candle_timestamp,
         close=row.technical_close,
@@ -219,6 +220,7 @@ _TECHNICAL_FIELDS = (
     "status",
     "evaluated_at",
     "analysis_version",
+    "parameters",
     "reason",
     "candle_timestamp",
     "close",
@@ -250,6 +252,11 @@ def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
         "technical_status": technical.status,
         "technical_evaluated_at": technical.evaluated_at,
         "technical_analysis_version": technical.analysis_version,
+        # ``dict(...)``, weil die Domain eine ``Mapping`` fuehrt und
+        # SQLAlchemy einen serialisierbaren Wert braucht.
+        "technical_parameters": (
+            None if technical.parameters is None else dict(technical.parameters)
+        ),
         "technical_reason": technical.reason,
         "technical_candle_timestamp": technical.candle_timestamp,
         "technical_close": technical.close,

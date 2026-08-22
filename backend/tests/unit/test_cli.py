@@ -44,6 +44,7 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.domain.technical import (
     PriceZone,
+    TechnicalAnalysisParameters,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
@@ -530,6 +531,22 @@ class TestTechnicalKommando:
         assert "INSUFFICIENT_DATA" in ausgabe
         assert "too_few_candles" in ausgabe
         assert "Schlusskurs" not in ausgabe
+
+    def test_die_wirksamen_zonenparameter_stehen_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wer sie nach Doc 14 nachzieht, soll in derselben Ausgabe sehen,
+        welche gerade gewirkt haben."""
+        cli._print_technical_snapshot(
+            "AAPL",
+            self._snapshot(
+                parameters=TechnicalAnalysisParameters(zone_tolerance_pct=0.02).as_mapping()
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Toleranz 2.00 %" in ausgabe
+        assert "min. 2 Beruehrungen" in ausgabe
 
     def test_die_verfahrensversion_steht_an_jeder_ausgabe(
         self, capsys: pytest.CaptureFixture[str]

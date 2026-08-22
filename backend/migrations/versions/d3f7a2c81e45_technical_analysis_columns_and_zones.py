@@ -10,6 +10,11 @@ ist die Zahl der Zonen nicht fest, und jede traegt die sieben von Doc 10
 verlangten Angaben -- das passt nicht in flache Spalten (Muster
 ``research_citations``).
 
+Die Parameter des Laufs stehen als JSONB an der Zeile: Doc 14 fordert
+ausdruecklich dazu auf, Zonenbreite und Schwellen zwischen Laeufen
+nachzuziehen -- ohne sie waere die Verfahrensversion allein eine leere
+Zusage. JSONB statt elf Spalten, weil sie nur geschrieben und gelesen werden.
+
 Die drei Enum-Typen auf ``screening_results`` (``technicalstatus``,
 ``trenddirection``) brauchen ein explizites ``create``/``drop``: Ein
 einzelnes ``op.add_column`` legt den Typ nicht mit an. ``zonekind`` und
@@ -28,6 +33,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "d3f7a2c81e45"
 down_revision: str | None = "01b2e8681b7a"
@@ -79,6 +85,10 @@ def upgrade() -> None:
         )
     for name in _TEXT_COLUMNS:
         op.add_column("screening_results", sa.Column(name, sa.String(), nullable=True))
+    op.add_column(
+        "screening_results",
+        sa.Column("technical_parameters", postgresql.JSONB(), nullable=True),
+    )
     for name in _FLOAT_COLUMNS:
         op.add_column("screening_results", sa.Column(name, sa.Float(), nullable=True))
 
@@ -116,6 +126,7 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS zonekind")
     op.execute("DROP TYPE IF EXISTS zonestrength")
 
+    op.drop_column("screening_results", "technical_parameters")
     for name in (*_FLOAT_COLUMNS, *_TEXT_COLUMNS, *_TIMESTAMP_COLUMNS):
         op.drop_column("screening_results", name)
     op.drop_column("screening_results", "technical_trend")
