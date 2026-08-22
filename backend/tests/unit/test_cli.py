@@ -578,6 +578,22 @@ class TestTechnicalKommando:
         assert "'fixture'" in fehler
         assert "Nicht in der Watchlist gefunden" not in fehler
 
+    def test_die_globale_konfigurationsdatei_kommt_im_kommando_an(self) -> None:
+        """Ein eigenes ``--config`` am Unterkommando ueberschreibt den
+        globalen Wert mit ``None``: argparse kopiert *alle* Schluessel des
+        Unterkommandos in den Hauptnamensraum, auch die ungesetzten
+        Voreinstellungen. Der Lauf rechnete dann stillschweigend gegen die
+        ausgelieferte ``config/default.yaml`` -- mit anderen Zonenparametern
+        als angegeben."""
+        parser = build_parser()
+        pfad = "/tmp/meine.yaml"
+
+        technical = parser.parse_args(["--config", pfad, "technical", "--symbols", "AAPL"])
+        backtest = parser.parse_args(["--config", pfad, "backtest"])
+
+        assert str(technical.config) == pfad
+        assert technical.config == backtest.config
+
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
         args = build_parser().parse_args(
             ["technical", "--symbols", "AAPL", "--provider", "ibkr"]

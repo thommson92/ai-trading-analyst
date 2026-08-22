@@ -1416,12 +1416,6 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Kommagetrennte Symbole, z. B. 'AAPL,MSFT'.",
     )
-    technical.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help="Pfad zur Konfigurationsdatei.",
-    )
     technical.set_defaults(handler=command_technical)
 
     research = subparsers.add_parser(
