@@ -21,7 +21,11 @@ router = APIRouter(prefix="/api/v1/analysis-runs", tags=["analysis-runs"])
 def start_analysis_run(
     use_case: RunAnalysisUseCase = Depends(get_run_analysis_use_case),
 ) -> AnalysisRunResponse:
-    """Startet in Sprint 1B ausschliesslich einen fixture-basierten manuellen Lauf."""
+    """Startet einen manuellen Lauf mit den Anbietern aus der Konfiguration.
+
+    Anders als 'cli dispatch' kennt der Endpunkt keine Uebersteuerung je
+    Aufruf -- ausgeliefert steht 'market_data.provider' auf 'fixture'.
+    """
     summary = use_case.execute()
     return AnalysisRunResponse.from_domain(summary.run)
 
