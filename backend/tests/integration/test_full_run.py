@@ -26,6 +26,7 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
+    TechnicalAssessmentStatus,
     TechnicalStatus,
 )
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
@@ -33,6 +34,9 @@ from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
+from ai_trading_analyst.infrastructure.fixtures.technical_interpreter import (
+    FixtureTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 
 UowFactory = Callable[[], SqlAlchemyUnitOfWork]
@@ -69,6 +73,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         FixtureMarketDataProvider(),
         earnings_provider,
         FixtureResearchProvider(),
+        FixtureTechnicalInterpreter(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -108,6 +113,16 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
     assert technical_by_symbol["FIXNOCAND"] is None
     assert technical_by_symbol["FIXINCOMPLETE"] is None
 
+    # Die KI-Einordnung haengt am Snapshot und an nichts sonst (ADR 0026) --
+    # anders als Research, das zusaetzlich EARNINGS_CLEAR verlangt.
+    assessment_by_symbol = {o.stock.symbol: o.technical_assessment for o in summary.outcomes}
+    fixcand_assessment = assessment_by_symbol["FIXCAND"]
+    assert fixcand_assessment is not None
+    assert fixcand_assessment.status is TechnicalAssessmentStatus.COMPLETED
+    assert fixcand_assessment.interpreted_analysis_version == fixcand_technical.analysis_version
+    assert assessment_by_symbol["FIXNOCAND"] is None
+    assert assessment_by_symbol["FIXINCOMPLETE"] is None
+
     # Research laeuft nur, wenn zusaetzlich EARNINGS_CLEAR ist (Doc 10, Paragraph 6.7).
     research_by_symbol = {o.stock.symbol: o.research for o in summary.outcomes}
     fixcand_research = research_by_symbol["FIXCAND"]
@@ -128,6 +143,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
 
     persisted_fixcand = next(o for o in persisted_outcomes if o.stock.symbol == "FIXCAND")
     assert persisted_fixcand.technical == fixcand_technical
+    assert persisted_fixcand.technical_assessment == fixcand_assessment
     assert persisted_fixcand.earnings == fixcand_earnings
     assert persisted_fixcand.research == fixcand_research
 
@@ -139,6 +155,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         _AlwaysFailingMarketDataProvider(),
         FixtureEarningsProvider(),
         FixtureResearchProvider(),
+        FixtureTechnicalInterpreter(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,

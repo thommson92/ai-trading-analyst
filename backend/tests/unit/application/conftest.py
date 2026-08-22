@@ -27,6 +27,7 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockRepository,
     StockScreeningOutcome,
+    TechnicalInterpreterError,
 )
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
@@ -36,6 +37,13 @@ from ai_trading_analyst.domain.screening import (
     CandleSeries,
     IndicatorValues,
     IntradayBar,
+)
+from ai_trading_analyst.domain.technical import (
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
+    TechnicalSnapshot,
+    TechnicalStatus,
+    TrendStrength,
 )
 
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
@@ -130,6 +138,48 @@ class FakeEarningsProvider:
         if stock.symbol in self._error_symbols:
             raise EarningsProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
         return self._next_by_symbol.get(stock.symbol)
+
+
+class FakeTechnicalInterpreter:
+    """Testdoppel des Technical Agent (Muster ``FakeResearchProvider``).
+
+    ``error_symbols`` wirft die Vertragsausnahme, ``crash_symbols`` eine rohe
+    ``RuntimeError`` -- also einen Vertragsbruch. Beide muessen den Lauf
+    unberuehrt lassen.
+    """
+
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self.error_symbols = error_symbols
+        self.crash_symbols = crash_symbols
+        self.calls: list[str] = []
+
+    def interpret(self, stock: Stock, snapshot: TechnicalSnapshot) -> TechnicalAssessment:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self.error_symbols:
+            raise TechnicalInterpreterError(f"{stock.symbol}: Anbieter nicht erreichbar")
+        if stock.symbol in self.crash_symbols:
+            raise RuntimeError(f"{stock.symbol}: roher Fehler entgegen dem Vertrag")
+        if snapshot.status is not TechnicalStatus.COMPLETED:
+            return TechnicalAssessment(
+                status=TechnicalAssessmentStatus.INSUFFICIENT_DATA,
+                evaluated_at=datetime.now(UTC),
+                model=None,
+                prompt_version=None,
+                reason="snapshot_insufficient",
+            )
+        return TechnicalAssessment(
+            status=TechnicalAssessmentStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="fake",
+            prompt_version="fake-v1",
+            interpreted_analysis_version=snapshot.analysis_version,
+            trend_strength=TrendStrength.MODERATE,
+            summary=f"Fake-Einordnung fuer {stock.symbol}",
+        )
 
 
 class FakeResearchProvider:

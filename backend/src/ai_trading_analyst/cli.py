@@ -56,6 +56,7 @@ from ai_trading_analyst.bootstrap import (
     build_market_data_provider,
     build_research_provider,
     build_technical_analysis_params,
+    build_technical_interpreter,
     build_watchlist,
     project_root,
 )
@@ -1086,6 +1087,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         notifier = build_notifier(config.notifications, secrets)
         earnings_provider = build_earnings_provider(config, secrets)
         research_provider = build_research_provider(config, secrets)
+        technical_interpreter = build_technical_interpreter(config, secrets)
     except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -1145,6 +1147,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             provider,
             earnings_provider,
             research_provider,
+            technical_interpreter,
             uow_factory,
             rule,
             build_earnings_filter_params(config),

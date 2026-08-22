@@ -22,6 +22,7 @@ from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
+    TechnicalAssessmentStatus,
     TechnicalStatus,
 )
 from tests.unit.application.conftest import (
@@ -32,6 +33,7 @@ from tests.unit.application.conftest import (
     FakeResearchProvider,
     FakeScreeningResultRepository,
     FakeStockRepository,
+    FakeTechnicalInterpreter,
     FakeUnitOfWork,
     InMemoryIntradayBarRepository,
     make_incomplete_series,
@@ -62,6 +64,7 @@ def _build_use_case(
     provider: FakeMarketDataProvider,
     earnings_provider: FakeEarningsProvider | None = None,
     research_provider: FakeResearchProvider | None = None,
+    technical_interpreter: FakeTechnicalInterpreter | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
@@ -83,6 +86,7 @@ def _build_use_case(
         provider,
         earnings_provider or FakeEarningsProvider(),
         research_provider or FakeResearchProvider(),
+        technical_interpreter or FakeTechnicalInterpreter(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -385,6 +389,140 @@ class TestTechnischeChartauswertung:
         assert errors_repo.added == []
 
 
+
+class TestKiEinordnung:
+    """Der Technical Agent im Lauf (ADR 0026).
+
+    Der wichtigste Test dieser Klasse ist die Entkopplung: Anders als
+    Research laeuft die Einordnung fuer **jeden** Kandidaten mit auswertbarer
+    Chartlage, auch wenn der Earnings-Filter ausgeschlagen hat.
+    """
+
+    @staticmethod
+    def _kandidat() -> FakeMarketDataProvider:
+        return FakeMarketDataProvider(
+            stocks=(make_stock("CAND"),),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+
+    def test_laeuft_fuer_kandidaten(self) -> None:
+        interpreter = FakeTechnicalInterpreter()
+        use_case, *_ = _build_use_case(self._kandidat(), technical_interpreter=interpreter)
+
+        summary = use_case.execute()
+
+        assert interpreter.calls == ["CAND"]
+        assessment = summary.outcomes[0].technical_assessment
+        assert assessment is not None
+        assert assessment.status is TechnicalAssessmentStatus.COMPLETED
+
+    def test_laeuft_nicht_fuer_nicht_kandidaten(self) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("NOCAND"),),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        interpreter = FakeTechnicalInterpreter()
+        use_case, *_ = _build_use_case(provider, technical_interpreter=interpreter)
+
+        summary = use_case.execute()
+
+        assert interpreter.calls == []
+        assert summary.outcomes[0].technical_assessment is None
+
+    def test_laeuft_auch_ohne_earnings_freigabe(self) -> None:
+        """Die Entkopplung aus CLAUDE.md, festgenagelt: Der Earnings-Anbieter
+        faellt aus, Research unterbleibt deshalb -- die Einordnung der
+        Chartlage laeuft trotzdem. Gerade bei einem Kandidaten mit
+        Earnings-Risiko ist sie interessant."""
+        earnings_provider = FakeEarningsProvider(error_symbols=frozenset({"CAND"}))
+        research_provider = FakeResearchProvider()
+        interpreter = FakeTechnicalInterpreter()
+        use_case, *_ = _build_use_case(
+            self._kandidat(),
+            earnings_provider,
+            research_provider,
+            technical_interpreter=interpreter,
+        )
+
+        summary = use_case.execute()
+
+        assert research_provider.calls == []
+        assert interpreter.calls == ["CAND"]
+        assessment = summary.outcomes[0].technical_assessment
+        assert assessment is not None
+        assert assessment.status is TechnicalAssessmentStatus.COMPLETED
+
+    def test_ein_anbieterausfall_bleibt_ohne_folgen_fuer_den_lauf(self) -> None:
+        interpreter = FakeTechnicalInterpreter(error_symbols=frozenset({"CAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), technical_interpreter=interpreter
+        )
+
+        summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert not errors_repo.added
+        assessment = summary.outcomes[0].technical_assessment
+        assert assessment is not None
+        assert assessment.status is TechnicalAssessmentStatus.UNAVAILABLE
+        assert assessment.reason == "provider_error"
+
+    def test_ein_vertragsbruch_bleibt_ebenfalls_ohne_folgen(self) -> None:
+        """Ein Anbieter, der eine rohe Ausnahme wirft, darf das fertige
+        Screening-Ergebnis nicht mitreissen (ADR 0023, derselbe Befund beim
+        Research Agent)."""
+        interpreter = FakeTechnicalInterpreter(crash_symbols=frozenset({"CAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), technical_interpreter=interpreter
+        )
+
+        summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert not errors_repo.added
+        assessment = summary.outcomes[0].technical_assessment
+        assert assessment is not None
+        assert assessment.status is TechnicalAssessmentStatus.UNAVAILABLE
+        assert assessment.reason == "provider_contract_violation"
+
+    def test_der_deterministische_snapshot_bleibt_bei_einem_ausfall_vollstaendig(self) -> None:
+        interpreter = FakeTechnicalInterpreter(error_symbols=frozenset({"CAND"}))
+        use_case, *_ = _build_use_case(self._kandidat(), technical_interpreter=interpreter)
+
+        summary = use_case.execute()
+
+        technical = summary.outcomes[0].technical
+        assert technical is not None
+        assert technical.status is TechnicalStatus.COMPLETED
+        assert technical.close is not None
+
+    def test_beide_agenten_laufen_fuer_dieselbe_aktie(self) -> None:
+        """Mit Earnings-Freigabe laufen beide -- sie teilen sich denselben
+        Pool und stehen sich nicht im Weg."""
+        earnings_provider = FakeEarningsProvider(
+            next_by_symbol={
+                "CAND": NextEarningsDate(
+                    date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
+                )
+            }
+        )
+        research_provider = FakeResearchProvider()
+        interpreter = FakeTechnicalInterpreter()
+        use_case, *_ = _build_use_case(
+            self._kandidat(),
+            earnings_provider,
+            research_provider=research_provider,
+            technical_interpreter=interpreter,
+        )
+
+        summary = use_case.execute()
+
+        assert research_provider.calls == ["CAND"]
+        assert interpreter.calls == ["CAND"]
+        assert summary.outcomes[0].research is not None
+        assert summary.outcomes[0].technical_assessment is not None
+
+
 class TestResearch:
     _EARNINGS_CLEAR = NextEarningsDate(
         date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
@@ -586,6 +724,7 @@ class TestVeralteteDaten:
             provider,
             FakeEarningsProvider(),
             FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,
