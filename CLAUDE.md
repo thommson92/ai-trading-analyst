@@ -3,28 +3,34 @@
 Ergänzt die globalen Regeln um das, was für dieses Projekt besonders gilt.
 Grundlage: `docs/12 - CLAUDE.md` und `docs/10 - System Architecture.md`.
 
-## Freigabe-Gates
+## Freigabe-Gates — Stand
 
-Drei Punkte sind gesperrt. Hier wird nicht weitergearbeitet, bevor eine
-ausdrückliche Freigabe des Nutzers vorliegt:
+Alle drei Gates sind entschieden. Sie sind historisch, nicht mehr sperrend:
 
-| Gate | Gesperrt ist | Freigabe durch |
+| Gate | Gegenstand | Stand |
 |---|---|---|
-| **G1** | Implementierung der Signalformeln | Klärung von RSI- und EMA-Parametern am realen TradingView-Layout |
-| **G2** | Start des TradingView-Spikes | Gesonderte Freigabe |
-| **G3** | Produktive TradingView-Integration | Entscheidung nach Vorlage des Spike-Testberichts |
+| **G1** | Indikator- und Signalparameter | **freigegeben** — [ADR 0010](docs/adr/0010-gate-g1-freigegeben.md), löst [ADR 0007](docs/adr/0007-gate-g1-indikatorparameter.md) ab |
+| **G2** | TradingView-Spike | abgeschlossen mit `GO_WITH_LIMITATIONS` — `spikes/tradingview-cdp/REPORT.md` |
+| **G3** | Produktive TradingView-Integration | **NO_GO** — [ADR 0012](docs/adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md), Non-Display-Nutzungsverbot. TradingView ist als Datenquelle erledigt |
 
-Zu G1 gehören: RSI-Länge und -Berechnungsmethode, Länge und Typ des
-RSI-Moving-Average, die mathematische Definition des EMA20-Kursdurchbruchs und
-die Schlussbedingung beim EMA5/EMA20-Crossover.
+Die technische Absicherung bleibt bestehen: `AppConfig.require_indicators()`
+bricht mit `GateNotClearedError` ab, wenn der Indikatorblock fehlt. Die
+Parameter stehen heute in `config/default.yaml`; der Mechanismus schützt
+weiterhin gegen eine Konfiguration ohne sie.
 
-**Zu diesen Punkten werden keine Annahmen getroffen — auch keine
-„vorläufigen".** Technisch abgesichert über `AppConfig.require_indicators()`,
-das ohne Freigabe mit `GateNotClearedError` abbricht. Siehe
-[ADR 0007](docs/adr/0007-gate-g1-indikatorparameter.md).
+Ebenfalls entschieden, wo dieses Dokument früher „braucht zuerst ein ADR" sagte:
 
-Ebenfalls noch nicht zu beginnen: produktive Datenprovider und die
-KI-Integration. Beide brauchen zuerst ein ADR.
+- **Marktdaten:** Interactive Brokers, produktiv freigegeben —
+  [ADR 0014](docs/adr/0014-ibkr-produktivintegration-freigegeben.md).
+- **Earnings und Analystenratings:** Finnhub —
+  [ADR 0017](docs/adr/0017-finnhub-fuer-earnings-und-ratings.md).
+- **KI-Anbindung:** Anthropic API mit Modellprofilen je Aufgabe —
+  [ADR 0021](docs/adr/0021-ki-anbindung-anthropic-api.md).
+
+Was noch offen ist, steht nicht hier, sondern in `docs/adr/README.md` unter
+„Offene Entscheidungen". Der Grundsatz gilt unverändert: **zu ungeklärten
+Punkten werden keine Annahmen getroffen — auch keine „vorläufigen"** — und jede
+Architekturentscheidung wird vor der Umsetzung als ADR festgehalten.
 
 ## Die zentrale Regel
 

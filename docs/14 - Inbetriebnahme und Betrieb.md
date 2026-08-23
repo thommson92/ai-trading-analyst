@@ -76,7 +76,7 @@ Für den Betrieb ist genau eine Variable zwingend:
 | `ATA_FINNHUB_API_KEY` | erst ab Stufe G, Schritt 1 |
 | `ATA_LLM_API_KEY` | erst ab Stufe G, Schritt 2 |
 | `ATA_SESSION_SECRET` | erst mit dem Dashboard — heute ohne Wirkung |
-| `ATA_NOTIFICATION_TOKEN` | erst mit dem Kanal F10 — noch nicht entschieden |
+| `ATA_NOTIFICATION_TOKEN` | erst ab Stufe H (Telegram, [ADR 0024](adr/0024-benachrichtigungskanal-telegram.md)) |
 
 Die `.env` ist von `.gitignore` ausgeschlossen und darf nie committet werden.
 
@@ -87,8 +87,18 @@ Dann das Schema:
 .venv\Scripts\python.exe -m alembic current
 ```
 
-**Abbruch, wenn:** `alembic current` nicht `01b2e8681b7a` meldet, oder wenn
-Alembic mehr als einen Head sieht.
+**Abbruch, wenn:** `alembic current` nicht den **aktuellen Head der
+Migrationskette** meldet, oder wenn Alembic mehr als einen Head sieht. Welche
+Revision das ist, sagt das Repository selbst — die Anleitung nennt bewusst keine
+feste Kennung, weil jede weitere Migration sie überholt:
+
+```powershell
+.venv\Scripts\python.exe -m alembic heads
+```
+
+Die Ausgabe von `alembic heads` und die von `alembic current` müssen dieselbe
+Revision nennen. Zum Zeitpunkt der letzten Aktualisierung dieses Dokuments war
+das `f2b8d6104a37`.
 
 > **Falle:** Meldet Alembic „Revision … is present more than once" oder mehrere
 > Heads, liegen Dubletten im Verzeichnis `migrations/versions/` — typischerweise
