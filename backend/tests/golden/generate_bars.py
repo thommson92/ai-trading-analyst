@@ -47,11 +47,18 @@ HANDELSTAGE = 400
 Entscheidungspunkte.
 
 Die Zahl ist nach unten begrenzt durch das, was der Golden Master bewachen
-soll. Unterhalb von zehn deduplizierten Ereignissen je Kombination stuft der
-Backtest auf ``INSUFFICIENT_DATA`` und gibt **keine einzige** Kennzahl aus
-(``metrics.py``, ``has_reliable_basis``). Eine kuerzere Reihe zeichnete
-lauter Nullwerte auf -- Trefferquote, Renditen, Drawdown und Haltequote
-blieben voellig unbewacht.
+soll. Unterhalb von zehn deduplizierten Ereignissen stuft der Backtest eine
+Kombination auf ``INSUFFICIENT_DATA`` und gibt fuer sie **keine einzige**
+Kennzahl aus (``metrics.py``, ``has_reliable_basis``). Bei 400 Handelstagen
+kommt in beiden Reihen die haeufigste Kombination
+(``PRICE_EMA20_BREAKOUT`` + ``RSI_CROSS``) darueber; Trefferquote, Renditen,
+Drawdown und Haltequote sind damit tatsaechlich aufgezeichnet. Ein Test in
+``test_golden_master.py`` haelt das fest.
+
+Die uebrigen Kombinationen bleiben auch bei dieser Laenge unter der Grenze
+und zeichnen lauter Nullwerte auf. Das ist kein Mangel, sondern der zweite
+Fall, den der Golden Master bewachen soll: dass eine zu duenne Stichprobe
+**keine** Kennzahl ausgibt statt einer schwachen.
 """
 
 BARS_JE_TAG = SESSION.session_minutes // NATIVE_BAR_MINUTES

@@ -71,9 +71,7 @@ class TestDefaultConfigPath:
         monkeypatch.setenv(DEFAULT_CONFIG_ENV_VAR, str(tmp_path / "eigene.yaml"))
         assert default_config_path() == tmp_path / "eigene.yaml"
 
-    def test_falls_back_to_the_repository_file(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_falls_back_to_the_repository_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(DEFAULT_CONFIG_ENV_VAR, raising=False)
         assert default_config_path().name == "default.yaml"
 
@@ -126,9 +124,7 @@ class TestShippedDefaultConfig:
         assert research.max_fetch_content_tokens > 0
         assert research.max_input_tokens_per_symbol > 0
 
-    def test_the_shipped_prices_match_the_defaults(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_shipped_prices_match_the_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Beide Stellen tragen dieselben Preise.
 
         Sie werden von Hand gepflegt, und beim letzten Nachziehen blieb die

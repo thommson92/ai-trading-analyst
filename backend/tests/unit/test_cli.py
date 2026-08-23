@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,7 +18,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from ai_trading_analyst import cli
-from ai_trading_analyst.cli import build_parser, main, require_complete_enough
+from ai_trading_analyst.cli import (
+    build_parser,
+    export_bars_to_csv,
+    main,
+    require_complete_enough,
+)
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -38,6 +43,7 @@ from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
     IndicatorParameters,
+    IntradayBar,
     ScreeningResult,
     ScreeningStatus,
     compute_indicator_values,
@@ -1214,10 +1220,16 @@ class TestHistoryDepthKommando:
         assert args.window_days == 90
         assert args.max_windows == 4
 
-    def test_standardmaessig_werden_drei_titel_gemessen(self) -> None:
-        """Die Frage nach der Tiefe beantworten wenige Titel so gut wie alle --
-        und die ganze Watchlist kostete unter Pacing Stunden."""
-        assert build_parser().parse_args(["history-depth"]).limit == 3
+    def test_ohne_angabe_kuerzt_das_kommando_selbst(self) -> None:
+        """Die Kuerzung auf drei Titel liegt bewusst **nicht** im Argument.
+
+        Als Argumentstandard traefe sie auch ausdruecklich genannte Symbole
+        -- ``--symbols A,B,C,D`` maesse dann stillschweigend nur drei. Die
+        Watchlist zu kuerzen ist Sache des Kommandos, das beides
+        unterscheiden kann.
+        """
+        assert build_parser().parse_args(["history-depth"]).limit is None
+        assert cli.STANDARD_TITEL_TIEFENMESSUNG == 3
 
 
 class TestExportBarsKommando:
@@ -1291,3 +1303,83 @@ class TestExportBarsKommando:
         )
         assert args.symbols == "AAPL"
         assert args.since is not None and args.since.isoformat() == "2025-01-02"
+
+
+class TestTiefenmessungNachDerReview:
+    """Zwei Punkte aus der unabhaengigen Review zu diesem Zweig."""
+
+    def test_ausdruecklich_genannte_symbole_werden_nicht_gekuerzt(self) -> None:
+        """Sonst entschiede eine stille Kuerzung mit, welche Aktie am Ende
+        die 'flachste Historie' des Berichts stellt -- und ADR 0027 macht
+        genau die zur massgeblichen Groesse fuer E2."""
+        args = build_parser().parse_args(["history-depth", "--symbols", "A,B,C,D"])
+
+        assert args.limit is None
+
+    def test_limit_bleibt_angebbar(self) -> None:
+        args = build_parser().parse_args(["history-depth", "--limit", "2"])
+
+        assert args.limit == 2
+
+    def test_ohne_symbole_wird_die_watchlist_gekuerzt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die volle Watchlist kostete unter Pacing Stunden."""
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        config = write_config(projekt, provider="ibkr")
+
+        main(["--config", str(config), "history-depth", "--max-windows", "1"])
+
+        assert "3 Aktien" in capsys.readouterr().out
+
+
+class TestExportBarsSchreiben:
+    """``export_bars_to_csv`` -- erst filtern, dann auf Leere pruefen.
+
+    Andersherum entstuende bei einem Zeitraum ohne Bars eine Datei mit
+    nichts als der Kopfzeile. Der Golden Master naehme sie als Fall an und
+    scheiterte an der leeren Kerzenreihe.
+    """
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def _bars(self) -> list[IntradayBar]:
+        basis = datetime(2025, 6, 2, 13, 30, tzinfo=ZoneInfo("UTC"))
+        return [self._bar(basis + timedelta(minutes=15 * index)) for index in range(4)]
+
+    def test_ein_leerer_zeitraum_legt_keine_datei_an(self, tmp_path: Path) -> None:
+        ergebnis = export_bars_to_csv(tmp_path, "AAPL", self._bars(), date(2026, 1, 1))
+
+        assert ergebnis is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_ein_leerer_bestand_legt_keine_datei_an(self, tmp_path: Path) -> None:
+        assert export_bars_to_csv(tmp_path, "AAPL", [], None) is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_die_datei_traegt_kopfzeile_und_alle_bars(self, tmp_path: Path) -> None:
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), None)
+
+        assert datei is not None and datei.name == "aapl.bars.csv"
+        zeilen = datei.read_text(encoding="utf-8").splitlines()
+        assert zeilen[0] == "start,open,high,low,close,volume"
+        assert len(zeilen) == 5
+
+    def test_since_schneidet_aeltere_bars_ab(self, tmp_path: Path) -> None:
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), date(2025, 6, 2))
+
+        assert datei is not None
+        assert len(datei.read_text(encoding="utf-8").splitlines()) == 5
+
+    def test_das_format_liest_der_golden_master_wieder_ein(self, tmp_path: Path) -> None:
+        """Sonst waere der Weg 'Server-Ausschnitt in den Golden Master' offen
+        beschrieben, aber nirgends belegt."""
+        from tests.golden.pipeline import read_bars
+
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), None)
+
+        assert datei is not None
+        assert read_bars(datei) == tuple(self._bars())

@@ -126,9 +126,7 @@ class TestAnbieterauswahl:
         )
         assert [stock.symbol for stock in provider.list_stocks()] == ["TSLA"]
 
-    def test_ein_fehlendes_watchlist_verzeichnis_scheitert_beim_start(
-        self, tmp_path: Path
-    ) -> None:
+    def test_ein_fehlendes_watchlist_verzeichnis_scheitert_beim_start(self, tmp_path: Path) -> None:
         with pytest.raises(WatchlistError, match="existiert nicht"):
             build_market_data_provider(ibkr_config(), INDICATORS, tmp_path)
 
@@ -189,7 +187,6 @@ class TestResearchAnbieterauswahl:
         config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
         provider = build_research_provider(config, Secrets(_env_file=None))
         assert isinstance(provider, AnthropicResearchProvider)
-
 
 
 class TestTechnicalAgentAnbieterauswahl:
@@ -265,9 +262,7 @@ class TestBarquelle:
         with pytest.raises(ValueError, match="keine Datenbank"):
             build_bar_source(ibkr_config(source="stored"), None)
 
-    def test_der_provider_bekommt_die_bestandsquelle(
-        self, wurzel_mit_watchlist: Path
-    ) -> None:
+    def test_der_provider_bekommt_die_bestandsquelle(self, wurzel_mit_watchlist: Path) -> None:
         """Der eigentliche Punkt: Auch der persistierte Lauf hinter der API
         rechnet auf dem Bestand, nicht nur das Kommandozeilenwerkzeug."""
         provider = build_market_data_provider(
@@ -294,8 +289,7 @@ class TestBacktestParameter:
         assert params.cooldown_candles == config.backtesting.cooldown_candles
         assert params.minimum_sample_size == config.backtesting.minimum_sample_size
         assert (
-            params.normal_confidence_sample_size
-            == config.backtesting.normal_confidence_sample_size
+            params.normal_confidence_sample_size == config.backtesting.normal_confidence_sample_size
         )
         assert params.history_years == config.backtesting.history_years
 

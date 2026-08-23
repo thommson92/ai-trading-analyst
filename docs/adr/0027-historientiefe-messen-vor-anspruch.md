@@ -82,9 +82,17 @@ lesen — dieselbe Sorte Fehlschluss, die das Projekt bei
 `INSUFFICIENT_DATA` und bei den Konfidenzstufen des Backtests bereits
 ausschließt.
 
-Maßgeblich für den Anspruch ist die **flachste** gemessene Aktie, nicht die
+Maßgeblich für den Anspruch ist die **flachste gemessene** Aktie, nicht die
 tiefste: Sie bestimmt, ab wann eine Kennzahl über die Watchlist hinweg
 vergleichbar ist.
+
+Eine Aktie, für die kein einziger Bar ankam, zählt dabei **nicht** als
+flachste Historie — über ihre Tiefe ist nichts bekannt, und eine unbekannte
+Tiefe ist keine kurze. Sie wird gesondert ausgewiesen, und solange eine
+solche Aktie im Lauf steht, sagt der Bericht ausdrücklich, dass sein Urteil
+nur für die gemessenen Titel gilt. Ohne diese Trennung stützte ein Symbol,
+das IBKR gar nicht liefert, ein Urteil über die Watchlist, an dem es nicht
+beteiligt war.
 
 ### 4. Was aus dem Messergebnis folgt, steht in einem eigenen ADR
 

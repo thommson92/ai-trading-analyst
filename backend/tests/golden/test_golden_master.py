@@ -119,3 +119,60 @@ class TestErzeugteDaten:
                 f"{name}.bars.csv weicht vom Erzeuger ab -- entweder von Hand "
                 "geaendert oder generate_bars.py hat sich veraendert."
             )
+
+
+@pytest.mark.parametrize("fall", FAELLE, ids=lambda fall: fall.name)
+class TestBewachungsumfang:
+    """Bewacht der Golden Master ueberhaupt das, was er bewachen soll?
+
+    Eine Aufzeichnung voller Nullwerte saehe genauso stabil aus wie eine
+    aussagekraeftige -- und braeche bei keiner Aenderung an der Rechnung,
+    weil es nichts zu verschieben gaebe.
+    """
+
+    def test_mindestens_eine_kombination_hat_echte_kennzahlen(self, fall: GoldenCase) -> None:
+        """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
+
+        Unter zehn deduplizierten Ereignissen gibt der Backtest fuer eine
+        Kombination gar keine Kennzahl aus. Waeren alle Kombinationen
+        darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
+        """
+        snapshot = compute_snapshot(read_bars(fall.bars_path))
+        mit_kennzahlen = [
+            horizont
+            for ergebnis in snapshot["backtest"]
+            for horizont in ergebnis["horizons"]
+            if horizont["hit_rate"] is not None
+        ]
+
+        assert mit_kennzahlen, (
+            f"{fall.name}: keine einzige Kombination kommt ueber "
+            "minimum_sample_size -- die Kennzahlenrechnung ist unbewacht."
+        )
+        beispiel = mit_kennzahlen[0]
+        for feld in ("mean_return", "median_return", "max_loss", "drawdown"):
+            assert beispiel[feld] is not None, f"{feld} ist trotz ausreichender Stichprobe leer"
+
+    def test_auch_eine_zu_duenne_stichprobe_ist_aufgezeichnet(self, fall: GoldenCase) -> None:
+        """Der Gegenfall: keine Kennzahl statt einer schwachen.
+
+        Er ist genauso zu bewachen. Wuerde eine Aenderung anfangen, unter
+        der Mindeststichprobe doch Werte auszugeben, faellt es hier auf.
+        """
+        snapshot = compute_snapshot(read_bars(fall.bars_path))
+        zu_duenn = [
+            horizont
+            for ergebnis in snapshot["backtest"]
+            for horizont in ergebnis["horizons"]
+            if horizont["confidence"] == "INSUFFICIENT_DATA"
+        ]
+
+        assert zu_duenn, f"{fall.name}: kein Fall einer zu duennen Stichprobe aufgezeichnet"
+        assert all(horizont["hit_rate"] is None for horizont in zu_duenn)
+
+    def test_es_gibt_kandidaten_und_nicht_kandidaten(self, fall: GoldenCase) -> None:
+        """Ein Fall ohne einen einzigen Kandidaten bewachte die 2-aus-3-Regel nicht."""
+        zaehlung = compute_snapshot(read_bars(fall.bars_path))["screening"]["status_counts"]
+
+        assert zaehlung.get("CANDIDATE", 0) > 0
+        assert zaehlung.get("NOT_CANDIDATE", 0) > 0

@@ -272,9 +272,7 @@ class TestScreeningResultRepository:
             {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
         )
 
-    def test_chartauswertung_mit_zonen_wird_mitgespeichert(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_chartauswertung_mit_zonen_wird_mitgespeichert(self, uow_factory: UowFactory) -> None:
         stock = make_stock("WITHTECHNICAL")
         run = make_run()
         bestaetigt = datetime.now(UTC)
@@ -450,9 +448,7 @@ class TestScreeningResultRepository:
         ``None`` zurueck, nicht als leere Auswertung."""
         stock = make_stock("NOTECHNICAL")
         run = make_run()
-        outcome = make_outcome(
-            stock, ScreeningStatus.NOT_CANDIDATE, analysis_run_id=run.id
-        )
+        outcome = make_outcome(stock, ScreeningStatus.NOT_CANDIDATE, analysis_run_id=run.id)
 
         with uow_factory() as uow:
             uow.stocks.add(stock)
@@ -784,9 +780,7 @@ class TestIntradayBarRepository:
         with uow_factory() as uow, pytest.raises(ValueError, match="ohne Zeitzone"):
             uow.intraday_bars.add_all("AAPL", [naiv])
 
-    def test_ein_naiver_zeitstempel_unter_vielen_faellt_auf(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_ein_naiver_zeitstempel_unter_vielen_faellt_auf(self, uow_factory: UowFactory) -> None:
         """Auch als einzelner Ausreisser in einer sonst sauberen Lieferung."""
         bars = self._bars(10)
         bars[7] = make_bar(datetime(2026, 3, 10, 11, 15))  # noqa: DTZ001
@@ -840,9 +834,7 @@ class TestIntradayBarRepository:
         with uow_factory() as uow:
             assert len(uow.intraday_bars.list_for("AAPL")) == 5
 
-    def test_ueberlappende_zeitraeume_zaehlen_nur_das_neue(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_ueberlappende_zeitraeume_zaehlen_nur_das_neue(self, uow_factory: UowFactory) -> None:
         """Zwei Laeufe ueberlappen sich zwangslaeufig -- der zweite beginnt am
         letzten bekannten Bar, damit keine Luecke entsteht."""
         with uow_factory() as uow:
@@ -896,7 +888,6 @@ class TestIntradayBarRepository:
         with uow_factory() as uow:
             assert uow.intraday_bars.add_all("AAPL", []) == 0
             uow.commit()
-
 
     def test_mehr_bars_als_postgres_parameter_erlaubt(self, uow_factory: UowFactory) -> None:
         """PostgreSQL nimmt hoechstens 65.535 Parameter je Anweisung.

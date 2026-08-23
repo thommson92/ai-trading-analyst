@@ -182,9 +182,7 @@ def _trading_days(
             erster_bar=min(bar.start for bar in alle_bars),
             letzter_bar_ende=max(bar.start for bar in alle_bars)
             + timedelta(minutes=native_bar_minutes),
-            hat_vollstaendige_kerze=any(
-                len(fenster) == expected_bars for fenster in tagesfenster
-            ),
+            hat_vollstaendige_kerze=any(len(fenster) == expected_bars for fenster in tagesfenster),
             ist_erster_tag_der_reihe=session_start == erster_tag,
             ist_letzter_tag_der_reihe=session_start == letzter_tag,
         )
@@ -249,13 +247,10 @@ def _classify(
     )
 
     if schliesst_den_tag_ab and (
-        tag.ist_letzter_tag_der_reihe
-        or tag.letzter_bar_ende.time() == parameters.early_close
+        tag.ist_letzter_tag_der_reihe or tag.letzter_bar_ende.time() == parameters.early_close
     ):
         return IncompleteReason.SESSION_ENDED
-    if eroeffnet_den_tag and (
-        tag.ist_erster_tag_der_reihe or tag.hat_vollstaendige_kerze
-    ):
+    if eroeffnet_den_tag and (tag.ist_erster_tag_der_reihe or tag.hat_vollstaendige_kerze):
         return IncompleteReason.SESSION_STARTED_LATE
     return IncompleteReason.DATA_GAP
 
@@ -341,9 +336,7 @@ def aggregate_intraday_bars(
     candles: list[Candle] = []
     incomplete: list[IncompleteCandle] = []
     for (session_start, bucket_index), bucket_bars in sorted(buckets.items()):
-        timestamp = session_start + timedelta(
-            minutes=bucket_index * parameters.timeframe_minutes
-        )
+        timestamp = session_start + timedelta(minutes=bucket_index * parameters.timeframe_minutes)
         bucket_bars.sort(key=lambda bar: bar.start)
         expected_starts = _expected_bar_starts(timestamp, native_bar_minutes, expected_bars)
         vorhanden = {bar.start for bar in bucket_bars}

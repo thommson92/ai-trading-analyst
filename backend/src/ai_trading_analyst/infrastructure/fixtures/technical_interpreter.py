@@ -57,9 +57,7 @@ class FixtureTechnicalInterpreter(TechnicalInterpreter):
             model=_MODEL,
             prompt_version=_PROMPT_VERSION,
             interpreted_analysis_version=snapshot.analysis_version,
-            summary=(
-                f"Fixture-Einordnung fuer {stock.symbol} -- keine echte Modellanfrage."
-            ),
+            summary=(f"Fixture-Einordnung fuer {stock.symbol} -- keine echte Modellanfrage."),
             trend_strength=TrendStrength.MODERATE,
             breakout_quality=BreakoutQuality.NO_BREAKOUT,
             momentum_state=MomentumState.NEUTRAL,

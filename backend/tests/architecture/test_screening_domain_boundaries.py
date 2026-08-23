@@ -54,8 +54,8 @@ class TestScreeningDomainHatKeineInfrastrukturabhaengigkeit:
                     relative = path.relative_to(SCREENING_ROOT)
                     violations.append(f"{relative}: importiert {module_name}")
 
-        assert not violations, (
-            "Der Signalkern importiert Infrastructure-Code:\n" + "\n".join(violations)
+        assert not violations, "Der Signalkern importiert Infrastructure-Code:\n" + "\n".join(
+            violations
         )
 
     def test_der_check_sieht_tatsaechlich_quelldateien(self) -> None:

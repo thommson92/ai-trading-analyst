@@ -91,8 +91,7 @@ class TelegramNotifier:
             # von "zu viele Anfragen" (429) von "Telegram ist down" (5xx),
             # und genau das braucht, wer die Meldung im Protokoll liest.
             raise NotifierError(
-                f"Telegram hat die Meldung mit Status {error.response.status_code} "
-                "abgelehnt."
+                f"Telegram hat die Meldung mit Status {error.response.status_code} abgelehnt."
             ) from None
         except httpx.HTTPError as error:
             # Verbindungsfehler tragen keinen Status -- nur der Ausnahmetyp

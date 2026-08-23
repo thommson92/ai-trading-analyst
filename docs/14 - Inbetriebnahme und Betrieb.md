@@ -240,7 +240,8 @@ braucht deshalb keine Datenbank — nur die laufende TWS.
 Drei Titel genügen, und die Auswahl ist nicht beliebig: Ein lange notierter
 Standardwert zeigt die Grenze des Anbieters, eine jüngere Notierung zeigt nur
 ihre eigene kurze Börsenhistorie. Ohne `--symbols` nimmt das Kommando die
-ersten drei Titel der Watchlist.
+ersten drei Titel der Watchlist; ausdrücklich genannte Symbole werden dagegen
+alle gemessen — die Zahl begrenzt nur `--limit`.
 
 Das Kommando arbeitet sich je Aktie Fenster für Fenster zurück, bis IBKR nichts
 mehr liefert. Mit dem ausgelieferten Abstand von 11 Sekunden dauert das für drei

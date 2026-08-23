@@ -206,3 +206,63 @@ class TestTiefenmessung:
         assert bericht.bar_minutes == 15
         assert bericht.window_days == 90
         assert bericht.measured_at == JETZT
+
+
+class TestAktienOhneBars:
+    """Eine Aktie ohne einen einzigen Bar ist nicht die flachste Historie.
+
+    Ueber ihre Tiefe ist nichts bekannt, und eine unbekannte Tiefe ist keine
+    kurze. Wuerde sie stillschweigend uebergangen, stuetzte sie ein Urteil
+    ueber die Watchlist, an dem sie gar nicht beteiligt war.
+    """
+
+    class TiefeJeSymbol:
+        def __init__(self, tiefen: dict[str, int]) -> None:
+            self._tiefen = tiefen
+
+        def fetch_window(
+            self, contract: ContractSpec, end: datetime | None, days: int
+        ) -> Sequence[IntradayBar]:
+            tiefe = self._tiefen[contract.symbol]
+            return FakeWindowSource(depth_days=tiefe).fetch_window(contract, end, days)
+
+        def close(self) -> None:
+            pass
+
+    def test_sie_zaehlt_nicht_als_flachste_historie(self) -> None:
+        quelle = self.TiefeJeSymbol({"AAPL": 2000, "LEER": 0})
+
+        bericht = use_case(quelle).execute((AAPL, ContractSpec(symbol="LEER")), bar_minutes=15)
+
+        flachste = bericht.shallowest
+        assert flachste is not None
+        assert flachste.symbol == "AAPL"
+
+    def test_sie_steht_dafuer_gesondert_im_bericht(self) -> None:
+        quelle = self.TiefeJeSymbol({"AAPL": 2000, "LEER": 0})
+
+        bericht = use_case(quelle).execute((AAPL, ContractSpec(symbol="LEER")), bar_minutes=15)
+
+        assert [ergebnis.symbol for ergebnis in bericht.unmeasured] == ["LEER"]
+
+    def test_ohne_luecke_ist_die_liste_leer(self) -> None:
+        bericht = use_case(FakeWindowSource(depth_days=800)).execute((AAPL,), bar_minutes=15)
+
+        assert bericht.unmeasured == ()
+
+    def test_auch_eine_gescheiterte_aktie_ohne_bars_steht_darin(self) -> None:
+        """Ein Ausfall vor dem ersten Fenster laesst ebenfalls nichts zurueck."""
+
+        class SofortAus:
+            def fetch_window(
+                self, contract: ContractSpec, end: datetime | None, days: int
+            ) -> Sequence[IntradayBar]:
+                raise MarketDataProviderError("TWS weg")
+
+            def close(self) -> None:
+                pass
+
+        bericht = use_case(SofortAus()).execute((AAPL,), bar_minutes=15)
+
+        assert [ergebnis.symbol for ergebnis in bericht.unmeasured] == ["AAPL"]
+        assert bericht.shallowest is None

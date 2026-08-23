@@ -92,6 +92,7 @@ from ai_trading_analyst.domain.scheduling import DispatchDecision, SchedulerPara
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
+    IntradayBar,
     ScreeningStatus,
     SignalType,
     evaluate_candidate,
@@ -136,6 +137,13 @@ _logger_cli = get_logger(__name__)
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
 unter IBKRs Grenze von 60 Anfragen je zehn Minuten."""
+
+STANDARD_TITEL_TIEFENMESSUNG = 3
+"""Wieviele Titel die Tiefenmessung aus der **Watchlist** nimmt.
+
+Die Frage nach der Anbietertiefe beantworten wenige Titel so gut wie alle,
+und die ganze Watchlist kostete unter Pacing Stunden. Gilt nur fuer die
+Watchlist: Ausdruecklich genannte Symbole werden nie gekuerzt."""
 
 
 def _positive_count(value: str) -> int:
@@ -461,6 +469,33 @@ def command_backfill(args: argparse.Namespace) -> int:
     return 1 if bericht.failures else 0
 
 
+def export_bars_to_csv(
+    ziel: Path, symbol: str, bars: Sequence[IntradayBar], since: date | None
+) -> Path | None:
+    """Schreibt die Bars einer Aktie und liefert die angelegte Datei.
+
+    ``None`` heisst: Nach ``since`` blieb nichts uebrig, also wurde nichts
+    geschrieben. Die Reihenfolge ist wesentlich -- **erst filtern, dann auf
+    Leere pruefen.** Andersherum entstuende bei einem Zeitraum ohne Bars eine
+    Datei mit nichts als der Kopfzeile; der Golden Master naehme sie als
+    Fall an und scheiterte an der leeren Kerzenreihe.
+    """
+    if since is not None:
+        grenze = datetime.combine(since, time.min, tzinfo=UTC)
+        bars = [bar for bar in bars if bar.start >= grenze]
+    if not bars:
+        return None
+    datei = ziel / f"{symbol.lower()}.bars.csv"
+    zeilen = ["start,open,high,low,close,volume"]
+    zeilen.extend(
+        f"{bar.start.isoformat()},{bar.open:.4f},{bar.high:.4f},"
+        f"{bar.low:.4f},{bar.close:.4f},{bar.volume:.0f}"
+        for bar in bars
+    )
+    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return datei
+
+
 def command_export_bars(args: argparse.Namespace) -> int:
     """Schreibt gespeicherte Bars als CSV heraus.
 
@@ -494,23 +529,15 @@ def command_export_bars(args: argparse.Namespace) -> int:
     for symbol in symbole:
         with SqlAlchemyUnitOfWork(session_factory) as uow:
             bars = uow.intraday_bars.list_for(symbol)
-        if not bars:
-            # Kein Fehler des Kommandos, aber auch keine Datei: Eine leere
-            # CSV saehe im Golden Master aus wie ein Fall ohne Ergebnis.
-            print(f"{symbol}: keine gespeicherten Bars -- keine Datei angelegt", file=sys.stderr)
+        datei = export_bars_to_csv(ziel, symbol, bars, args.since)
+        if datei is None:
+            print(
+                f"{symbol}: keine gespeicherten Bars im gewaehlten Zeitraum -- "
+                "keine Datei angelegt",
+                file=sys.stderr,
+            )
             continue
-        if args.since is not None:
-            grenze = datetime.combine(args.since, time.min, tzinfo=UTC)
-            bars = [bar for bar in bars if bar.start >= grenze]
-        datei = ziel / f"{symbol.lower()}.bars.csv"
-        zeilen = ["start,open,high,low,close,volume"]
-        zeilen.extend(
-            f"{bar.start.isoformat()},{bar.open:.4f},{bar.high:.4f},"
-            f"{bar.low:.4f},{bar.close:.4f},{bar.volume:.0f}"
-            for bar in bars
-        )
-        datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
-        print(f"{symbol}: {len(bars)} Bars nach {datei}")
+        print(f"{symbol}: {datei}")
         geschrieben += 1
 
     return 0 if geschrieben else 1
@@ -570,7 +597,7 @@ def _print_depth_report(bericht: HistoryDepthReport, anspruch_jahre: int) -> Non
         return
 
     print(
-        f"\nFlachste Historie: {flachste.symbol} mit {tage} Tagen "
+        f"\nFlachste **gemessene** Historie: {flachste.symbol} mit {tage} Tagen "
         f"({tage / 365:.1f} Jahre), Grenze {flachste.limit.value}."
     )
     if any(ergebnis.is_lower_bound for ergebnis in bericht.results):
@@ -578,14 +605,30 @@ def _print_depth_report(bericht: HistoryDepthReport, anspruch_jahre: int) -> Non
             "Mindestens ein Ergebnis ist nur eine **Untergrenze** (Fensterobergrenze "
             "oder Fehler). Die tatsaechliche Tiefe kann groesser sein."
         )
+    ohne_messung = bericht.unmeasured
+    if ohne_messung:
+        # Ohne diese Zeile stuetzte ein Titel, fuer den nichts ankam, ein
+        # Urteil ueber die Watchlist, an dem er nicht beteiligt war.
+        print(
+            f"\nOhne einen einzigen Bar ({len(ohne_messung)}): "
+            + ", ".join(ergebnis.symbol for ergebnis in ohne_messung)
+            + "\n  Ueber ihre Tiefe sagt die Messung nichts. Das Urteil unten gilt nur "
+            "fuer die gemessenen Titel."
+        )
     anspruch_tage = anspruch_jahre * 365
     if tage < anspruch_tage:
         print(
-            f"Der Anspruch aus backtesting.history_years ({anspruch_jahre} Jahre = "
+            f"\nDer Anspruch aus backtesting.history_years ({anspruch_jahre} Jahre = "
             f"{anspruch_tage} Tage) wird von dieser Messung **nicht** gedeckt."
         )
+    elif ohne_messung:
+        print(
+            f"\nDie gemessenen Titel decken {anspruch_jahre} Jahre ab. Ob der Anspruch "
+            "insgesamt haelt, ist damit **nicht** beantwortet -- erst sind die Titel "
+            "ohne Bars zu klaeren."
+        )
     else:
-        print(f"Der Anspruch von {anspruch_jahre} Jahren ist erreichbar.")
+        print(f"\nDer Anspruch von {anspruch_jahre} Jahren ist erreichbar.")
     print(
         "\nDie Messung hat nichts abgelegt. Ueber E2 (Backfill vertiefen oder Anspruch "
         "senken) entscheidet dieser Bericht, nicht dieses Kommando."
@@ -619,7 +662,14 @@ def command_history_depth(args: argparse.Namespace) -> int:
     watchlist = _watchlist_from(args, config, loaded.source_path)
     if watchlist is None:
         return 2
-    watchlist = watchlist[: args.limit]
+    if args.limit is not None:
+        watchlist = watchlist[: args.limit]
+    elif args.symbols is None:
+        # Nur die Watchlist wird gekuerzt. Wer Symbole ausdruecklich nennt,
+        # bekommt sie alle gemessen -- eine stille Kuerzung entschiede
+        # hinter dem Ruecken des Nutzers mit, welche Aktie am Ende die
+        # "flachste Historie" des Berichts stellt.
+        watchlist = watchlist[:STANDARD_TITEL_TIEFENMESSUNG]
 
     interval = config.market_data.ibkr.minimum_request_interval_seconds
     if args.no_pacing:
@@ -1652,11 +1702,12 @@ def build_parser() -> argparse.ArgumentParser:
     depth.add_argument(
         "--limit",
         type=_positive_count,
-        default=3,
+        default=None,
         help=(
-            "Nur die ersten N Aktien. Standard sind drei: Die Messung kostet je Aktie "
-            "mehrere Anfragen, und die Frage nach der Tiefe beantworten wenige Titel "
-            "genauso gut wie die ganze Watchlist."
+            f"Nur die ersten N Aktien. Ohne Angabe werden aus der Watchlist die ersten "
+            f"{STANDARD_TITEL_TIEFENMESSUNG} genommen -- die Messung kostet je Aktie "
+            "mehrere Anfragen. Ausdruecklich genannte '--symbols' werden ohne diese "
+            "Angabe nie gekuerzt."
         ),
     )
     depth.add_argument(

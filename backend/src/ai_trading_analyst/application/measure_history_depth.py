@@ -130,11 +130,17 @@ class HistoryDepthReport:
 
     @property
     def shallowest(self) -> SymbolDepth | None:
-        """Die Aktie mit der kuerzesten gemessenen Historie.
+        """Die Aktie mit der kuerzesten **gemessenen** Historie.
 
         Massgeblich fuer den Anspruch ist nicht die tiefste Aktie, sondern die
         flachste: Sie bestimmt, ab wann eine Kennzahl ueber die Watchlist
         hinweg vergleichbar ist.
+
+        Aktien ohne einen einzigen Bar bleiben hier aussen vor -- ueber ihre
+        Tiefe ist nichts bekannt, und eine unbekannte Tiefe ist keine kurze.
+        Sie stehen dafuer in ``unmeasured``, und wer diese Eigenschaft
+        auswertet, muss jene ebenfalls ansehen: Sonst faellt ein Titel ohne
+        Daten stillschweigend aus dem Urteil heraus.
         """
         gemessen = [
             (result.earliest, result) for result in self.results if result.earliest is not None
@@ -142,6 +148,17 @@ class HistoryDepthReport:
         if not gemessen:
             return None
         return max(gemessen, key=lambda paar: paar[0])[1]
+
+    @property
+    def unmeasured(self) -> tuple[SymbolDepth, ...]:
+        """Aktien, fuer die kein einziger Bar ankam.
+
+        Weder gemessen noch als flachste Historie zu werten. Der Bericht muss
+        sie ausdruecklich nennen: Ein Symbol, das IBKR nicht kennt oder fuer
+        das es nichts liefert, wuerde sonst ein Urteil ueber die Watchlist
+        stuetzen, an dem es gar nicht beteiligt war.
+        """
+        return tuple(result for result in self.results if result.earliest is None)
 
 
 class MeasureHistoryDepthUseCase:

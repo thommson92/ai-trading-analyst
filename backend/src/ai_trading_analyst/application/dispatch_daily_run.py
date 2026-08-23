@@ -141,9 +141,7 @@ class DispatchDailyRunUseCase:
 
         entscheidung = geplant.decide(jetzt)
         if entscheidung is DispatchDecision.TOO_EARLY:
-            return DispatchOutcome(
-                decision=entscheidung, scheduled=geplant, alerted=gemeldet
-            )
+            return DispatchOutcome(decision=entscheidung, scheduled=geplant, alerted=gemeldet)
         if entscheidung is DispatchDecision.TOO_LATE:
             # Zweiter Weg zur Meldung: Der heutige Lauf ist ueberfaellig, ohne
             # dass je ein Versuch stattfand -- dann gibt es keine Zeile, die
@@ -258,9 +256,7 @@ class DispatchDailyRunUseCase:
         except Exception as error:  # Systemgrenze: TWS, Datenbank, Anbieter
             meldung = f"{type(error).__name__}: {error}"
             _logger.warning("Lauf gescheitert (Versuch %d): %s", versuch, meldung)
-            self._runs.mark_failed(
-                geplant.session_date, geplant.candle_close, self._now(), meldung
-            )
+            self._runs.mark_failed(geplant.session_date, geplant.candle_close, self._now(), meldung)
             return DispatchOutcome(
                 decision=DispatchDecision.RUN,
                 scheduled=geplant,
@@ -269,9 +265,7 @@ class DispatchDailyRunUseCase:
             )
 
         self._runs.mark_succeeded(geplant.session_date, geplant.candle_close, self._now())
-        return DispatchOutcome(
-            decision=DispatchDecision.RUN, scheduled=geplant, attempt=versuch
-        )
+        return DispatchOutcome(decision=DispatchDecision.RUN, scheduled=geplant, attempt=versuch)
 
     def _require_target_candle(self, geplant: ScheduledRun) -> None:
         """Sind die Daten der Zielkerze angekommen?

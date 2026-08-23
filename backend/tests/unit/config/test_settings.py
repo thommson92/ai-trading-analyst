@@ -180,9 +180,7 @@ class TestSecrets:
         with pytest.raises(KeyError):
             Secrets(_env_file=None).require("does_not_exist")
 
-    def test_secret_is_read_from_the_environment(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_secret_is_read_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ATA_SESSION_SECRET", "s3cret")
         assert Secrets(_env_file=None).require("session_secret") == "s3cret"
 

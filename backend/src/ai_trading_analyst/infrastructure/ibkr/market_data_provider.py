@@ -83,9 +83,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
         )
 
     def get_candle_series(self, stock: Stock) -> CandleSeries:
-        contract = next(
-            (item for item in self._watchlist if item.symbol == stock.symbol), None
-        )
+        contract = next((item for item in self._watchlist if item.symbol == stock.symbol), None)
         if contract is None:
             raise MarketDataProviderError(
                 f"'{stock.symbol}' steht nicht auf der konfigurierten IBKR-Watchlist."
@@ -154,8 +152,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
             if not betroffen:
                 continue
             _logger.info(
-                "%s: %d %s in der Historie -- dort entfaellt je eine Kerze "
-                "(frueheste: %s)",
+                "%s: %d %s in der Historie -- dort entfaellt je eine Kerze (frueheste: %s)",
                 symbol,
                 len(betroffen),
                 einzahl if len(betroffen) == 1 else mehrzahl,
@@ -179,9 +176,7 @@ class IbkrMarketDataProvider(MarketDataProvider):
         aufeinander folgen -- ohne dass an den Ergebniswerten irgendetwas
         darauf hindeutet.
         """
-        gaps = [
-            gap for gap in aggregated.incomplete if gap.reason is IncompleteReason.DATA_GAP
-        ]
+        gaps = [gap for gap in aggregated.incomplete if gap.reason is IncompleteReason.DATA_GAP]
         if not gaps:
             return
 

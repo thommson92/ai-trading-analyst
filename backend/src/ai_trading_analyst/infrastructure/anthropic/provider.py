@@ -514,9 +514,7 @@ class AnthropicResearchProvider(ResearchProvider):
             citations.extend(
                 self._extract_citations(response.content, fetched_documents, evaluated_at)
             )
-            narrative_parts.extend(
-                block.text for block in response.content if block.type == "text"
-            )
+            narrative_parts.extend(block.text for block in response.content if block.type == "text")
 
             if response.stop_reason == "pause_turn":
                 if usage.input_tokens >= self._max_input_tokens:

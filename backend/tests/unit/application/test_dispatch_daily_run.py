@@ -99,9 +99,7 @@ class FakeZustand:
             self.offen.append((session_date, candle_close))
         return self.versuche
 
-    def mark_succeeded(
-        self, session_date: date, candle_close: datetime, now: datetime
-    ) -> None:
+    def mark_succeeded(self, session_date: date, candle_close: datetime, now: datetime) -> None:
         self.erfolge += 1
         self.erledigt = True
         if (session_date, candle_close) in self.offen:
@@ -115,9 +113,7 @@ class FakeZustand:
     def alert_sent(self, session_date: date, candle_close: datetime) -> bool:
         return self.alarmiert
 
-    def mark_alert_sent(
-        self, session_date: date, candle_close: datetime, now: datetime
-    ) -> None:
+    def mark_alert_sent(self, session_date: date, candle_close: datetime, now: datetime) -> None:
         self.alarmiert = True
         if (session_date, candle_close) in self.offen:
             self.offen.remove((session_date, candle_close))
@@ -196,9 +192,7 @@ class TestNichtsZuTun:
         assert aufbau.backfills == []
 
     def test_am_wochenende(self) -> None:
-        use_case, aufbau = baue(
-            jetzt=datetime(2026, 8, 15, 14, 0, tzinfo=NEW_YORK), sitzung=None
-        )
+        use_case, aufbau = baue(jetzt=datetime(2026, 8, 15, 14, 0, tzinfo=NEW_YORK), sitzung=None)
 
         ergebnis = use_case.execute()
 
@@ -288,9 +282,7 @@ class TestKeinLaufOhneFrischeDaten:
     und waere es nicht."""
 
     def test_ohne_die_daten_der_zielkerze_wird_nicht_gerechnet(self) -> None:
-        use_case, aufbau = baue(
-            jetzt=FRUEHESTENS, letzter_bar=KERZE_ZU - timedelta(days=1)
-        )
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, letzter_bar=KERZE_ZU - timedelta(days=1))
 
         ergebnis = use_case.execute()
 
@@ -308,9 +300,7 @@ class TestKeinLaufOhneFrischeDaten:
 
     def test_der_lauf_gilt_dann_nicht_als_erledigt(self) -> None:
         """Der naechste Start soll es erneut versuchen."""
-        use_case, aufbau = baue(
-            jetzt=FRUEHESTENS, letzter_bar=KERZE_ZU - timedelta(days=1)
-        )
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, letzter_bar=KERZE_ZU - timedelta(days=1))
 
         use_case.execute()
 
@@ -350,9 +340,7 @@ class TestAusfall:
 
     def test_die_versuche_werden_gezaehlt(self) -> None:
         zustand = FakeZustand()
-        use_case, _ = baue(
-            jetzt=FRUEHESTENS, zustand=zustand, backfill_fehler=RuntimeError("weg")
-        )
+        use_case, _ = baue(jetzt=FRUEHESTENS, zustand=zustand, backfill_fehler=RuntimeError("weg"))
 
         use_case.execute()
         use_case.execute()

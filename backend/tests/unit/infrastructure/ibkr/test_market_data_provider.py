@@ -354,9 +354,7 @@ class TestMeldungUnvollstaendigerTage:
         assert any("1 verkuerzter Handelstag" in text for text in mitschnitt.meldungen)
         assert any("1 Handelstag mit spaetem Beginn" in text for text in mitschnitt.meldungen)
 
-    def test_die_laufende_kerze_am_ende_wird_nicht_gemeldet(
-        self, mitschnitt: _Mitschnitt
-    ) -> None:
+    def test_die_laufende_kerze_am_ende_wird_nicht_gemeldet(self, mitschnitt: _Mitschnitt) -> None:
         """Sie ist der Normalfall jedes Laufs -- eine Meldung dazu waere
         Rauschen, das die echten Hinweise zudeckt."""
         provider = build_provider(FakeBarSource({"AAPL": trading_days(20)[:-6]}))
