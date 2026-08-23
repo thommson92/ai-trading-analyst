@@ -186,6 +186,13 @@ class ResearchReport:
     """``None`` nur bei ``UNAVAILABLE`` -- ein Anbieterausfall kann schon vor
     der Modellwahl auftreten (z. B. ein Authentifizierungsfehler)."""
     prompt_version: str | None
+    analysis_version: str | None = None
+    """Version der deterministischen Ableitung (Rang, Abdeckung, Deckelung).
+
+    Getrennt von ``prompt_version``, weil beide sich unabhaengig aendern --
+    Muster ``TechnicalAssessment.interpreted_analysis_version``. Ohne dieses
+    Feld liesse sich ein gespeicherter ``coverage``-Wert nicht der Regel
+    zuordnen, unter der er entstanden ist."""
     summary: str | None = None
     positive_factors: tuple[str, ...] = ()
     negative_factors: tuple[str, ...] = ()

@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
@@ -594,6 +595,58 @@ class TestScreeningResultRepository:
         assert persisted.research is not None
         assert persisted.research.coverage is None
         assert persisted.research.evidence is None
+
+    def test_ein_zitat_ohne_rang_wird_zu_unranked(
+        self, uow_factory: UowFactory, engine: Engine
+    ) -> None:
+        """Der NULL-Fall laesst sich ueber das Repository nicht herstellen:
+        ``Citation.source_rank`` hat einen Vorgabewert, geschrieben wird also
+        immer 'UNRANKED'. Eine Zeile aus der Zeit vor ADR 0029 traegt aber
+        NULL -- deshalb hier auf die Spalte durchgegriffen. Ohne das bestuende
+        die Zusicherung aus dem falschen Grund, und ein Wegfall der
+        None-Behandlung liesse jeden Altbestand beim Lesen mit ValueError
+        brechen."""
+        stock = make_stock("NULLRANK")
+        run = make_run()
+        research = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            citations=(
+                Citation(
+                    url="https://sec.gov/alt",
+                    title="SEC-Filing",
+                    retrieved_at=datetime.now(UTC),
+                    cited_text=None,
+                    license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                    transformation="zusammengefasst",
+                ),
+            ),
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE research_citations SET source_rank = NULL"))
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.research is not None
         assert persisted.research.citations[0].source_rank is SourceRank.UNRANKED
 
     def test_research_bericht_ohne_ergebnis_wird_mitgespeichert(

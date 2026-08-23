@@ -21,7 +21,6 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import urlparse
 
 import anthropic
 import httpx
@@ -29,14 +28,16 @@ from anthropic.types import Message
 
 from ai_trading_analyst.domain.analysis import ResearchProvider, ResearchProviderError, Stock
 from ai_trading_analyst.domain.research import (
+    RESEARCH_ANALYSIS_VERSION,
     Citation,
-    ResearchCoverage,
     ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
-    SourceRank,
-    rangindex,
+    classify_source_rank,
+    derive_coverage,
+    host_of,
+    rank_and_cap,
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
@@ -80,100 +81,6 @@ Beschreibt die Quellenart, nicht die Erreichbarkeit: Reuters und AP stehen
 hier, obwohl sie in ``ResearchConfig.fetch_allowed_domains`` fehlen (sie
 sperren Anthropics Crawler fuer den Abruf aus). Als *Suchtreffer* koennen sie
 weiterhin auftauchen -- dann stimmt die Einstufung sofort."""
-
-_REGULATORY_DOMAINS = (
-    "sec.gov",
-    "federalreserve.gov",
-    "ftc.gov",
-    "justice.gov",
-    "europa.eu",
-)
-"""Amtliche Quellen -- hoechster Rang (ADR 0029).
-
-Bewusst getrennt von ``_PRIMARY_SOURCE_DOMAINS``: Jene Liste steuert die
-*Lizenzklasse*, diese den *Rang*. Dass beide heute mit ``sec.gov`` beginnen,
-ist kein Grund, sie zusammenzulegen -- sie beantworten verschiedene Fragen und
-werden sich verschieden entwickeln."""
-
-_COMPANY_RELEASE_DOMAINS = (
-    "prnewswire.com",
-    "businesswire.com",
-    "globenewswire.com",
-    "nasdaq.com",
-)
-"""Original-Pressemitteilungsdienste: das Unternehmen meldet hier selbst."""
-
-_COMPANY_HOST_PREFIXES = ("investor.", "investors.", "ir.")
-"""Investor-Relations-Auftritte lassen sich nicht ueber die Domain erfassen --
-``investor.apple.com`` gehoert dazu, ``apple.com`` nicht. Deshalb ein
-Praefixvergleich auf dem Host statt eines Domainvergleichs."""
-
-_FINANCIAL_MEDIA_DOMAINS = (
-    "bloomberg.com",
-    "wsj.com",
-    "ft.com",
-    "cnbc.com",
-    "marketwatch.com",
-    "barrons.com",
-    "investors.com",
-    "morningstar.com",
-)
-
-_GENERAL_MEDIA_DOMAINS = (
-    "reuters.com",
-    "apnews.com",
-    "bbc.com",
-    "nytimes.com",
-    "washingtonpost.com",
-)
-
-_AGGREGATOR_DOMAINS = (
-    "finance.yahoo.com",
-    "yahoo.com",
-    "seekingalpha.com",
-    "fool.com",
-    "benzinga.com",
-    "investing.com",
-    "stocktwits.com",
-)
-"""Portale und Meinungsplattformen. Verwertbar, aber selten die
-Originalquelle -- und bei Meinungsbeitraegen ist die Trennung zwischen
-Bericht und Einschaetzung nicht immer erkennbar."""
-
-
-def _host_of(url: str) -> str:
-    return urlparse(url).netloc.lower()
-
-
-def _domain_matches(host: str, domains: tuple[str, ...]) -> bool:
-    return any(host == domain or host.endswith(f".{domain}") for domain in domains)
-
-
-def _classify_rank(url: str) -> SourceRank:
-    """Quellenrang deterministisch aus der URL (ADR 0029).
-
-    Die Reihenfolge der Pruefungen ist die Rangfolge selbst: Der erste
-    Treffer gewinnt. ``investor.nasdaq.com`` waere sowohl Praefix- als auch
-    Domaintreffer -- beide fuehren auf ``COMPANY``, der Fall ist also
-    harmlos; bei kuenftigen Ueberschneidungen entscheidet bewusst die
-    hoehere Stufe.
-
-    Nie vom Sprachmodell erfragt (CLAUDE.md): Ein Text, der behauptet, eine
-    amtliche Quelle zu sein, veraendert hier nichts.
-    """
-    host = _host_of(url)
-    if _domain_matches(host, _REGULATORY_DOMAINS):
-        return SourceRank.REGULATORY
-    if host.startswith(_COMPANY_HOST_PREFIXES) or _domain_matches(host, _COMPANY_RELEASE_DOMAINS):
-        return SourceRank.COMPANY
-    if _domain_matches(host, _FINANCIAL_MEDIA_DOMAINS):
-        return SourceRank.FINANCIAL_MEDIA
-    if _domain_matches(host, _GENERAL_MEDIA_DOMAINS):
-        return SourceRank.GENERAL_MEDIA
-    if _domain_matches(host, _AGGREGATOR_DOMAINS):
-        return SourceRank.AGGREGATOR
-    return SourceRank.UNRANKED
-
 
 _RESEARCH_SYSTEM_PROMPT_TEMPLATE = """\
 Du bist der Research Agent eines Aktienanalyse-Systems. Deine Aufgabe ist \
@@ -341,61 +248,22 @@ def _neutralize_delimiters(symbol: str, narrative: str) -> str:
 
 
 def _classify_license(url: str) -> SourceLicenseClass:
-    host = _host_of(url)
-    if _domain_matches(host, _PRIMARY_SOURCE_DOMAINS):
+    """Lizenzklasse aus der URL -- die Rechtsfrage, nicht die Guete.
+
+    Bleibt hier, weil sie die Verwertbarkeit *dieses* Anbieterergebnisses
+    beschreibt; der Quellenrang ist eine Domain-Entscheidung und steht in
+    ``domain/research/sources.py`` (ADR 0029).
+    """
+    host = host_of(url)
+
+    def _passt(domains: tuple[str, ...]) -> bool:
+        return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+    if _passt(_PRIMARY_SOURCE_DOMAINS):
         return SourceLicenseClass.PRIMARY_SOURCE
-    if _domain_matches(host, _NEWS_MEDIA_DOMAINS):
+    if _passt(_NEWS_MEDIA_DOMAINS):
         return SourceLicenseClass.NEWS_MEDIA
     return SourceLicenseClass.UNKNOWN
-
-
-BREITE_MINDESTQUELLEN = 3
-"""Ab so vielen verschiedenen Quellen kommt ``BROAD`` ueberhaupt in Frage."""
-
-BEGRENZTE_MINDESTQUELLEN = 2
-"""Darunter bleibt es bei ``THIN`` -- eine einzige Quelle ist keine Recherche."""
-
-RAENGE_MIT_SUBSTANZ = (SourceRank.REGULATORY, SourceRank.COMPANY)
-"""Fuer ``BROAD`` muss mindestens ein Beleg von der Quelle selbst stammen,
-nicht nur aus Berichterstattung darueber."""
-
-
-def _rank_and_cap(citations: list[Citation], obergrenze: int) -> tuple[list[Citation], int]:
-    """Sortiert nach Quellenrang und deckelt (ADR 0029).
-
-    ``sorted`` ist **stabil**: Innerhalb desselben Rangs bleibt die
-    Reihenfolge der ersten Nennung erhalten -- die Zusicherung aus ADR 0023,
-    Entscheidung 6, gilt damit weiter, nur eben innerhalb eines Rangs.
-
-    Gibt zusaetzlich zurueck, wie viele Zitate weggefallen sind. Eine
-    Auslassung, die niemand zaehlt, ist eine stille Auslassung.
-    """
-    sortiert = sorted(citations, key=lambda citation: rangindex(citation.source_rank))
-    return sortiert[:obergrenze], max(0, len(sortiert) - obergrenze)
-
-
-def _derive_coverage(evidence: ResearchEvidence, citations: list[Citation]) -> ResearchCoverage:
-    """Abdeckung aus dem, was messbar geschehen ist (ADR 0029).
-
-    Ausdruecklich nicht aus einer Selbstauskunft des Modells: Ein Modell, das
-    eine duenne Quellenlage nicht erkennt, meldet auch eine gute Abdeckung.
-    Der Lauf aus ADR 0023 -- eine Suche, null Abrufe, acht Ablehnungen -- ist
-    hier ``THIN``, obwohl er ``COMPLETED`` meldete.
-
-    Die Schwellen stehen bewusst im Code und nicht in der Konfiguration: Sie
-    sind Teil des Verfahrens, und ein Verfahren wird versioniert, nicht
-    eingestellt.
-    """
-    if evidence.distinct_sources < BEGRENZTE_MINDESTQUELLEN:
-        return ResearchCoverage.THIN
-    hat_substanz = any(citation.source_rank in RAENGE_MIT_SUBSTANZ for citation in citations)
-    if (
-        evidence.distinct_sources >= BREITE_MINDESTQUELLEN
-        and evidence.successful_fetches > 0
-        and hat_substanz
-    ):
-        return ResearchCoverage.BROAD
-    return ResearchCoverage.LIMITED
 
 
 def _parse_retrieved_at(value: str | None, fallback: datetime) -> datetime:
@@ -605,6 +473,10 @@ class AnthropicResearchProvider(ResearchProvider):
         self._max_output_tokens = settings.max_output_tokens
         self._fetch_allowed_domains = tuple(settings.fetch_allowed_domains)
         self._max_citations = settings.max_citations
+        # Einmal, nicht je Runde: Die Allowlist ist nach __init__ unveraenderlich,
+        # und ein je Anfrage neu gebautes System-Praefix waere gegen Prompt-Caching
+        # gearbeitet (Muster ``tools``, das ebenso ausserhalb der Schleife steht).
+        self._research_system_prompt = self._build_research_system_prompt()
         self._pricing = settings.pricing
 
     def research(self, stock: Stock) -> ResearchReport:
@@ -709,7 +581,7 @@ class AnthropicResearchProvider(ResearchProvider):
             response: Message = self._client.messages.create(  # type: ignore[call-overload]
                 model=model,
                 max_tokens=self._max_output_tokens,
-                system=self._build_research_system_prompt(),
+                system=self._research_system_prompt,
                 messages=messages,
                 tools=tools,
                 thinking={"type": "adaptive"},
@@ -941,8 +813,10 @@ class AnthropicResearchProvider(ResearchProvider):
         if result.type.endswith("_error"):
             # Jeder abgelehnte Aufruf ist eine weitere Iteration der
             # serverseitigen Schleife und verrechnet den gesamten Kontext
-            # erneut. Deshalb gezaehlt und nicht nur protokolliert: Die Zahl
-            # traegt die Abdeckung (ADR 0029).
+            # erneut. Deshalb gezaehlt und nicht nur protokolliert -- als
+            # Diagnose, nicht als Eingang der Abdeckung: Was die Ablehnungen
+            # an Belegen gekostet haben, steht bereits in den Zahlen, die
+            # ``derive_coverage`` liest (ADR 0029).
             observations.rejected_tool_calls += 1
             _logger.warning(
                 "Serverseitiges Werkzeug meldet einen Fehler (%s): %s",
@@ -952,10 +826,16 @@ class AnthropicResearchProvider(ResearchProvider):
             return
         if result.type != "web_fetch_result":
             return
-        observations.successful_fetches += 1
         title = result.content.title
         if not title:
+            # Ohne Titel laesst sich kein char_location-Zitat darauf
+            # zurueckfuehren -- das Dokument ist bezahlt, aber unbelegbar.
+            # Es hier mitzuzaehlen haette die BROAD-Schwelle
+            # ``successful_fetches > 0`` mit einem Abruf geoeffnet, der zum
+            # Bericht nichts beitraegt.
+            _logger.warning("Abgerufenes Dokument ohne Titel -- keine Zitate zuordenbar")
             return
+        observations.successful_fetches += 1
         known = observations.documents.get(title)
         if known is None:
             observations.documents[title] = _FetchedDocument(
@@ -992,7 +872,7 @@ class AnthropicResearchProvider(ResearchProvider):
                             cited_text=citation.cited_text,
                             license_class=_classify_license(citation.url),
                             transformation="zusammengefasst",
-                            source_rank=_classify_rank(citation.url),
+                            source_rank=classify_source_rank(citation.url),
                             # Der Rohwert des Anbieters, unveraendert. Nur
                             # Suchtreffer tragen ihn -- siehe
                             # ``Citation.source_age``.
@@ -1023,7 +903,7 @@ class AnthropicResearchProvider(ResearchProvider):
                             cited_text=citation.cited_text,
                             license_class=_classify_license(document.url),
                             transformation="zusammengefasst",
-                            source_rank=_classify_rank(document.url),
+                            source_rank=classify_source_rank(document.url),
                             # Bleibt leer: Ein ``web_fetch_result`` meldet nur
                             # den Abrufzeitpunkt, kein Alter der Seite.
                             source_age=None,
@@ -1071,7 +951,7 @@ class AnthropicResearchProvider(ResearchProvider):
         for citation in citations:
             deduplicated.setdefault((citation.url, citation.cited_text), citation)
 
-        belege, verworfen = _rank_and_cap(list(deduplicated.values()), self._max_citations)
+        belege, verworfen = rank_and_cap(deduplicated.values(), self._max_citations)
         if verworfen:
             _logger.info(
                 "'%s': %d von %d Zitaten nach Rang verworfen (Obergrenze %d)",
@@ -1098,20 +978,23 @@ class AnthropicResearchProvider(ResearchProvider):
             reason = "no_citations"
 
         belegzahlen = ResearchEvidence(
-            # Vor der Deckelung: Wie breit recherchiert wurde, haengt nicht
-            # daran, wie viel davon gespeichert wird.
-            distinct_sources=len({citation.url for citation in deduplicated.values()}),
+            # Aus den *gespeicherten* Belegen, nicht aus den erhobenen: Die
+            # Zahl soll sich an den Zitaten der Zeile nachrechnen lassen. Die
+            # Deckelung arbeitet reihum je Quelle, verliert Quellen also erst,
+            # wenn es mehr davon gibt als Plaetze.
+            distinct_sources=len({citation.url for citation in belege}),
             successful_fetches=observations.successful_fetches,
             rejected_tool_calls=observations.rejected_tool_calls,
             dropped_citations=verworfen,
         )
-        abdeckung = _derive_coverage(belegzahlen, belege)
+        abdeckung = derive_coverage(belegzahlen, belege)
 
         return ResearchReport(
             status=status,
             evaluated_at=evaluated_at,
             model=model,
             prompt_version=_PROMPT_VERSION,
+            analysis_version=RESEARCH_ANALYSIS_VERSION,
             summary=_require_optional_text(stock.symbol, "summary", submit_input.get("summary")),
             positive_factors=_require_string_list(
                 stock.symbol, "positive_factors", submit_input.get("positive_factors")

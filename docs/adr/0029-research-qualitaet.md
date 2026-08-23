@@ -52,6 +52,13 @@ nie vom Sprachmodell erfragt (CLAUDE.md: Klassifikationen nicht aus
 LLM-Freitext übernehmen). Ein Dokument, das von sich behauptet, amtlich zu
 sein, ändert daran nichts — dafür gibt es eine Testsonde.
 
+**Die Regel steht in der Domain**, nicht im Anthropic-Adapter
+(`domain/research/sources.py`) — dasselbe Muster wie `_classify_confidence`
+beim Backtest. Läge sie im Adapter, hätten zwei Anbieter zwei Antworten auf
+dieselbe Frage, und in derselben Spalte `research_coverage` stünden Werte, die
+nach verschiedenen Verfahren entstanden sind. Der Fixture-Anbieter ruft
+dieselbe Funktion auf, statt seine Einstufung hinzuschreiben.
+
 ### 2. Der Systemprompt nennt die abrufbaren Domains
 
 Die konfigurierte `fetch_allowed_domains` wird in den Systemprompt eingesetzt,
@@ -64,9 +71,18 @@ Verfahrensänderung und muss am Ergebnis sichtbar sein.
 
 ### 3. Zitate werden nach Rang sortiert und gedeckelt
 
-Nach der vorhandenen Deduplizierung wird **stabil** nach `RANGFOLGE` sortiert
-und auf `research.max_citations` (Standard 15) gekappt. Wie viele Zitate dabei
+Nach der vorhandenen Deduplizierung wird nach `RANGFOLGE` sortiert und auf
+`research.max_citations` (Standard 15) gekappt. Wie viele Zitate dabei
 weggefallen sind, steht am Bericht.
+
+**Gekappt wird reihum je Quelle, nicht der Reihe nach.** Ein Deckel, der
+schlicht die ersten fünfzehn der rangsortierten Liste nimmt, wirkt auf
+*Zitate* und verliert dabei *Quellen*: Zwanzig Fundstellen aus einem einzigen
+Filing hätten alle Plätze belegt und jede unabhängige Bestätigung verdrängt.
+Der Bericht sagte dann etwas über eine Nachricht, deren einzige unabhängige
+Quelle nicht mehr gespeichert ist — gegen die Quellenbindung. Deshalb bekommt
+zuerst jede Quelle einen Beleg, in Rangfolge, dann einen zweiten, und so fort.
+Quellen gehen erst verloren, wenn es mehr davon gibt als Plätze.
 
 Das ersetzt einen Teil von **ADR 0023, Entscheidung 6**: Die Reihenfolge der
 ersten Nennung bleibt erhalten — aber innerhalb eines Rangs, nicht über alle
@@ -90,9 +106,20 @@ eine gute Abdeckung. Der in ADR 0023 dokumentierte Fehllauf (eine Suche, null
 erfolgreiche Abrufe, acht abgelehnte Werkzeugaufrufe, `COMPLETED` mit
 Confidence 0,55) ist damit `THIN`.
 
-Die Zahlen, aus denen die Stufe entsteht, werden **mitgespeichert**
-(`ResearchEvidence`): verschiedene Quellen vor der Deckelung, erfolgreiche
-Abrufe, abgelehnte Werkzeugaufrufe, verworfene Zitate. Eine Einstufung ohne
+Die Zahlen werden **mitgespeichert** (`ResearchEvidence`): verschiedene
+Quellen, erfolgreiche Abrufe, abgelehnte Werkzeugaufrufe, verworfene Zitate.
+`distinct_sources` zählt die **gespeicherten** Belege, damit sich die Zahl an
+den Zitaten derselben Zeile nachrechnen lässt statt eine Breite zu behaupten,
+die dort nicht mehr steht.
+
+Zwei der vier Zahlen gehen in die Einstufung ein, zwei nicht:
+`rejected_tool_calls` und `dropped_citations` sagen etwas über verbrannte
+Kosten und über Auslassungen, nicht über die Belegdichte. Was die Ablehnungen
+an Belegen gekostet haben, steht bereits in den beiden Zahlen, die eingehen.
+Sie werden gespeichert, weil sie die **Diagnose** tragen, nicht die Stufe.
+Ein erfolgreicher Abruf zählt außerdem nur, wenn das Dokument einen Titel
+trägt — sonst lässt sich kein Zitat darauf zurückführen, und ein bezahlter,
+aber unbelegbarer Abruf hätte die `BROAD`-Schwelle geöffnet. Eine Einstufung ohne
 die Zahlen dahinter wäre ein weiteres undurchsichtiges Etikett, und ob eine
 Schwelle richtig gewählt war, lässt sich später nur an den Rohwerten prüfen —
 dasselbe Muster wie beim Backtest, der rohe und deduplizierte Stichprobengröße
@@ -103,7 +130,15 @@ ablesbar, weil die Deckelung die schwächsten zuerst entfernt.
 
 Die Schwellen stehen als benannte Konstanten im Code, nicht in der
 Konfiguration. Sie sind Teil des Verfahrens, und ein Verfahren wird
-versioniert, nicht eingestellt.
+versioniert, nicht eingestellt: `RESEARCH_ANALYSIS_VERSION` steht an jedem
+Ergebnis, getrennt von der Prompt-Version, weil beide sich unabhängig ändern
+(Muster `TECHNICAL_ANALYSIS_VERSION`). Ohne dieses Feld ließe sich ein
+gespeicherter `coverage`-Wert nicht der Regel zuordnen, unter der er
+entstanden ist.
+
+`max_citations` bleibt dagegen Konfiguration: Wie viele Belege eine
+Installation aufhebt, ist eine Betriebsentscheidung und ändert die Einstufung
+nicht — die Deckelung wirkt erst weit oberhalb der Abdeckungsschwellen.
 
 ### 5. Das Quellenalter wird roh gespeichert und nie umgerechnet
 
@@ -135,6 +170,14 @@ bequemer, aber nicht nachprüfbar.
 (5) ist die ehrlichste verfügbare Antwort auf einen Punkt, den ADR 0023
 bewusst offengelassen hat. Sie erfüllt die Quellenbindung nicht, aber sie
 liefert statt gar nichts das, was der Anbieter tatsächlich sagt.
+
+### 6. Die Rangreihenfolge überlebt die Datenbank
+
+`research_citations` bekommt eine `position`-Spalte und die Relationship ein
+`order_by` (Muster `technical_zones`). Ohne beides wäre die Sortierung nach dem
+ersten Neuladen verloren — eine Relationship ohne `order_by` überlässt die
+Reihenfolge der Datenbank, und eine Reihenfolge, die nur im Arbeitsspeicher
+gilt, ist keine.
 
 ## Konsequenzen
 

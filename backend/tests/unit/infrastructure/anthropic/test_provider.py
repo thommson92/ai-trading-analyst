@@ -24,12 +24,14 @@ import pytest
 
 from ai_trading_analyst.domain.analysis import ResearchProviderError, Stock
 from ai_trading_analyst.domain.research import (
+    RESEARCH_ANALYSIS_VERSION,
     ResearchCoverage,
     ResearchStatus,
     SourceLicenseClass,
     SourceRank,
 )
 from ai_trading_analyst.infrastructure.anthropic.provider import (
+    _RESEARCH_SYSTEM_PROMPT_TEMPLATE,
     _SUBMIT_REPORT_TOOL,
     AnthropicResearchPricing,
     AnthropicResearchProvider,
@@ -1190,9 +1192,62 @@ class TestZitatDeckelung:
         ]
         assert report.evidence is not None
         assert report.evidence.dropped_citations == 1
-        # Die Zahl der recherchierten Quellen haengt nicht daran, wie viele
-        # davon gespeichert werden.
+        # Aus den gespeicherten Belegen: Die Zahl laesst sich an den Zitaten
+        # der Zeile nachrechnen, statt eine Breite zu behaupten, die dort
+        # nicht mehr steht.
+        assert report.evidence.distinct_sources == 2
+
+    def test_ein_gespraechiges_dokument_verdraengt_keine_andere_quelle(self) -> None:
+        """Der Deckel gilt Belegen, die Vielfalt gilt Quellen.
+
+        Zwanzig Fundstellen aus einem Filing duerfen nicht alle Plaetze
+        belegen und jede unabhaengige Bestaetigung hinauswerfen -- sonst
+        stuenden im Bericht Aussagen, deren einzige unabhaengige Quelle nicht
+        mehr gespeichert ist.
+        """
+        recherche = [
+            _text_with_citation("https://sec.gov/filing", cited_text=f"Stelle {nummer}")
+            for nummer in range(10)
+        ]
+        recherche.append(_text_with_citation("https://www.reuters.com/b", cited_text="agentur"))
+        recherche.append(_text_with_citation("https://www.bloomberg.com/c", cited_text="fach"))
+        provider = AnthropicResearchProvider(
+            _settings(max_citations=3),
+            http_client=httpx.Client(transport=httpx.MockTransport(_zweiphasig(recherche))),
+        )
+        report = provider.research(AAPL)
+
+        assert {citation.url for citation in report.citations} == {
+            "https://sec.gov/filing",
+            "https://www.bloomberg.com/c",
+            "https://www.reuters.com/b",
+        }
+        assert report.evidence is not None
         assert report.evidence.distinct_sources == 3
+        assert report.evidence.dropped_citations == 9
+
+    def test_bei_mehr_quellen_als_plaetzen_gewinnen_die_hoeherrangigen(self) -> None:
+        """Erst wenn es mehr Quellen als Plaetze gibt, faellt eine ganz weg --
+        und dann die schwaechste."""
+        provider = AnthropicResearchProvider(
+            _settings(max_citations=2),
+            http_client=httpx.Client(
+                transport=httpx.MockTransport(
+                    _zweiphasig(
+                        [
+                            _text_with_citation("https://seekingalpha.com/a", cited_text="a"),
+                            _text_with_citation("https://sec.gov/b", cited_text="b"),
+                            _text_with_citation("https://www.bloomberg.com/c", cited_text="c"),
+                        ]
+                    )
+                )
+            ),
+        )
+        report = provider.research(AAPL)
+        assert [citation.url for citation in report.citations] == [
+            "https://sec.gov/b",
+            "https://www.bloomberg.com/c",
+        ]
 
     def test_gleicher_rang_behaelt_die_reihenfolge_der_ersten_nennung(self) -> None:
         """Die Zusicherung aus ADR 0023, Entscheidung 6 -- jetzt innerhalb
@@ -1297,6 +1352,38 @@ class TestAbdeckung:
     def test_eine_einzige_quelle_ist_keine_recherche(self) -> None:
         report = _provider(_zweiphasig()).research(AAPL)
         assert report.coverage is ResearchCoverage.THIN
+
+    def test_ein_abruf_ohne_titel_zaehlt_nicht_als_gelesenes_dokument(self) -> None:
+        """Ohne Titel laesst sich kein Zitat auf das Dokument zurueckfuehren.
+
+        Wuerde es trotzdem gezaehlt, oeffnete es die BROAD-Schwelle
+        ``successful_fetches > 0`` mit einem Abruf, der zum Bericht nichts
+        beigetragen hat -- genau die Selbstueberschaetzung, gegen die die
+        Abdeckung gebaut ist.
+        """
+        ohne_titel = _web_fetch_result("https://sec.gov/ohne-titel", "")
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    ohne_titel,
+                    _text_with_citation("https://sec.gov/a", cited_text="a"),
+                    _text_with_citation("https://www.reuters.com/b", cited_text="b"),
+                    _text_with_citation("https://www.bloomberg.com/c", cited_text="c"),
+                ]
+            )
+        ).research(AAPL)
+
+        assert report.evidence is not None
+        assert report.evidence.successful_fetches == 0
+        assert report.coverage is ResearchCoverage.LIMITED
+
+    def test_die_verfahrensversion_steht_am_bericht(self) -> None:
+        """Ohne sie liesse sich ein gespeicherter Abdeckungswert nicht der
+        Regel zuordnen, unter der er entstanden ist -- getrennt von der
+        Prompt-Version, weil beide sich unabhaengig aendern."""
+        report = _provider(_zweiphasig()).research(AAPL)
+        assert report.analysis_version == RESEARCH_ANALYSIS_VERSION
+        assert report.prompt_version != report.analysis_version
 
 
 class TestQuellenalter:
@@ -1432,3 +1519,19 @@ class TestAbrufDomainsImPrompt:
         )
         provider.research(AAPL)
         assert "keine Einschraenkung" in self._systemprompt(calls)
+
+
+class TestSystempromptVorlage:
+    def test_die_vorlage_traegt_genau_einen_platzhalter(self) -> None:
+        """Der Systemprompt ist seit ADR 0029 eine ``format``-Vorlage.
+
+        Damit ist jede geschweifte Klammer im Prosatext eine Falle: Ein
+        JSON-Beispiel oder eine Mengenschreibweise liesse ``str.format``
+        werfen, der Adapter machte daraus 'unerwartete Anbieterantwort', und
+        jede Aktie des Tageslaufs bekaeme UNAVAILABLE -- waehrend man den
+        Fehler bei Anthropic suchte.
+        """
+        vorlage = _RESEARCH_SYSTEM_PROMPT_TEMPLATE
+        assert vorlage.count("{") == 1
+        assert vorlage.count("}") == 1
+        assert "{abruf_domains}" in vorlage

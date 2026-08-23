@@ -256,6 +256,17 @@ _TECHNICAL_FIELDS = (
 )
 
 
+_RESEARCH_EVIDENCE_FIELDS = (
+    "distinct_sources",
+    "successful_fetches",
+    "rejected_tool_calls",
+    "dropped_citations",
+)
+"""Feldname von ``ResearchEvidence`` = Spaltenname ohne Praefix (Muster
+``_TECHNICAL_FIELDS``). Einmal geschrieben, damit die beiden Zweige des
+Mappers nicht auseinanderlaufen koennen."""
+
+
 def _research_evidence_columns(evidence: ResearchEvidence | None) -> dict[str, Any]:
     """Die Zahlen hinter der Abdeckung (ADR 0029) als Spaltensatz.
 
@@ -263,18 +274,9 @@ def _research_evidence_columns(evidence: ResearchEvidence | None) -> dict[str, A
     abgelehnte Werkzeugaufrufe waere eine Aussage ueber einen Lauf, den es
     nicht gab.
     """
-    if evidence is None:
-        return {
-            "research_distinct_sources": None,
-            "research_successful_fetches": None,
-            "research_rejected_tool_calls": None,
-            "research_dropped_citations": None,
-        }
     return {
-        "research_distinct_sources": evidence.distinct_sources,
-        "research_successful_fetches": evidence.successful_fetches,
-        "research_rejected_tool_calls": evidence.rejected_tool_calls,
-        "research_dropped_citations": evidence.dropped_citations,
+        f"research_{name}": getattr(evidence, name) if evidence is not None else None
+        for name in _RESEARCH_EVIDENCE_FIELDS
     }
 
 
@@ -285,13 +287,21 @@ def _research_evidence(row: ScreeningResultOrm) -> ResearchEvidence | None:
     ``None`` statt Nullen -- ein alter Bericht weiss nichts ueber seine
     Abdeckung und soll das auch nicht behaupten.
     """
-    if row.research_distinct_sources is None:
+    if (
+        row.research_distinct_sources is None
+        or row.research_successful_fetches is None
+        or row.research_rejected_tool_calls is None
+        or row.research_dropped_citations is None
+    ):
+        # Alle vier werden als Satz geschrieben, also auch als Satz gelesen.
+        # Ein ``or 0`` je Feld haette aus einer fehlenden Messung eine Null
+        # gemacht -- eine Aussage ueber einen Lauf, den es nie gab.
         return None
     return ResearchEvidence(
         distinct_sources=row.research_distinct_sources,
-        successful_fetches=row.research_successful_fetches or 0,
-        rejected_tool_calls=row.research_rejected_tool_calls or 0,
-        dropped_citations=row.research_dropped_citations or 0,
+        successful_fetches=row.research_successful_fetches,
+        rejected_tool_calls=row.research_rejected_tool_calls,
+        dropped_citations=row.research_dropped_citations,
     )
 
 
@@ -470,6 +480,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
             evaluated_at=research_evaluated_at,
             model=row.research_model,
             prompt_version=row.research_prompt_version,
+            analysis_version=row.research_analysis_version,
             summary=row.research_summary,
             positive_factors=tuple(row.research_positive_factors or ()),
             negative_factors=tuple(row.research_negative_factors or ()),
@@ -546,6 +557,9 @@ class SqlAlchemyScreeningResultRepository:
             research_evaluated_at=research.evaluated_at if research is not None else None,
             research_model=research.model if research is not None else None,
             research_prompt_version=research.prompt_version if research is not None else None,
+            research_analysis_version=(
+                research.analysis_version if research is not None else None
+            ),
             research_summary=research.summary if research is not None else None,
             research_positive_factors=(
                 list(research.positive_factors) if research is not None else None
@@ -570,6 +584,7 @@ class SqlAlchemyScreeningResultRepository:
         row.research_citations = [
             ResearchCitationOrm(
                 id=uuid.uuid4(),
+                position=position,
                 url=citation.url,
                 title=citation.title,
                 retrieved_at=citation.retrieved_at,
@@ -579,7 +594,9 @@ class SqlAlchemyScreeningResultRepository:
                 source_rank=citation.source_rank,
                 source_age=citation.source_age,
             )
-            for citation in (research.citations if research is not None else ())
+            for position, citation in enumerate(
+                research.citations if research is not None else ()
+            )
         ]
         technical = outcome.technical
         row.technical_zones = [

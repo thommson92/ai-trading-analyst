@@ -10,6 +10,17 @@ nachgereicht. Ein alter Bericht weiss nichts darueber, wie breit er belegt war,
 und soll das auch nicht behaupten. Der Lesepfad in ``repositories.py`` bildet
 das ab: fehlender Rang wird ``UNRANKED``, fehlende Zahlen bleiben ``None``.
 
+``position`` haelt die Rangreihenfolge aus ``rank_and_cap`` fest -- ohne sie
+waere sie nach dem ersten Neuladen verloren, weil eine Relationship ohne
+``order_by`` die Reihenfolge der Datenbank ueberlaesst (Muster
+``technical_zones.position``). Sie ist die einzige NOT-NULL-Spalte dieser
+Migration: bestehende Zeilen bekommen 0 und damit eine definierte, wenn auch
+bedeutungslose Reihenfolge.
+
+``research_analysis_version`` haelt fest, unter welcher Fassung der
+deterministischen Regel ein ``research_coverage``-Wert entstanden ist --
+getrennt von ``research_prompt_version``, weil beide sich unabhaengig aendern.
+
 ``source_rank`` steht bewusst **neben** ``license_class`` statt sie zu
 ersetzen: Die Lizenzklasse beantwortet, was mit dem Inhalt rechtlich geschehen
 darf, der Rang, wie belastbar er ist.
@@ -65,7 +76,17 @@ def upgrade() -> None:
 
     op.add_column("research_citations", sa.Column("source_rank", _source_rank, nullable=True))
     op.add_column("research_citations", sa.Column("source_age", sa.String(), nullable=True))
+    # Bestehende Zeilen bekommen 0 und behalten damit eine definierte, wenn
+    # auch bedeutungslose Reihenfolge; NOT NULL erst danach.
+    op.add_column(
+        "research_citations",
+        sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
+    )
+    op.alter_column("research_citations", "position", server_default=None)
 
+    op.add_column(
+        "screening_results", sa.Column("research_analysis_version", sa.String(), nullable=True)
+    )
     op.add_column("screening_results", sa.Column("research_coverage", _coverage, nullable=True))
     for name in _EVIDENCE_COLUMNS:
         op.add_column("screening_results", sa.Column(name, sa.Integer(), nullable=True))
@@ -75,7 +96,9 @@ def downgrade() -> None:
     for name in _EVIDENCE_COLUMNS:
         op.drop_column("screening_results", name)
     op.drop_column("screening_results", "research_coverage")
+    op.drop_column("screening_results", "research_analysis_version")
 
+    op.drop_column("research_citations", "position")
     op.drop_column("research_citations", "source_age")
     op.drop_column("research_citations", "source_rank")
 

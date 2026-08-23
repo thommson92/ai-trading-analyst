@@ -13,13 +13,14 @@ from datetime import UTC, datetime
 
 from ai_trading_analyst.domain.analysis import ResearchProvider, Stock
 from ai_trading_analyst.domain.research import (
+    RESEARCH_ANALYSIS_VERSION,
     Citation,
-    ResearchCoverage,
     ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
-    SourceRank,
+    classify_source_rank,
+    derive_coverage,
 )
 
 _MODEL = "fixture"
@@ -34,35 +35,41 @@ class FixtureResearchProvider(ResearchProvider):
 
     def research(self, stock: Stock) -> ResearchReport:
         evaluated_at = self._now()
+        url = f"https://example.com/fixture/{stock.symbol}"
+        citations = (
+            Citation(
+                url=url,
+                title=f"Fixture-Quelle fuer {stock.symbol}",
+                retrieved_at=evaluated_at,
+                cited_text="Beispielhafter zitierter Ausschnitt.",
+                license_class=SourceLicenseClass.UNKNOWN,
+                transformation="zusammengefasst",
+                # Klassifiziert, nicht behauptet: Sonst haetten Fixture und
+                # echter Anbieter zwei Antworten auf dieselbe Frage.
+                source_rank=classify_source_rank(url),
+                source_age=None,
+            ),
+        )
+        evidence = ResearchEvidence(
+            distinct_sources=len({citation.url for citation in citations}),
+            successful_fetches=0,
+            rejected_tool_calls=0,
+            dropped_citations=0,
+        )
         return ResearchReport(
             status=ResearchStatus.COMPLETED,
             evaluated_at=evaluated_at,
             model=_MODEL,
             prompt_version=_PROMPT_VERSION,
+            analysis_version=RESEARCH_ANALYSIS_VERSION,
             summary=f"Fixture-Recherche fuer {stock.symbol} -- keine echte Anbieteranfrage.",
             positive_factors=("Beispielhafter positiver Faktor",),
             negative_factors=("Beispielhafter negativer Faktor",),
             risks=("Beispielhaftes Risiko",),
             confidence=0.5,
-            citations=(
-                Citation(
-                    url=f"https://example.com/fixture/{stock.symbol}",
-                    title=f"Fixture-Quelle fuer {stock.symbol}",
-                    retrieved_at=evaluated_at,
-                    cited_text="Beispielhafter zitierter Ausschnitt.",
-                    license_class=SourceLicenseClass.UNKNOWN,
-                    transformation="zusammengefasst",
-                    source_rank=SourceRank.UNRANKED,
-                    source_age=None,
-                ),
-            ),
-            # THIN passt zu genau einem Beleg -- der Fixture-Bericht soll sich
-            # nicht besser darstellen, als er ist (ADR 0029).
-            coverage=ResearchCoverage.THIN,
-            evidence=ResearchEvidence(
-                distinct_sources=1,
-                successful_fetches=0,
-                rejected_tool_calls=0,
-                dropped_citations=0,
-            ),
+            citations=citations,
+            # Aus derselben Regel wie beim echten Anbieter -- ein von Hand
+            # gesetzter Wert koennte still von ihr abweichen.
+            coverage=derive_coverage(evidence, citations),
+            evidence=evidence,
         )

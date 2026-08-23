@@ -242,6 +242,7 @@ class ScreeningResultOrm(Base):
     )
     research_model: Mapped[str | None] = mapped_column(nullable=True)
     research_prompt_version: Mapped[str | None] = mapped_column(nullable=True)
+    research_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
     research_summary: Mapped[str | None] = mapped_column(nullable=True)
     research_positive_factors: Mapped[list[str] | None] = mapped_column(
         ARRAY(String), nullable=True
@@ -267,7 +268,9 @@ class ScreeningResultOrm(Base):
         back_populates="screening_result", cascade="all, delete-orphan"
     )
     research_citations: Mapped[list[ResearchCitationOrm]] = relationship(
-        back_populates="screening_result", cascade="all, delete-orphan"
+        back_populates="screening_result",
+        cascade="all, delete-orphan",
+        order_by="ResearchCitationOrm.position",
     )
     technical_zones: Mapped[list[TechnicalZoneOrm]] = relationship(
         back_populates="screening_result",
@@ -325,6 +328,12 @@ class ResearchCitationOrm(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
+    position: Mapped[int]
+    """Rangreihenfolge aus ``rank_and_cap`` (ADR 0029).
+
+    Ohne eigene Spalte waere sie nach dem ersten Neuladen verloren: Eine
+    Relationship ohne ``order_by`` liefert die Kinder in einer Reihenfolge,
+    die die Datenbank bestimmt. Muster ``TechnicalZoneOrm.position``."""
     url: Mapped[str]
     title: Mapped[str]
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
