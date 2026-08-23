@@ -453,6 +453,13 @@ class ResearchConfig(_Section):
         "globenewswire.com",
         "nasdaq.com",
     )
+    max_citations: PositiveInt = 15
+    """Obergrenze der gespeicherten Belege je Bericht (ADR 0029).
+
+    Ein realer Lauf brachte rund 40 Zitate, ungewichtet. Gespeichert werden
+    die nach ``SourceRank`` staerksten; wie viele weggefallen sind, steht am
+    Bericht (``ResearchEvidence.dropped_citations``) -- die Auslassung bleibt
+    damit nicht still."""
     pricing: ResearchPricingConfig = ResearchPricingConfig()
 
 

@@ -27,9 +27,12 @@ from ai_trading_analyst.domain.backtesting import (
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.research import (
     Citation,
+    ResearchCoverage,
+    ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
+    SourceRank,
 )
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
@@ -253,6 +256,45 @@ _TECHNICAL_FIELDS = (
 )
 
 
+def _research_evidence_columns(evidence: ResearchEvidence | None) -> dict[str, Any]:
+    """Die Zahlen hinter der Abdeckung (ADR 0029) als Spaltensatz.
+
+    Ohne Bericht bleiben alle vier leer statt auf null zu stehen: Null
+    abgelehnte Werkzeugaufrufe waere eine Aussage ueber einen Lauf, den es
+    nicht gab.
+    """
+    if evidence is None:
+        return {
+            "research_distinct_sources": None,
+            "research_successful_fetches": None,
+            "research_rejected_tool_calls": None,
+            "research_dropped_citations": None,
+        }
+    return {
+        "research_distinct_sources": evidence.distinct_sources,
+        "research_successful_fetches": evidence.successful_fetches,
+        "research_rejected_tool_calls": evidence.rejected_tool_calls,
+        "research_dropped_citations": evidence.dropped_citations,
+    }
+
+
+def _research_evidence(row: ScreeningResultOrm) -> ResearchEvidence | None:
+    """Gegenstueck zu ``_research_evidence_columns``.
+
+    Vor ADR 0029 geschriebene Zeilen haben die Spalten nicht. Sie bekommen
+    ``None`` statt Nullen -- ein alter Bericht weiss nichts ueber seine
+    Abdeckung und soll das auch nicht behaupten.
+    """
+    if row.research_distinct_sources is None:
+        return None
+    return ResearchEvidence(
+        distinct_sources=row.research_distinct_sources,
+        successful_fetches=row.research_successful_fetches or 0,
+        rejected_tool_calls=row.research_rejected_tool_calls or 0,
+        dropped_citations=row.research_dropped_citations or 0,
+    )
+
+
 def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
     """Spaltenwerte der Chartauswertung, ``technical_``-praefigiert.
 
@@ -441,9 +483,24 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
                     cited_text=citation.cited_text,
                     license_class=SourceLicenseClass(citation.license_class),
                     transformation=citation.transformation,
+                    # Vor ADR 0029 geschriebene Zeilen tragen keinen Rang. Sie
+                    # bekommen UNRANKED -- "wir wissen es nicht" -- statt einer
+                    # nachtraeglich erfundenen Einstufung.
+                    source_rank=(
+                        SourceRank(citation.source_rank)
+                        if citation.source_rank is not None
+                        else SourceRank.UNRANKED
+                    ),
+                    source_age=citation.source_age,
                 )
                 for citation in row.research_citations
             ),
+            coverage=(
+                ResearchCoverage(row.research_coverage)
+                if row.research_coverage is not None
+                else None
+            ),
+            evidence=_research_evidence(row),
             reason=row.research_reason,
         )
     return StockScreeningOutcome(
@@ -499,6 +556,8 @@ class SqlAlchemyScreeningResultRepository:
             research_risks=list(research.risks) if research is not None else None,
             research_confidence=research.confidence if research is not None else None,
             research_reason=research.reason if research is not None else None,
+            research_coverage=research.coverage if research is not None else None,
+            **_research_evidence_columns(research.evidence if research is not None else None),
             **_technical_columns(outcome.technical),
             **_technical_ai_columns(outcome.technical_assessment),
         )
@@ -517,6 +576,8 @@ class SqlAlchemyScreeningResultRepository:
                 cited_text=citation.cited_text,
                 license_class=citation.license_class,
                 transformation=citation.transformation,
+                source_rank=citation.source_rank,
+                source_age=citation.source_age,
             )
             for citation in (research.citations if research is not None else ())
         ]

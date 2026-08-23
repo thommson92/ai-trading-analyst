@@ -14,9 +14,12 @@ from datetime import UTC, datetime
 from ai_trading_analyst.domain.analysis import ResearchProvider, Stock
 from ai_trading_analyst.domain.research import (
     Citation,
+    ResearchCoverage,
+    ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
+    SourceRank,
 )
 
 _MODEL = "fixture"
@@ -49,6 +52,17 @@ class FixtureResearchProvider(ResearchProvider):
                     cited_text="Beispielhafter zitierter Ausschnitt.",
                     license_class=SourceLicenseClass.UNKNOWN,
                     transformation="zusammengefasst",
+                    source_rank=SourceRank.UNRANKED,
+                    source_age=None,
                 ),
+            ),
+            # THIN passt zu genau einem Beleg -- der Fixture-Bericht soll sich
+            # nicht besser darstellen, als er ist (ADR 0029).
+            coverage=ResearchCoverage.THIN,
+            evidence=ResearchEvidence(
+                distinct_sources=1,
+                successful_fetches=0,
+                rejected_tool_calls=0,
+                dropped_citations=0,
             ),
         )

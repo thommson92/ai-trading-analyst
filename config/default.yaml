@@ -212,6 +212,10 @@ research:
     - businesswire.com
     - globenewswire.com
     - nasdaq.com
+  # Obergrenze der gespeicherten Belege je Bericht (ADR 0029). Ein realer Lauf
+  # brachte rund 40 Zitate, ungewichtet. Gespeichert werden die nach
+  # Quellenrang staerksten; die Zahl der verworfenen steht am Bericht.
+  max_citations: 15
   # Nur fuer die Kostenschaetzung im Log. VON HAND GEPFLEGT -- die Anwendung
   # fragt keine Preisliste ab, ein veralteter Wert faellt nirgends auf.
   #
