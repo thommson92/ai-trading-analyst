@@ -177,7 +177,7 @@ class TestErfolgsfall:
         )
 
         assert assessment.model == "claude-haiku-4-5-20251001"
-        assert assessment.prompt_version == "technical-agent-v1"
+        assert assessment.prompt_version == "technical-agent-v2"
 
     def test_die_eingeordnete_verfahrensversion_wird_festgehalten(self) -> None:
         assessment = _interpreter(_antwortet(_message([_submit_block()]))).interpret(
@@ -325,6 +325,26 @@ class TestChanceRisikoUebersteuerung:
         ).interpret(AAPL, snapshot())
 
         assert assessment.risk_reward_rating is RiskRewardRating.FAVOURABLE
+
+    def test_fehlende_einstufungen_werden_protokolliert(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Vier von sechs Einstufungen sind mehr wert als keine, also kein
+        Fehler -- aber es ist ein Prompt-Problem und gehoert gesehen. Genau so
+        sah der erste Lauf gegen echte Kurse aus (ADR 0026, Revision)."""
+        with caplog.at_level("WARNING"):
+            assessment = _interpreter(
+                _antwortet(
+                    _message(
+                        [_submit_block(risk_reward_rating=None, swing_entry_plausibility=None)]
+                    )
+                )
+            ).interpret(AAPL, snapshot())
+
+        assert assessment.status is TechnicalAssessmentStatus.COMPLETED
+        assert "2 von 6" in caplog.text
+        assert "risk_reward_rating" in caplog.text
+        assert "swing_entry_plausibility" in caplog.text
 
     def test_keine_einstufung_ist_nicht_dasselbe_wie_nicht_einstufbar(self) -> None:
         """Laesst das Modell das Feld aus, obwohl eine Zahl vorliegt, bleibt

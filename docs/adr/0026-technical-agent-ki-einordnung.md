@@ -186,6 +186,72 @@ wäre für einen Leser verwirrender als die Abweichung vom ADR-Wortlaut. Die
 Absicht von ADR 0021 — ein aufgabenspezifischer Port mit fachlichem Ein- und
 Ausgang statt eines generischen LLM-Layers — ist eingehalten.
 
+## Revision nach dem ersten Lauf an echten Kursen
+
+**Datum: 2026-08-23. Prompt-Version steigt von `technical-agent-v1` auf
+`technical-agent-v2`.**
+
+Der erste Lauf gegen AAPL und MSFT lieferte bei **beiden** Titeln nur vier
+der sechs Einstufungen. Es fehlten ausgerechnet die zwei, die das Scoring
+braucht:
+
+```
+Chance/Risiko:           --
+Swing-Einstieg:          --
+```
+
+Und zwar, obwohl das Chance-Risiko-Verhältnis mit 1,05 (AAPL) und 0,96
+(MSFT) berechnet danebenstand. Dass es nicht am Unvermögen lag, zeigt die
+Risikoliste desselben Ergebnisses: „Naechster Widerstand liegt dicht beim
+Kurs (0.80%), Raumgewinn begrenzt". Das Modell hatte über Chance und Risiko
+sehr wohl nachgedacht — es hat nur das Feld nicht gefüllt.
+
+Drei Ursachen, alle hausgemacht:
+
+1. **Der Prompt verlangte die Vollständigkeit nirgends.** Er zählte die sechs
+   Punkte auf, sagte aber nicht, dass bei `COMPLETED` alle sechs zu füllen
+   sind. Im Schema ist nur `status` Pflicht (Entscheidung 7, aus gutem Grund)
+   — beides zusammen ließ dem Modell die Lücke.
+2. **„Du stufst diesen Wert ein, mehr nicht"** las sich als Warnung, nicht als
+   Auftrag. Der ganze Absatz zum Chance-Risiko-Verhältnis war als Verbot
+   formuliert („leite nichts ab"), und ein Modell, das nichts falsch machen
+   will, lässt dann lieber ganz aus.
+3. **„Du triffst keine Handelsentscheidung"** ist die plausibelste Erklärung
+   für das zweite fehlende Feld. Ein Modell bezieht diesen Satz
+   nachvollziehbar auch auf die Einstufung eines Swing-Einstiegs — obwohl
+   gemeint war, dass es die Kandidatenentscheidung nicht ändern darf.
+
+`v2` zieht daraus drei Konsequenzen: Die Vollständigkeit bei `COMPLETED` wird
+ausdrücklich verlangt und ein zurückhaltender Wert je Feld benannt; die
+beiden Absätze sind positiv formuliert (was zu tun ist statt was zu
+unterlassen); und die Plausibilität des Swing-Einstiegs wird ausdrücklich von
+einer Handelsempfehlung abgegrenzt.
+
+Zwei Dinge blieben absichtlich unverändert: Das Schema fordert weiterhin nur
+`status` — bei `INSUFFICIENT_DATA` soll das Modell nichts erfinden müssen —,
+und ein unvollständiges Ergebnis bleibt gültig statt zu scheitern. Vier von
+sechs Einstufungen sind mehr wert als keine, und die fehlenden bleiben als
+fehlend gekennzeichnet. Sichtbar ist die Lücke jetzt über eine Warnung im
+Protokoll, die die fehlenden Felder namentlich nennt, und über die berechnete
+Zahl neben der Einstufung in der CLI-Ausgabe.
+
+**Diese Revision ist noch nicht am Modell verifiziert.** Ob `v2` die sechs
+Felder tatsächlich füllt, zeigt erst der nächste Lauf.
+
+### Was der Lauf sonst bestätigt hat
+
+Der deterministische Teil verhielt sich wie vorgesehen: keine überlappenden
+Zonen, die Stärke folgte durchgehend den Wendepunkten (`SUPPORT 307,05 —
+WEAK` bei 12 Berührungen aus einem Wendepunkt, `RESISTANCE 311,91–320,27 —
+STRONG` bei 9 Wendepunkten), das Datum im Prompt war das Marktdatum, und die
+Modelleingabe enthielt nachprüfbar nur den Snapshot. Kosten: rund 0,0046 USD
+je Titel.
+
+Die Einordnungen, die kamen, widersprachen keiner Zahl: `MODERATE` bei
+`Trend: UP` für AAPL, `ABSENT` bei `Trend: SIDEWAYS` für MSFT, beide
+`NO_BREAKOUT`. Die Risikolisten nannten ausschließlich Zahlen aus der
+Eingabe.
+
 ## Konsequenzen
 
 ### Positiv
@@ -204,11 +270,10 @@ Ausgang statt eines generischen LLM-Layers — ist eingehalten.
 
 ### Negativ / offen
 
-- **Der Prompt ist noch nicht an echten Kursen erprobt.** ADR 0025 hat
-  gezeigt, wie viel ein einziger realer Lauf aufdeckt — dort waren es zwei
-  Konstruktionsfehler, die an synthetischen Reihen unsichtbar waren. Für die
-  Einordnung steht dieser Lauf noch aus; die Prompt-Version `technical-agent-v1`
-  ist entsprechend als erste Fassung zu lesen.
+- **`technical-agent-v2` ist noch nicht verifiziert.** Der erste Lauf hat den
+  Prompt korrigiert (siehe Revisionsabschnitt); ob die Korrektur greift, zeigt
+  erst der nächste. Bis dahin ist mit unvollständigen Einordnungen zu rechnen —
+  sie sind als solche gekennzeichnet und im Protokoll sichtbar.
 - **„Relevante Chartmuster" aus US-007 (Doc 04) werden nicht geliefert.** Es
   gibt keine deterministische Mustererkennung, und ein Modell, das aus einer
   Handvoll Zahlen Formationen benennt, würde genau das erfinden, was

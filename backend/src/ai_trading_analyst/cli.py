@@ -849,7 +849,9 @@ def _as_percent(value: float | None) -> float | None:
     return None if value is None else value * 100
 
 
-def _print_technical_assessment(symbol: str, assessment: TechnicalAssessment) -> None:
+def _print_technical_assessment(
+    symbol: str, assessment: TechnicalAssessment, snapshot: TechnicalSnapshot | None = None
+) -> None:
     """Die KI-Einordnung (ADR 0026), im Anschluss an den Snapshot.
 
     Eingerueckt unter demselben Symbol, damit beim Gegenpruefen sichtbar
@@ -867,15 +869,20 @@ def _print_technical_assessment(symbol: str, assessment: TechnicalAssessment) ->
     if assessment.status is not TechnicalAssessmentStatus.COMPLETED:
         return
 
-    def _stufe(bezeichnung: str, wert: object) -> None:
+    def _stufe(bezeichnung: str, wert: object, zusatz: str = "") -> None:
         gezeigt = "--" if wert is None else getattr(wert, "value", wert)
-        print(f"    {bezeichnung:<24} {gezeigt}")
+        print(f"    {bezeichnung:<24} {gezeigt}{zusatz}")
 
     _stufe("Trendstaerke:", assessment.trend_strength)
     _stufe("Breakout:", assessment.breakout_quality)
     _stufe("Momentum:", assessment.momentum_state)
     _stufe("Fehlsignalrisiko:", assessment.false_signal_risk)
-    _stufe("Chance/Risiko:", assessment.risk_reward_rating)
+    # Die berechnete Zahl daneben: Steht dort nur "--", laesst sich nicht
+    # unterscheiden, ob das Verhaeltnis fehlte oder ob das Modell nichts dazu
+    # gesagt hat -- und genau das war beim ersten Lauf der Fall.
+    gerechnet = None if snapshot is None else snapshot.chance_risk_ratio
+    zusatz = "" if gerechnet is None else f"  (berechnet: {gerechnet:.2f})"
+    _stufe("Chance/Risiko:", assessment.risk_reward_rating, zusatz)
     _stufe("Swing-Einstieg:", assessment.swing_entry_plausibility)
     if assessment.confidence is not None:
         print(f"    {'Konfidenz:':<24} {assessment.confidence:.2f}")
@@ -995,7 +1002,7 @@ def command_technical(args: argparse.Namespace) -> int:
         if interpreter is not None:
             try:
                 _print_technical_assessment(
-                    stock.symbol, interpreter.interpret(stock, snapshot)
+                    stock.symbol, interpreter.interpret(stock, snapshot), snapshot
                 )
             except TechnicalInterpreterError as error:
                 print(f"{stock.symbol}: {error}", file=sys.stderr)

@@ -54,8 +54,17 @@ _logger = get_logger(__name__)
 
 _MARKET_TIMEZONE = ZoneInfo("America/New_York")
 
-_PROMPT_VERSION = "technical-agent-v1"
-"""Bewusst nicht ``technical-v1``: Die Verfahrensversion der
+_PROMPT_VERSION = "technical-agent-v2"
+"""``v2`` gegenueber ``v1``: Der erste Lauf gegen echte Kurse lieferte bei
+beiden Titeln nur vier der sechs Einstufungen -- es fehlten ausgerechnet
+Chance/Risiko und die Plausibilitaet des Swing-Einstiegs. Ursache waren zwei
+zu scharf formulierte Verbote ("Du stufst diesen Wert ein, mehr nicht" und
+"Du triffst keine Handelsentscheidung"), die das Modell vom Einordnen ganz
+abhielten, in Verbindung damit, dass im Schema nur ``status`` Pflicht ist.
+``v2`` verlangt die sechs Felder ausdruecklich und formuliert beide Stellen
+positiv (ADR 0026, Revisionsabschnitt).
+
+Bewusst nicht ``technical-v1``: Die Verfahrensversion der
 deterministischen Auswertung heisst ``technical-v3`` und steht in derselben
 Zeile der Datenbank. Zwei aehnlich benannte Versionsangaben nebeneinander
 waeren eine Verwechslung mit Ansage."""
@@ -143,14 +152,23 @@ Was du nicht tust:
 "nicht verfuegbar", dann fehlt der Wert -- schreibe nicht "vermutlich".
 - Du nennst in deinem Text keine Zahl, die nicht in den vorgelegten Daten \
 steht.
-- Du triffst keine Handelsentscheidung und veraenderst kein technisches \
-Signal. Ob die Aktie ein Kandidat ist, ist bereits entschieden.
+- Du veraenderst kein technisches Signal. Ob die Aktie ueberhaupt ein \
+Kandidat ist, ist bereits entschieden, und du kannst daran nichts aendern. \
+Deine Einstufungen sind Beschreibungen der Lage, keine Auftraege -- sie \
+einzuordnen ist deine Aufgabe und keine Grenzueberschreitung.
 
 Deine Einordnung deckt genau sechs Punkte ab: Staerke des Trends, Qualitaet \
-des Breakouts, ueberkaufte oder ueberverkaufte Situation, moegliche \
-Fehlsignalrisiken, Verhaeltnis von Chance und Risiko, Plausibilitaet eines \
-Swing-Einstiegs. Es geht durchgaengig um einen Einstieg auf der Long-Seite \
-mit einem Horizont von einigen Tagen bis Wochen.
+des Breakouts, ueberkaufte oder ueberverkaufte Situation, Fehlsignalrisiko, \
+Verhaeltnis von Chance und Risiko, Plausibilitaet eines Swing-Einstiegs. Es \
+geht durchgaengig um einen Einstieg auf der Long-Seite mit einem Horizont von \
+einigen Tagen bis Wochen.
+
+**Antwortest du mit status=COMPLETED, fuellst du alle sechs Felder aus.** \
+Eine Einordnung, die eines davon auslaesst, ist unbrauchbar -- sie sieht aus \
+wie ein fehlender Wert, obwohl du bloss nichts gesagt hast. Kannst du einen \
+Punkt nicht beurteilen, gibt es dafuer in jedem Feld einen zurueckhaltenden \
+Wert (ABSENT, NO_BREAKOUT, NEUTRAL, NOT_ASSESSABLE, QUESTIONABLE). Nutze ihn, \
+statt das Feld leer zu lassen.
 
 So liest du die Zonen:
 - Die Staerke einer Zone folgt der Zahl der Wendepunkte, nicht der Zahl der \
@@ -159,13 +177,20 @@ eine Preisregion, die der Kurs durchlaeuft -- sie traegt nicht, und sie ist \
 als WEAK gekennzeichnet. Lies die Beruehrungszahl nie als Staerke.
 - Zonen sind nach Abstand zum Kurs sortiert, die naechstgelegene zuerst.
 
-Zum Chance-Risiko-Verhaeltnis: Es ist bereits berechnet und wird dir genannt. \
-Du stufst diesen Wert ein, mehr nicht. Steht dort "nicht berechenbar", lautet \
-deine Einstufung NOT_ASSESSABLE -- leite nichts aus Zonen oder Kursen selbst \
-ab.
+Zum Chance-Risiko-Verhaeltnis: Es ist bereits berechnet und wird dir genannt \
+-- du sollst es also **nicht** ausrechnen, sondern einordnen. Genau das wird \
+von dir erwartet: Ein Wert von 1.0 heisst gleich weit nach oben wie nach \
+unten, deutlich ueber 1 spricht fuer die Long-Seite, deutlich darunter \
+dagegen. Nur wenn dort "nicht berechenbar" steht, lautet deine Einstufung \
+NOT_ASSESSABLE.
 
 Zur Qualitaet des Breakouts: Liegt kein Ausbruch vor, ist NO_BREAKOUT die \
 richtige Antwort und keine Verlegenheitsloesung.
+
+Zur Plausibilitaet des Swing-Einstiegs: Das ist **keine** Handelsempfehlung, \
+sondern die Frage, ob die vorliegende Chartlage zu einem Einstieg auf der \
+Long-Seite passt. Du entscheidest damit nichts -- du beschreibst die Lage. \
+IMPLAUSIBLE ist eine ebenso gueltige Antwort wie PLAUSIBLE.
 
 Reichen die vorgelegten Werte fuer eine Einordnung nicht aus, antworte mit \
 status=INSUFFICIENT_DATA und einer kurzen Begruendung in reason, statt zu \
@@ -624,6 +649,33 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
                 reason="no_ratings",
             )
 
+        risk_reward_rating = self._enforce_risk_reward(symbol, snapshot, risk_reward_rating)
+
+        fehlend = [
+            name
+            for name, wert in (
+                ("trend_strength", trend_strength),
+                ("breakout_quality", breakout_quality),
+                ("momentum_state", momentum_state),
+                ("false_signal_risk", false_signal_risk),
+                ("risk_reward_rating", risk_reward_rating),
+                ("swing_entry_plausibility", swing_entry_plausibility),
+            )
+            if wert is None
+        ]
+        if fehlend:
+            # Kein Fehler: Vier von sechs Einstufungen sind mehr wert als
+            # keine, und die fehlenden bleiben als fehlend gekennzeichnet.
+            # Aber es ist ein Prompt-Problem und gehoert gesehen -- der erste
+            # Lauf gegen echte Kurse lieferte genau so ein Ergebnis (ADR 0026,
+            # Revisionsabschnitt).
+            _logger.warning(
+                "Einordnung fuer %s laesst %d von 6 Einstufungen aus: %s",
+                symbol,
+                len(fehlend),
+                ", ".join(fehlend),
+            )
+
         return TechnicalAssessment(
             status=TechnicalAssessmentStatus.COMPLETED,
             evaluated_at=evaluated_at,
@@ -635,7 +687,7 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
             breakout_quality=breakout_quality,
             momentum_state=momentum_state,
             false_signal_risk=false_signal_risk,
-            risk_reward_rating=self._enforce_risk_reward(symbol, snapshot, risk_reward_rating),
+            risk_reward_rating=risk_reward_rating,
             swing_entry_plausibility=swing_entry_plausibility,
             false_signal_risks=_require_string_list(
                 symbol, "false_signal_risks", submit_input.get("false_signal_risks", ())

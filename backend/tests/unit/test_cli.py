@@ -681,6 +681,28 @@ class TestTechnicalKommando:
         assert "BALANCED" in ausgabe
         assert "Kurs dicht unter einer starken Zone" in ausgabe
 
+    def test_die_berechnete_zahl_steht_neben_der_einstufung(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne sie liesse sich nicht unterscheiden, ob das Verhaeltnis
+        fehlte oder ob das Modell nichts dazu gesagt hat -- beim ersten Lauf
+        gegen echte Kurse war Letzteres der Fall."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="fixture",
+                prompt_version="fixture-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=None,
+            ),
+            self._snapshot(chance_risk_ratio=1.05),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Chance/Risiko:           --  (berechnet: 1.05)" in ausgabe
+
     def test_ein_ausfall_zeigt_keine_leeren_stufen(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
