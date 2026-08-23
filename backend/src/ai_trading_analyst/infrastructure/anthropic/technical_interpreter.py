@@ -54,8 +54,13 @@ _logger = get_logger(__name__)
 
 _MARKET_TIMEZONE = ZoneInfo("America/New_York")
 
-_PROMPT_VERSION = "technical-agent-v2"
-"""``v2`` gegenueber ``v1``: Der erste Lauf gegen echte Kurse lieferte bei
+_PROMPT_VERSION = "technical-agent-v3"
+"""``v3`` gegenueber ``v2``: Die sechs Einstufungen und die Zusammenfassung
+sind jetzt Pflichtfelder des Werkzeugschemas, und die Temperatur steht auf 0.
+``v2`` hatte den Prompt geschaerft und damit nur die Haelfte erreicht -- ein
+Titel lieferte alle sechs Felder, der andere weiterhin vier.
+
+``v2`` gegenueber ``v1``: Der erste Lauf gegen echte Kurse lieferte bei
 beiden Titeln nur vier der sechs Einstufungen -- es fehlten ausgerechnet
 Chance/Risiko und die Plausibilitaet des Swing-Einstiegs. Ursache waren zwei
 zu scharf formulierte Verbote ("Du stufst diesen Wert ein, mehr nicht" und
@@ -288,10 +293,31 @@ _SUBMIT_ASSESSMENT_TOOL: dict[str, Any] = {
                 "description": "Nur bei status=INSUFFICIENT_DATA: kurze Begruendung.",
             },
         },
-        # Nur "status" ist Pflicht: Bei INSUFFICIENT_DATA soll das Modell
-        # keine Einstufungen erfinden muessen. Die Vollstaendigkeit bei
-        # COMPLETED erzwingt der Adapter, nicht das Schema.
-        "required": ["status"],
+        # Alle sieben inhaltlichen Felder sind Pflicht -- durchgesetzt vom
+        # Schema, nicht erbeten vom Prompt.
+        #
+        # Zwei Prompt-Fassungen haben es nicht geschafft: v1 liess bei beiden
+        # Titeln zwei Einstufungen aus, v2 bei einem von zweien (ADR 0026,
+        # Revisionsabschnitt). Eine Bitte, die in der Haelfte der Faelle
+        # befolgt wird, ist keine Zusicherung. Mit ``strict`` erzwingt die API
+        # die Felder beim Sampling -- eine unvollstaendige Antwort ist damit
+        # nicht mehr formulierbar.
+        #
+        # Bei ``status=INSUFFICIENT_DATA`` verwirft ``_build_assessment`` die
+        # Einstufungen ungelesen; gespeichert wird dann nichts davon. Fuer den
+        # Zweifelsfall traegt ausserdem jedes Feld einen zurueckhaltenden Wert
+        # (ABSENT, NO_BREAKOUT, NEUTRAL, NOT_ASSESSABLE, QUESTIONABLE), sodass
+        # die Pflicht niemanden zu einer Aussage zwingt, die er nicht meint.
+        "required": [
+            "status",
+            "trend_strength",
+            "breakout_quality",
+            "momentum_state",
+            "false_signal_risk",
+            "risk_reward_rating",
+            "swing_entry_plausibility",
+            "summary",
+        ],
         "additionalProperties": False,
     },
     "input_examples": [
@@ -545,6 +571,14 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
                 # Handvoll Zahlen ist Denken nicht der Hebel -- und ein
                 # angeschnittener Werkzeugaufruf waere teurer als er nuetzt.
                 thinking={"type": "disabled"},
+                # Zwei Laeufe auf exakt derselben Eingabe lieferten fuer AAPL
+                # einmal MEDIUM und einmal HIGH als Fehlsignalrisiko, bei
+                # Konfidenz 0.55 und 0.65 (ADR 0026, Revisionsabschnitt). Fuer
+                # eine Einstufung ist Streuung kein Gewinn, und dieses System
+                # speichert seine Ergebnisse unveraenderlich und versioniert --
+                # zwei verschiedene Antworten auf dieselben Zahlen liessen sich
+                # spaeter nicht von einer Marktveraenderung unterscheiden.
+                temperature=0.0,
             )
             usage.add(response.usage)
 

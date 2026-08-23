@@ -117,10 +117,11 @@ Abschluss über ein Client-Werkzeug mit `strict: true` und
 sich nicht mit einem strikten Schema — entsteht hier nicht, weil es keine
 Quellen gibt. Es braucht daher auch keine Zwei-Phasen-Architektur.
 
-Pflichtfeld ist nur `status`: Bei `INSUFFICIENT_DATA` soll das Modell keine
-Einstufungen erfinden müssen. Die Vollständigkeit bei `COMPLETED` erzwingt
-der Adapter — ein `COMPLETED` ohne eine einzige Einstufung wird auf
-`INSUFFICIENT_DATA` mit `reason="no_ratings"` herabgestuft.
+Pflichtfelder sind `status`, die sechs Einstufungen und `summary` (siehe
+zweite Revision — ursprünglich war es nur `status`). Der Adapter behält seine
+eigene Prüfung: Ein `COMPLETED` ohne eine einzige Einstufung wird auf
+`INSUFFICIENT_DATA` mit `reason="no_ratings"` herabgestuft, und fehlende
+Einzelfelder werden protokolliert.
 
 Weitere Lehren aus ADR 0023 übernommen: eigene Typprüfung **zusätzlich** zum
 Schema, kein Teilergebnis bei `stop_reason == "max_tokens"`, ausdrücklich
@@ -235,8 +236,40 @@ fehlend gekennzeichnet. Sichtbar ist die Lücke jetzt über eine Warnung im
 Protokoll, die die fehlenden Felder namentlich nennt, und über die berechnete
 Zahl neben der Einstufung in der CLI-Ausgabe.
 
-**Diese Revision ist noch nicht am Modell verifiziert.** Ob `v2` die sechs
-Felder tatsächlich füllt, zeigt erst der nächste Lauf.
+### Zweite Revision: `v3` — die Pflicht steht jetzt im Schema
+
+**Datum: 2026-08-23.**
+
+`v2` hat die Hälfte erreicht: MSFT lieferte alle sechs Einstufungen, AAPL
+weiterhin nur vier — und diesmal fehlte zusätzlich die Zusammenfassung. Eine
+Bitte, die in einem von zwei Fällen befolgt wird, ist keine Zusicherung.
+
+Der Prompt bleibt wie in `v2`, aber die Durchsetzung wandert dorthin, wo sie
+nicht verhandelbar ist: **Die sechs Einstufungen und `summary` sind
+Pflichtfelder des Werkzeugschemas.** Mit `strict` erzwingt die API sie beim
+Sampling; eine unvollständige Antwort ist damit nicht mehr formulierbar.
+
+Das kehrt Entscheidung 7 teilweise um („Pflichtfeld ist nur `status`"). Die
+damalige Begründung — bei `INSUFFICIENT_DATA` soll das Modell nichts erfinden
+müssen — bleibt gewahrt: `_build_assessment` verwirft die Einstufungen in
+diesem Fall ungelesen, gespeichert wird nichts davon. Und jedes Feld trägt
+einen zurückhaltenden Wert (`ABSENT`, `NO_BREAKOUT`, `NEUTRAL`,
+`NOT_ASSESSABLE`, `QUESTIONABLE`), sodass die Pflicht niemanden zu einer
+Aussage zwingt, die er nicht meint.
+
+Zweiter Punkt derselben Revision: **`temperature=0`.** Die beiden Läufe
+liefen auf exakt derselben Eingabe und lieferten für AAPL einmal `MEDIUM`,
+einmal `HIGH` als Fehlsignalrisiko, bei Konfidenz 0,55 beziehungsweise 0,65.
+Für eine Einstufung ist Streuung kein Gewinn — und dieses System speichert
+seine Ergebnisse unveränderlich und versioniert. Zwei verschiedene Antworten
+auf dieselben Zahlen ließen sich später nicht von einer Marktveränderung
+unterscheiden.
+
+Der Adapter behält seine zweite Verteidigungslinie: Kommt trotz Schema eine
+Antwort ohne jede Einstufung, wird sie weiterhin auf `INSUFFICIENT_DATA`
+herabgestuft, und fehlende Felder werden weiterhin protokolliert.
+
+**Auch `v3` ist noch nicht am Modell verifiziert.**
 
 ### Was der Lauf sonst bestätigt hat
 
@@ -270,10 +303,10 @@ Eingabe.
 
 ### Negativ / offen
 
-- **`technical-agent-v2` ist noch nicht verifiziert.** Der erste Lauf hat den
-  Prompt korrigiert (siehe Revisionsabschnitt); ob die Korrektur greift, zeigt
-  erst der nächste. Bis dahin ist mit unvollständigen Einordnungen zu rechnen —
-  sie sind als solche gekennzeichnet und im Protokoll sichtbar.
+- **`technical-agent-v3` ist noch nicht verifiziert.** Zwei Läufe haben zu zwei
+  Korrekturen geführt (siehe Revisionsabschnitte); ob die Pflichtfelder
+  greifen, zeigt erst der nächste. Der Adapter bleibt darauf eingerichtet,
+  dass sie es nicht tun.
 - **„Relevante Chartmuster" aus US-007 (Doc 04) werden nicht geliefert.** Es
   gibt keine deterministische Mustererkennung, und ein Modell, das aus einer
   Handvoll Zahlen Formationen benennt, würde genau das erfinden, was

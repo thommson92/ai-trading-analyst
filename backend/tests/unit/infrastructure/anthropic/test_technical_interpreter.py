@@ -177,7 +177,7 @@ class TestErfolgsfall:
         )
 
         assert assessment.model == "claude-haiku-4-5-20251001"
-        assert assessment.prompt_version == "technical-agent-v2"
+        assert assessment.prompt_version == "technical-agent-v3"
 
     def test_die_eingeordnete_verfahrensversion_wird_festgehalten(self) -> None:
         assessment = _interpreter(_antwortet(_message([_submit_block()]))).interpret(
@@ -262,6 +262,13 @@ class TestSchemaDurchsetzung:
             ).interpret(AAPL, snapshot())
 
     def test_completed_ohne_jede_einstufung_wird_herabgestuft(self) -> None:
+        """Zweite Verteidigungslinie hinter dem Schema.
+
+        Die Pflichtfelder setzt die API beim Sampling durch -- der
+        Mock-Transport hier tut das nicht, und genau deshalb bleibt der Test
+        aussagekraeftig: Er prueft, was der Adapter tut, wenn die
+        Schemadurchsetzung einmal nicht greift.
+        """
         leer = {
             "status": "COMPLETED",
             "trend_strength": None,
@@ -394,6 +401,34 @@ class TestAnfrage:
         werkzeuge = gesendet[0]["tools"]
         assert isinstance(werkzeuge, list)
         assert [w["name"] for w in werkzeuge] == ["submit_technical_assessment"]
+
+    def test_die_temperatur_steht_auf_null(self) -> None:
+        """Zwei Laeufe auf derselben Eingabe lieferten sonst verschiedene
+        Einstufungen. Dieses System speichert seine Ergebnisse
+        unveraenderlich -- Streuung liesse sich spaeter nicht von einer
+        Marktveraenderung unterscheiden."""
+        gesendet: list[dict[str, object]] = []
+        _interpreter(self._body(gesendet)).interpret(AAPL, snapshot())
+
+        assert gesendet[0]["temperature"] == 0.0
+
+    def test_die_sechs_einstufungen_sind_pflichtfelder(self) -> None:
+        """Durchgesetzt vom Schema, nicht erbeten vom Prompt: Zwei
+        Prompt-Fassungen haben es nicht geschafft (ADR 0026, Revision)."""
+        gesendet: list[dict[str, object]] = []
+        _interpreter(self._body(gesendet)).interpret(AAPL, snapshot())
+
+        pflicht = set(gesendet[0]["tools"][0]["input_schema"]["required"])  # type: ignore[index]
+        assert pflicht == {
+            "status",
+            "trend_strength",
+            "breakout_quality",
+            "momentum_state",
+            "false_signal_risk",
+            "risk_reward_rating",
+            "swing_entry_plausibility",
+            "summary",
+        }
 
     def test_das_schema_ist_strikt(self) -> None:
         gesendet: list[dict[str, object]] = []
