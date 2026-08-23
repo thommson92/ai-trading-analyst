@@ -288,10 +288,17 @@ TWS-Neustart.** Jedes Fenster wird sofort abgelegt; der Ansatzpunkt ist der
 älteste gespeicherte Bar und wandert mit jedem Fenster zurück. Ein erneuter
 Start setzt genau dort an. Aufzuräumen gibt es nichts.
 
-Ein zweiter Lauf über einen bereits tiefen Bestand kostet **keine einzige
-Anfrage** — er meldet je Aktie „war schon tief genug" und ist in Sekunden
-durch. Das Kommando lässt sich deshalb bedenkenlos wiederholen, bis die
-Bilanz sauber ist.
+Ein zweiter Lauf kostet für jede Aktie, die den Zielzeitraum **erreicht hat**,
+keine einzige Anfrage: Sie meldet „war schon tief genug". Das Kommando lässt
+sich deshalb bedenkenlos wiederholen, solange noch Aktien fehlgeschlagen sind.
+
+Eine Ausnahme, die man kennen muss: Aktien, deren Börsenhistorie **kürzer** ist
+als der Zielzeitraum, erreichen ihn nie. Sie kosten bei jedem Wiederholen eine
+Anfrage und bleiben dauerhaft in der Liste „Unter dem Zielzeitraum" stehen.
+Das ist richtig so — der Lauf kann nicht wissen, ob IBKR morgen mehr liefert —,
+aber es heißt: **Nicht wiederholen, bis diese Liste leer ist.** Sie wird es bei
+einer jungen Notierung nie. Maßgeblich ist allein die Zeile
+„Fehlgeschlagen".
 
 Am Ende auf zwei Zeilen achten:
 

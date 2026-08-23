@@ -42,24 +42,35 @@ from tests.golden.pipeline import DATA_DIR, NATIVE_BAR_MINUTES, SESSION, write_b
 NEW_YORK = ZoneInfo(SESSION.timezone)
 
 ERSTER_HANDELSTAG = date(2024, 1, 2)
-HANDELSTAGE = 400
-"""800 Kerzen bei zwei je Tag -- 250 Warm-up-Kerzen, 550 auswertbare
-Entscheidungspunkte.
 
-Die Zahl ist nach unten begrenzt durch das, was der Golden Master bewachen
-soll. Unterhalb von zehn deduplizierten Ereignissen stuft der Backtest eine
-Kombination auf ``INSUFFICIENT_DATA`` und gibt fuer sie **keine einzige**
-Kennzahl aus (``metrics.py``, ``has_reliable_basis``). Bei 400 Handelstagen
-kommt in beiden Reihen die haeufigste Kombination
-(``PRICE_EMA20_BREAKOUT`` + ``RSI_CROSS``) darueber; Trefferquote, Renditen,
-Drawdown und Haltequote sind damit tatsaechlich aufgezeichnet. Ein Test in
-``test_golden_master.py`` haelt das fest.
+"""Zur Laenge der Reihen -- sie ist nach unten begrenzt durch das, was der
+Golden Master bewachen soll.
 
-Die uebrigen Kombinationen bleiben auch bei dieser Laenge unter der Grenze
-und zeichnen lauter Nullwerte auf. Das ist kein Mangel, sondern der zweite
-Fall, den der Golden Master bewachen soll: dass eine zu duenne Stichprobe
-**keine** Kennzahl ausgibt statt einer schwachen.
-"""
+Der Backtest stuft jede Signalkombination nach ihrer Stichprobengroesse ein,
+und die drei Stufen verhalten sich **unterschiedlich**:
+
+* unter 10 deduplizierten Ereignissen: ``INSUFFICIENT_DATA``, und dann gibt
+  es fuer diese Kombination **keine einzige** Kennzahl
+  (``metrics.py``, ``has_reliable_basis``),
+* 10 bis 29: ``LOW_SAMPLE`` mit vollstaendigen Kennzahlen,
+* ab 30: ``NORMAL``.
+
+Eine Reihe, die nur die ersten beiden Stufen erreicht, laesst die dritte
+unbewacht: Eine Aenderung, die ``NORMAL`` nicht mehr vergibt, liesse die
+Aufzeichnungen byteweise gleich und die Suite gruen. Deshalb reicht
+``synthetic-range`` bis in die dritte Stufe, waehrend ``synthetic-trend``
+kurz bleibt -- eine Reihe genuegt dafuer, und die Bar-Dateien sollen nicht
+beide wachsen.
+
+Ein Test in ``test_golden_master.py`` haelt fest, dass ueber beide Faelle
+hinweg alle drei Stufen aufgezeichnet sind."""
+
+KURZE_REIHE = 400
+"""800 Kerzen -- 250 Warm-up, 550 auswertbare Entscheidungspunkte."""
+
+LANGE_REIHE = 700
+"""1400 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
+und damit auf ``NORMAL``; bei 600 Handelstagen waren es 29."""
 
 BARS_JE_TAG = SESSION.session_minutes // NATIVE_BAR_MINUTES
 
@@ -103,7 +114,7 @@ def _bars_eines_tages(tag: date, kurs: float, wuerfel: random.Random) -> list[In
     return bars
 
 
-def erzeuge_reihe(seed: int, startkurs: float, drift: float) -> list[IntradayBar]:
+def erzeuge_reihe(seed: int, startkurs: float, drift: float, handelstage: int) -> list[IntradayBar]:
     """Eine vollstaendige Reihe.
 
     ``drift`` ist der Anteil, um den der Kurs je Handelstag im Mittel
@@ -113,27 +124,28 @@ def erzeuge_reihe(seed: int, startkurs: float, drift: float) -> list[IntradayBar
     wuerfel = random.Random(seed)
     kurs = startkurs
     bars: list[IntradayBar] = []
-    for tag in _handelstage(ERSTER_HANDELSTAG, HANDELSTAGE):
+    for tag in _handelstage(ERSTER_HANDELSTAG, handelstage):
         bars.extend(_bars_eines_tages(tag, kurs, wuerfel))
         kurs = bars[-1].close * (1.0 + drift)
     return bars
 
 
 FAELLE = {
-    "synthetic-trend": (20240102, 100.0, 0.0015),
-    "synthetic-range": (20240103, 50.0, 0.0),
+    "synthetic-trend": (20240102, 100.0, 0.0015, KURZE_REIHE),
+    "synthetic-range": (20240103, 50.0, 0.0, LANGE_REIHE),
 }
-"""Name der Datei -> (Startwert, Startkurs, Tagesdrift).
+"""Name der Datei -> (Startwert, Startkurs, Tagesdrift, Handelstage).
 
 Zwei Reihen, weil eine allein nur einen Ausschnitt der Regeln beruehrt: Die
 steigende erzeugt Ausbrueche und EMA-Kreuzungen, die seitwaerts laufende vor
-allem RSI-Kreuzungen und lange Strecken ohne Kandidat.
+allem RSI-Kreuzungen und lange Strecken ohne Kandidat -- und sie ist die
+laengere, damit die Konfidenzstufe ``NORMAL`` ueberhaupt vorkommt.
 """
 
 
 def main() -> None:
-    for name, (seed, startkurs, drift) in FAELLE.items():
-        bars = erzeuge_reihe(seed, startkurs, drift)
+    for name, (seed, startkurs, drift, handelstage) in FAELLE.items():
+        bars = erzeuge_reihe(seed, startkurs, drift, handelstage)
         pfad = DATA_DIR / f"{name}.bars.csv"
         write_bars(pfad, bars)
         print(f"{pfad.name}: {len(bars)} Bars")

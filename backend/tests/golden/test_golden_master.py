@@ -113,9 +113,9 @@ class TestErzeugteDaten:
 
     def test_der_erzeuger_liefert_genau_die_abgelegten_bars(self) -> None:
         assert ERZEUGTE_FAELLE, "der Erzeuger kennt keinen einzigen Fall"
-        for name, (seed, startkurs, drift) in ERZEUGTE_FAELLE.items():
+        for name, (seed, startkurs, drift, handelstage) in ERZEUGTE_FAELLE.items():
             abgelegt = read_bars(DATA_DIR / f"{name}.bars.csv")
-            assert tuple(erzeuge_reihe(seed, startkurs, drift)) == abgelegt, (
+            assert tuple(erzeuge_reihe(seed, startkurs, drift, handelstage)) == abgelegt, (
                 f"{name}.bars.csv weicht vom Erzeuger ab -- entweder von Hand "
                 "geaendert oder generate_bars.py hat sich veraendert."
             )
@@ -176,3 +176,23 @@ class TestBewachungsumfang:
 
         assert zaehlung.get("CANDIDATE", 0) > 0
         assert zaehlung.get("NOT_CANDIDATE", 0) > 0
+
+
+def test_alle_drei_konfidenzstufen_sind_aufgezeichnet() -> None:
+    """Ueber beide Faelle hinweg, nicht je Fall.
+
+    Die drei Stufen verhalten sich unterschiedlich: ``INSUFFICIENT_DATA``
+    gibt gar keine Kennzahl aus, ``LOW_SAMPLE`` und ``NORMAL`` geben
+    vollstaendige. Waere eine Stufe nirgends aufgezeichnet, liesse eine
+    Aenderung, die sie nicht mehr vergibt, die Dateien byteweise gleich und
+    die Suite gruen -- der Golden Master bewachte dann eine Einstufung, die
+    in seinen Daten gar nicht vorkommt.
+    """
+    gesehen = {
+        horizont["confidence"]
+        for fall in FAELLE
+        for ergebnis in compute_snapshot(read_bars(fall.bars_path))["backtest"]
+        for horizont in ergebnis["horizons"]
+    }
+
+    assert gesehen == {"INSUFFICIENT_DATA", "LOW_SAMPLE", "NORMAL"}

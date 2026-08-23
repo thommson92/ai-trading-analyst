@@ -385,23 +385,33 @@ class IbAsyncBarSource:
         beginnt um 09:30, und alle unterstuetzten Groessen teilen sowohl die
         Stunde als auch die halbe Stunde ohne Rest.
         """
-        passend = tuple(
-            bar
-            for bar in bars
-            if bar.start.second == 0
-            and bar.start.microsecond == 0
-            and bar.start.minute % self._bar_minutes == 0
-        )
-        if len(passend) < len(bars):
-            verworfen = [bar.start for bar in bars if bar not in passend]
+        # Beides in **einem** Durchgang. Die Verworfenen nachtraeglich ueber
+        # 'bar not in passend' zu suchen, war ein quadratischer Vergleich
+        # ueber Wertobjekte: Bei einem Jahresfenster mit rund 9.500 Bars
+        # kostete ein einziger schiefer Bar knapp 15 Sekunden reine
+        # Rechenzeit. Der Tiefen-Backfill stellt diese Anfrage je Aktie
+        # fuenfmal.
+        passend: list[IntradayBar] = []
+        verworfen: list[datetime] = []
+        for bar in bars:
+            auf_raster = (
+                bar.start.second == 0
+                and bar.start.microsecond == 0
+                and bar.start.minute % self._bar_minutes == 0
+            )
+            if auf_raster:
+                passend.append(bar)
+            else:
+                verworfen.append(bar.start)
+        if verworfen:
             _logger.warning(
                 "%s: %d Bars ausserhalb des %d-Minuten-Rasters verworfen (%s)",
                 symbol,
-                len(bars) - len(passend),
+                len(verworfen),
                 self._bar_minutes,
                 ", ".join(zeitpunkt.isoformat() for zeitpunkt in verworfen[:5]),
             )
-        return passend
+        return tuple(passend)
 
     def close(self) -> None:
         """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""

@@ -185,9 +185,7 @@ class DeepeningReport:
     def untouched(self) -> tuple[SymbolDeepening, ...]:
         """Aktien, die bereits tief genug waren."""
         return tuple(
-            result
-            for result in self.results
-            if result.outcome is DeepenOutcome.ALREADY_DEEP_ENOUGH
+            result for result in self.results if result.outcome is DeepenOutcome.ALREADY_DEEP_ENOUGH
         )
 
 
