@@ -95,7 +95,7 @@ Der Erledigungsstand der Befunde aus dem
 ## Struktur
 
 ```
-backend/          Python 3.12, FastAPI-Anwendung
+backend/          Python 3.12/3.13, FastAPI-Anwendung
   src/ai_trading_analyst/
     domain/         Fachregeln, Provider-Schnittstellen (ohne Infrastruktur)
       screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1),
@@ -130,7 +130,9 @@ Bei Widersprüchen zwischen den Fachdokumenten ist
 
 ## Einrichtung
 
-Vorausgesetzt: Python 3.12, Node.js 20+.
+Vorausgesetzt: Python 3.12 auf dem Entwicklungsrechner, **3.13 auf dem
+Windows-Server**, Node.js 20+. `requires-python` laesst beide zu, und die
+CI prueft beide.
 
 ### Backend
 
@@ -146,7 +148,7 @@ Auf dem Windows-Server — dort läuft die TWS, also auch das Backend:
 
 ```powershell
 cd backend
-py -3.12 -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip
 .venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.lock.txt
 .venv\Scripts\python.exe -m pip install --no-deps -e .

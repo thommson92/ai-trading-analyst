@@ -25,10 +25,13 @@ Alle Befehle laufen in PowerShell aus dem Verzeichnis `backend`.
 
 # Stufe A — Umgebung
 
-Voraussetzung: Python 3.12 und PostgreSQL sind installiert.
+Voraussetzung: Python 3.13 und PostgreSQL sind installiert. Auf dem
+Entwicklungsrechner laeuft 3.12 -- `requires-python` laesst beide zu, und die
+CI prueft beide. Wer hier 3.12 einrichtet, bekommt eine Umgebung, die nicht
+der geprueften Serverumgebung entspricht.
 
 ```powershell
-py -3.12 --version
+py -3.13 --version
 Get-Service -Name postgresql*
 git pull
 ```

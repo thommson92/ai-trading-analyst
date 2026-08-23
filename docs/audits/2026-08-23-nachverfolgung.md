@@ -61,7 +61,7 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **erledigt** | Kopfvermerk je Dokument; G1-Status auf „freigegeben" (ADR 0010) |
 | M11 | Deployment-ADR (E6) und Doc 13 neu | **offen** | braucht E6 |
 | M12 | ADR-Nachträge zu 0006, 0009, 0011 | **erledigt** | je ein `### Nachtrag`-Abschnitt; Entscheidungstexte unberührt |
-| M13 | Python-Version des Servers klären, Doku vereinheitlichen | **offen** | braucht Serverzugriff, siehe E12 ③ |
+| M13 | Python-Version des Servers klären, Doku vereinheitlichen | **erledigt** | Server läuft auf 3.13 (Auskunft 2026-08-23); Doc 14 und README benennen den Unterschied zum Entwicklungsrechner |
 | M14 | Sammelposten P4 | **offen** | teils E12 |
 
 ### M3 — was genau fehlt
@@ -125,7 +125,7 @@ als ADR.
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | ADR 0025; Bedingung: weitere Läufe an echten Kursen |
 | E10 | Required Checks: Pro, public oder Status quo | **offen** | ADR 0009 |
 | E11 | Kursziele nachrüsten | **offen** | ADR 0017; erst mit dem Scoring-Design |
-| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **offen** | ③ braucht einen Blick auf den Server |
+| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **teilweise** | ③ beantwortet: Server auf 3.13 (→ M13). ① `fallback_model` und ② der `temperature=0`-Doppellauf sind offen |
 | E13 | US-007 „relevante Chartmuster": bauen oder streichen | **offen** | ADR 0026 |
 
 ### E5 — was sich gegenüber dem Audit geändert hat
