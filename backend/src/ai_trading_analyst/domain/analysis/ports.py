@@ -67,6 +67,42 @@ class HistoricalBarSource(Protocol):
         ...
 
 
+class HistoricalBarWindowSource(Protocol):
+    """Liefert Bars eines **frei waehlbaren** Fensters der Vergangenheit.
+
+    Bewusst getrennt von ``HistoricalBarSource``: Die holt immer das Fenster,
+    das jetzt endet -- genau das, was der taegliche Backfill braucht. Wer
+    wissen will, wie weit die Historie einer Aktie ueberhaupt zurueckreicht,
+    muss dagegen an einem beliebigen Punkt der Vergangenheit ansetzen und sich
+    Fenster fuer Fenster zurueckarbeiten.
+
+    Ein eigener Port statt eines weiteren Parameters am bestehenden: Der
+    Bestand als Quelle (``StoredBarSource``) kann das nicht sinnvoll
+    beantworten -- er weiss nur, was schon geholt wurde, nicht, was es beim
+    Anbieter gaebe. Diese Frage stellt sich ausschliesslich an den Anbieter.
+    """
+
+    def fetch_window(
+        self, contract: ContractSpec, end: datetime | None, days: int
+    ) -> Sequence[IntradayBar]:
+        """Holt die Bars der ``days`` Tage **vor** ``end``.
+
+        ``end`` ist der ausschliessende obere Rand des Fensters; ``None``
+        steht fuer den aktuellen Zeitpunkt. Zurueck kommt, was der Anbieter
+        tatsaechlich hergibt -- eine leere Folge heisst, dass er fuer dieses
+        Fenster nichts (mehr) hat.
+
+        Raises:
+            MarketDataProviderError: wenn das Fenster nicht abgerufen werden
+                konnte.
+        """
+        ...
+
+    def close(self) -> None:
+        """Gibt eine gehaltene Verbindung frei. Muss mehrfach aufrufbar sein."""
+        ...
+
+
 class MarketDataProvider(Protocol):
     """Liefert die fuer die Kandidatenpruefung benoetigten Aktien und Kerzen."""
 

@@ -68,6 +68,7 @@ def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
         signal_rule_version=SIGNAL_RULE_VERSION,
     )
 
+
 CONFIG_TEMPLATE = """
 market_data:
   provider: {provider}
@@ -143,7 +144,6 @@ class TestScreenKommando:
         config = write_config(projekt, provider="fixture")
         assert main(["--config", str(config), "screen"]) == 2
         assert "'fixture'" in capsys.readouterr().err
-
 
     def test_der_lauf_gegen_die_tws_scheitert_ohne_erreichbare_tws_klar(
         self, projekt: Path, capsys: pytest.CaptureFixture[str]
@@ -272,8 +272,7 @@ class FakeProvider:
 
     def list_stocks(self) -> Sequence[Stock]:
         return tuple(
-            Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ")
-            for symbol in self._symbole
+            Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ") for symbol in self._symbole
         )
 
     def get_candle_series(self, stock: Stock) -> CandleSeries:
@@ -350,9 +349,7 @@ class TestAusgabeEinesErfolgreichenLaufs:
         """G1-Pruefvorlage 1.4: gerechnet wird ungerundet. Zwei Nachkommastellen
         wuerden einen Abgleich mit dem Chart unmoeglich machen."""
         self.lauf(projekt, monkeypatch, weitere_argumente=["--details"])
-        werte = [
-            teil for teil in capsys.readouterr().out.split() if teil.startswith("EMA20=")
-        ]
+        werte = [teil for teil in capsys.readouterr().out.split() if teil.startswith("EMA20=")]
         assert werte and len(werte[0].split("=")[1].split(".")[1]) == 4
 
     def test_eine_zu_kurze_historie_wird_als_unbekannt_ausgewiesen(
@@ -553,9 +550,7 @@ class TestTechnicalKommando:
         assert "Toleranz 2.00 %" in ausgabe
         assert "min. 2 Beruehrungen" in ausgabe
 
-    def test_chance_risiko_steht_in_der_ausgabe(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_chance_risiko_steht_in_der_ausgabe(self, capsys: pytest.CaptureFixture[str]) -> None:
         cli._print_technical_snapshot(
             "AAPL",
             self._snapshot(
@@ -725,9 +720,7 @@ class TestTechnicalKommando:
         assert "Trendstaerke" not in ausgabe
 
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
-        args = build_parser().parse_args(
-            ["technical", "--symbols", "AAPL", "--provider", "ibkr"]
-        )
+        args = build_parser().parse_args(["technical", "--symbols", "AAPL", "--provider", "ibkr"])
 
         assert args.provider == "ibkr"
 
@@ -883,7 +876,6 @@ class TestBarquelleFuerDasScreening:
         # Ohne die Uebersteuerung waere hier die Datenbank verlangt worden.
         assert "TWS 127.0.0.1" in capsys.readouterr().out
 
-
     def test_aus_dem_bestand_greift_die_pacing_sperre_nicht(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -894,9 +886,7 @@ class TestBarquelleFuerDasScreening:
         monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
         config = write_config(projekt, provider="ibkr")
 
-        exit_code = main(
-            ["--config", str(config), "screen", "--source", "stored", "--no-pacing"]
-        )
+        exit_code = main(["--config", str(config), "screen", "--source", "stored", "--no-pacing"])
 
         # 2 kommt hier nur noch von der fehlenden Datenbankadresse, nicht vom
         # Pacing -- erkennbar an der Meldung.
@@ -1066,9 +1056,7 @@ class TestDispatchAnbieterUebersteuerung:
         gesehen = self._spione(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
-        assert (
-            main(["--config", str(config), "dispatch", "--telegram-chat-id", "999"]) == 2
-        )
+        assert main(["--config", str(config), "dispatch", "--telegram-chat-id", "999"]) == 2
 
         assert gesehen["notification_channel"] == "dry_run"
         assert gesehen["telegram_chat_id"] == "999"
@@ -1115,9 +1103,7 @@ class TestDispatchAnbieterUebersteuerung:
         gesehen = self._spione(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
-        assert (
-            main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
-        )
+        assert main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
 
         assert gesehen == {
             "notification_channel": "dry_run",
@@ -1135,3 +1121,100 @@ class TestDispatchAnbieterUebersteuerung:
             main(["--config", str(config), "dispatch", "--research-provider", "openai"])
 
         assert abbruch.value.code == 2
+
+
+class TestHistoryDepthKommando:
+    """Die Tiefenmessung fuer E2 ([ADR 0027]).
+
+    Das einzige Kommando gegen die TWS, das **nichts** ablegt -- und deshalb
+    als einziges ohne Datenbank auskommt. Der Abruf selbst braucht eine
+    laufende TWS und ist hier nicht Gegenstand; geprueft wird der Rahmen.
+    """
+
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "history-depth", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_es_braucht_keine_datenbank(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne ``ATA_DATABASE_URL`` scheitert ``backfill`` mit 2.
+
+        Die Messung laeuft weiter bis zur TWS -- die hier nicht erreichbar
+        ist, weshalb der Fehler von dort kommt und nicht von der Datenbank.
+        """
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "history-depth",
+                "--symbols",
+                "AAPL",
+                "--max-windows",
+                "1",
+                "--no-pacing",
+            ]
+        )
+
+        ausgabe = capsys.readouterr()
+        assert code == 1
+        assert "Datenbank" not in ausgabe.err
+        assert "Keine Verbindung zur TWS" in ausgabe.out
+
+    def test_ein_ausfall_wird_als_untergrenze_ausgewiesen(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne TWS gibt es kein Ergebnis -- und der Bericht behauptet keines."""
+        config = write_config(projekt, provider="ibkr")
+
+        main(
+            [
+                "--config",
+                str(config),
+                "history-depth",
+                "--symbols",
+                "AAPL",
+                "--max-windows",
+                "1",
+                "--no-pacing",
+            ]
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Keine einzige Aktie hat Bars geliefert" in ausgabe
+        assert "Jahre" not in ausgabe.split("Keine einzige Aktie")[1]
+
+    def test_ohne_abstand_begrenzt_die_zahl_der_anfragen_den_lauf(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Nicht die Zahl der Symbole entscheidet, sondern Symbole mal Fenster.
+
+        Drei Aktien sind harmlos -- drei Aktien mal zwoelf Fenster sind 36
+        Anfragen und damit ueber der Grenze, ab der IBKR sperrt.
+        """
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(["--config", str(config), "history-depth", "--no-pacing"])
+
+        assert code == 2
+        assert "bis zu" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["history-depth", "--symbols", "AAPL,MSFT", "--window-days", "90", "--max-windows", "4"]
+        )
+        assert args.symbols == "AAPL,MSFT"
+        assert args.window_days == 90
+        assert args.max_windows == 4
+
+    def test_standardmaessig_werden_drei_titel_gemessen(self) -> None:
+        """Die Frage nach der Tiefe beantworten wenige Titel so gut wie alle --
+        und die ganze Watchlist kostete unter Pacing Stunden."""
+        assert build_parser().parse_args(["history-depth"]).limit == 3

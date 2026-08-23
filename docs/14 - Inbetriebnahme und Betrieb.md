@@ -219,10 +219,46 @@ die Ablage lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet
 > (`market_data.ibkr.history_duration`, ausgeliefert `1 Y`). Für den täglichen
 > Lauf genügt das mit Abstand — der Warm-up braucht 250 Kerzen, also rund 125
 > Handelstage. Für die Aussagekraft der Backtest-Kennzahlen ist es weniger, als
-> `backtesting.history_years` (5) unterstellt. Ob die Historie verlängert wird,
-> ist eine eigene Entscheidung und kein Teil der Inbetriebnahme.
+> `backtesting.history_years` (5) unterstellt. Wie damit umzugehen ist, steht in
+> [ADR 0027](adr/0027-historientiefe-messen-vor-anspruch.md) — gemessen wird
+> zuerst, siehe den nächsten Abschnitt. Kein Teil der Inbetriebnahme.
 
 **Abbruch, wenn:** mehr als eine Handvoll Symbole ohne Daten zurückkommt.
+
+## Zwischenschritt: Historientiefe messen (optional)
+
+Kein Abnahmekriterium. Das Kommando beantwortet die offene Frage aus
+[ADR 0027](adr/0027-historientiefe-messen-vor-anspruch.md): Wie weit gibt IBKR
+die Historie in 15-Minuten-Auflösung überhaupt her? Es **legt nichts ab** und
+braucht deshalb keine Datenbank — nur die laufende TWS.
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli history-depth --provider ibkr `
+    --symbols AAPL,MSFT,KO
+```
+
+Drei Titel genügen, und die Auswahl ist nicht beliebig: Ein lange notierter
+Standardwert zeigt die Grenze des Anbieters, eine jüngere Notierung zeigt nur
+ihre eigene kurze Börsenhistorie. Ohne `--symbols` nimmt das Kommando die
+ersten drei Titel der Watchlist.
+
+Das Kommando arbeitet sich je Aktie Fenster für Fenster zurück, bis IBKR nichts
+mehr liefert. Mit dem ausgelieferten Abstand von 11 Sekunden dauert das für drei
+Titel wenige Minuten; die Laufzeitschätzung steht vor dem ersten Abruf am
+Bildschirm.
+
+Entscheidend ist die Spalte **Grenze** im Bericht:
+
+| Grenze | Bedeutung |
+|---|---|
+| `provider_exhausted` | IBKR gab nichts mehr her — das ist die gesuchte Tiefe |
+| `no_progress` | IBKR antwortete, kam aber nicht weiter zurück — auch hier ist Schluss |
+| `window_limit` | die eigene Reißleine hat gegriffen — die Tiefe ist nur eine **Untergrenze**, mit `--max-windows` höher ansetzen |
+| `error` | Abruf gescheitert — ebenfalls nur eine Untergrenze, die Meldung steht darunter |
+
+**Das Ergebnis gehört ins Nachfolge-ADR zu 0027**, zusammen mit dem daraus
+gesetzten Wert für `backtesting.history_years`. Bis dahin bleibt die
+Konfiguration unverändert.
 
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 

@@ -213,6 +213,24 @@ class IbAsyncBarSource:
         with self._lock:
             return self._fetch(contract, days)
 
+    def fetch_window(
+        self, contract: ContractSpec, end: datetime | None, days: int
+    ) -> Sequence[IntradayBar]:
+        """Bars eines Fensters, das nicht jetzt endet (``HistoricalBarWindowSource``).
+
+        Derselbe Abruf wie ``fetch_intraday_bars``, nur mit gesetztem
+        ``endDateTime``. Die Tiefenmessung arbeitet sich damit Fenster fuer
+        Fenster zurueck; ohne diesen Weg liesse sich nur beantworten, was
+        **bis heute** zurueckreicht, nicht, wo die Historie tatsaechlich
+        endet.
+
+        Der laufende Bar wird hier nicht ausgesondert: Ein Fenster, das in der
+        Vergangenheit endet, enthaelt keinen. Fuer ``end=None`` uebernimmt
+        ``_fetch`` diese Aufgabe wie bisher.
+        """
+        with self._lock:
+            return self._fetch(contract, days, end=end)
+
     def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
         """Handelszeiten der regulaeren Sitzung und die Zeitzone der Boerse.
 
@@ -260,7 +278,9 @@ class IbAsyncBarSource:
             )
         return contracts[0]
 
-    def _fetch(self, contract: ContractSpec, days: int | None) -> Sequence[IntradayBar]:
+    def _fetch(
+        self, contract: ContractSpec, days: int | None, end: datetime | None = None
+    ) -> Sequence[IntradayBar]:
         symbol = contract.symbol
         try:
             ib = self._connection()
@@ -268,7 +288,9 @@ class IbAsyncBarSource:
             self._wait_for_pacing()
             bars = ib.reqHistoricalData(
                 contracts[0],
-                endDateTime="",
+                # ib_async formatiert ein zeitzonenbehaftetes datetime selbst in
+                # die UTC-Schreibweise der API; "" heisst "bis jetzt".
+                endDateTime="" if end is None else end,
                 durationStr=self._duration if days is None else ibkr_duration(days),
                 barSizeSetting=self._bar_size,
                 whatToShow="TRADES",
@@ -286,20 +308,24 @@ class IbAsyncBarSource:
                 f"Historische Bars fuer '{symbol}' konnten nicht abgerufen werden: {error}"
             ) from error
 
-        return self._on_grid(
-            symbol,
-            self._without_running_bar(
-                IntradayBar(
-                    start=bar.date,
-                    open=float(bar.open),
-                    high=float(bar.high),
-                    low=float(bar.low),
-                    close=float(bar.close),
-                    volume=float(bar.volume),
-                )
-                for bar in bars
-            ),
+        umgewandelt = (
+            IntradayBar(
+                start=bar.date,
+                open=float(bar.open),
+                high=float(bar.high),
+                low=float(bar.low),
+                close=float(bar.close),
+                volume=float(bar.volume),
+            )
+            for bar in bars
         )
+        # Nur ein bis jetzt reichendes Fenster kann einen laufenden Bar
+        # enthalten. Bei gesetztem 'end' waere dieselbe Pruefung schaedlich:
+        # Sie mass gegen die aktuelle Uhrzeit und verwuerfe nichts, aber sie
+        # behauptete eine Aussage ueber ein Fenster, das laengst geschlossen
+        # ist.
+        gefiltert = self._without_running_bar(umgewandelt) if end is None else tuple(umgewandelt)
+        return self._on_grid(symbol, gefiltert)
 
     def _without_running_bar(self, bars: Iterable[IntradayBar]) -> Sequence[IntradayBar]:
         """Laesst den noch laufenden Bar weg.
