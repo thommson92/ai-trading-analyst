@@ -1,5 +1,19 @@
 # Product Requirements Document (PRD)
 
+> **Wozu dieses Dokument.** Es beschreibt das fachliche Soll. Maßgeblich
+> bei Widersprüchen ist `docs/10 - System Architecture.md`
+> ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
+> entschieden ist, steht in `docs/adr/`.
+>
+> **Zwei Abschnitte sind überholt.** Die Datenquelle ist nicht
+> TradingView, sondern Interactive Brokers
+> ([ADR 0012](adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)
+> NO_GO, [ADR 0014](adr/0014-ibkr-produktivintegration-freigegeben.md)).
+> Und die Ergebnis-Benachrichtigung aus §2.12 gibt es nicht:
+> [ADR 0024](adr/0024-benachrichtigungskanal-telegram.md) hält
+> Analyseinhalte ausdrücklich aus Telegram heraus, der Kanal ist allein
+> ein Ausfall-Alarm. Wie beides zusammengeht, ist offen (E7).
+
 ## 1. Produktbeschreibung
 
 Der AI Trading Analyst ist eine Webanwendung, welche täglich automatisch Aktien analysiert und potenzielle Handelsmöglichkeiten identifiziert.

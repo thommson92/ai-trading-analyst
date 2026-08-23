@@ -1,5 +1,13 @@
 # Vision
 
+> **Wozu dieses Dokument.** Es beschreibt das fachliche Soll. Maßgeblich
+> bei Widersprüchen ist `docs/10 - System Architecture.md`
+> ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
+> entschieden ist, steht in `docs/adr/`.
+>
+> Diese Datei hält die Zielsetzung fest und ist bewusst nicht auf den
+> Umsetzungsstand nachgeführt.
+
 ## Projektname (Arbeitstitel)
 
 AI Trading Analyst

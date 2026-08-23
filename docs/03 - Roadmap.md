@@ -88,7 +88,9 @@ KI-Analyse
   Darauf die KI-Einordnung der sechs Punkte aus Paragraph 6.8, getrennt
   gespeichert und gegen ein festes Schema validiert
   ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)). Nachprüfbar über
-  `cli technical --interpret`; der Lauf gegen echte Kurse steht noch aus
+  `cli technical --interpret`. An echten Kursen verifiziert (PR #35); die
+  dabei gefundenen Abweichungen sind in ADR 0026 festgehalten und haben den
+  Prompt auf v3 gehoben
 - Fundamental Agent -- Quelle entschieden (SEC EDGAR XBRL, deterministisch,
   [ADR 0022](adr/0022-research-agent-quellen.md)), noch nicht begonnen
 - Report Generator

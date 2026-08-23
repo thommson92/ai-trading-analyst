@@ -69,3 +69,23 @@ auf die Handelsstrategie — und wird hier bewusst nicht eigenmächtig getroffen
   stellen. Beides ist eine Nutzerentscheidung.
 - Sobald entschieden, wird dieses ADR durch eines ersetzt, das die tatsächlich
   konfigurierte Regel dokumentiert.
+
+
+---
+
+### Nachtrag 2026-08-23 (Maßnahme M12 aus dem Repository-Audit)
+
+**Das vorbereitete Kommando im Abschnitt oben schlägt so ausgeführt fehl.**
+Es nennt `repos/thommson92/TradingViewAnalyzer`; das Repository heißt
+inzwischen `ai-trading-analyst`. Wer den offenen Punkt schließt, verwendet:
+
+```bash
+gh api repos/thommson92/ai-trading-analyst/branches/main/protection \
+  --method PUT ...
+```
+
+Der übrige Aufruf bleibt unverändert. Der Entscheidungstext wird nicht
+angefasst — er dokumentiert korrekt, was am 2026-08-07 galt.
+
+Der offene Punkt selbst besteht fort: `dev` ist ungeschützt, ein Merge ohne
+grüne CI bleibt technisch möglich (Risiko R7 des Audits, Entscheidung E10).

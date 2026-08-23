@@ -1,5 +1,17 @@
 # User Stories & Akzeptanzkriterien
 
+> **Wozu dieses Dokument.** Es beschreibt das fachliche Soll. Maßgeblich
+> bei Widersprüchen ist `docs/10 - System Architecture.md`
+> ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
+> entschieden ist, steht in `docs/adr/`.
+>
+> **US-007 ist nur teilweise erfüllbar.** Die geforderten „relevanten
+> Chartmuster" gibt es nicht: ohne deterministische Mustererkennung wäre
+> jede von der KI benannte Formation eine Erfindung
+> ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)). Ob die
+> Anforderung gestrichen oder als spätere Ausbaustufe vorgemerkt wird,
+> ist offen (E13).
+
 ## 1. Übersicht
 
 Dieses Dokument beschreibt die fachlichen Anforderungen aus Nutzersicht.

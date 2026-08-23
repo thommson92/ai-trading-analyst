@@ -1,16 +1,20 @@
 # Signalspezifikation — Gate G1
 
-- Status: **Vollständig bestätigt.** Alle Signalformeln, Parameter, Warm-up-,
-  Präzisions- und Fehlerbehandlungsregeln sowie Kandidatenregel,
-  Sechs-Kerzen-Fenster und Backtest-Entscheidungslogik sind konsolidiert in
-  der [G1-Prüfvorlage](g1-pruefvorlage.md), die zur finalen Durchsicht vorliegt.
-- Zweck: exakte, testbare Definition der drei technischen Kaufsignale, bevor
-  der Screener implementiert wird (Doc 10, Paragraph 6.4; siehe auch
-  [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md))
+- Status: **Freigegeben.** Gate G1 ist fachlich freigegeben —
+  [ADR 0010](../adr/0010-gate-g1-freigegeben.md), das
+  [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ablöst. Die
+  Durchsicht der [G1-Prüfvorlage](g1-pruefvorlage.md) ist damit
+  abgeschlossen, nicht mehr ausstehend.
+- Zweck: exakte, testbare Definition der drei technischen Kaufsignale
+  (Doc 10, Paragraph 6.4).
 - Diese Datei ist die einzige Quelle, gegen die `IndicatorConfig`
   (`backend/src/ai_trading_analyst/config/settings.py`) und der Abschnitt
-  `indicators:` in `config/default.yaml` befüllt werden, sobald Gate G1
-  vollständig bestätigt ist.
+  `indicators:` in `config/default.yaml` befüllt sind. Weicht der Code von
+  ihr ab, ist der Code falsch — nicht diese Datei.
+- Eine Änderung an einem hier festgelegten Wert ist eine
+  **Verfahrensänderung**: sie zieht eine neue Signalregelversion nach sich
+  und bricht den Golden Master (`backend/tests/golden/`), der genau dafür
+  da ist.
 
 ## Wie diese Datei benutzt wird
 

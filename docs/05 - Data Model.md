@@ -1,5 +1,16 @@
 # Datenmodell
 
+> **Wozu dieses Dokument.** Es beschreibt das fachliche Soll. Maßgeblich
+> bei Widersprüchen ist `docs/10 - System Architecture.md`
+> ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
+> entschieden ist, steht in `docs/adr/`.
+>
+> Im Detail maßgeblich sind die Alembic-Migrationen und die
+> SQLAlchemy-Modelle unter
+> `backend/src/ai_trading_analyst/infrastructure/persistence/`. Das
+> Grundprinzip — Revisionssicherheit, keine Überschreibung, Versionierung
+> an jedem Ergebnis — gilt unverändert und wird dort durchgesetzt.
+
 ## Grundprinzip
 
 Alle Analysen werden revisionssicher gespeichert.

@@ -1,5 +1,19 @@
 # KI-Agenten Architektur
 
+> **Wozu dieses Dokument.** Es beschreibt das fachliche Soll. Maßgeblich
+> bei Widersprüchen ist `docs/10 - System Architecture.md`
+> ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
+> entschieden ist, steht in `docs/adr/`.
+>
+> **Nicht alle sieben Agenten existieren.** Gebaut sind Research Agent
+> ([ADR 0022](adr/0022-research-agent-quellen.md),
+> [ADR 0023](adr/0023-research-agent-zitierarchitektur.md)) und Technical
+> Agent ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)). Der
+> Backtesting-Agent ist **kein** KI-Agent, sondern eine deterministische
+> Rechnung. Fundamental-, Options-, Scoring- und Report-Agent sind nicht
+> begonnen (Sprint 4–5). Anbieter und Modellprofile regelt
+> [ADR 0021](adr/0021-ki-anbindung-anthropic-api.md).
+
 ## Grundprinzip
 
 Die KI-Komponenten sind spezialisiert.
