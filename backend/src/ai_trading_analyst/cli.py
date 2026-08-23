@@ -555,8 +555,16 @@ def _print_deepen_report(bericht: DeepeningReport, jetzt: datetime, dauer: float
             "  Bei einer Neuemission ist das erwartbar und kein Fehler: Die Kennzahlen\n"
             "  dieser Aktien tragen ihren tatsaechlichen history_start."
         )
-    else:
+    if not zu_kurz and not bericht.failures:
         print(f"\nAlle Aktien decken {bericht.target_years} Jahre ab.")
+    elif not zu_kurz:
+        # Ueber eine gescheiterte Aktie ist nichts bekannt -- ein
+        # "alle decken ab" stuende sonst unmittelbar unter der Liste der
+        # Fehlschlaege und widerspraeche ihr.
+        print(
+            f"\nAlle **durchgelaufenen** Aktien decken {bericht.target_years} Jahre ab. "
+            f"Ueber die {len(bericht.failures)} fehlgeschlagenen sagt der Lauf nichts."
+        )
 
 
 def command_deepen_history(args: argparse.Namespace) -> int:

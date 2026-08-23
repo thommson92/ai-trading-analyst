@@ -18,6 +18,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from ai_trading_analyst import cli
+from ai_trading_analyst.application.deepen_history import (
+    DeepeningReport,
+    DeepenOutcome,
+    SymbolDeepening,
+)
 from ai_trading_analyst.cli import (
     build_parser,
     export_bars_to_csv,
@@ -1458,3 +1463,68 @@ class TestLaufzeitschaetzung:
 
     def test_kurze_laeufe_bleiben_in_minuten(self) -> None:
         assert "Minuten" in cli._laufzeitschaetzung(5, 11.0)
+
+
+class TestBilanzDesTiefenBackfills:
+    """Die Schlusszeile darf nicht mehr behaupten, als der Lauf weiss."""
+
+    @staticmethod
+    def _ergebnis(symbol: str, outcome: DeepenOutcome, **kwargs: object) -> SymbolDeepening:
+        return SymbolDeepening(symbol=symbol, outcome=outcome, **kwargs)  # type: ignore[arg-type]
+
+    def _bilanz(self, *ergebnisse: SymbolDeepening) -> str:
+        import io
+        from contextlib import redirect_stdout
+
+        puffer = io.StringIO()
+        with redirect_stdout(puffer):
+            cli._print_deepen_report(
+                DeepeningReport(target_years=5, results=ergebnisse),
+                datetime(2026, 8, 23, tzinfo=ZoneInfo("UTC")),
+                dauer=60.0,
+            )
+        return puffer.getvalue()
+
+    def test_ohne_fehler_und_ohne_kurze_meldet_sie_vollstaendigkeit(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis("MSFT", DeepenOutcome.ALREADY_DEEP_ENOUGH),
+        )
+
+        assert "Alle Aktien decken 5 Jahre ab." in ausgabe
+
+    def test_ein_ausfall_verhindert_die_vollstaendigkeitsaussage(self) -> None:
+        """Steht die TWS still, ist ueber die betroffenen Aktien nichts
+        bekannt -- ein 'alle decken ab' stuende unmittelbar unter der Liste
+        der Fehlschlaege und widerspraeche ihr."""
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis("MSFT", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+        )
+
+        assert "Alle Aktien decken" not in ausgabe
+        assert "durchgelaufenen" in ausgabe
+        assert "sagt der Lauf nichts" in ausgabe
+
+    def test_auch_wenn_jede_einzelne_aktie_ausfaellt(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+            self._ergebnis("MSFT", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+        )
+
+        assert "Alle Aktien decken" not in ausgabe
+
+    def test_eine_zu_kurze_aktie_erscheint_namentlich(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis(
+                "NEU",
+                DeepenOutcome.PROVIDER_EXHAUSTED,
+                earliest_after=datetime(2025, 8, 23, tzinfo=ZoneInfo("UTC")),
+            ),
+        )
+
+        assert "Unter dem Zielzeitraum (1)" in ausgabe
+        assert "NEU" in ausgabe
+        assert "Neuemission" in ausgabe
+        assert "Alle Aktien decken" not in ausgabe

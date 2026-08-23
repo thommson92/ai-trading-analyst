@@ -280,8 +280,14 @@ class DeepenHistoryUseCase:
                 fenster += 1
                 if bars:
                     with self._uow_factory() as uow:
-                        neu_gesamt += uow.intraday_bars.add_all(symbol, bars)
+                        neu = uow.intraday_bars.add_all(symbol, bars)
                         uow.commit()
+                    # Erst **nach** dem Commit gezaehlt, und beide Zahlen an
+                    # derselben Stelle. Scheitert der Commit, rollt die
+                    # Transaktion zurueck -- ein vorher hochgezaehlter Wert
+                    # meldete dann Bars als gespeichert, die keine Zeile in
+                    # der Datenbank haben.
+                    neu_gesamt += neu
                     bars_gesamt += len(bars)
             except Exception as error:  # Systemgrenze: eine Aktie, nicht der Lauf
                 _logger.warning("%s: %s -- %s", symbol, type(error).__name__, error)

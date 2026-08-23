@@ -235,9 +235,7 @@ class TestTiefenBackfill:
             def close(self) -> None:
                 pass
 
-        ergebnis = (
-            self._use_case(Endlos(), factory, maximum_windows=3).execute((AAPL,)).results[0]
-        )
+        ergebnis = self._use_case(Endlos(), factory, maximum_windows=3).execute((AAPL,)).results[0]
 
         assert ergebnis.outcome is DeepenOutcome.WINDOW_LIMIT
         assert ergebnis.windows == 3
@@ -286,6 +284,64 @@ class TestTiefenBackfill:
 
         assert bericht.results[0].outcome is DeepenOutcome.ERROR
         assert len(bericht.failures) == 1
+
+    def test_ein_zurueckgerollter_commit_zaehlt_nicht_als_gespeichert(self) -> None:
+        """Sonst meldete der Bericht Bars, die keine Zeile in der Datenbank haben.
+
+        Das Fake-Repository der uebrigen Tests bildet kein Rollback nach --
+        deshalb hier eines, das es tut. Ohne diese Nachbildung faellt die
+        Verwechslung von "geschrieben" und "committet" nirgends auf.
+        """
+
+        class RollbackAblage(FakeUnitOfWork):
+            """Uebernimmt Geschriebenes erst beim Commit, wie eine echte
+            Transaktion -- und scheitert beim zweiten."""
+
+            bestand: InMemoryIntradayBarRepository = InMemoryIntradayBarRepository()
+            commits = 0
+
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__(**kwargs)  # type: ignore[arg-type]
+                self._offen: list[tuple[str, Sequence[IntradayBar]]] = []
+                self.intraday_bars = self  # type: ignore[assignment]
+
+            def earliest_start(self, symbol: str) -> datetime | None:
+                return RollbackAblage.bestand.earliest_start(symbol)
+
+            def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
+                self._offen.append((symbol, bars))
+                return len(bars)
+
+            def commit(self) -> None:
+                RollbackAblage.commits += 1
+                if RollbackAblage.commits == 2:
+                    self._offen.clear()  # Rollback: nichts davon bleibt
+                    raise RuntimeError("Verbindung zur Datenbank abgerissen")
+                for symbol, bars in self._offen:
+                    RollbackAblage.bestand.add_all(symbol, bars)
+                self._offen.clear()
+
+        RollbackAblage.bestand = InMemoryIntradayBarRepository()
+        RollbackAblage.commits = 0
+
+        def factory() -> RollbackAblage:
+            return RollbackAblage(
+                stocks=FakeStockRepository(),
+                analysis_runs=FakeAnalysisRunRepository(),
+                screening_results=FakeScreeningResultRepository(),
+                processing_errors=FakeProcessingErrorRepository(),
+                intraday_bars=InMemoryIntradayBarRepository(),
+            )
+
+        ergebnis = (
+            self._use_case(FensterQuelle(depth_days=6360), factory).execute((AAPL,)).results[0]
+        )
+
+        assert ergebnis.outcome is DeepenOutcome.ERROR
+        tatsaechlich = len(RollbackAblage.bestand.list_for("AAPL"))
+        assert ergebnis.stored_bars == tatsaechlich
+        # Und die Gegenprobe: empfangen wird nicht weniger als gespeichert.
+        assert ergebnis.received_bars >= ergebnis.stored_bars
 
     def test_der_bericht_trennt_erreicht_von_zu_kurz(
         self, uow_factory: tuple[object, InMemoryIntradayBarRepository]
