@@ -51,22 +51,30 @@ Aus Sprint 4 steht der **Research Agent** mit Quellenbindung und
 Kostensteuerung ([ADR 0022](docs/adr/0022-research-agent-quellen.md),
 [ADR 0023](docs/adr/0023-research-agent-zitierarchitektur.md)).
 
-Ebenfalls aus Sprint 4 steht die **deterministische Hälfte der technischen
-Analyse** (Doc 10, Paragraph 6.8): Trendrichtung, Volatilität über die
-Average True Range, jüngste Hoch- und Tiefpunkte und Unterstützungs-/
-Widerstandszonen aus Swing-Pivots mit Clustering
+Ebenfalls aus Sprint 4 steht die **technische Analyse** (Doc 10,
+Paragraph 6.8), beide Hälften. Deterministisch berechnet werden
+Trendrichtung, Volatilität über die Average True Range, jüngste Hoch- und
+Tiefpunkte, Unterstützungs-/Widerstandszonen aus Swing-Pivots mit Clustering
+und daraus das Chance-Risiko-Verhältnis
 ([ADR 0025](docs/adr/0025-deterministische-chartauswertung-und-zonen.md)).
-Sie läuft für jeden Kandidaten und hängt an keinem anderen Analysemodul.
-`cli technical --provider ibkr --symbols AAPL` gibt sie samt Zonen aus, damit
-die Parameter am echten Chart gegengeprüft werden können. Die KI-Interpretation darauf --
-der eigentliche Technical Agent -- steht noch aus.
+Darauf setzt der **Technical Agent** auf: Er ordnet diese Werte qualitativ
+ein — Trendstärke, Breakout-Qualität, überkauft/überverkauft,
+Fehlsignalrisiko, Chance/Risiko und Plausibilität eines Swing-Einstiegs —,
+ohne eine einzige Zahl davon zu verändern
+([ADR 0026](docs/adr/0026-technical-agent-ki-einordnung.md)).
+
+Beides läuft für jeden Kandidaten und hängt an keinem anderen Analysemodul.
+`cli technical --provider ibkr --symbols AAPL` gibt die Berechnung samt Zonen
+aus, `--interpret` zusätzlich die Einordnung und `--show-prompt` die
+vollständige Modelleingabe — damit nachprüfbar bleibt, dass das Sprachmodell
+nur den fertigen Snapshot sieht.
 
 Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt: Ein
 ausgefallener Tageslauf meldet sich über Telegram
 ([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)), statt nur im
 Protokoll zu erscheinen.
 
-Welcher Anbieter jeweils läuft, entscheidet `config/default.yaml`. Alle drei
+Welcher Anbieter jeweils läuft, entscheidet `config/default.yaml`. Alle
 externen Quellen stehen dort bewusst auf `fixture`, damit Start und Tests ohne
 Zugangsdaten auskommen; scharf geschaltet wird je Lauf über Argumente — siehe
 [Doc 14](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md).
@@ -75,7 +83,7 @@ Noch offen:
 
 | Thema | Stand |
 |---|---|
-| Technical Agent (KI-Interpretation) | Sprint 4 — die deterministische Hälfte steht |
+| Technical Agent — Lauf gegen echte Kurse | Sprint 4 — Code steht, Prompt noch nicht am realen Chart erprobt |
 | Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |

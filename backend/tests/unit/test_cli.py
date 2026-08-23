@@ -45,10 +45,14 @@ from ai_trading_analyst.domain.screening import (
 from ai_trading_analyst.domain.technical import (
     TECHNICAL_ANALYSIS_VERSION,
     PriceZone,
+    RiskRewardRating,
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
+    TrendStrength,
     ZoneKind,
     ZoneStrength,
 )
@@ -549,6 +553,36 @@ class TestTechnicalKommando:
         assert "Toleranz 2.00 %" in ausgabe
         assert "min. 2 Beruehrungen" in ausgabe
 
+    def test_chance_risiko_steht_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_technical_snapshot(
+            "AAPL",
+            self._snapshot(
+                downside_to_support_pct=0.05,
+                upside_to_resistance_pct=0.10,
+                chance_risk_ratio=2.0,
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Bis zur naechsten Unterstuetzung: 5.00 %" in ausgabe
+        assert "Bis zum naechsten Widerstand:     10.00 %" in ausgabe
+        assert "Chance/Risiko:                   2.00" in ausgabe
+
+    def test_fehlendes_chance_risiko_wird_nicht_als_null_ausgegeben(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fehlt eine Seite, gibt es kein Verhaeltnis. Eine 0.00 an dieser
+        Stelle laese sich als besonders schlechtes Setup lesen."""
+        cli._print_technical_snapshot(
+            "AAPL", self._snapshot(downside_to_support_pct=0.05, upside_to_resistance_pct=None)
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Chance/Risiko:                   -- (eine Seite ohne Zone)" in ausgabe
+        assert "0.00" not in ausgabe.split("Chance/Risiko")[1]
+
     def test_die_verfahrensversion_steht_an_jeder_ausgabe(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -595,6 +629,100 @@ class TestTechnicalKommando:
 
         assert technical.config == pfad
         assert technical.config == backtest.config
+
+    def test_ohne_interpret_bleibt_das_kommando_kostenfrei(self) -> None:
+        args = build_parser().parse_args(["technical", "--symbols", "AAPL"])
+
+        assert args.interpret is False
+        assert args.agent_provider is None
+        assert args.show_prompt is False
+
+    def test_der_agentenanbieter_ist_von_den_marktdaten_getrennt(self) -> None:
+        """Zwei Bedeutungen an einem Flag waeren ein Bedienfehler mit
+        Kostenfolge: '--provider' steuert die Marktdaten, '--agent-provider'
+        das Sprachmodell."""
+        args = build_parser().parse_args(
+            [
+                "technical",
+                "--symbols",
+                "AAPL",
+                "--provider",
+                "ibkr",
+                "--interpret",
+                "--agent-provider",
+                "anthropic",
+            ]
+        )
+
+        assert args.provider == "ibkr"
+        assert args.agent_provider == "anthropic"
+        assert args.interpret is True
+
+    def test_die_einordnung_wird_ausgegeben(self, capsys: pytest.CaptureFixture[str]) -> None:
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="claude-haiku-4-5-20251001",
+                prompt_version="technical-agent-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=RiskRewardRating.BALANCED,
+                summary="Aufwaertstrend, Widerstand in Reichweite.",
+                false_signal_risks=("Kurs dicht unter einer starken Zone",),
+                confidence=0.6,
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "COMPLETED" in ausgabe
+        assert "claude-haiku-4-5-20251001" in ausgabe
+        assert "MODERATE" in ausgabe
+        assert "BALANCED" in ausgabe
+        assert "Kurs dicht unter einer starken Zone" in ausgabe
+
+    def test_die_berechnete_zahl_steht_neben_der_einstufung(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne sie liesse sich nicht unterscheiden, ob das Verhaeltnis
+        fehlte oder ob das Modell nichts dazu gesagt hat -- beim ersten Lauf
+        gegen echte Kurse war Letzteres der Fall."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="fixture",
+                prompt_version="fixture-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=None,
+            ),
+            self._snapshot(chance_risk_ratio=1.05),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Chance/Risiko:           --  (berechnet: 1.05)" in ausgabe
+
+    def test_ein_ausfall_zeigt_keine_leeren_stufen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei UNAVAILABLE gibt es nichts zu zeigen -- eine Liste aus lauter
+        '--' laese sich als Einordnung missverstehen."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.UNAVAILABLE,
+                evaluated_at=datetime(2026, 8, 22, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model=None,
+                prompt_version=None,
+                reason="provider_error",
+            ),
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "UNAVAILABLE" in ausgabe
+        assert "provider_error" in ausgabe
+        assert "Trendstaerke" not in ausgabe
 
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
         args = build_parser().parse_args(

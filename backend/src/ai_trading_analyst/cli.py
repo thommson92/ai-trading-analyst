@@ -56,6 +56,7 @@ from ai_trading_analyst.bootstrap import (
     build_market_data_provider,
     build_research_provider,
     build_technical_analysis_params,
+    build_technical_interpreter,
     build_watchlist,
     project_root,
 )
@@ -73,6 +74,8 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProviderError,
     ResearchProviderError,
     Stock,
+    TechnicalInterpreter,
+    TechnicalInterpreterError,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
@@ -86,10 +89,13 @@ from ai_trading_analyst.domain.screening import (
     evaluate_candidate,
 )
 from ai_trading_analyst.domain.technical import (
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     compute_technical_snapshot,
 )
+from ai_trading_analyst.infrastructure.anthropic.technical_interpreter import render_snapshot
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbkrMarketDataProvider,
@@ -796,6 +802,8 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
             f"am {snapshot.recent_low_at.date().isoformat()}"
         )
 
+    _print_chance_risk(snapshot)
+
     if not snapshot.zones:
         print("  Zonen: keine mehrfach getestete Preisregion im Fenster")
         return
@@ -811,12 +819,77 @@ def _print_technical_snapshot(symbol: str, snapshot: TechnicalSnapshot) -> None:
         )
 
 
+def _print_chance_risk(snapshot: TechnicalSnapshot) -> None:
+    """Weg nach unten, Weg nach oben und ihr Verhaeltnis (ADR 0026).
+
+    Steht bewusst *vor* der Zonenliste: Es ist die Zusammenfassung, aus der
+    die Liste darunter die Herleitung liefert.
+    """
+    print(
+        "  Bis zur naechsten Unterstuetzung: "
+        f"{_format_optional(_as_percent(snapshot.downside_to_support_pct), digits=2, suffix=' %')}"
+    )
+    print(
+        "  Bis zum naechsten Widerstand:     "
+        f"{_format_optional(_as_percent(snapshot.upside_to_resistance_pct), digits=2, suffix=' %')}"
+    )
+    if snapshot.chance_risk_ratio is None:
+        # Kein Ersatzwert: Fehlt eine der beiden Seiten, gibt es kein
+        # Verhaeltnis -- und eine Null saehe wie ein sehr schlechtes Setup aus.
+        print("  Chance/Risiko:                   -- (eine Seite ohne Zone)")
+    else:
+        print(f"  Chance/Risiko:                   {snapshot.chance_risk_ratio:.2f}")
+
+
 def _plural(count: int, singular: str, plural: str) -> str:
     return f"{count} {singular if count == 1 else plural}"
 
 
 def _as_percent(value: float | None) -> float | None:
     return None if value is None else value * 100
+
+
+def _print_technical_assessment(
+    symbol: str, assessment: TechnicalAssessment, snapshot: TechnicalSnapshot | None = None
+) -> None:
+    """Die KI-Einordnung (ADR 0026), im Anschluss an den Snapshot.
+
+    Eingerueckt unter demselben Symbol, damit beim Gegenpruefen sichtbar
+    bleibt, worauf sie sich bezieht -- und damit auffaellt, wenn die Worte
+    nicht zu den Zahlen darueber passen.
+    """
+    herkunft = (
+        ""
+        if assessment.model is None
+        else f" -- {assessment.model}, Prompt {assessment.prompt_version}"
+    )
+    print(f"  Einordnung: {assessment.status.value}{herkunft}")
+    if assessment.reason:
+        print(f"    Grund: {assessment.reason}")
+    if assessment.status is not TechnicalAssessmentStatus.COMPLETED:
+        return
+
+    def _stufe(bezeichnung: str, wert: object, zusatz: str = "") -> None:
+        gezeigt = "--" if wert is None else getattr(wert, "value", wert)
+        print(f"    {bezeichnung:<24} {gezeigt}{zusatz}")
+
+    _stufe("Trendstaerke:", assessment.trend_strength)
+    _stufe("Breakout:", assessment.breakout_quality)
+    _stufe("Momentum:", assessment.momentum_state)
+    _stufe("Fehlsignalrisiko:", assessment.false_signal_risk)
+    # Die berechnete Zahl daneben: Steht dort nur "--", laesst sich nicht
+    # unterscheiden, ob das Verhaeltnis fehlte oder ob das Modell nichts dazu
+    # gesagt hat -- und genau das war beim ersten Lauf der Fall.
+    gerechnet = None if snapshot is None else snapshot.chance_risk_ratio
+    zusatz = "" if gerechnet is None else f"  (berechnet: {gerechnet:.2f})"
+    _stufe("Chance/Risiko:", assessment.risk_reward_rating, zusatz)
+    _stufe("Swing-Einstieg:", assessment.swing_entry_plausibility)
+    if assessment.confidence is not None:
+        print(f"    {'Konfidenz:':<24} {assessment.confidence:.2f}")
+    if assessment.summary:
+        print(f"    Fazit: {assessment.summary}")
+    for risiko in assessment.false_signal_risks:
+        print(f"    Risiko: {risiko}")
 
 
 def command_technical(args: argparse.Namespace) -> int:
@@ -870,6 +943,19 @@ def command_technical(args: argparse.Namespace) -> int:
     )
     params = build_technical_analysis_params(config)
 
+    interpreter: TechnicalInterpreter | None = None
+    if args.interpret:
+        if args.agent_provider is not None:
+            agent = config.technical_agent.model_copy(update={"provider": args.agent_provider})
+            config = config.model_copy(update={"technical_agent": agent})
+        try:
+            interpreter = build_technical_interpreter(config, Secrets())
+        except MissingSecretError as error:
+            # Frueh und mit klarer Meldung, statt erst nach dem Laden der
+            # Kerzenserien (Muster 'dispatch').
+            print(f"Konfiguration: {error}", file=sys.stderr)
+            return 2
+
     wanted = {symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()}
     if not wanted:
         print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
@@ -905,6 +991,22 @@ def command_technical(args: argparse.Namespace) -> int:
             series, len(series) - 1, params, datetime.now(UTC)
         )
         _print_technical_snapshot(stock.symbol, snapshot)
+        if args.show_prompt:
+            # Bewusst unabhaengig von --interpret: "zeig mir, was gesendet
+            # wuerde, ohne dass es etwas kostet" ist der nuetzlichste Fall.
+            # Die Zusage "das Modell sieht nur den Snapshot" laesst sich sonst
+            # nicht nachpruefen, sondern nur behaupten.
+            print("  Modelleingabe:")
+            for zeile in render_snapshot(stock, snapshot).splitlines():
+                print(f"    {zeile}")
+        if interpreter is not None:
+            try:
+                _print_technical_assessment(
+                    stock.symbol, interpreter.interpret(stock, snapshot), snapshot
+                )
+            except TechnicalInterpreterError as error:
+                print(f"{stock.symbol}: {error}", file=sys.stderr)
+                fehler += 1
         print()
     return 1 if fehler else 0
 
@@ -1062,6 +1164,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         notifier = build_notifier(config.notifications, secrets)
         earnings_provider = build_earnings_provider(config, secrets)
         research_provider = build_research_provider(config, secrets)
+        technical_interpreter = build_technical_interpreter(config, secrets)
     except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -1121,6 +1224,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             provider,
             earnings_provider,
             research_provider,
+            technical_interpreter,
             uow_factory,
             rule,
             build_earnings_filter_params(config),
@@ -1415,6 +1519,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--symbols",
         required=True,
         help="Kommagetrennte Symbole, z. B. 'AAPL,MSFT'.",
+    )
+    technical.add_argument(
+        "--interpret",
+        action="store_true",
+        help=(
+            "Laesst die Auswertung zusaetzlich vom Technical Agent einordnen "
+            "(ADR 0026). Ohne diese Angabe bleibt das Kommando kostenfrei."
+        ),
+    )
+    technical.add_argument(
+        "--agent-provider",
+        choices=("fixture", "anthropic"),
+        default=None,
+        help=(
+            "Uebersteuert technical_agent.provider nur fuer diesen Lauf. "
+            "'anthropic' loest je Symbol einen kostenpflichtigen Modellaufruf aus. "
+            "Bewusst getrennt von '--provider', das die Marktdaten steuert."
+        ),
+    )
+    technical.add_argument(
+        "--show-prompt",
+        action="store_true",
+        help="Zeigt zusaetzlich, welche Daten dem Modell uebergeben wurden.",
     )
     technical.set_defaults(handler=command_technical)
 

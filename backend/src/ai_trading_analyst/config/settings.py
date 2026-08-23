@@ -459,6 +459,46 @@ class ResearchConfig(_Section):
     pricing: ResearchPricingConfig = ResearchPricingConfig()
 
 
+class TechnicalAgentPricingConfig(_Section):
+    """Preise fuer die Kostenschaetzung im Log (Muster
+    ``ResearchPricingConfig``) -- rein informativ und **von Hand gepflegt**.
+
+    Vorbelegt mit den Preisen des voreingestellten Haiku-Profils. Sie aendern
+    sich unabhaengig von diesem Projekt und sind vor dem ersten produktiven
+    Lauf gegen den dann aktuellen Katalog zu pruefen.
+    """
+
+    input_usd_per_million: NonNegativeFloat = 1.0
+    output_usd_per_million: NonNegativeFloat = 5.0
+
+
+class TechnicalAgentConfig(_Section):
+    """Der Technical Agent: KI-Einordnung der Chartauswertung (ADR 0026).
+
+    Getrennt von ``technical_analysis``: Dort stehen die Verfahrensparameter,
+    die der Betreiber nach Doc 14 am echten Chart nachzieht, hier reine
+    Anbieter- und Budgetwerte. Das Modellprofil steht in ``llm.technical``.
+
+    ``fixture`` bleibt Standard, damit Start und Tests ohne
+    ``ATA_LLM_API_KEY`` funktionieren (Muster ``research.provider``).
+
+    Kein ``max_input_tokens_per_symbol`` wie bei ``research``: Es gibt keine
+    Werkzeugschleife und keine Fortsetzung, die Eingabe ist durch den Snapshot
+    nach oben begrenzt. Ein Regler, der nichts regelt, waere irrefuehrend.
+    """
+
+    provider: Literal["fixture", "anthropic"] = "fixture"
+    max_output_tokens: PositiveInt = 2000
+    """Ein Werkzeugaufruf mit sechs Einstufungen und einem kurzen Text. Zu
+    knapp bemessen schneidet es den Aufruf ab -- und ein abgeschnittener
+    Aufruf wird verworfen, nicht halb verwertet."""
+    request_timeout_seconds: PositiveInt = 60
+    """Deutlich kuerzer als bei ``research`` (300 s): Dort laufen
+    serverseitige Werkzeuge ueber mehrere Runden, hier ist es eine einzelne
+    Anfrage."""
+    pricing: TechnicalAgentPricingConfig = TechnicalAgentPricingConfig()
+
+
 class DataAvailabilityConfig(_Section):
     """Wartelogik nach Kerzenschluss (Risiko R9 des Entwicklungsplans).
 
@@ -575,6 +615,7 @@ class AppConfig(_Section):
     technical_analysis: TechnicalAnalysisConfig = TechnicalAnalysisConfig()
     llm: LlmConfig = LlmConfig()
     research: ResearchConfig = ResearchConfig()
+    technical_agent: TechnicalAgentConfig = TechnicalAgentConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()

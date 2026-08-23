@@ -24,6 +24,7 @@ from ai_trading_analyst.domain.analysis import (
     HistoricalBarSource,
     MarketDataProvider,
     ResearchProvider,
+    TechnicalInterpreter,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -38,6 +39,9 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicResearchPricing,
     AnthropicResearchProvider,
     AnthropicResearchSettings,
+    AnthropicTechnicalInterpreter,
+    AnthropicTechnicalPricing,
+    AnthropicTechnicalSettings,
 )
 from ai_trading_analyst.infrastructure.finnhub import (
     FinnhubConnectionSettings,
@@ -48,6 +52,9 @@ from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
+from ai_trading_analyst.infrastructure.fixtures.technical_interpreter import (
+    FixtureTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -237,6 +244,30 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
     )
 
 
+def build_technical_interpreter(config: AppConfig, secrets: Secrets) -> TechnicalInterpreter:
+    """Waehlt den Anbieter des Technical Agent (ADR 0026).
+
+    Muster ``build_research_provider``: ``fixture`` ist der Standard und der
+    Weg fuer Tests und einen Start ohne Anthropic-Zugang. Das Modellprofil
+    kommt aus ``llm.technical`` und ist bereits vorbelegt.
+    """
+    if config.technical_agent.provider == "fixture":
+        return FixtureTechnicalInterpreter()
+    return AnthropicTechnicalInterpreter(
+        AnthropicTechnicalSettings(
+            api_key=secrets.require("llm_api_key"),
+            model=config.llm.technical.model,
+            fallback_model=config.llm.technical.fallback_model,
+            max_output_tokens=config.technical_agent.max_output_tokens,
+            request_timeout_seconds=config.technical_agent.request_timeout_seconds,
+            pricing=AnthropicTechnicalPricing(
+                input_usd_per_million=config.technical_agent.pricing.input_usd_per_million,
+                output_usd_per_million=config.technical_agent.pricing.output_usd_per_million,
+            ),
+        )
+    )
+
+
 def build_backtest_params(config: AppConfig) -> BacktestParameters:
     return BacktestParameters(
         horizons=config.backtesting.horizons,
@@ -269,10 +300,12 @@ def build_app() -> FastAPI:
     earnings_provider = build_earnings_provider(loaded.config, secrets)
     earnings_filter_params = build_earnings_filter_params(loaded.config)
     research_provider = build_research_provider(loaded.config, secrets)
+    technical_interpreter = build_technical_interpreter(loaded.config, secrets)
     use_case = RunAnalysisUseCase(
         market_data_provider,
         earnings_provider,
         research_provider,
+        technical_interpreter,
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,

@@ -11,6 +11,7 @@ from ai_trading_analyst.domain.technical import (
     TECHNICAL_ANALYSIS_VERSION,
     TechnicalStatus,
     TrendDirection,
+    ZoneKind,
     average_true_range,
     compute_technical_snapshot,
     true_ranges,
@@ -227,3 +228,83 @@ class TestSnapshot:
 
         with pytest.raises(IndexError):
             compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+
+class TestChanceRisiko:
+    """Weg nach unten, Weg nach oben und ihr Verhaeltnis (ADR 0026).
+
+    Die Reihen sind so gewaehlt, dass sich beide Abstaende an der
+    Zahlenkolonne ablesen lassen: Jede Kerze liegt auf genau einem Preis,
+    Zonen entstehen also auf den Preisniveaus selbst.
+    """
+
+    def test_beide_seiten_vorhanden_ergeben_das_verhaeltnis(self) -> None:
+        # Unterstuetzung bei 100, Widerstand bei 130, Schlusskurs 110:
+        # 10/110 nach unten, 20/110 nach oben -- also genau doppelt so weit.
+        series = series_from_prices([100.0, 130.0, 100.0, 130.0, 100.0, 110.0])
+
+        snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+        assert snapshot.downside_to_support_pct == pytest.approx(10 / 110)
+        assert snapshot.upside_to_resistance_pct == pytest.approx(20 / 110)
+        assert snapshot.chance_risk_ratio == pytest.approx(2.0)
+
+    def test_ohne_unterstuetzung_gibt_es_kein_verhaeltnis(self) -> None:
+        """Kein Halt unterhalb des Kurses -- der Weg nach unten ist unbekannt,
+        nicht null. Ein Verhaeltnis dazu gaebe es nur erfunden."""
+        series = series_from_prices([120.0, 100.0, 120.0, 100.0, 120.0, 90.0])
+
+        snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+        assert all(zone.kind is not ZoneKind.SUPPORT for zone in snapshot.zones)
+        assert snapshot.downside_to_support_pct is None
+        assert snapshot.upside_to_resistance_pct == pytest.approx(10 / 90)
+        assert snapshot.chance_risk_ratio is None
+
+    def test_ohne_widerstand_gibt_es_kein_verhaeltnis(self) -> None:
+        series = series_from_prices([100.0, 80.0, 100.0, 80.0, 100.0, 120.0])
+
+        snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+        assert all(zone.kind is not ZoneKind.RESISTANCE for zone in snapshot.zones)
+        assert snapshot.upside_to_resistance_pct is None
+        assert snapshot.chance_risk_ratio is None
+
+    def test_ohne_zonen_bleiben_alle_drei_felder_leer(self) -> None:
+        series = series_from_prices([100.0, 101.0, 102.0, 103.0, 104.0, 105.0])
+
+        snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+        assert snapshot.zones == ()
+        assert snapshot.downside_to_support_pct is None
+        assert snapshot.upside_to_resistance_pct is None
+        assert snapshot.chance_risk_ratio is None
+
+    def test_massgeblich_ist_die_naechstgelegene_zone_je_seite(self) -> None:
+        """Zwei Unterstuetzungen unterhalb des Kurses: Fuer das Risiko zaehlt
+        die obere. Die Zonen kommen nach Abstand sortiert, die Auswahl darf
+        sich darauf verlassen."""
+        series = series_from_prices(
+            [60.0, 80.0, 60.0, 80.0, 60.0, 80.0, 120.0, 100.0, 120.0, 100.0, 120.0, 90.0]
+        )
+
+        snapshot = compute_technical_snapshot(series, 11, small_params(), EVALUATED_AT)
+
+        stuetzen = [zone for zone in snapshot.zones if zone.kind is ZoneKind.SUPPORT]
+        assert len(stuetzen) >= 2
+        assert snapshot.downside_to_support_pct == pytest.approx(
+            min(zone.distance_pct for zone in stuetzen)
+        )
+
+    def test_eine_unterstuetzung_liegt_immer_echt_unter_dem_kurs(self) -> None:
+        """Die Invariante, auf der ``_chance_risk_ratio`` ohne Nullpruefung
+        auskommt: ``_classify`` vergibt SUPPORT nur bei ``upper < close``."""
+        series = series_from_prices([100.0, 130.0, 100.0, 130.0, 100.0, 110.0])
+
+        snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
+
+        assert all(
+            zone.distance_pct > 0
+            for zone in snapshot.zones
+            if zone.kind is ZoneKind.SUPPORT
+        )

@@ -60,6 +60,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0023](0023-research-agent-zitierarchitektur.md) | Research Agent — Zitierarchitektur | Angenommen |
 | [0024](0024-benachrichtigungskanal-telegram.md) | Benachrichtigungskanal — Telegram Bot API | Angenommen |
 | [0025](0025-deterministische-chartauswertung-und-zonen.md) | Deterministische Chartauswertung — Swing-Pivots mit Clustering für Zonen | Angenommen |
+| [0026](0026-technical-agent-ki-einordnung.md) | Technical Agent — KI-Einordnung der deterministischen Chartauswertung | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -99,4 +100,7 @@ ADR, sobald die nötigen Informationen vorliegen:
 - KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
   gestuften Modellprofilen je Analyseaufgabe, siehe
   [ADR 0021](0021-ki-anbindung-anthropic-api.md).
+- Qualitative Interpretation der Chartauswertung — **entschieden.** Der
+  Technical Agent ordnet ausschließlich deterministisch berechnete Werte
+  ein, siehe [ADR 0026](0026-technical-agent-ki-einordnung.md).
 - Externer Zugriff auf das Dashboard (F12)

@@ -11,6 +11,7 @@ import concurrent.futures
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import uuid4
 
 from ai_trading_analyst.domain.analysis import (
@@ -26,6 +27,8 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
     StockProcessingError,
     StockScreeningOutcome,
+    TechnicalInterpreter,
+    TechnicalInterpreterError,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.earnings import (
@@ -45,6 +48,8 @@ from ai_trading_analyst.domain.screening import (
 )
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     compute_technical_snapshot,
 )
@@ -52,12 +57,20 @@ from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
 
-_MAX_CONCURRENT_RESEARCH = 4
-"""Obergrenze gleichzeitiger Research-Aufrufe. Jeder Aufruf ist unabhaengig
-(kein gemeinsamer veraenderlicher Zustand ausser dem laut Anthropic-SDK
-threadsicheren HTTP-Client) -- eine unbegrenzte Nebenlaeufigkeit wuerde bei
-vielen Kandidaten gleichzeitig ebenso viele teure LLM-Gespraeche parallel
-auslösen, statt nur die Wartezeit zu verkuerzen."""
+_Agentenart = Literal["research", "technical"]
+"""Diskriminator der beiden Auftragsarten in der nebenlaeufigen Phase.
+
+Ein ``Literal`` und kein freier ``str``: mypy prueft damit jede Aufrufstelle.
+Ein Tippfehler landete sonst im ``else``-Zweig und wiese ein
+Research-Ergebnis dem Feld der Einordnung zu.
+"""
+
+_MAX_CONCURRENT_AGENT_CALLS = 4
+"""Obergrenze gleichzeitiger Modellaufrufe ueber **beide** Agenten hinweg.
+Jeder Aufruf ist unabhaengig (kein gemeinsamer veraenderlicher Zustand ausser
+dem laut Anthropic-SDK threadsicheren HTTP-Client) -- eine unbegrenzte
+Nebenlaeufigkeit wuerde bei vielen Kandidaten gleichzeitig ebenso viele teure
+LLM-Gespraeche parallel auslösen, statt nur die Wartezeit zu verkuerzen."""
 
 
 @dataclass
@@ -74,6 +87,7 @@ class _PreparedOutcome:
     earnings: EarningsFilterResult | None
     needs_research: bool
     research: ResearchReport | None = None
+    technical_assessment: TechnicalAssessment | None = None
 
 
 @dataclass
@@ -132,6 +146,7 @@ class RunAnalysisUseCase:
         market_data_provider: MarketDataProvider,
         earnings_provider: EarningsProvider,
         research_provider: ResearchProvider,
+        technical_interpreter: TechnicalInterpreter,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
@@ -141,6 +156,7 @@ class RunAnalysisUseCase:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
         self._research_provider = research_provider
+        self._technical_interpreter = technical_interpreter
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
@@ -204,7 +220,7 @@ class RunAnalysisUseCase:
         # Reihenfolge von ``outcomes``/``errors`` unveraendert, unabhaengig
         # davon, welche Recherche zuerst fertig wurde.
         prepared = [self._prepare_stock(stock) for stock in stocks]
-        self._run_research_concurrently(prepared)
+        self._run_agents_concurrently(prepared)
 
         outcomes: list[StockScreeningOutcome] = []
         errors: list[StockProcessingError] = []
@@ -276,34 +292,94 @@ class RunAnalysisUseCase:
         except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
             return _PreparedError(stock=stock, exc=exc)
 
-    def _run_research_concurrently(self, prepared: list[_PreparedItem]) -> None:
-        pending = [
-            item for item in prepared if isinstance(item, _PreparedOutcome) and item.needs_research
-        ]
-        if not pending:
+    def _run_agents_concurrently(self, prepared: list[_PreparedItem]) -> None:
+        """Phase 2: die langsamen Modellaufrufe, alle auf einmal.
+
+        Beide Agenten teilen sich einen Pool. Getrennte Pools waeren
+        latenzguenstiger -- eine haengende Recherche belegt bis zu fuenf
+        Minuten einen der vier Plaetze, waehrend die kurzen Einordnungen
+        warten --, verdoppeln aber die Nebenlaeufigkeitsstruktur. Bei der
+        Groesse der Watchlist ist ein gemeinsamer Pool der einfachere und
+        ausreichende Weg; der Ausweg ist damit benannt, nicht gebaut.
+
+        Zugewiesen wird ausschliesslich im Hauptthread aus ``as_completed``
+        heraus -- die Arbeiter schreiben nichts.
+        """
+        auftraege: list[tuple[_PreparedOutcome, _Agentenart]] = []
+        for item in prepared:
+            if not isinstance(item, _PreparedOutcome):
+                continue
+            if item.needs_research:
+                auftraege.append((item, "research"))
+            # Anders als Research haengt die Einordnung an keinem anderen
+            # Modul: Sie laeuft fuer jeden Kandidaten mit auswertbarer
+            # Chartlage, auch bei nahem Earnings-Termin (CLAUDE.md:
+            # Analysemodule sind entkoppelt; ADR 0026).
+            if item.technical is not None:
+                auftraege.append((item, "technical"))
+
+        if not auftraege:
             return
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(_MAX_CONCURRENT_RESEARCH, len(pending))
+            max_workers=min(_MAX_CONCURRENT_AGENT_CALLS, len(auftraege))
         ) as executor:
             futures = {
-                executor.submit(self._evaluate_research, item.stock, item.evaluated_at): item
-                for item in pending
+                executor.submit(self._agent_result, item, art): (item, art)
+                for item, art in auftraege
             }
             for future in concurrent.futures.as_completed(futures):
-                item = futures[future]
+                item, art = futures[future]
                 try:
-                    item.research = future.result()
+                    self._assign_agent_result(item, art, future.result())
                 except Exception:
-                    # ``_evaluate_research`` faengt bereits alles ab; hier
-                    # bliebe nur ein Ausfall des Executors selbst. Auch der
-                    # darf das Screening-Ergebnis nicht kosten.
+                    # ``_agent_result`` faengt bereits alles ab; hier bliebe
+                    # nur ein Ausfall des Executors selbst. Auch der darf das
+                    # Screening-Ergebnis nicht kosten.
                     _logger.exception(
-                        "Nebenlaeufige Recherche fuer %s ist ausgefallen", item.stock.symbol
+                        "Nebenlaeufiger Agentenlauf (%s) fuer %s ist ausgefallen",
+                        art,
+                        item.stock.symbol,
                     )
-                    item.research = self._unavailable_research(
-                        item.evaluated_at, "provider_error"
+                    self._assign_agent_result(
+                        item, art, self._unavailable_result(item, art, "provider_error")
                     )
+
+    def _agent_result(
+        self, item: _PreparedOutcome, art: _Agentenart
+    ) -> ResearchReport | TechnicalAssessment:
+        """Laeuft im Arbeitsthread und **liefert** nur -- er schreibt nichts.
+
+        Die Zuweisung bleibt dem Hauptthread vorbehalten
+        (``_assign_agent_result``). Bei zwei Auftragsarten je Aktie schrieben
+        sonst zwei Threads in dasselbe Objekt; dass sie verschiedene Felder
+        traefen, waere eine Zusicherung, die man beim naechsten Agenten
+        vergisst.
+        """
+        if art == "research":
+            return self._evaluate_research(item.stock, item.evaluated_at)
+        assert item.technical is not None
+        return self._evaluate_technical_assessment(
+            item.stock, item.technical, item.evaluated_at
+        )
+
+    @staticmethod
+    def _assign_agent_result(
+        item: _PreparedOutcome,
+        art: _Agentenart,
+        ergebnis: ResearchReport | TechnicalAssessment,
+    ) -> None:
+        if isinstance(ergebnis, ResearchReport):
+            item.research = ergebnis
+        else:
+            item.technical_assessment = ergebnis
+
+    def _unavailable_result(
+        self, item: _PreparedOutcome, art: _Agentenart, reason: str
+    ) -> ResearchReport | TechnicalAssessment:
+        if art == "research":
+            return self._unavailable_research(item.evaluated_at, reason)
+        return self._unavailable_assessment(item.evaluated_at, reason, item.technical)
 
     def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
         outcome = StockScreeningOutcome(
@@ -314,6 +390,7 @@ class RunAnalysisUseCase:
             evaluated_at=item.evaluated_at,
             signal_rule_version=SIGNAL_RULE_VERSION,
             technical=item.technical,
+            technical_assessment=item.technical_assessment,
             earnings=item.earnings,
             research=item.research,
         )
@@ -415,6 +492,55 @@ class RunAnalysisUseCase:
                 type(exc).__name__,
             )
             return self._unavailable_research(evaluated_at, "provider_contract_violation")
+
+    def _evaluate_technical_assessment(
+        self, stock: Stock, snapshot: TechnicalSnapshot, evaluated_at: datetime
+    ) -> TechnicalAssessment:
+        """Die KI-Einordnung einer Aktie, nie blockierend.
+
+        Spiegelt ``_evaluate_research`` Zeile fuer Zeile: Faellt der Anbieter
+        aus, entsteht ein ``UNAVAILABLE``-Ergebnis statt einer Ausnahme. Der
+        deterministische Snapshot ist zu diesem Zeitpunkt laengst fertig
+        gerechnet und bleibt vollstaendig erhalten (CLAUDE.md: Analysemodule
+        sind entkoppelt).
+        """
+        try:
+            return self._technical_interpreter.interpret(stock, snapshot)
+        except TechnicalInterpreterError as exc:
+            _logger.warning(
+                "Einordnung fuer %s nicht verfuegbar: %s", stock.symbol, exc
+            )
+            return self._unavailable_assessment(evaluated_at, "provider_error", snapshot)
+        except Exception as exc:
+            # Ein Anbieter, der entgegen seinem Vertrag eine rohe Exception
+            # wirft, darf das fertige Screening-Ergebnis nicht mitreissen
+            # (ADR 0023, derselbe Befund beim Research Agent).
+            _logger.exception(
+                "Anbieter des Technical Agent hat fuer %s eine unerwartete Ausnahme "
+                "geworfen: %s",
+                stock.symbol,
+                exc,
+            )
+            return self._unavailable_assessment(
+                evaluated_at, "provider_contract_violation", snapshot
+            )
+
+    def _unavailable_assessment(
+        self,
+        evaluated_at: datetime,
+        reason: str,
+        snapshot: TechnicalSnapshot | None = None,
+    ) -> TechnicalAssessment:
+        return TechnicalAssessment(
+            status=TechnicalAssessmentStatus.UNAVAILABLE,
+            evaluated_at=evaluated_at,
+            model=None,
+            prompt_version=None,
+            interpreted_analysis_version=(
+                None if snapshot is None else snapshot.analysis_version
+            ),
+            reason=reason,
+        )
 
     def _unavailable_research(self, evaluated_at: datetime, reason: str) -> ResearchReport:
         return ResearchReport(

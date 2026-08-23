@@ -39,10 +39,18 @@ from ai_trading_analyst.domain.screening import (
     SignalType,
 )
 from ai_trading_analyst.domain.technical import (
+    BreakoutQuality,
+    FalseSignalRisk,
+    MomentumState,
     PriceZone,
+    RiskRewardRating,
+    SwingEntryPlausibility,
+    TechnicalAssessment,
+    TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
     TrendDirection,
+    TrendStrength,
     ZoneKind,
     ZoneStrength,
 )
@@ -213,6 +221,9 @@ def _technical_from_row(row: ScreeningResultOrm) -> TechnicalSnapshot | None:
             )
             for zone in row.technical_zones
         ),
+        downside_to_support_pct=row.technical_downside_to_support_pct,
+        upside_to_resistance_pct=row.technical_upside_to_resistance_pct,
+        chance_risk_ratio=row.technical_chance_risk_ratio,
     )
 
 
@@ -236,6 +247,9 @@ _TECHNICAL_FIELDS = (
     "recent_high_at",
     "recent_low",
     "recent_low_at",
+    "downside_to_support_pct",
+    "upside_to_resistance_pct",
+    "chance_risk_ratio",
 )
 
 
@@ -272,7 +286,110 @@ def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
         "technical_recent_high_at": technical.recent_high_at,
         "technical_recent_low": technical.recent_low,
         "technical_recent_low_at": technical.recent_low_at,
+        "technical_downside_to_support_pct": technical.downside_to_support_pct,
+        "technical_upside_to_resistance_pct": technical.upside_to_resistance_pct,
+        "technical_chance_risk_ratio": technical.chance_risk_ratio,
     }
+
+
+_TECHNICAL_AI_FIELDS = (
+    "status",
+    "evaluated_at",
+    "model",
+    "prompt_version",
+    "interpreted_analysis_version",
+    "summary",
+    "trend_strength",
+    "breakout_quality",
+    "momentum_state",
+    "false_signal_risk",
+    "risk_reward_rating",
+    "swing_entry_plausibility",
+    "false_signal_risks",
+    "confidence",
+    "reason",
+)
+
+
+def _technical_ai_columns(assessment: TechnicalAssessment | None) -> dict[str, Any]:
+    """Spaltenwerte der KI-Einordnung, ``technical_ai_``-praefigiert.
+
+    Wie ``_technical_columns``: ohne Einordnung werden alle Spalten
+    ausdruecklich auf ``None`` gesetzt statt weggelassen. Beide Zweige muessen
+    dieselbe Schluesselmenge liefern -- ein Test sichert das zu.
+
+    Beruehrt keine einzige ``technical_``-Spalte: Doc 10, Paragraph 6.8
+    verlangt die getrennte Speicherung von Berechnung und Interpretation.
+    """
+    if assessment is None:
+        return {f"technical_ai_{name}": None for name in _TECHNICAL_AI_FIELDS}
+    return {
+        "technical_ai_status": assessment.status,
+        "technical_ai_evaluated_at": assessment.evaluated_at,
+        "technical_ai_model": assessment.model,
+        "technical_ai_prompt_version": assessment.prompt_version,
+        "technical_ai_interpreted_analysis_version": assessment.interpreted_analysis_version,
+        "technical_ai_summary": assessment.summary,
+        "technical_ai_trend_strength": assessment.trend_strength,
+        "technical_ai_breakout_quality": assessment.breakout_quality,
+        "technical_ai_momentum_state": assessment.momentum_state,
+        "technical_ai_false_signal_risk": assessment.false_signal_risk,
+        "technical_ai_risk_reward_rating": assessment.risk_reward_rating,
+        "technical_ai_swing_entry_plausibility": assessment.swing_entry_plausibility,
+        "technical_ai_false_signal_risks": list(assessment.false_signal_risks),
+        "technical_ai_confidence": assessment.confidence,
+        "technical_ai_reason": assessment.reason,
+    }
+
+
+def _technical_ai_from_row(row: ScreeningResultOrm) -> TechnicalAssessment | None:
+    """Liest die KI-Einordnung zurueck, sofern eine gespeichert wurde."""
+    if row.technical_ai_status is None:
+        return None
+    evaluated_at = _require_paired_evaluated_at(
+        row.id, row.technical_ai_evaluated_at, "technical_ai_status", "technical_ai_evaluated_at"
+    )
+    return TechnicalAssessment(
+        status=TechnicalAssessmentStatus(row.technical_ai_status),
+        evaluated_at=evaluated_at,
+        model=row.technical_ai_model,
+        prompt_version=row.technical_ai_prompt_version,
+        interpreted_analysis_version=row.technical_ai_interpreted_analysis_version,
+        summary=row.technical_ai_summary,
+        trend_strength=(
+            None
+            if row.technical_ai_trend_strength is None
+            else TrendStrength(row.technical_ai_trend_strength)
+        ),
+        breakout_quality=(
+            None
+            if row.technical_ai_breakout_quality is None
+            else BreakoutQuality(row.technical_ai_breakout_quality)
+        ),
+        momentum_state=(
+            None
+            if row.technical_ai_momentum_state is None
+            else MomentumState(row.technical_ai_momentum_state)
+        ),
+        false_signal_risk=(
+            None
+            if row.technical_ai_false_signal_risk is None
+            else FalseSignalRisk(row.technical_ai_false_signal_risk)
+        ),
+        risk_reward_rating=(
+            None
+            if row.technical_ai_risk_reward_rating is None
+            else RiskRewardRating(row.technical_ai_risk_reward_rating)
+        ),
+        swing_entry_plausibility=(
+            None
+            if row.technical_ai_swing_entry_plausibility is None
+            else SwingEntryPlausibility(row.technical_ai_swing_entry_plausibility)
+        ),
+        false_signal_risks=tuple(row.technical_ai_false_signal_risks or ()),
+        confidence=row.technical_ai_confidence,
+        reason=row.technical_ai_reason,
+    )
 
 
 def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
@@ -337,6 +454,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         evaluated_at=row.evaluated_at,
         signal_rule_version=row.signal_rule_version,
         technical=_technical_from_row(row),
+        technical_assessment=_technical_ai_from_row(row),
         earnings=earnings,
         research=research,
     )
@@ -382,6 +500,7 @@ class SqlAlchemyScreeningResultRepository:
             research_confidence=research.confidence if research is not None else None,
             research_reason=research.reason if research is not None else None,
             **_technical_columns(outcome.technical),
+            **_technical_ai_columns(outcome.technical_assessment),
         )
         row.signal_events = [
             SignalEventOrm(

@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
+from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
 from .models import (
     AnalysisRun,
@@ -126,6 +127,35 @@ class ResearchProvider(Protocol):
 
         Raises:
             ResearchProviderError: wenn die Quelle nicht erreichbar war.
+        """
+        ...
+
+
+class TechnicalInterpreterError(Exception):
+    """Der Technical Agent konnte fuer eine Aktie keine Einordnung liefern.
+
+    Wird vom Application-Layer pro Aktie isoliert (Muster
+    ``ResearchProviderError``) -- ein Ausfall des Sprachmodells ist ein
+    normaler Betriebszustand, kein Laufabbruch. Die deterministische
+    Chartauswertung ist zu diesem Zeitpunkt bereits fertig gerechnet und
+    bleibt vollstaendig erhalten (CLAUDE.md: Analysemodule sind entkoppelt).
+    """
+
+
+class TechnicalInterpreter(Protocol):
+    """Ordnet eine fertig gerechnete Chartauswertung qualitativ ein."""
+
+    def interpret(self, stock: Stock, snapshot: TechnicalSnapshot) -> TechnicalAssessment:
+        """Einordnung der sechs Punkte aus Doc 10, Paragraph 6.8.
+
+        Die Umsetzung veraendert **keinen** Wert des Snapshots und leitet
+        keinen neuen ab (CLAUDE.md, zentrale Regel). Ist der Snapshot nicht
+        ``COMPLETED``, liefert sie ``INSUFFICIENT_DATA`` **ohne** Aufruf des
+        Anbieters -- es gaebe nichts einzuordnen, und der Aufruf kostete nur.
+
+        Raises:
+            TechnicalInterpreterError: wenn der Anbieter nicht erreichbar war
+                oder eine Antwort lieferte, die nicht zum Schema passt.
         """
         ...
 

@@ -19,7 +19,7 @@ from dataclasses import dataclass, fields
 from datetime import datetime
 from enum import StrEnum
 
-TECHNICAL_ANALYSIS_VERSION = "technical-v2"
+TECHNICAL_ANALYSIS_VERSION = "technical-v3"
 """Version des Auswertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung). Aendert sich das Zonenverfahren oder die
 Trenddefinition, steigt diese Nummer -- alte Ergebnisse bleiben dadurch als
@@ -30,7 +30,15 @@ werden.
 Wendepunkte statt eines festen Toleranzbandes um deren Mittelwert, und die
 Staerke folgt der Zahl der Wendepunkte statt der Beruehrungen. Begruendung
 und Messwerte in ADR 0025, Abschnitt "Revision nach dem ersten Lauf an echten
-Kursen"."""
+Kursen".
+
+``v3`` gegenueber ``v2``: Die Auswertung weist zusaetzlich den Weg bis zur
+naechsten Unterstuetzung und bis zum naechsten Widerstand aus und setzt beides
+ins Verhaeltnis (ADR 0026). An den bisherigen Groessen aendert sich nichts --
+ein v2-Ergebnis bleibt Zeile fuer Zeile gueltig, es fuehrt die drei Felder nur
+nicht. Die Nummer steigt trotzdem, weil das Verfahren jetzt mehr liefert und
+man einem gespeicherten Ergebnis ansehen koennen muss, warum die Felder
+fehlen."""
 
 
 class TechnicalStatus(StrEnum):
@@ -331,3 +339,24 @@ class TechnicalSnapshot:
     zones: tuple[PriceZone, ...] = ()
     """Nach Abstand zum Kurs aufsteigend. Leer ist ein zulaessiges Ergebnis:
     Nicht jede Aktie hat mehrfach getestete Preisregionen."""
+
+    downside_to_support_pct: float | None = None
+    """Relativer Weg vom Schlusskurs bis zur Oberkante der naechstgelegenen
+    Unterstuetzung. ``None``, wenn unterhalb des Kurses keine Zone liegt --
+    dann gibt es schlicht keinen bekannten Halt, und das ist eine Aussage,
+    kein fehlender Wert, der sich durch eine Null ersetzen liesse."""
+    upside_to_resistance_pct: float | None = None
+    """Relativer Weg vom Schlusskurs bis zur Unterkante des naechstgelegenen
+    Widerstands. ``None``, wenn oberhalb des Kurses keine Zone liegt."""
+    chance_risk_ratio: float | None = None
+    """``upside_to_resistance_pct / downside_to_support_pct``.
+
+    Die Kennzahl, die Doc 10, Paragraph 6.11 als Scoring-Komponente und
+    Paragraph 6.8 als Gegenstand der KI-Einordnung nennt -- hier berechnet
+    und nicht vom Sprachmodell geschaetzt (CLAUDE.md: Scores werden nie
+    direkt aus LLM-Freitext uebernommen; ADR 0026).
+
+    ``None``, sobald eine der beiden Seiten fehlt -- ein Verhaeltnis zu einer
+    unbekannten Groesse gibt es nicht. Ein Wert von 2.0 heisst: bis zum
+    naechsten Widerstand ist es doppelt so weit wie bis zur naechsten
+    Unterstuetzung."""

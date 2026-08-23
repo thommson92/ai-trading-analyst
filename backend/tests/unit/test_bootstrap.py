@@ -22,6 +22,7 @@ from ai_trading_analyst.bootstrap import (
     build_earnings_provider,
     build_market_data_provider,
     build_research_provider,
+    build_technical_interpreter,
     project_root,
 )
 from ai_trading_analyst.config.settings import (
@@ -33,14 +34,21 @@ from ai_trading_analyst.config.settings import (
     MissingSecretError,
     ResearchConfig,
     Secrets,
+    TechnicalAgentConfig,
 )
-from ai_trading_analyst.infrastructure.anthropic import AnthropicResearchProvider
+from ai_trading_analyst.infrastructure.anthropic import (
+    AnthropicResearchProvider,
+    AnthropicTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
+from ai_trading_analyst.infrastructure.fixtures.technical_interpreter import (
+    FixtureTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -181,6 +189,39 @@ class TestResearchAnbieterauswahl:
         config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="anthropic"))
         provider = build_research_provider(config, Secrets(_env_file=None))
         assert isinstance(provider, AnthropicResearchProvider)
+
+
+
+class TestTechnicalAgentAnbieterauswahl:
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.technical_agent.provider == "fixture"
+        interpreter = build_technical_interpreter(config, Secrets(_env_file=None))
+        assert isinstance(interpreter, FixtureTechnicalInterpreter)
+
+    def test_anthropic_ohne_secret_scheitert_verstaendlich(self) -> None:
+        config = AppConfig(
+            indicators=INDICATORS, technical_agent=TechnicalAgentConfig(provider="anthropic")
+        )
+        with pytest.raises(MissingSecretError, match="ATA_LLM_API_KEY"):
+            build_technical_interpreter(config, Secrets(_env_file=None))
+
+    def test_anthropic_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS, technical_agent=TechnicalAgentConfig(provider="anthropic")
+        )
+        interpreter = build_technical_interpreter(config, Secrets(_env_file=None))
+        assert isinstance(interpreter, AnthropicTechnicalInterpreter)
+
+    def test_das_modellprofil_kommt_aus_llm_technical(self) -> None:
+        """Nicht aus ``llm.research``: Der Technical Agent interpretiert nur
+        bereits gerechnete Werte und laeuft deshalb auf einem guenstigeren
+        Modell (ADR 0021, Modellstufung)."""
+        config = AppConfig(indicators=INDICATORS)
+        assert config.llm.technical.model != config.llm.research.model
 
 
 class TestBarquelle:

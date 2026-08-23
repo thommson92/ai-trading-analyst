@@ -230,6 +230,33 @@ research:
     output_usd_per_million: 15.0
     usd_per_search: 0.01
 
+technical_agent:
+  # KI-Interpretation der deterministischen Chartauswertung (Doc 10,
+  # Paragraph 6.8 "Qualitative Interpretation"; ADR 0026). Das Modellprofil
+  # steht in llm.technical -- hier stehen nur Anbieter und Budget.
+  #
+  # Nicht zu verwechseln mit dem Abschnitt technical_analysis weiter oben:
+  # Dort stehen die Verfahrensparameter der Berechnung, die nach Doc 14 am
+  # echten Chart nachgezogen werden. Die KI verändert davon nichts.
+  #
+  # "fixture" bleibt Standard -- Start und Tests laufen ohne Anthropic-Zugang
+  # (Muster research.provider).
+  provider: fixture
+  # Eine einzige Anfrage ohne Werkzeuge: sechs Einstufungen und ein kurzer
+  # Text. 2000 Token sind dafür reichlich. Zu knapp bemessen schneidet es den
+  # Werkzeugaufruf ab, und ein abgeschnittener Aufruf wird verworfen, nicht
+  # halb verwertet.
+  max_output_tokens: 2000
+  # Deutlich kürzer als bei research (300 s): Dort laufen serverseitige
+  # Werkzeuge über mehrere Runden, hier ist es eine einzelne Anfrage.
+  request_timeout_seconds: 60
+  # Nur für die Kostenschätzung im Protokoll, VON HAND GEPFLEGT -- die
+  # Anwendung fragt keine Preisliste ab. Vor dem ersten produktiven Lauf
+  # gegen den dann aktuellen Anthropic-Katalog prüfen.
+  pricing:
+    input_usd_per_million: 1.0
+    output_usd_per_million: 5.0
+
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener
   # Vollstaendigkeit der Kerze (Risiko R9).
