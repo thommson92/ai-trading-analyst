@@ -36,8 +36,28 @@ Ein Audit wird **nicht rückwirkend geändert** — dieselbe Regel wie bei ADRs
 Audit; die alte Momentaufnahme bleibt als Beleg erhalten, wie der Stand damals
 war.
 
+## Nachverfolgung
+
+Weil ein Audit eingefroren bleibt, steht in ihm nie, was von seinen Maßnahmen
+inzwischen erledigt ist. Dafür bekommt jedes Audit ein **lebendes**
+Begleitdokument:
+
+`JJJJ-MM-TT-nachverfolgung.md`
+
+Es übernimmt die Kennungen des zugehörigen Audits (M…, E…, R…) und führt
+**ausschließlich Status und Belegverweis, niemals Inhalte** — sonst entstünde
+neben ADRs, Docs und Quellcode eine vierte Quelle, die still veraltet. Der
+Beleg ist immer ein Zeiger: ADR-Nummer, Pull Request, Commit, Datei.
+
+Je Audit eine eigene Nachverfolgung, nicht eine gemeinsame über alle hinweg:
+Die Kennungen sind auditspezifisch, ein neues Audit nummeriert neu. Ist ein
+Audit durch ein neueres abgelöst, wird seine Nachverfolgung nicht mehr
+fortgeschrieben — auch sie ist dann Beleg.
+
 ## Übersicht
 
 | Datum | Audit | Commit | Gegenstand |
 |---|---|---|---|
 | 2026-08-23 | [Repository-Audit](2026-08-23-repository-audit.md) | `f61f316` (`dev`) | Vollständiger Ist-Soll-Abgleich über Code, Tests, alle 26 ADRs, Requirements und Dokumentation nach Abschluss des Technical Agent (PR #35) |
+
+Erledigungsstand: [Nachverfolgung zum Audit vom 2026-08-23](2026-08-23-nachverfolgung.md).
