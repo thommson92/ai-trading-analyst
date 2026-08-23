@@ -76,8 +76,9 @@ und Backtesting-Details):
 | Speicherung der Signalkombination (Backtesting) | Als Menge unterschiedlicher Signaltypen; die genaue Position im Fenster wird zusätzlich gespeichert, ist aber kein Kriterium für „identische Kombination". Details in der [G1-Prüfvorlage](g1-pruefvorlage.md), Abschnitt 4.3. | **CONFIRMED** |
 
 Diese Datei enthält keine offenen Punkte mehr. Die vollständige,
-konsolidierte Fassung liegt in der [G1-Prüfvorlage](g1-pruefvorlage.md) zur
-finalen Durchsicht.
+konsolidierte Fassung steht in der [G1-Prüfvorlage](g1-pruefvorlage.md); sie
+ist durchgesehen und mit [ADR 0010](../adr/0010-gate-g1-freigegeben.md)
+freigegeben.
 
 ---
 
@@ -291,9 +292,11 @@ Zur Abgrenzung, damit beim Ausfüllen nichts doppelt verhandelt wird:
 | 2026-08-06 | RSI-interne Glättung Wilder/RMA; Signal B = Option 2 (Kerzenkörper) mit vollständiger Formel; Signal C = Option 1 (keine Kursbedingung) mit vollständiger Formel; Vergleichspräzision (ungerundet, keine Toleranz, Gleichheitsregel für Crossover); `warmup_candles = 250`; Umgang mit fehlenden Daten (`UNKNOWN_DATA_INCOMPLETE`) | Thomas Kellner |
 | 2026-08-06 | Sechs-Kerzen-Fenster (aktuelle + 5 vorherige) der Kandidatenregel; Signaltypen dürfen auf unterschiedlichen Kerzen auftreten, Zählung pro Typ statt pro Ereignis; Backtesting-Entscheidungspunkte ausschließlich an ersten Tageskerzen; Performancemessung in Kerzen statt Handelstagen; Speicherung der Signalkombination als Menge | Thomas Kellner |
 
-Diese Tabelle wird bei jeder weiteren Bestätigung ergänzt. Diese Datei enthält
-keine offenen Punkte mehr; die vollständige, konsolidierte Fassung liegt in
-der [G1-Prüfvorlage](g1-pruefvorlage.md) zur finalen Durchsicht. Sobald du
-diese bestätigst, gilt Gate G1 als vollständig freigegeben; ein neues ADR löst
-dann [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ab und der
-Abschnitt `indicators:` in `config/default.yaml` wird aktiviert.
+Diese Tabelle wird bei jeder weiteren Bestätigung ergänzt.
+
+**Alles davon ist eingetreten.** Die [G1-Prüfvorlage](g1-pruefvorlage.md) ist
+bestätigt, Gate G1 ist vollständig freigegeben
+([ADR 0010](../adr/0010-gate-g1-freigegeben.md), das
+[ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ablöst), und der
+Abschnitt `indicators:` in `config/default.yaml` ist gefüllt. `require_indicators()`
+bricht weiterhin mit `GateNotClearedError` ab, falls er fehlt.

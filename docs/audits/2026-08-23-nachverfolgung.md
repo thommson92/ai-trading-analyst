@@ -54,7 +54,7 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M3 | E2 entscheiden, Tiefe messen, ggf. Backfill-Batch | **teilweise** | ADR 0027, ADR 0028; PR #37 (`9ce7391`, `2b8021d`). **Offen:** der Lauf über die volle Watchlist auf dem Server — siehe unten |
 | M4 | E1 entscheiden, Ergebnis in den Sprint-5-Zuschnitt | **offen** | durch ADR 0028 entblockt, aber unentschieden |
 | M5 | Golden-Master für Screener und Backtest | **erledigt**, mit Abweichung | PR #37, `813c539`, `backend/tests/golden/`. Abweichung siehe unten |
-| M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, vier gegengeprobte Sonden |
+| M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, fünf gegengeprobte Sonden. Dabei eine echte Lücke gefunden und geschlossen, siehe unten |
 | M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **offen** | — |
 | M8 | E5-Paket Research-Qualität | **offen** | Dringlichkeit gestiegen, siehe E5 |
 | M9 | README- und Roadmap-Status nachziehen | **erledigt** | `README.md`, `docs/03 - Roadmap.md` |
@@ -88,6 +88,21 @@ Verhalten an echten Kursen (Lücken, Feiertage, Splits, Halts).
 Der Weg dahin steht offen und kostet keine Codeänderung: `cli export-bars`
 schreibt dasselbe Format aus dem Bestand, `available_cases()` nimmt jede
 weitere `*.bars.csv` als zusätzlichen Fall auf.
+
+### M6 — was der Test gefunden hat
+
+Die Sonden waren als reine Absicherung geplant und haben eine tatsächliche
+Lücke aufgedeckt: Die Strukturierungsphase bekam den Recherchetext zwischen
+`<recherchetext>`-Tags, ohne dass der Text gegen seine eigene Abgrenzung
+gesichert war. Ein Suchtreffer oder abgerufenes Dokument, das das
+schließende Tag enthält, hätte die Datenregion vorzeitig beendet — alles
+danach wäre in Instruktionsposition gelandet.
+
+Geschlossen in `_build_structure_prompt` / `_neutralize_delimiters`
+(`infrastructure/anthropic/provider.py`): Die Tags werden im Text unkenntlich
+gemacht und der Vorgang protokolliert. Der Bericht wird nicht verworfen — ein
+legitimer Recherchetext enthält sie nicht, und ein Lauf ist zu teuer, um ihn
+an einem Zeichenspiel scheitern zu lassen.
 
 ---
 
