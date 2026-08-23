@@ -269,7 +269,23 @@ Der Adapter behält seine zweite Verteidigungslinie: Kommt trotz Schema eine
 Antwort ohne jede Einstufung, wird sie weiterhin auf `INSUFFICIENT_DATA`
 herabgestuft, und fehlende Felder werden weiterhin protokolliert.
 
-**Auch `v3` ist noch nicht am Modell verifiziert.**
+**`v3` ist am Modell verifiziert.** Der dritte Lauf lieferte für beide Titel
+alle sechs Einstufungen samt Zusammenfassung, ohne Warnung im Protokoll. Die
+Einordnungen widersprachen keiner Zahl: `MODERATE` bei `Trend: UP` und
+`ABSENT` bei `SIDEWAYS`, `NEUTRAL` bei RSI 47,3 beziehungsweise 53,8,
+`BALANCED` bei 1,05 und 0,96. Kosten rund 0,0056 USD je Titel.
+
+Besonders geprüft, weil es die Stelle ist, an der ein Modell erfahrungsgemäß
+danebengreift: AAPLs nächste Unterstützung ist genau das Rauschen aus ADR
+0025 — ein Wendepunkt, zwölf Berührungen, `WEAK`. Das Modell nannte sie „sehr
+nah", aber an keiner Stelle stark. Die Auslegungsregel im Prompt trägt.
+
+**Nicht verifiziert ist `temperature=0`.** Die drei Läufe liefen mit drei
+verschiedenen Prompt-Fassungen und sind nicht vergleichbar. Zwei
+aufeinanderfolgende Läufe mit derselben Fassung würden es zeigen. Unabhängig
+davon gilt: Temperatur 0 macht die Antwort sehr viel stabiler, aber die API
+sichert keine bitgleiche Ausgabe zu — „reproduzierbar genug" trifft es, nicht
+„deterministisch".
 
 ### Was der Lauf sonst bestätigt hat
 
@@ -303,10 +319,18 @@ Eingabe.
 
 ### Negativ / offen
 
-- **`technical-agent-v3` ist noch nicht verifiziert.** Zwei Läufe haben zu zwei
-  Korrekturen geführt (siehe Revisionsabschnitte); ob die Pflichtfelder
-  greifen, zeigt erst der nächste. Der Adapter bleibt darauf eingerichtet,
-  dass sie es nicht tun.
+- **Der Prompt hat drei Fassungen gebraucht** (siehe Revisionsabschnitte).
+  Die Lehre daraus ist übertragbar: Was eine KI-Komponente liefern *muss*,
+  gehört ins Schema, nicht in den Prompt. Zwei Prompt-Fassungen haben es
+  nicht geschafft, das Schema auf Anhieb. Der Adapter bleibt trotzdem darauf
+  eingerichtet, dass die Durchsetzung einmal nicht greift.
+- **`temperature=0` ist nicht verifiziert.** Zwei aufeinanderfolgende Läufe
+  mit derselben Prompt-Fassung stehen aus. Und die API sichert ohnehin keine
+  bitgleiche Ausgabe zu.
+- **Die Einordnungen streuen wenig über Titel hinweg.** Beide Läufe ergaben
+  `MEDIUM` als Fehlsignalrisiko und 0,65 als Konfidenz. Bei zwei Titeln ist
+  das keine belastbare Beobachtung, aber es wäre der erste Punkt, an dem sich
+  eine zu gleichförmige Einordnung zeigen würde.
 - **„Relevante Chartmuster" aus US-007 (Doc 04) werden nicht geliefert.** Es
   gibt keine deterministische Mustererkennung, und ein Modell, das aus einer
   Handvoll Zahlen Formationen benennt, würde genau das erfinden, was
