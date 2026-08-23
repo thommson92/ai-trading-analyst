@@ -56,7 +56,7 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M5 | Golden-Master für Screener und Backtest | **erledigt**, mit Abweichung | PR #37, `813c539`, `backend/tests/golden/`. Abweichung siehe unten |
 | M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, fünf gegengeprobte Sonden. Dabei eine echte Lücke gefunden und geschlossen, siehe unten |
 | M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **offen** | — |
-| M8 | E5-Paket Research-Qualität | **offen** | Dringlichkeit gestiegen, siehe E5 |
+| M8 | E5-Paket Research-Qualität | **erledigt** | [ADR 0029](../adr/0029-research-qualitaet.md); Kostenwirkung erst nach einem Serverlauf belegbar |
 | M9 | README- und Roadmap-Status nachziehen | **erledigt** | `README.md`, `docs/03 - Roadmap.md` |
 | M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **erledigt** | Kopfvermerk je Dokument; G1-Status auf „freigegeben" (ADR 0010) |
 | M11 | Deployment-ADR (E6) und Doc 13 neu | **offen** | braucht E6 |
@@ -118,7 +118,7 @@ als ADR.
 | E2 | Historientiefe: Backfill oder Anspruch senken | **entschieden** | [ADR 0027](../adr/0027-historientiefe-messen-vor-anspruch.md) (Weg a), [ADR 0028](../adr/0028-historientiefe-gemessen.md) (Messergebnis) |
 | E3 | Historische Earnings-Termine über SEC EDGAR | **offen** | durch ADR 0028 entblockt |
 | E4 | Wochentagsnäherung ablösen? | **offen** | ADR 0020 L3 ist eine offene Zusage |
-| E5 | Research-Qualitätspaket | **offen** | **Dringlichkeit gestiegen**, siehe unten |
+| E5 | Research-Qualitätspaket | **entschieden** | [ADR 0029](../adr/0029-research-qualitaet.md) — ersetzt Teile von ADR 0023 |
 | E6 | Deployment-Zielbild festschreiben | **offen** | — |
 | E7 | Inhalt der Ergebnis-Benachrichtigung | **offen** | ADR 0024 gegen Doc 02 §2.12 |
 | E8 | F12: externer Dashboard-Zugriff und Auth | **offen** | blockierend für Sprint 6 |
@@ -140,6 +140,20 @@ Repository nicht belegbar). Damit sind die vier in ADR 0023 belegten Mängel
 kein Vorsorgethema mehr: sie wirken bei jedem Lauf. E5 ist die
 höchstpriorisierte offene Entscheidung.
 
+### E5 — was beim Umsetzen dazukam
+
+Zwei Befunde, die in der Entscheidungsvorlage des Audits nicht stehen, weil
+sie erst beim Lesen von Adapter und SDK sichtbar wurden:
+
+- **Der Systemprompt nannte die abrufbaren Domains nicht.** Er sagte nur „auf
+  wenige vertrauenswürdige Domains beschränkt". Das Modell musste raten, und
+  jeder Fehlgriff verrechnete den gesamten Kontext erneut — das ist die
+  wahrscheinlich größte Einzelursache der gemessenen Kostenstreuung.
+- **Suchtreffer wurden gar nicht ausgewertet.** `_scan_tool_result` stieg bei
+  einer Liste sofort aus. Dadurch war `page_age` unerreichbar — das einzige
+  Alterssignal, das die API liefert, und die Grundlage für den Umgang mit
+  `published_at`.
+
 ---
 
 ## Risiken (R1–R10)
@@ -150,7 +164,7 @@ höchstpriorisierte offene Entscheidung.
 | R2 | Kein Golden Master, Verfahrensdrift unentdeckbar | **geschlossen** | PR #37, `813c539` |
 | R3 | Projekt-`CLAUDE.md` mit veralteten Gates | **geschlossen** | PR #37, `eabcaca` |
 | R4 | Doc 14 Stufe B bricht am falschen Head ab | **geschlossen** | PR #37, `eabcaca` |
-| R5 | Research: Kostenstreuung und schwache Belegqualität | **offen — eingetreten** | Dauerbetrieb läuft, siehe E5. Behebung über M8 |
+| R5 | Research: Kostenstreuung und schwache Belegqualität | **eingegrenzt** | Belegqualität behoben (ADR 0029). Die Kostenwirkung ist begründet erwartet, aber erst nach einem Vergleichslauf auf dem Server belegt |
 | R6 | Backtest ohne historischen Earnings-Filter | **offen** | ADR 0017 L9; Entscheidung E3 |
 | R7 | Kein Merge-Schutz, CI-Grün nicht erzwungen | **offen** | ADR 0009/0011; Entscheidung E10 |
 | R8 | Manuell gepflegte Preislisten veralten still | **offen** | M14 |
@@ -169,4 +183,5 @@ Feststellung des Audits — sie stehen daneben.
 |---|---|
 | 2026-08-23 | Der Research Agent läuft im täglichen Scharfbetrieb. Das Audit führte den Betriebszustand des Servers als nicht verifizierbar. Folge: E5/R5 sind eingetreten, nicht mehr vorsorglich. |
 | 2026-08-23 | IBKR zählt `durationStr` bei Intraday-Bars in **Handelstagen**, nicht Kalendertagen — gemessen, nicht dokumentiert (ADR 0028). Das Audit ging bei der Bewertung von E2 von Kalendertagen aus. |
+| 2026-08-23 | Der Server läuft auf **Python 3.13**, nicht 3.12 (Auskunft des Projektverantwortlichen). Damit ist E12 ③ beantwortet und M13 erledigt. |
 | 2026-08-23 | Die in ADR 0011 beschriebene CI-Dispatch-Schwäche besteht nicht mehr: 171 Läufe statt der damaligen 3, beide Trigger feuern. Das Audit führte GitHub-seitige Zustände als aus dem Repository nicht verifizierbar. Der fehlende Merge-Schutz (R7) bleibt davon unberührt. |

@@ -63,6 +63,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0026](0026-technical-agent-ki-einordnung.md) | Technical Agent — KI-Einordnung der deterministischen Chartauswertung | Angenommen |
 | [0027](0027-historientiefe-messen-vor-anspruch.md) | Historientiefe — messen, dann holen, was es gibt (E2, Weg a) | Angenommen (Messergebnis in ADR 0028) |
 | [0028](0028-historientiefe-gemessen.md) | Historientiefe gemessen — mindestens 17,4 Jahre, `history_years: 5` bestätigt, Tiefen-Backfill beschlossen | Angenommen |
+| [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
 
 ## Offene Entscheidungen
 
