@@ -105,6 +105,9 @@ class TestDatenbankfehler:
         def latest_start_overall(self) -> datetime | None:
             return None
 
+        def earliest_start(self, symbol: str) -> datetime | None:
+            return None
+
         def add_all(self, symbol: str, bars: object) -> int:
             return 0
 

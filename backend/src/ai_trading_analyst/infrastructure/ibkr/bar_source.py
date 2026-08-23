@@ -128,6 +128,18 @@ def ibkr_duration(days: int) -> str:
     Tagesangaben nimmt die API bis 365 an; darueber ist in Jahren zu rechnen.
     Aufgerundet wird bewusst -- lieber ein paar Bars zu viel als eine Luecke,
     zumal doppelte Bars beim Speichern ohnehin uebergangen werden.
+
+    **Achtung, gemessener Befund:** Bei Intraday-Bars zaehlt IBKR die
+    Tagesangabe in **Handelstagen**, nicht in Kalendertagen. Die
+    offizielle Dokumentation sagt dazu nichts; belegt ist es durch die
+    Tiefenmessung vom 2026-08-23 (ADR 0028), bei der zwoelf Fenster zu je
+    ``365 D`` nicht zwoelf, sondern 17,4 Jahre abdeckten -- je Fenster rund
+    9.455 Bars, also 364 Handelstage oder etwa 530 Kalendertage.
+
+    Fuer den taeglichen Backfill ist das folgenlos, dort wird ohnehin
+    grosszuegig angefragt. Wer aber einen Zeitraum *ausrechnet* -- der
+    Tiefen-Backfill tut das --, muss in Handelstagen rechnen, sonst holt er
+    fast das Anderthalbfache des Noetigen.
     """
     if days < 1:
         raise ValueError(f"days muss mindestens 1 sein, ist aber {days}")

@@ -1383,3 +1383,78 @@ class TestExportBarsSchreiben:
 
         assert datei is not None
         assert read_bars(datei) == tuple(self._bars())
+
+
+class TestDeepenHistoryKommando:
+    """Der einmalige Tiefen-Backfill (ADR 0028).
+
+    Legt ab und braucht deshalb eine Datenbank. Der Abruf selbst braucht die
+    TWS und ist hier nicht Gegenstand.
+    """
+
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_ohne_datenbankadresse_meldet_es_sich_verstaendlich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", "AAPL"]) == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", ","]) == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["deepen-history", "--symbols", "AAPL", "--years", "3", "--window-days", "200"]
+        )
+        assert args.symbols == "AAPL"
+        assert args.years == 3
+        assert args.window_days == 200
+
+    def test_ohne_years_entscheidet_die_konfiguration(self) -> None:
+        """Wie ``--provider``: Das Argument uebersteuert, es setzt nicht.
+
+        Sonst haette die Kommandozeile eine eigene Zieltiefe, die von
+        backtesting.history_years abweichen koennte -- und der Bestand
+        entspraeche nicht dem, was die Kennzahlen unterstellen.
+        """
+        assert build_parser().parse_args(["deepen-history"]).years is None
+
+    def test_das_fenster_zaehlt_in_handelstagen(self) -> None:
+        assert build_parser().parse_args(["deepen-history"]).window_days == 365
+
+
+class TestLaufzeitschaetzung:
+    """Die erste Fassung zaehlte nur die Pacing-Pausen und versprach sieben
+    Minuten fuer einen Lauf, der zwanzig brauchte."""
+
+    def test_die_uebertragung_zaehlt_mit(self) -> None:
+        nur_pacing = 36 * 11 / 60
+
+        text = cli._laufzeitschaetzung(36, 11.0)
+
+        gemeldet = float(text.split("grob ")[1].split(" ")[0])
+        assert gemeldet > nur_pacing * 2
+
+    def test_lange_laeufe_erscheinen_in_stunden(self) -> None:
+        """760 Anfragen in Minuten waeren eine unlesbare Zahl."""
+        text = cli._laufzeitschaetzung(760, 11.0)
+
+        assert "Stunden" in text
+
+    def test_kurze_laeufe_bleiben_in_minuten(self) -> None:
+        assert "Minuten" in cli._laufzeitschaetzung(5, 11.0)

@@ -226,6 +226,18 @@ class IntradayBarRepository(Protocol):
         """
         ...
 
+    def earliest_start(self, symbol: str) -> datetime | None:
+        """Beginn des **aeltesten** gespeicherten Bars, oder ``None``.
+
+        Der Gegenpart zu ``latest_start`` und die Frage, von der der
+        Tiefen-Backfill lebt: Er fuellt nicht vorwaerts bis heute, sondern
+        rueckwaerts in die Vergangenheit. Sein Ansatzpunkt ist deshalb der
+        aelteste bekannte Bar -- und weil der mit jedem geschriebenen Fenster
+        weiter zurueckwandert, setzt ein abgebrochener Lauf ohne Zutun genau
+        dort wieder an.
+        """
+        ...
+
     def add_all(self, symbol: str, bars: Sequence[IntradayBar]) -> int:
         """Speichert Bars und liefert die Zahl der **neu** hinzugekommenen.
 

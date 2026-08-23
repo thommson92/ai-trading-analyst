@@ -257,9 +257,53 @@ Entscheidend ist die Spalte **Grenze** im Bericht:
 | `window_limit` | die eigene Reißleine hat gegriffen — die Tiefe ist nur eine **Untergrenze**, mit `--max-windows` höher ansetzen |
 | `error` | Abruf gescheitert — ebenfalls nur eine Untergrenze, die Meldung steht darunter |
 
-**Das Ergebnis gehört ins Nachfolge-ADR zu 0027**, zusammen mit dem daraus
-gesetzten Wert für `backtesting.history_years`. Bis dahin bleibt die
-Konfiguration unverändert.
+Das Ergebnis der ersten Messung steht in
+[ADR 0028](adr/0028-historientiefe-gemessen.md): mindestens 17,4 Jahre, alle
+drei Titel an der Reißleine. `backtesting.history_years: 5` ist damit belegt
+und bleibt.
+
+## Zwischenschritt: Tiefen-Backfill (einmalig, Wochenendlauf)
+
+Der Batch aus [ADR 0028](adr/0028-historientiefe-gemessen.md). Er füllt den
+Bestand **rückwärts** auf `backtesting.history_years` auf — der tägliche
+`backfill` verlängert ihn nach vorn, dieser nach hinten.
+
+Erst ein Probelauf über wenige Titel:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli deepen-history --provider ibkr `
+    --symbols AAPL,MSFT
+```
+
+Dann die volle Watchlist. **Das dauert rund elf Stunden** — 190 Aktien × 5
+Fenster bei 11 Sekunden Abstand und etwa 30 Sekunden Übertragung je Fenster.
+Der Lauf gehört auf einen Freitagabend:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli deepen-history --provider ibkr
+```
+
+**Ein Abbruch ist unkritisch, und zwar ausdrücklich auch der nächtliche
+TWS-Neustart.** Jedes Fenster wird sofort abgelegt; der Ansatzpunkt ist der
+älteste gespeicherte Bar und wandert mit jedem Fenster zurück. Ein erneuter
+Start setzt genau dort an. Aufzuräumen gibt es nichts.
+
+Ein zweiter Lauf über einen bereits tiefen Bestand kostet **keine einzige
+Anfrage** — er meldet je Aktie „war schon tief genug" und ist in Sekunden
+durch. Das Kommando lässt sich deshalb bedenkenlos wiederholen, bis die
+Bilanz sauber ist.
+
+Am Ende auf zwei Zeilen achten:
+
+- **Fehlgeschlagen** — Aktien, bei denen Abruf oder Ablage scheiterten.
+  Einfach erneut starten; sie setzen dort an, wo sie aufhörten.
+- **Unter dem Zielzeitraum** — Aktien, für die IBKR nicht so weit zurück
+  liefert. Bei einer Neuemission erwartbar und **kein Fehler**: Die
+  Kennzahlen dieser Aktien tragen ihren tatsächlichen `history_start`.
+
+Der Bestand wächst dabei erheblich — rund 33.000 Bars je Aktie für fünf
+Jahre, bei voller Watchlist etwa 6,3 Millionen Zeilen. Für PostgreSQL
+unkritisch, aber beim Sichern zu bedenken.
 
 ## Zwischenschritt: Datenausschnitt für den Golden Master ziehen (optional)
 

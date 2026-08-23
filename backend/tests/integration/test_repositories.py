@@ -819,6 +819,42 @@ class TestIntradayBarRepository:
         with uow_factory() as uow:
             assert uow.intraday_bars.latest_start("AAPL") == bars[-1].start
 
+    def test_der_erste_stand_ist_der_aelteste_bar(self, uow_factory: UowFactory) -> None:
+        """Der Ansatzpunkt des Tiefen-Backfills (ADR 0028).
+
+        Er fuellt rueckwaerts, nicht vorwaerts -- und weil dieser Wert mit
+        jedem geschriebenen Fenster weiter zurueckwandert, setzt ein
+        abgebrochener Lauf ohne Zutun genau dort wieder an.
+        """
+        bars = self._bars(5)
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", bars)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.earliest_start("AAPL") == bars[0].start
+
+    def test_ohne_daten_gibt_es_keinen_ersten_stand(self, uow_factory: UowFactory) -> None:
+        with uow_factory() as uow:
+            assert uow.intraday_bars.earliest_start("LEER") is None
+
+    def test_der_erste_stand_wandert_mit_aelteren_bars_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Die Eigenschaft, auf der die Fortsetzbarkeit beruht."""
+        spaet = self._bars(3)
+        frueh = self._bars(3, ab=datetime(2025, 3, 10, 9, 30, tzinfo=self.NEW_YORK))
+        with uow_factory() as uow:
+            uow.intraday_bars.add_all("AAPL", spaet)
+            uow.commit()
+        with uow_factory() as uow:
+            assert uow.intraday_bars.earliest_start("AAPL") == spaet[0].start
+            uow.intraday_bars.add_all("AAPL", frueh)
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.intraday_bars.earliest_start("AAPL") == frueh[0].start
+
     def test_derselbe_lauf_zweimal_schreibt_nichts_doppelt(self, uow_factory: UowFactory) -> None:
         """Die Eigenschaft, die den Backfill wiederholbar macht: Ein
         abgebrochener Lauf wird schlicht erneut gestartet."""
