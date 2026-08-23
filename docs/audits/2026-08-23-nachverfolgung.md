@@ -4,7 +4,7 @@
 > ändert — im Gegensatz zum [Audit selbst](2026-08-23-repository-audit.md),
 > das als eingefrorene Momentaufnahme unverändert bleibt.
 
-**Stand:** 2026-08-23
+**Stand:** 2026-08-23 (nach PR #37 und dem Zweig `feature/audit-nachverfolgung`)
 
 ## Wozu dieses Dokument
 
@@ -54,13 +54,13 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M3 | E2 entscheiden, Tiefe messen, ggf. Backfill-Batch | **teilweise** | ADR 0027, ADR 0028; PR #37 (`9ce7391`, `2b8021d`). **Offen:** der Lauf über die volle Watchlist auf dem Server — siehe unten |
 | M4 | E1 entscheiden, Ergebnis in den Sprint-5-Zuschnitt | **offen** | durch ADR 0028 entblockt, aber unentschieden |
 | M5 | Golden-Master für Screener und Backtest | **erledigt**, mit Abweichung | PR #37, `813c539`, `backend/tests/golden/`. Abweichung siehe unten |
-| M6 | Prompt-Injection-Test für den Research-Adapter | **offen** | — |
+| M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, vier gegengeprobte Sonden |
 | M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **offen** | — |
 | M8 | E5-Paket Research-Qualität | **offen** | Dringlichkeit gestiegen, siehe E5 |
-| M9 | README- und Roadmap-Status nachziehen | **offen** | — |
-| M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **offen** | — |
+| M9 | README- und Roadmap-Status nachziehen | **erledigt** | `README.md`, `docs/03 - Roadmap.md` |
+| M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **erledigt** | Kopfvermerk je Dokument; G1-Status auf „freigegeben" (ADR 0010) |
 | M11 | Deployment-ADR (E6) und Doc 13 neu | **offen** | braucht E6 |
-| M12 | ADR-Nachträge zu 0006, 0009, 0011 | **offen** | — |
+| M12 | ADR-Nachträge zu 0006, 0009, 0011 | **erledigt** | je ein `### Nachtrag`-Abschnitt; Entscheidungstexte unberührt |
 | M13 | Python-Version des Servers klären, Doku vereinheitlichen | **offen** | braucht Serverzugriff, siehe E12 ③ |
 | M14 | Sammelposten P4 | **offen** | teils E12 |
 
@@ -154,3 +154,4 @@ Feststellung des Audits — sie stehen daneben.
 |---|---|
 | 2026-08-23 | Der Research Agent läuft im täglichen Scharfbetrieb. Das Audit führte den Betriebszustand des Servers als nicht verifizierbar. Folge: E5/R5 sind eingetreten, nicht mehr vorsorglich. |
 | 2026-08-23 | IBKR zählt `durationStr` bei Intraday-Bars in **Handelstagen**, nicht Kalendertagen — gemessen, nicht dokumentiert (ADR 0028). Das Audit ging bei der Bewertung von E2 von Kalendertagen aus. |
+| 2026-08-23 | Die in ADR 0011 beschriebene CI-Dispatch-Schwäche besteht nicht mehr: 171 Läufe statt der damaligen 3, beide Trigger feuern. Das Audit führte GitHub-seitige Zustände als aus dem Repository nicht verifizierbar. Der fehlende Merge-Schutz (R7) bleibt davon unberührt. |
