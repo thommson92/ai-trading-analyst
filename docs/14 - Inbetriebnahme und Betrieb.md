@@ -260,6 +260,32 @@ Entscheidend ist die Spalte **Grenze** im Bericht:
 gesetzten Wert für `backtesting.history_years`. Bis dahin bleibt die
 Konfiguration unverändert.
 
+## Zwischenschritt: Datenausschnitt für den Golden Master ziehen (optional)
+
+Ebenfalls kein Abnahmekriterium. Der Golden Master
+(`backend/tests/golden`) bewacht das Rechenverfahren von Screener und
+Backtest gegen unbeabsichtigte Änderungen. Seine eingefrorenen Bars sind
+**erzeugt, nicht gemessen** — der reale Bestand liegt nur hier auf dem
+Server. Ein echter Ausschnitt lässt sich danebenlegen:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli export-bars `
+    --symbols AAPL,MSFT --output tests\golden\data --since 2025-01-02
+```
+
+Das Kommando liest nur; der Bestand bleibt unverändert. Je Symbol entsteht
+eine `<symbol>.bars.csv`. Danach einmalig aufzeichnen und beides committen:
+
+```powershell
+$env:ATA_GOLDEN_MASTER_RECORD = "1"
+.venv\Scripts\python.exe -m pytest tests\golden
+Remove-Item Env:\ATA_GOLDEN_MASTER_RECORD
+```
+
+Die Reihe muss über 250 Kerzen hinausreichen — darunter antwortet die
+Kandidatenprüfung ausnahmslos mit `UNKNOWN_DATA_INCOMPLETE`, und die
+Aufzeichnung enthielte nichts. Ein Test hält das fest.
+
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 
 Kein Abnahmekriterium, sondern eine Gelegenheit. Sobald der Bestand steht,

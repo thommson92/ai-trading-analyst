@@ -31,7 +31,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from uuid import uuid4
 
@@ -461,6 +461,61 @@ def command_backfill(args: argparse.Namespace) -> int:
     return 1 if bericht.failures else 0
 
 
+def command_export_bars(args: argparse.Namespace) -> int:
+    """Schreibt gespeicherte Bars als CSV heraus.
+
+    Gedacht fuer den Golden Master (``tests/golden``): Dessen eingefrorene
+    Reihen sind erzeugt, nicht gemessen, weil der reale Bestand nur auf dem
+    Server liegt. Mit diesem Kommando laesst sich dort ein echter Ausschnitt
+    ziehen und danebenlegen -- das Format ist dasselbe, und der Golden
+    Master nimmt jede weitere ``*.bars.csv`` von allein als Fall auf.
+
+    Liest nur; der Bestand bleibt unveraendert.
+    """
+    load_config(args.config)
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    symbole = tuple(symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip())
+    if not symbole:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return 2
+
+    ziel = Path(args.output)
+    if not ziel.is_dir():
+        print(f"--output ist kein Verzeichnis: {ziel}", file=sys.stderr)
+        return 2
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    geschrieben = 0
+    for symbol in symbole:
+        with SqlAlchemyUnitOfWork(session_factory) as uow:
+            bars = uow.intraday_bars.list_for(symbol)
+        if not bars:
+            # Kein Fehler des Kommandos, aber auch keine Datei: Eine leere
+            # CSV saehe im Golden Master aus wie ein Fall ohne Ergebnis.
+            print(f"{symbol}: keine gespeicherten Bars -- keine Datei angelegt", file=sys.stderr)
+            continue
+        if args.since is not None:
+            grenze = datetime.combine(args.since, time.min, tzinfo=UTC)
+            bars = [bar for bar in bars if bar.start >= grenze]
+        datei = ziel / f"{symbol.lower()}.bars.csv"
+        zeilen = ["start,open,high,low,close,volume"]
+        zeilen.extend(
+            f"{bar.start.isoformat()},{bar.open:.4f},{bar.high:.4f},"
+            f"{bar.low:.4f},{bar.close:.4f},{bar.volume:.0f}"
+            for bar in bars
+        )
+        datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+        print(f"{symbol}: {len(bars)} Bars nach {datei}")
+        geschrieben += 1
+
+    return 0 if geschrieben else 1
+
+
 _GRENZE_TEXT = {
     DepthLimit.PROVIDER_EXHAUSTED: "IBKR gab nichts mehr her -- gemessene Tiefe",
     DepthLimit.NO_PROGRESS: "IBKR kam nicht weiter zurueck -- gemessene Tiefe",
@@ -755,8 +810,7 @@ def _print_backtest_summary(stock: StockBacktest) -> None:
         if horizon.confidence is not BacktestConfidence.INSUFFICIENT_DATA
     )
     print(
-        f"{stock.symbol}: {auswertbar} auswertbare Horizonte "
-        f"von {len(stock.results)} Kombinationen"
+        f"{stock.symbol}: {auswertbar} auswertbare Horizonte von {len(stock.results)} Kombinationen"
     )
 
 
@@ -1153,9 +1207,7 @@ def command_technical(args: argparse.Namespace) -> int:
             print(f"{stock.symbol}: {error}", file=sys.stderr)
             fehler += 1
             continue
-        snapshot = compute_technical_snapshot(
-            series, len(series) - 1, params, datetime.now(UTC)
-        )
+        snapshot = compute_technical_snapshot(series, len(series) - 1, params, datetime.now(UTC))
         _print_technical_snapshot(stock.symbol, snapshot)
         if args.show_prompt:
             # Bewusst unabhaengig von --interpret: "zeig mir, was gesendet
@@ -1409,9 +1461,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         if kandidaten:
             print(f"Kandidaten: {', '.join(kandidaten)}")
 
-        require_complete_enough(
-            zusammenfassung, config.scheduler.minimum_completion_ratio
-        )
+        require_complete_enough(zusammenfassung, config.scheduler.minimum_completion_ratio)
 
     def latest_stored_bar() -> datetime | None:
         with uow_factory() as uow:
@@ -1451,9 +1501,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
 
 
 def _print_dispatch(ergebnis: DispatchOutcome) -> None:
-    zeitpunkt = (
-        ergebnis.scheduled.candle_close.isoformat() if ergebnis.scheduled else "unbestimmt"
-    )
+    zeitpunkt = ergebnis.scheduled.candle_close.isoformat() if ergebnis.scheduled else "unbestimmt"
     if ergebnis.error is not None:
         print(f"Lauf fuer {zeitpunkt} gescheitert: {ergebnis.error}", file=sys.stderr)
         return
@@ -1639,6 +1687,34 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     depth.set_defaults(handler=command_history_depth)
+
+    export = subparsers.add_parser(
+        "export-bars",
+        help=(
+            "Schreibt gespeicherte Bars als CSV heraus -- fuer einen echten "
+            "Datenausschnitt im Golden Master (tests/golden)."
+        ),
+    )
+    export.add_argument(
+        "--symbols",
+        required=True,
+        help="Kommagetrennte Symbole. Je Symbol entsteht eine Datei <symbol>.bars.csv.",
+    )
+    export.add_argument(
+        "--output",
+        required=True,
+        help="Vorhandenes Zielverzeichnis, etwa backend\\tests\\golden\\data.",
+    )
+    export.add_argument(
+        "--since",
+        type=date.fromisoformat,
+        default=None,
+        help=(
+            "Nur Bars ab diesem Datum (JJJJ-MM-TT). Ohne Angabe der ganze Bestand -- "
+            "der ist fuer eine eingefrorene Datei meist mehr, als gebraucht wird."
+        ),
+    )
+    export.set_defaults(handler=command_export_bars)
 
     dispatch = subparsers.add_parser(
         "dispatch",

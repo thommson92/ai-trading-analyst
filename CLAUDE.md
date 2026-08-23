@@ -162,3 +162,29 @@ cd backend
 cd frontend
 npm run lint && npm run typecheck && npm run build
 ```
+
+## Golden Master
+
+`backend/tests/golden` rechnet die vollständige deterministische Kette —
+Kerzenbildung, Indikatoren, 2-aus-3-Regel, Backtest-Kennzahlen — über
+eingefrorene Bars und vergleicht das Ergebnis mit einer aufgezeichneten
+Datei. Er läuft im gewöhnlichen `pytest`-Lauf mit, ohne Netz und ohne
+Datenbank.
+
+**Bricht ein Golden-Master-Test, ist das eine Aussage über das Verfahren.**
+Entweder ist ein Fehler entstanden — dann wird er behoben —, oder die
+Änderung ist gewollt. Dann, und nur dann, wird neu aufgezeichnet:
+
+```bash
+cd backend
+ATA_GOLDEN_MASTER_RECORD=1 .venv/bin/python -m pytest tests/golden
+```
+
+Der Diff der `*.expected.json` gehört vor dem Commit angesehen: Er zeigt,
+was die Änderung tatsächlich bewirkt hat. Eine gewollte Verfahrensänderung
+zieht außerdem eine neue Versionsnummer nach sich.
+
+Die eingefrorenen Bars sind **erzeugt, nicht gemessen** — der reale Bestand
+liegt nur auf dem Server. Was daraus folgt, steht in
+`tests/golden/generate_bars.py`. Ein echter Ausschnitt lässt sich mit
+`cli export-bars` daneben legen; er wird ohne Codeänderung zum weiteren Fall.

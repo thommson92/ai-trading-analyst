@@ -1218,3 +1218,76 @@ class TestHistoryDepthKommando:
         """Die Frage nach der Tiefe beantworten wenige Titel so gut wie alle --
         und die ganze Watchlist kostete unter Pacing Stunden."""
         assert build_parser().parse_args(["history-depth"]).limit == 3
+
+
+class TestExportBarsKommando:
+    """Zieht einen echten Datenausschnitt aus dem Bestand (Golden Master, M5).
+
+    Liest nur. Der Bestand selbst braucht eine Datenbank und ist Gegenstand
+    der Integrationstests; hier geht es um den Rahmen.
+    """
+
+    def test_ohne_datenbankadresse_meldet_es_sich_verstaendlich(
+        self,
+        projekt: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "export-bars",
+                "--symbols",
+                "AAPL",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+
+        assert code == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+    def test_ein_fehlendes_zielverzeichnis_faellt_vor_der_datenbank_auf(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst faende der Nutzer den Fehler erst nach dem Abruf."""
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "export-bars",
+                "--symbols",
+                "AAPL",
+                "--output",
+                str(tmp_path / "gibtesnicht"),
+            ]
+        )
+
+        assert code == 2
+        assert "kein Verzeichnis" in capsys.readouterr().err
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            ["--config", str(config), "export-bars", "--symbols", ",", "--output", str(tmp_path)]
+        )
+
+        assert code == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["export-bars", "--symbols", "AAPL", "--output", ".", "--since", "2025-01-02"]
+        )
+        assert args.symbols == "AAPL"
+        assert args.since is not None and args.since.isoformat() == "2025-01-02"
