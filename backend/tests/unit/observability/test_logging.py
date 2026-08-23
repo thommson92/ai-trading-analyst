@@ -149,9 +149,7 @@ class TestConfigureLogging:
 
         assert len(logging.getLogger().handlers) == 1
 
-    def test_json_output_is_parseable_end_to_end(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_json_output_is_parseable_end_to_end(self, capsys: pytest.CaptureFixture[str]) -> None:
         configure_logging(LoggingConfig(level="INFO", format="json"))
         with log_context(correlation_id="abc123", stock_symbol="NVDA"):
             get_logger("ata.test").info("Kandidat gefunden", extra={"event": "candidate_found"})
@@ -163,9 +161,7 @@ class TestConfigureLogging:
         assert payload["stock_symbol"] == "NVDA"
         assert payload["event"] == "candidate_found"
 
-    def test_console_format_is_human_readable(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_console_format_is_human_readable(self, capsys: pytest.CaptureFixture[str]) -> None:
         configure_logging(LoggingConfig(level="INFO", format="console"))
         with log_context(correlation_id="abc123", stock_symbol="NVDA"):
             get_logger("ata.test").info("Kandidat gefunden")

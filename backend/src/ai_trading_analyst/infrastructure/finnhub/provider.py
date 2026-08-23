@@ -117,6 +117,4 @@ class FinnhubEarningsProvider:
                 f"Unerwartetes Antwortformat des Earnings-Kalenders fuer '{symbol}': {error}"
             ) from error
 
-        return NextEarningsDate(
-            date=earnings_date, source=_SOURCE_NAME, retrieved_at=self._now()
-        )
+        return NextEarningsDate(date=earnings_date, source=_SOURCE_NAME, retrieved_at=self._now())

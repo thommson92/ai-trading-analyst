@@ -242,8 +242,7 @@ class BacktestingConfig(_Section):
     def _thresholds_must_be_ordered(self) -> BacktestingConfig:
         if self.normal_confidence_sample_size < self.minimum_sample_size:
             raise ValueError(
-                "normal_confidence_sample_size darf nicht kleiner als "
-                "minimum_sample_size sein"
+                "normal_confidence_sample_size darf nicht kleiner als minimum_sample_size sein"
             )
         if not self.horizons:
             raise ValueError("horizons darf nicht leer sein")
@@ -342,9 +341,7 @@ class TechnicalAnalysisConfig(_Section):
                 f"(0.005 entspricht 0,5 %), war {self.trend_flat_pct}"
             )
         if not 1 <= self.moderate_pivot_count <= self.strong_pivot_count:
-            raise ValueError(
-                "1 <= moderate_pivot_count <= strong_pivot_count ist verletzt"
-            )
+            raise ValueError("1 <= moderate_pivot_count <= strong_pivot_count ist verletzt")
         laengstes_fenster = max(
             2 * self.pivot_reach + 1,
             self.atr_length + 1,

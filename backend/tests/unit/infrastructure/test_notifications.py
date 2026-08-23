@@ -33,9 +33,7 @@ class TestAuswahl:
         assert isinstance(notifier, LoggingNotifier)
 
     def test_telegram_ergibt_den_telegram_ausgang(self) -> None:
-        config = NotificationsConfig(
-            channel="telegram", telegram=TelegramConfig(chat_id="12345")
-        )
+        config = NotificationsConfig(channel="telegram", telegram=TelegramConfig(chat_id="12345"))
         notifier = build_notifier(config, _secrets())
         assert isinstance(notifier, TelegramNotifier)
 
@@ -48,9 +46,7 @@ class TestAuswahl:
     def test_telegram_ohne_token_faellt_beim_start_auf(self) -> None:
         """Derselbe Fehler wie bei den Anbieter-Geheimnissen -- vor dem
         Backfill, nicht erst beim ersten Sendeversuch."""
-        config = NotificationsConfig(
-            channel="telegram", telegram=TelegramConfig(chat_id="12345")
-        )
+        config = NotificationsConfig(channel="telegram", telegram=TelegramConfig(chat_id="12345"))
 
         with pytest.raises(Exception, match="ATA_NOTIFICATION_TOKEN"):
             build_notifier(config, _secrets(token=None))

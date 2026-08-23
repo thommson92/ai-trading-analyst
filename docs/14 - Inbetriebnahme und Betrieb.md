@@ -76,7 +76,7 @@ Für den Betrieb ist genau eine Variable zwingend:
 | `ATA_FINNHUB_API_KEY` | erst ab Stufe G, Schritt 1 |
 | `ATA_LLM_API_KEY` | erst ab Stufe G, Schritt 2 |
 | `ATA_SESSION_SECRET` | erst mit dem Dashboard — heute ohne Wirkung |
-| `ATA_NOTIFICATION_TOKEN` | erst mit dem Kanal F10 — noch nicht entschieden |
+| `ATA_NOTIFICATION_TOKEN` | erst ab Stufe H (Telegram, [ADR 0024](adr/0024-benachrichtigungskanal-telegram.md)) |
 
 Die `.env` ist von `.gitignore` ausgeschlossen und darf nie committet werden.
 
@@ -87,8 +87,18 @@ Dann das Schema:
 .venv\Scripts\python.exe -m alembic current
 ```
 
-**Abbruch, wenn:** `alembic current` nicht `01b2e8681b7a` meldet, oder wenn
-Alembic mehr als einen Head sieht.
+**Abbruch, wenn:** `alembic current` nicht den **aktuellen Head der
+Migrationskette** meldet, oder wenn Alembic mehr als einen Head sieht. Welche
+Revision das ist, sagt das Repository selbst — die Anleitung nennt bewusst keine
+feste Kennung, weil jede weitere Migration sie überholt:
+
+```powershell
+.venv\Scripts\python.exe -m alembic heads
+```
+
+Die Ausgabe von `alembic heads` und die von `alembic current` müssen dieselbe
+Revision nennen. Zum Zeitpunkt der letzten Aktualisierung dieses Dokuments war
+das `f2b8d6104a37`.
 
 > **Falle:** Meldet Alembic „Revision … is present more than once" oder mehrere
 > Heads, liegen Dubletten im Verzeichnis `migrations/versions/` — typischerweise
@@ -209,10 +219,124 @@ die Ablage lässt Dubletten fallen, damit ein wiederholter Lauf nichts anrichtet
 > (`market_data.ibkr.history_duration`, ausgeliefert `1 Y`). Für den täglichen
 > Lauf genügt das mit Abstand — der Warm-up braucht 250 Kerzen, also rund 125
 > Handelstage. Für die Aussagekraft der Backtest-Kennzahlen ist es weniger, als
-> `backtesting.history_years` (5) unterstellt. Ob die Historie verlängert wird,
-> ist eine eigene Entscheidung und kein Teil der Inbetriebnahme.
+> `backtesting.history_years` (5) unterstellt. Wie damit umzugehen ist, steht in
+> [ADR 0027](adr/0027-historientiefe-messen-vor-anspruch.md) — gemessen wird
+> zuerst, siehe den nächsten Abschnitt. Kein Teil der Inbetriebnahme.
 
 **Abbruch, wenn:** mehr als eine Handvoll Symbole ohne Daten zurückkommt.
+
+## Zwischenschritt: Historientiefe messen (optional)
+
+Kein Abnahmekriterium. Das Kommando beantwortet die offene Frage aus
+[ADR 0027](adr/0027-historientiefe-messen-vor-anspruch.md): Wie weit gibt IBKR
+die Historie in 15-Minuten-Auflösung überhaupt her? Es **legt nichts ab** und
+braucht deshalb keine Datenbank — nur die laufende TWS.
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli history-depth --provider ibkr `
+    --symbols AAPL,MSFT,KO
+```
+
+Drei Titel genügen, und die Auswahl ist nicht beliebig: Ein lange notierter
+Standardwert zeigt die Grenze des Anbieters, eine jüngere Notierung zeigt nur
+ihre eigene kurze Börsenhistorie. Ohne `--symbols` nimmt das Kommando die
+ersten drei Titel der Watchlist; ausdrücklich genannte Symbole werden dagegen
+alle gemessen — die Zahl begrenzt nur `--limit`.
+
+Das Kommando arbeitet sich je Aktie Fenster für Fenster zurück, bis IBKR nichts
+mehr liefert. Mit dem ausgelieferten Abstand von 11 Sekunden dauert das für drei
+Titel wenige Minuten; die Laufzeitschätzung steht vor dem ersten Abruf am
+Bildschirm.
+
+Entscheidend ist die Spalte **Grenze** im Bericht:
+
+| Grenze | Bedeutung |
+|---|---|
+| `provider_exhausted` | IBKR gab nichts mehr her — das ist die gesuchte Tiefe |
+| `no_progress` | IBKR antwortete, kam aber nicht weiter zurück — auch hier ist Schluss |
+| `window_limit` | die eigene Reißleine hat gegriffen — die Tiefe ist nur eine **Untergrenze**, mit `--max-windows` höher ansetzen |
+| `error` | Abruf gescheitert — ebenfalls nur eine Untergrenze, die Meldung steht darunter |
+
+Das Ergebnis der ersten Messung steht in
+[ADR 0028](adr/0028-historientiefe-gemessen.md): mindestens 17,4 Jahre, alle
+drei Titel an der Reißleine. `backtesting.history_years: 5` ist damit belegt
+und bleibt.
+
+## Zwischenschritt: Tiefen-Backfill (einmalig, Wochenendlauf)
+
+Der Batch aus [ADR 0028](adr/0028-historientiefe-gemessen.md). Er füllt den
+Bestand **rückwärts** auf `backtesting.history_years` auf — der tägliche
+`backfill` verlängert ihn nach vorn, dieser nach hinten.
+
+Erst ein Probelauf über wenige Titel:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli deepen-history --provider ibkr `
+    --symbols AAPL,MSFT
+```
+
+Dann die volle Watchlist. **Das dauert rund elf Stunden** — 190 Aktien × 5
+Fenster bei 11 Sekunden Abstand und etwa 30 Sekunden Übertragung je Fenster.
+Der Lauf gehört auf einen Freitagabend:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli deepen-history --provider ibkr
+```
+
+**Ein Abbruch ist unkritisch, und zwar ausdrücklich auch der nächtliche
+TWS-Neustart.** Jedes Fenster wird sofort abgelegt; der Ansatzpunkt ist der
+älteste gespeicherte Bar und wandert mit jedem Fenster zurück. Ein erneuter
+Start setzt genau dort an. Aufzuräumen gibt es nichts.
+
+Ein zweiter Lauf kostet für jede Aktie, die den Zielzeitraum **erreicht hat**,
+keine einzige Anfrage: Sie meldet „war schon tief genug". Das Kommando lässt
+sich deshalb bedenkenlos wiederholen, solange noch Aktien fehlgeschlagen sind.
+
+Eine Ausnahme, die man kennen muss: Aktien, deren Börsenhistorie **kürzer** ist
+als der Zielzeitraum, erreichen ihn nie. Sie kosten bei jedem Wiederholen eine
+Anfrage und bleiben dauerhaft in der Liste „Unter dem Zielzeitraum" stehen.
+Das ist richtig so — der Lauf kann nicht wissen, ob IBKR morgen mehr liefert —,
+aber es heißt: **Nicht wiederholen, bis diese Liste leer ist.** Sie wird es bei
+einer jungen Notierung nie. Maßgeblich ist allein die Zeile
+„Fehlgeschlagen".
+
+Am Ende auf zwei Zeilen achten:
+
+- **Fehlgeschlagen** — Aktien, bei denen Abruf oder Ablage scheiterten.
+  Einfach erneut starten; sie setzen dort an, wo sie aufhörten.
+- **Unter dem Zielzeitraum** — Aktien, für die IBKR nicht so weit zurück
+  liefert. Bei einer Neuemission erwartbar und **kein Fehler**: Die
+  Kennzahlen dieser Aktien tragen ihren tatsächlichen `history_start`.
+
+Der Bestand wächst dabei erheblich — rund 33.000 Bars je Aktie für fünf
+Jahre, bei voller Watchlist etwa 6,3 Millionen Zeilen. Für PostgreSQL
+unkritisch, aber beim Sichern zu bedenken.
+
+## Zwischenschritt: Datenausschnitt für den Golden Master ziehen (optional)
+
+Ebenfalls kein Abnahmekriterium. Der Golden Master
+(`backend/tests/golden`) bewacht das Rechenverfahren von Screener und
+Backtest gegen unbeabsichtigte Änderungen. Seine eingefrorenen Bars sind
+**erzeugt, nicht gemessen** — der reale Bestand liegt nur hier auf dem
+Server. Ein echter Ausschnitt lässt sich danebenlegen:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli export-bars `
+    --symbols AAPL,MSFT --output tests\golden\data --since 2025-01-02
+```
+
+Das Kommando liest nur; der Bestand bleibt unverändert. Je Symbol entsteht
+eine `<symbol>.bars.csv`. Danach einmalig aufzeichnen und beides committen:
+
+```powershell
+$env:ATA_GOLDEN_MASTER_RECORD = "1"
+.venv\Scripts\python.exe -m pytest tests\golden
+Remove-Item Env:\ATA_GOLDEN_MASTER_RECORD
+```
+
+Die Reihe muss über 250 Kerzen hinausreichen — darunter antwortet die
+Kandidatenprüfung ausnahmslos mit `UNKNOWN_DATA_INCOMPLETE`, und die
+Aufzeichnung enthielte nichts. Ein Test hält das fest.
 
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 

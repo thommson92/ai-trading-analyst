@@ -304,7 +304,5 @@ class TestChanceRisiko:
         snapshot = compute_technical_snapshot(series, 5, small_params(), EVALUATED_AT)
 
         assert all(
-            zone.distance_pct > 0
-            for zone in snapshot.zones
-            if zone.kind is ZoneKind.SUPPORT
+            zone.distance_pct > 0 for zone in snapshot.zones if zone.kind is ZoneKind.SUPPORT
         )

@@ -137,9 +137,7 @@ def load_watchlist_directory(directory: Path) -> tuple[ContractSpec, ...]:
 
     contracts = deduplicate(collected)
     if not contracts:
-        raise WatchlistError(
-            f"Die Watchlist-Dateien in {directory} enthalten kein einziges Symbol"
-        )
+        raise WatchlistError(f"Die Watchlist-Dateien in {directory} enthalten kein einziges Symbol")
     return contracts
 
 

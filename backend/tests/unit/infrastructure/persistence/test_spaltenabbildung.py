@@ -54,9 +54,7 @@ class TestChartauswertung:
         die nie geschrieben wird, faellt sonst nicht auf."""
         gesetzt = set(_technical_columns(_SNAPSHOT))
         # ``technical_ai_`` traegt denselben Anfang und gehoert nicht dazu.
-        assert gesetzt == _spalten_der_tabelle("technical_") - _spalten_der_tabelle(
-            "technical_ai_"
-        )
+        assert gesetzt == _spalten_der_tabelle("technical_") - _spalten_der_tabelle("technical_ai_")
 
     def test_ohne_auswertung_wird_jede_spalte_ausdruecklich_geleert(self) -> None:
         assert all(wert is None for wert in _technical_columns(None).values())

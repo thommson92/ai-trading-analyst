@@ -95,9 +95,7 @@ def build_provider(uow_factory: UowFactory) -> IbkrMarketDataProvider:
 
 
 class TestBackfillUndScreening:
-    def test_was_abgelegt_wurde_ergibt_dieselben_kerzen(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_was_abgelegt_wurde_ergibt_dieselben_kerzen(self, uow_factory: UowFactory) -> None:
         """Der Kern der Sache: Der Umweg ueber die Datenbank aendert nichts am
         Ergebnis."""
         bars = trading_days(20)
@@ -113,9 +111,7 @@ class TestBackfillUndScreening:
         assert letzte.rsi is not None
         assert letzte.ema20 is not None
 
-    def test_ein_zweiter_backfill_aendert_den_bestand_nicht(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_ein_zweiter_backfill_aendert_den_bestand_nicht(self, uow_factory: UowFactory) -> None:
         """Wiederholbarkeit, gegen die echte Datenbank statt gegen ein
         In-Memory-Doppel."""
         bars = trading_days(20)
@@ -139,9 +135,7 @@ class TestBackfillUndScreening:
         assert quelle.calls[1] is not None  # zweiter: nur die Luecke
         assert quelle.calls[1] > 0
 
-    def test_zwei_laeufe_nacheinander_ergeben_dieselbe_reihe(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_zwei_laeufe_nacheinander_ergeben_dieselbe_reihe(self, uow_factory: UowFactory) -> None:
         """Der eigentliche Gewinn gegenueber dem Abruf je Lauf: IBKRs
         Ein-Jahres-Fenster wandert mit der Uhr, der Bestand nicht."""
         use_case = BackfillHistoryUseCase(FakeTws(trading_days(20)), uow_factory)
@@ -170,9 +164,7 @@ class TestBackfillUndScreening:
 
 
 class TestLeererBestand:
-    def test_ohne_backfill_verweist_die_meldung_darauf(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_ohne_backfill_verweist_die_meldung_darauf(self, uow_factory: UowFactory) -> None:
         """Sonst lautete die Meldung 'keine abgeschlossene Kerze' -- richtig,
         aber am eigentlichen Problem vorbei."""
         provider = build_provider(uow_factory)
@@ -219,9 +211,7 @@ class TestZeitzonen:
 
 
 class TestFehlerisolation:
-    def test_ein_ausfall_hinterlaesst_keinen_halben_bestand(
-        self, uow_factory: UowFactory
-    ) -> None:
+    def test_ein_ausfall_hinterlaesst_keinen_halben_bestand(self, uow_factory: UowFactory) -> None:
         """Scheitert der Abruf, darf nichts geschrieben worden sein -- sonst
         haelt der naechste Lauf die Luecke faelschlich fuer gefuellt."""
 

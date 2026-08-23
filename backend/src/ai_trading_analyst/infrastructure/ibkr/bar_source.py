@@ -128,6 +128,18 @@ def ibkr_duration(days: int) -> str:
     Tagesangaben nimmt die API bis 365 an; darueber ist in Jahren zu rechnen.
     Aufgerundet wird bewusst -- lieber ein paar Bars zu viel als eine Luecke,
     zumal doppelte Bars beim Speichern ohnehin uebergangen werden.
+
+    **Achtung, gemessener Befund:** Bei Intraday-Bars zaehlt IBKR die
+    Tagesangabe in **Handelstagen**, nicht in Kalendertagen. Die
+    offizielle Dokumentation sagt dazu nichts; belegt ist es durch die
+    Tiefenmessung vom 2026-08-23 (ADR 0028), bei der zwoelf Fenster zu je
+    ``365 D`` nicht zwoelf, sondern 17,4 Jahre abdeckten -- je Fenster rund
+    9.455 Bars, also 364 Handelstage oder etwa 530 Kalendertage.
+
+    Fuer den taeglichen Backfill ist das folgenlos, dort wird ohnehin
+    grosszuegig angefragt. Wer aber einen Zeitraum *ausrechnet* -- der
+    Tiefen-Backfill tut das --, muss in Handelstagen rechnen, sonst holt er
+    fast das Anderthalbfache des Noetigen.
     """
     if days < 1:
         raise ValueError(f"days muss mindestens 1 sein, ist aber {days}")
@@ -213,6 +225,24 @@ class IbAsyncBarSource:
         with self._lock:
             return self._fetch(contract, days)
 
+    def fetch_window(
+        self, contract: ContractSpec, end: datetime | None, days: int
+    ) -> Sequence[IntradayBar]:
+        """Bars eines Fensters, das nicht jetzt endet (``HistoricalBarWindowSource``).
+
+        Derselbe Abruf wie ``fetch_intraday_bars``, nur mit gesetztem
+        ``endDateTime``. Die Tiefenmessung arbeitet sich damit Fenster fuer
+        Fenster zurueck; ohne diesen Weg liesse sich nur beantworten, was
+        **bis heute** zurueckreicht, nicht, wo die Historie tatsaechlich
+        endet.
+
+        Der laufende Bar wird hier nicht ausgesondert: Ein Fenster, das in der
+        Vergangenheit endet, enthaelt keinen. Fuer ``end=None`` uebernimmt
+        ``_fetch`` diese Aufgabe wie bisher.
+        """
+        with self._lock:
+            return self._fetch(contract, days, end=end)
+
     def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
         """Handelszeiten der regulaeren Sitzung und die Zeitzone der Boerse.
 
@@ -260,7 +290,9 @@ class IbAsyncBarSource:
             )
         return contracts[0]
 
-    def _fetch(self, contract: ContractSpec, days: int | None) -> Sequence[IntradayBar]:
+    def _fetch(
+        self, contract: ContractSpec, days: int | None, end: datetime | None = None
+    ) -> Sequence[IntradayBar]:
         symbol = contract.symbol
         try:
             ib = self._connection()
@@ -268,7 +300,9 @@ class IbAsyncBarSource:
             self._wait_for_pacing()
             bars = ib.reqHistoricalData(
                 contracts[0],
-                endDateTime="",
+                # ib_async formatiert ein zeitzonenbehaftetes datetime selbst in
+                # die UTC-Schreibweise der API; "" heisst "bis jetzt".
+                endDateTime="" if end is None else end,
                 durationStr=self._duration if days is None else ibkr_duration(days),
                 barSizeSetting=self._bar_size,
                 whatToShow="TRADES",
@@ -286,20 +320,24 @@ class IbAsyncBarSource:
                 f"Historische Bars fuer '{symbol}' konnten nicht abgerufen werden: {error}"
             ) from error
 
-        return self._on_grid(
-            symbol,
-            self._without_running_bar(
-                IntradayBar(
-                    start=bar.date,
-                    open=float(bar.open),
-                    high=float(bar.high),
-                    low=float(bar.low),
-                    close=float(bar.close),
-                    volume=float(bar.volume),
-                )
-                for bar in bars
-            ),
+        umgewandelt = (
+            IntradayBar(
+                start=bar.date,
+                open=float(bar.open),
+                high=float(bar.high),
+                low=float(bar.low),
+                close=float(bar.close),
+                volume=float(bar.volume),
+            )
+            for bar in bars
         )
+        # Nur ein bis jetzt reichendes Fenster kann einen laufenden Bar
+        # enthalten. Bei gesetztem 'end' waere dieselbe Pruefung schaedlich:
+        # Sie mass gegen die aktuelle Uhrzeit und verwuerfe nichts, aber sie
+        # behauptete eine Aussage ueber ein Fenster, das laengst geschlossen
+        # ist.
+        gefiltert = self._without_running_bar(umgewandelt) if end is None else tuple(umgewandelt)
+        return self._on_grid(symbol, gefiltert)
 
     def _without_running_bar(self, bars: Iterable[IntradayBar]) -> Sequence[IntradayBar]:
         """Laesst den noch laufenden Bar weg.
@@ -347,23 +385,33 @@ class IbAsyncBarSource:
         beginnt um 09:30, und alle unterstuetzten Groessen teilen sowohl die
         Stunde als auch die halbe Stunde ohne Rest.
         """
-        passend = tuple(
-            bar
-            for bar in bars
-            if bar.start.second == 0
-            and bar.start.microsecond == 0
-            and bar.start.minute % self._bar_minutes == 0
-        )
-        if len(passend) < len(bars):
-            verworfen = [bar.start for bar in bars if bar not in passend]
+        # Beides in **einem** Durchgang. Die Verworfenen nachtraeglich ueber
+        # 'bar not in passend' zu suchen, war ein quadratischer Vergleich
+        # ueber Wertobjekte: Bei einem Jahresfenster mit rund 9.500 Bars
+        # kostete ein einziger schiefer Bar knapp 15 Sekunden reine
+        # Rechenzeit. Der Tiefen-Backfill stellt diese Anfrage je Aktie
+        # fuenfmal.
+        passend: list[IntradayBar] = []
+        verworfen: list[datetime] = []
+        for bar in bars:
+            auf_raster = (
+                bar.start.second == 0
+                and bar.start.microsecond == 0
+                and bar.start.minute % self._bar_minutes == 0
+            )
+            if auf_raster:
+                passend.append(bar)
+            else:
+                verworfen.append(bar.start)
+        if verworfen:
             _logger.warning(
                 "%s: %d Bars ausserhalb des %d-Minuten-Rasters verworfen (%s)",
                 symbol,
-                len(bars) - len(passend),
+                len(verworfen),
                 self._bar_minutes,
                 ", ".join(zeitpunkt.isoformat() for zeitpunkt in verworfen[:5]),
             )
-        return passend
+        return tuple(passend)
 
     def close(self) -> None:
         """Trennt die Verbindung. Mehrfach aufrufbar, scheitert nie."""

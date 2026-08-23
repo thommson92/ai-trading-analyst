@@ -24,10 +24,29 @@ from ai_trading_analyst.observability.correlation import current_context
 # hinausgeht, stammt aus einem `extra=` und gehoert in die Ausgabe.
 _STANDARD_RECORD_ATTRIBUTES = frozenset(
     {
-        "args", "asctime", "created", "exc_info", "exc_text", "filename",
-        "funcName", "levelname", "levelno", "lineno", "message", "module",
-        "msecs", "msg", "name", "pathname", "process", "processName",
-        "relativeCreated", "stack_info", "taskName", "thread", "threadName",
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "message",
+        "module",
+        "msecs",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "taskName",
+        "thread",
+        "threadName",
     }
 )
 
@@ -35,9 +54,18 @@ _STANDARD_RECORD_ATTRIBUTES = frozenset(
 # wuerde die Zuordnung eines Logeintrags zerstoeren und wird deshalb umbenannt.
 _RESERVED_OUTPUT_FIELDS = frozenset(
     {
-        "timestamp", "level", "logger", "message", "error_code", "duration_ms",
-        "correlation_id", "analysis_run_id", "stock_symbol", "module",
-        "exception", "source",
+        "timestamp",
+        "level",
+        "logger",
+        "message",
+        "error_code",
+        "duration_ms",
+        "correlation_id",
+        "analysis_run_id",
+        "stock_symbol",
+        "module",
+        "exception",
+        "source",
     }
 )
 

@@ -150,9 +150,7 @@ class SqlAlchemyDispatcherRunRepository:
         eintrag = self._entry(session_date, candle_close)
         return eintrag is not None and eintrag.alert_sent_at is not None
 
-    def mark_alert_sent(
-        self, session_date: date, candle_close: datetime, now: datetime
-    ) -> None:
+    def mark_alert_sent(self, session_date: date, candle_close: datetime, now: datetime) -> None:
         eintrag = self._entry(session_date, candle_close)
         if eintrag is None:
             # Die Frist kann ablaufen, ohne dass je ein Versuch stattfand --

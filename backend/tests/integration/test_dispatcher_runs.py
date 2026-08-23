@@ -35,9 +35,7 @@ def repo(session_factory: sessionmaker[Session], engine: Engine) -> Iterator[Rep
 
 
 @pytest.fixture
-def zweiter_repo(
-    session_factory: sessionmaker[Session], engine: Engine
-) -> Iterator[Repo]:
+def zweiter_repo(session_factory: sessionmaker[Session], engine: Engine) -> Iterator[Repo]:
     """Ein zweiter Start, wie ihn die Aufgabenplanung 15 Minuten spaeter
     ausloest."""
     speicher = SqlAlchemyDispatcherRunRepository(session_factory(), engine)
@@ -85,9 +83,7 @@ class TestZustand:
     def test_der_erste_versuch_traegt_die_nummer_eins(self, repo: Repo) -> None:
         assert repo.begin(HANDELSTAG, KERZE_ZU, JETZT) == 1
 
-    def test_ein_gescheiterter_versuch_blockiert_den_naechsten_nicht(
-        self, repo: Repo
-    ) -> None:
+    def test_ein_gescheiterter_versuch_blockiert_den_naechsten_nicht(self, repo: Repo) -> None:
         """Eine nicht angemeldete TWS ist der haeufigste Grund -- der naechste
         Start soll es erneut versuchen."""
         repo.begin(HANDELSTAG, KERZE_ZU, JETZT)

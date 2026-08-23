@@ -375,9 +375,7 @@ class TestTechnischeChartauswertung:
         # erst seit Kurzem gehandelt wird.
         use_case, _, _, _, errors_repo = _build_use_case(
             provider,
-            technical_params=TechnicalAnalysisParameters(
-                extremes_lookback=40, history_candles=250
-            ),
+            technical_params=TechnicalAnalysisParameters(extremes_lookback=40, history_candles=250),
         )
 
         summary = use_case.execute()
@@ -387,7 +385,6 @@ class TestTechnischeChartauswertung:
         assert technical.status is TechnicalStatus.INSUFFICIENT_DATA
         assert technical.reason == "too_few_candles"
         assert errors_repo.added == []
-
 
 
 class TestKiEinordnung:

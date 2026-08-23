@@ -65,9 +65,7 @@ class DispatcherRunRepository(Protocol):
         """Vermerkt den Versuch und liefert die laufende Nummer."""
         ...
 
-    def mark_succeeded(
-        self, session_date: date, candle_close: datetime, now: datetime
-    ) -> None: ...
+    def mark_succeeded(self, session_date: date, candle_close: datetime, now: datetime) -> None: ...
 
     def mark_failed(
         self, session_date: date, candle_close: datetime, now: datetime, error: str

@@ -71,9 +71,7 @@ def series_from_ohlc(rows: Sequence[tuple[float, float, float]]) -> CandleSeries
         candle_at(index, high=high, low=low, close=close)
         for index, (high, low, close) in enumerate(rows)
     )
-    values = tuple(
-        IndicatorValues(rsi=None, rsi_ma=None, ema5=None, ema20=None) for _ in rows
-    )
+    values = tuple(IndicatorValues(rsi=None, rsi_ma=None, ema5=None, ema20=None) for _ in rows)
     return CandleSeries(candles=candles, indicators=values)
 
 

@@ -144,9 +144,7 @@ class ScreeningResultOrm(Base):
         DateTime(timezone=True), nullable=True
     )
     technical_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
-    technical_parameters: Mapped[dict[str, float] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    technical_parameters: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
     """Die Parameter, mit denen gerechnet wurde. Zusammen mit
     ``technical_analysis_version`` die vollstaendige Auskunft darueber, wie
     dieses Ergebnis zustande kam -- Doc 14 fordert ausdruecklich dazu auf,
@@ -320,9 +318,7 @@ class ResearchCitationOrm(Base):
     license_class: Mapped[SourceLicenseClass] = mapped_column(_enum_column(SourceLicenseClass))
     transformation: Mapped[str]
 
-    screening_result: Mapped[ScreeningResultOrm] = relationship(
-        back_populates="research_citations"
-    )
+    screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="research_citations")
 
 
 class ProcessingErrorOrm(Base):
@@ -399,8 +395,6 @@ class DispatcherRunOrm(Base):
     last_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_error: Mapped[str | None] = mapped_column(default=None)
-    alert_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     """Ohne diesen Vermerk meldete sich der Dispatcher nach Fristablauf alle
     15 Minuten erneut."""

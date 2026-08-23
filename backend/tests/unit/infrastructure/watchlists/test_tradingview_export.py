@@ -116,9 +116,7 @@ class TestLoadWatchlistDirectory:
         with pytest.raises(WatchlistError, match="kein einziges Symbol"):
             load_watchlist_directory(tmp_path)
 
-    def test_die_endung_wird_unabhaengig_von_der_schreibweise_erkannt(
-        self, tmp_path: Path
-    ) -> None:
+    def test_die_endung_wird_unabhaengig_von_der_schreibweise_erkannt(self, tmp_path: Path) -> None:
         # Der Windows-Explorer speichert Textdateien gelegentlich als .TXT.
         (tmp_path / "a.TXT").write_text("NASDAQ:NVDA", encoding="utf-8")
         assert [contract.symbol for contract in load_watchlist_directory(tmp_path)] == ["NVDA"]

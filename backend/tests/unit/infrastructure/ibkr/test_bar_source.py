@@ -305,3 +305,88 @@ class TestZeitraumangabeInTage:
     def test_null_ergibt_keinen_zeitraum(self) -> None:
         with pytest.raises(ValueError, match="keinen Zeitraum"):
             duration_in_days("0 D")
+
+
+class TestFensterAbruf:
+    """``fetch_window`` -- der Rueckwaertsgang fuer die Tiefenmessung (E2).
+
+    Anders als ``fetch_intraday_bars`` endet die Anfrage nicht jetzt, sondern
+    an einem frei gewaehlten Punkt der Vergangenheit. Der Verbindungsaufbau
+    bleibt aussen vor (siehe Modulkopf); geprueft wird die Uebergabe an die
+    Bibliothek und was danach mit den Bars geschieht.
+    """
+
+    JETZT = datetime(2026, 8, 23, 17, 7, tzinfo=UTC)
+
+    class FakeIb:
+        """Nur die drei Aufrufe, die ``_fetch`` an ``ib_async`` richtet."""
+
+        def __init__(self, bars: list[object]) -> None:
+            self._bars = bars
+            self.calls: list[dict[str, object]] = []
+
+        def qualifyContracts(self, stock: object) -> list[object]:  # noqa: N802
+            return [stock]
+
+        def reqHistoricalData(self, contract: object, **kwargs: object) -> list[object]:  # noqa: N802
+            self.calls.append(kwargs)
+            return self._bars
+
+    class FakeBar:
+        def __init__(self, start: datetime) -> None:
+            self.date = start
+            self.open = self.high = self.low = self.close = 1.0
+            self.volume = 100.0
+
+    def _quelle(self, ib: object) -> IbAsyncBarSource:
+        quelle = IbAsyncBarSource(
+            UNBESETZTER_PORT, native_bar_minutes=15, duration="1 Y", now=lambda: self.JETZT
+        )
+        quelle._connection = lambda: ib  # type: ignore[method-assign]
+        quelle._qualified = lambda ib, contract: contract  # type: ignore[method-assign]
+        return quelle
+
+    def test_der_rand_wird_als_enddatum_uebergeben(self) -> None:
+        rand = self.JETZT - timedelta(days=400)
+        ib = self.FakeIb([])
+        quelle = self._quelle(ib)
+
+        quelle.fetch_window(AAPL, rand, 365)
+
+        (aufruf,) = ib.calls
+        assert aufruf["endDateTime"] == rand
+        assert aufruf["durationStr"] == "365 D"
+
+    def test_ohne_rand_bleibt_es_beim_bisherigen_abruf(self) -> None:
+        ib = self.FakeIb([])
+        quelle = self._quelle(ib)
+
+        quelle.fetch_window(AAPL, None, 30)
+
+        (aufruf,) = ib.calls
+        assert aufruf["endDateTime"] == ""
+
+    def test_ein_fenster_in_der_vergangenheit_verliert_keinen_bar(self) -> None:
+        """Die Pruefung auf den laufenden Bar misst gegen *jetzt*.
+
+        Im Rueckwaertsgang liegt jeder Bar Monate zurueck; sie greift dort
+        also ohnehin nicht. Ausgeschaltet ist sie trotzdem -- sonst behauptete
+        sie eine Aussage ueber ein Fenster, das laengst geschlossen ist.
+        """
+        rand = self.JETZT - timedelta(days=400)
+        letzter = rand.replace(hour=19, minute=45, second=0, microsecond=0)
+        ib = self.FakeIb([self.FakeBar(letzter - timedelta(minutes=15)), self.FakeBar(letzter)])
+
+        geliefert = self._quelle(ib).fetch_window(AAPL, rand, 365)
+
+        assert len(geliefert) == 2
+
+    def test_das_raster_gilt_auch_im_rueckwaertsgang(self) -> None:
+        """IBKR schneidet am Anfang des Fensters ab -- hier bei jedem Fenster."""
+        rand = self.JETZT - timedelta(days=400)
+        sauber = rand.replace(hour=14, minute=30, second=0, microsecond=0)
+        ib = self.FakeIb([self.FakeBar(sauber.replace(minute=22, second=6)), self.FakeBar(sauber)])
+
+        geliefert = self._quelle(ib).fetch_window(AAPL, rand, 365)
+
+        assert [bar.start for bar in geliefert] == [sauber]

@@ -70,24 +70,18 @@ def find_swing_points(
             candle.high >= other.high for other in right
         ):
             points.append(
-                SwingPoint(
-                    index=index, timestamp=candle.timestamp, price=candle.high, is_high=True
-                )
+                SwingPoint(index=index, timestamp=candle.timestamp, price=candle.high, is_high=True)
             )
         if all(candle.low < other.low for other in left) and all(
             candle.low <= other.low for other in right
         ):
             points.append(
-                SwingPoint(
-                    index=index, timestamp=candle.timestamp, price=candle.low, is_high=False
-                )
+                SwingPoint(index=index, timestamp=candle.timestamp, price=candle.low, is_high=False)
             )
     return tuple(points)
 
 
-def _cluster_by_price(
-    points: Sequence[SwingPoint], tolerance_pct: float
-) -> list[list[SwingPoint]]:
+def _cluster_by_price(points: Sequence[SwingPoint], tolerance_pct: float) -> list[list[SwingPoint]]:
     """Buendelt nach Preisnaehe: aufsteigend sortiert, dann fortlaufend gefuellt.
 
     Ein Punkt kommt zum laufenden Buendel, solange er nicht weiter als

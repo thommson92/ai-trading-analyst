@@ -95,9 +95,7 @@ class TestVollstaendigeSitzung:
             )
             for bar in lokal
         ]
-        assert aggregate(in_utc, 15, PARAMETERS) == aggregate(
-            lokal, 15, PARAMETERS
-        )
+        assert aggregate(in_utc, 15, PARAMETERS) == aggregate(lokal, 15, PARAMETERS)
 
 
 class TestNurAbgeschlosseneKerzen:
@@ -127,9 +125,7 @@ class TestUnvollstaendigeKerzenWerdenGemeldet:
     scheinbar zusammenhaengend."""
 
     def test_die_laufende_kerze_wird_als_unvollstaendig_ausgewiesen(self) -> None:
-        ergebnis = aggregate_intraday_bars(
-            bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS
-        )
+        ergebnis = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS)
         assert len(ergebnis.candles) == 1
         assert len(ergebnis.incomplete) == 1
         assert ergebnis.incomplete[0].daily_candle_index == 2
@@ -148,9 +144,7 @@ class TestUnvollstaendigeKerzenWerdenGemeldet:
         assert luecke.timestamp < ergebnis.candles[-1].timestamp
 
     def test_eine_lueckenlose_historie_meldet_nichts(self) -> None:
-        ergebnis = aggregate_intraday_bars(
-            bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS
-        )
+        ergebnis = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 26), 15, PARAMETERS)
         assert ergebnis.incomplete == ()
 
 
@@ -182,9 +176,7 @@ class TestVerkuerzterHandelstagIstKeineLuecke:
         )
         ergebnis = aggregate_intraday_bars(bars, 15, PARAMETERS)
         assert len(ergebnis.candles) == 5
-        assert [gap.reason for gap in ergebnis.incomplete] == [
-            IncompleteReason.SESSION_ENDED
-        ]
+        assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.SESSION_ENDED]
 
     def test_fehlende_bars_mit_weiterem_handel_danach_gelten_nicht_als_sitzungsende(
         self,
@@ -204,9 +196,7 @@ class TestVerkuerzterHandelstagIstKeineLuecke:
         assert [gap.reason for gap in ergebnis.incomplete] == [IncompleteReason.DATA_GAP]
 
     def test_die_laufende_kerze_am_ende_gilt_ebenfalls_als_sitzungsende(self) -> None:
-        ergebnis = aggregate_intraday_bars(
-            bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS
-        )
+        ergebnis = aggregate_intraday_bars(bars_for_session(date(2026, 3, 10), 20), 15, PARAMETERS)
         assert ergebnis.incomplete[0].reason is IncompleteReason.SESSION_ENDED
 
 
@@ -294,9 +284,7 @@ class TestRandDesAbrufzeitraums:
         ergebnis = aggregate_intraday_bars(self._reihe(15), 15, PARAMETERS)
 
         assert len(ergebnis.candles) == 2  # nur der vollstaendige Folgetag
-        assert all(
-            candle.timestamp.date() == date(2026, 3, 11) for candle in ergebnis.candles
-        )
+        assert all(candle.timestamp.date() == date(2026, 3, 11) for candle in ergebnis.candles)
 
     def test_ein_innerer_tag_ohne_vollstaendige_kerze_bleibt_eine_luecke(self) -> None:
         """Die Ausnahme gilt nur am Rand. Faellt mitten in der Reihe ein Tag

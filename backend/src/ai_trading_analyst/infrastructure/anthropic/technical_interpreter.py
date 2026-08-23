@@ -231,8 +231,7 @@ _SUBMIT_ASSESSMENT_TOOL: dict[str, Any] = {
                 "type": "string",
                 "enum": [m.value for m in TrendStrength],
                 "description": (
-                    "Staerke des Trends. ABSENT, wenn kein tragfaehiger Trend "
-                    "erkennbar ist."
+                    "Staerke des Trends. ABSENT, wenn kein tragfaehiger Trend erkennbar ist."
                 ),
             },
             "breakout_quality": {
@@ -271,8 +270,7 @@ _SUBMIT_ASSESSMENT_TOOL: dict[str, Any] = {
             "summary": {
                 "type": "string",
                 "description": (
-                    "Kurze Einordnung in zusammenhaengendem Fliesstext, "
-                    "hoechstens fuenf Saetze."
+                    "Kurze Einordnung in zusammenhaengendem Fliesstext, hoechstens fuenf Saetze."
                 ),
             },
             "false_signal_risks": {
@@ -392,9 +390,7 @@ def market_today() -> date:
     return datetime.now(_MARKET_TIMEZONE).date()
 
 
-def render_snapshot(
-    stock: Stock, snapshot: TechnicalSnapshot, today: date | None = None
-) -> str:
+def render_snapshot(stock: Stock, snapshot: TechnicalSnapshot, today: date | None = None) -> str:
     """Die vollstaendige Modelleingabe als Text.
 
     Eine reine Funktion und oeffentlich, damit die CLI genau das anzeigen
@@ -427,8 +423,7 @@ def render_snapshot(
         "",
         f"Weg bis zur naechsten Unterstuetzung: "
         f"{_format_percent(snapshot.downside_to_support_pct)}",
-        f"Weg bis zum naechsten Widerstand: "
-        f"{_format_percent(snapshot.upside_to_resistance_pct)}",
+        f"Weg bis zum naechsten Widerstand: {_format_percent(snapshot.upside_to_resistance_pct)}",
     ]
 
     if snapshot.chance_risk_ratio is None:
@@ -541,8 +536,7 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
             # verschoebe die ganze Aktie in StockProcessingError -- genau die
             # Kopplung, die CLAUDE.md ausschliesst (ADR 0023).
             raise TechnicalInterpreterError(
-                f"'{stock.symbol}': Antwort des Modells '{model}' war nicht "
-                f"auswertbar: {error}"
+                f"'{stock.symbol}': Antwort des Modells '{model}' war nicht auswertbar: {error}"
             ) from error
 
     def _run(
@@ -596,9 +590,7 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
                     f"'{stock.symbol}': Das Modell '{model}' hat '{_SUBMIT_TOOL_NAME}' "
                     f"nicht aufgerufen (stop_reason={response.stop_reason})"
                 )
-            return self._build_assessment(
-                stock, snapshot, submit_input, model, evaluated_at
-            )
+            return self._build_assessment(stock, snapshot, submit_input, model, evaluated_at)
         finally:
             usage.log(stock.symbol, model)
 
@@ -842,7 +834,6 @@ def _require_optional_confidence(symbol: str, value: object) -> float | None:
         )
     if not 0.0 <= float(value) <= 1.0:
         raise TechnicalInterpreterError(
-            f"'{symbol}': confidence aus '{_SUBMIT_TOOL_NAME}' liegt ausserhalb "
-            f"von [0, 1]: {value}"
+            f"'{symbol}': confidence aus '{_SUBMIT_TOOL_NAME}' liegt ausserhalb von [0, 1]: {value}"
         )
     return float(value)

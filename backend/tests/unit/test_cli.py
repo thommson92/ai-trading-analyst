@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,7 +18,17 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from ai_trading_analyst import cli
-from ai_trading_analyst.cli import build_parser, main, require_complete_enough
+from ai_trading_analyst.application.deepen_history import (
+    DeepeningReport,
+    DeepenOutcome,
+    SymbolDeepening,
+)
+from ai_trading_analyst.cli import (
+    build_parser,
+    export_bars_to_csv,
+    main,
+    require_complete_enough,
+)
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -38,6 +48,7 @@ from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
     IndicatorParameters,
+    IntradayBar,
     ScreeningResult,
     ScreeningStatus,
     compute_indicator_values,
@@ -67,6 +78,7 @@ def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
         evaluated_at=datetime.now(ZoneInfo("UTC")),
         signal_rule_version=SIGNAL_RULE_VERSION,
     )
+
 
 CONFIG_TEMPLATE = """
 market_data:
@@ -143,7 +155,6 @@ class TestScreenKommando:
         config = write_config(projekt, provider="fixture")
         assert main(["--config", str(config), "screen"]) == 2
         assert "'fixture'" in capsys.readouterr().err
-
 
     def test_der_lauf_gegen_die_tws_scheitert_ohne_erreichbare_tws_klar(
         self, projekt: Path, capsys: pytest.CaptureFixture[str]
@@ -272,8 +283,7 @@ class FakeProvider:
 
     def list_stocks(self) -> Sequence[Stock]:
         return tuple(
-            Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ")
-            for symbol in self._symbole
+            Stock(id=uuid.uuid4(), symbol=symbol, exchange="NASDAQ") for symbol in self._symbole
         )
 
     def get_candle_series(self, stock: Stock) -> CandleSeries:
@@ -350,9 +360,7 @@ class TestAusgabeEinesErfolgreichenLaufs:
         """G1-Pruefvorlage 1.4: gerechnet wird ungerundet. Zwei Nachkommastellen
         wuerden einen Abgleich mit dem Chart unmoeglich machen."""
         self.lauf(projekt, monkeypatch, weitere_argumente=["--details"])
-        werte = [
-            teil for teil in capsys.readouterr().out.split() if teil.startswith("EMA20=")
-        ]
+        werte = [teil for teil in capsys.readouterr().out.split() if teil.startswith("EMA20=")]
         assert werte and len(werte[0].split("=")[1].split(".")[1]) == 4
 
     def test_eine_zu_kurze_historie_wird_als_unbekannt_ausgewiesen(
@@ -553,9 +561,7 @@ class TestTechnicalKommando:
         assert "Toleranz 2.00 %" in ausgabe
         assert "min. 2 Beruehrungen" in ausgabe
 
-    def test_chance_risiko_steht_in_der_ausgabe(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_chance_risiko_steht_in_der_ausgabe(self, capsys: pytest.CaptureFixture[str]) -> None:
         cli._print_technical_snapshot(
             "AAPL",
             self._snapshot(
@@ -725,9 +731,7 @@ class TestTechnicalKommando:
         assert "Trendstaerke" not in ausgabe
 
     def test_der_anbieter_kann_fuer_einen_lauf_uebersteuert_werden(self) -> None:
-        args = build_parser().parse_args(
-            ["technical", "--symbols", "AAPL", "--provider", "ibkr"]
-        )
+        args = build_parser().parse_args(["technical", "--symbols", "AAPL", "--provider", "ibkr"])
 
         assert args.provider == "ibkr"
 
@@ -883,7 +887,6 @@ class TestBarquelleFuerDasScreening:
         # Ohne die Uebersteuerung waere hier die Datenbank verlangt worden.
         assert "TWS 127.0.0.1" in capsys.readouterr().out
 
-
     def test_aus_dem_bestand_greift_die_pacing_sperre_nicht(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -894,9 +897,7 @@ class TestBarquelleFuerDasScreening:
         monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
         config = write_config(projekt, provider="ibkr")
 
-        exit_code = main(
-            ["--config", str(config), "screen", "--source", "stored", "--no-pacing"]
-        )
+        exit_code = main(["--config", str(config), "screen", "--source", "stored", "--no-pacing"])
 
         # 2 kommt hier nur noch von der fehlenden Datenbankadresse, nicht vom
         # Pacing -- erkennbar an der Meldung.
@@ -1066,9 +1067,7 @@ class TestDispatchAnbieterUebersteuerung:
         gesehen = self._spione(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
-        assert (
-            main(["--config", str(config), "dispatch", "--telegram-chat-id", "999"]) == 2
-        )
+        assert main(["--config", str(config), "dispatch", "--telegram-chat-id", "999"]) == 2
 
         assert gesehen["notification_channel"] == "dry_run"
         assert gesehen["telegram_chat_id"] == "999"
@@ -1115,9 +1114,7 @@ class TestDispatchAnbieterUebersteuerung:
         gesehen = self._spione(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
-        assert (
-            main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
-        )
+        assert main(["--config", str(config), "dispatch", "--earnings-provider", "finnhub"]) == 2
 
         assert gesehen == {
             "notification_channel": "dry_run",
@@ -1135,3 +1132,399 @@ class TestDispatchAnbieterUebersteuerung:
             main(["--config", str(config), "dispatch", "--research-provider", "openai"])
 
         assert abbruch.value.code == 2
+
+
+class TestHistoryDepthKommando:
+    """Die Tiefenmessung fuer E2 ([ADR 0027]).
+
+    Das einzige Kommando gegen die TWS, das **nichts** ablegt -- und deshalb
+    als einziges ohne Datenbank auskommt. Der Abruf selbst braucht eine
+    laufende TWS und ist hier nicht Gegenstand; geprueft wird der Rahmen.
+    """
+
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "history-depth", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_es_braucht_keine_datenbank(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne ``ATA_DATABASE_URL`` scheitert ``backfill`` mit 2.
+
+        Die Messung laeuft weiter bis zur TWS -- die hier nicht erreichbar
+        ist, weshalb der Fehler von dort kommt und nicht von der Datenbank.
+        """
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "history-depth",
+                "--symbols",
+                "AAPL",
+                "--max-windows",
+                "1",
+                "--no-pacing",
+            ]
+        )
+
+        ausgabe = capsys.readouterr()
+        assert code == 1
+        assert "Datenbank" not in ausgabe.err
+        assert "Keine Verbindung zur TWS" in ausgabe.out
+
+    def test_ein_ausfall_wird_als_untergrenze_ausgewiesen(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne TWS gibt es kein Ergebnis -- und der Bericht behauptet keines."""
+        config = write_config(projekt, provider="ibkr")
+
+        main(
+            [
+                "--config",
+                str(config),
+                "history-depth",
+                "--symbols",
+                "AAPL",
+                "--max-windows",
+                "1",
+                "--no-pacing",
+            ]
+        )
+
+        ausgabe = capsys.readouterr().out
+        assert "Keine einzige Aktie hat Bars geliefert" in ausgabe
+        assert "Jahre" not in ausgabe.split("Keine einzige Aktie")[1]
+
+    def test_ohne_abstand_begrenzt_die_zahl_der_anfragen_den_lauf(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Nicht die Zahl der Symbole entscheidet, sondern Symbole mal Fenster.
+
+        Drei Aktien sind harmlos -- drei Aktien mal zwoelf Fenster sind 36
+        Anfragen und damit ueber der Grenze, ab der IBKR sperrt.
+        """
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(["--config", str(config), "history-depth", "--no-pacing"])
+
+        assert code == 2
+        assert "bis zu" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["history-depth", "--symbols", "AAPL,MSFT", "--window-days", "90", "--max-windows", "4"]
+        )
+        assert args.symbols == "AAPL,MSFT"
+        assert args.window_days == 90
+        assert args.max_windows == 4
+
+    def test_ohne_angabe_kuerzt_das_kommando_selbst(self) -> None:
+        """Die Kuerzung auf drei Titel liegt bewusst **nicht** im Argument.
+
+        Als Argumentstandard traefe sie auch ausdruecklich genannte Symbole
+        -- ``--symbols A,B,C,D`` maesse dann stillschweigend nur drei. Die
+        Watchlist zu kuerzen ist Sache des Kommandos, das beides
+        unterscheiden kann.
+        """
+        assert build_parser().parse_args(["history-depth"]).limit is None
+        assert cli.STANDARD_TITEL_TIEFENMESSUNG == 3
+
+
+class TestExportBarsKommando:
+    """Zieht einen echten Datenausschnitt aus dem Bestand (Golden Master, M5).
+
+    Liest nur. Der Bestand selbst braucht eine Datenbank und ist Gegenstand
+    der Integrationstests; hier geht es um den Rahmen.
+    """
+
+    def test_ohne_datenbankadresse_meldet_es_sich_verstaendlich(
+        self,
+        projekt: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "export-bars",
+                "--symbols",
+                "AAPL",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+
+        assert code == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+    def test_ein_fehlendes_zielverzeichnis_faellt_vor_der_datenbank_auf(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst faende der Nutzer den Fehler erst nach dem Abruf."""
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            [
+                "--config",
+                str(config),
+                "export-bars",
+                "--symbols",
+                "AAPL",
+                "--output",
+                str(tmp_path / "gibtesnicht"),
+            ]
+        )
+
+        assert code == 2
+        assert "kein Verzeichnis" in capsys.readouterr().err
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+
+        code = main(
+            ["--config", str(config), "export-bars", "--symbols", ",", "--output", str(tmp_path)]
+        )
+
+        assert code == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["export-bars", "--symbols", "AAPL", "--output", ".", "--since", "2025-01-02"]
+        )
+        assert args.symbols == "AAPL"
+        assert args.since is not None and args.since.isoformat() == "2025-01-02"
+
+
+class TestTiefenmessungNachDerReview:
+    """Zwei Punkte aus der unabhaengigen Review zu diesem Zweig."""
+
+    def test_ausdruecklich_genannte_symbole_werden_nicht_gekuerzt(self) -> None:
+        """Sonst entschiede eine stille Kuerzung mit, welche Aktie am Ende
+        die 'flachste Historie' des Berichts stellt -- und ADR 0027 macht
+        genau die zur massgeblichen Groesse fuer E2."""
+        args = build_parser().parse_args(["history-depth", "--symbols", "A,B,C,D"])
+
+        assert args.limit is None
+
+    def test_limit_bleibt_angebbar(self) -> None:
+        args = build_parser().parse_args(["history-depth", "--limit", "2"])
+
+        assert args.limit == 2
+
+    def test_ohne_symbole_wird_die_watchlist_gekuerzt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die volle Watchlist kostete unter Pacing Stunden."""
+        symbols = ",".join(f"NASDAQ:SYM{index}" for index in range(25))
+        (projekt / "watchlists" / "test.txt").write_text(symbols, encoding="utf-8")
+        config = write_config(projekt, provider="ibkr")
+
+        main(["--config", str(config), "history-depth", "--max-windows", "1"])
+
+        assert "3 Aktien" in capsys.readouterr().out
+
+
+class TestExportBarsSchreiben:
+    """``export_bars_to_csv`` -- erst filtern, dann auf Leere pruefen.
+
+    Andersherum entstuende bei einem Zeitraum ohne Bars eine Datei mit
+    nichts als der Kopfzeile. Der Golden Master naehme sie als Fall an und
+    scheiterte an der leeren Kerzenreihe.
+    """
+
+    @staticmethod
+    def _bar(start: datetime) -> IntradayBar:
+        return IntradayBar(start=start, open=1.0, high=2.0, low=0.5, close=1.5, volume=100.0)
+
+    def _bars(self) -> list[IntradayBar]:
+        basis = datetime(2025, 6, 2, 13, 30, tzinfo=ZoneInfo("UTC"))
+        return [self._bar(basis + timedelta(minutes=15 * index)) for index in range(4)]
+
+    def test_ein_leerer_zeitraum_legt_keine_datei_an(self, tmp_path: Path) -> None:
+        ergebnis = export_bars_to_csv(tmp_path, "AAPL", self._bars(), date(2026, 1, 1))
+
+        assert ergebnis is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_ein_leerer_bestand_legt_keine_datei_an(self, tmp_path: Path) -> None:
+        assert export_bars_to_csv(tmp_path, "AAPL", [], None) is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_die_datei_traegt_kopfzeile_und_alle_bars(self, tmp_path: Path) -> None:
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), None)
+
+        assert datei is not None and datei.name == "aapl.bars.csv"
+        zeilen = datei.read_text(encoding="utf-8").splitlines()
+        assert zeilen[0] == "start,open,high,low,close,volume"
+        assert len(zeilen) == 5
+
+    def test_since_schneidet_aeltere_bars_ab(self, tmp_path: Path) -> None:
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), date(2025, 6, 2))
+
+        assert datei is not None
+        assert len(datei.read_text(encoding="utf-8").splitlines()) == 5
+
+    def test_das_format_liest_der_golden_master_wieder_ein(self, tmp_path: Path) -> None:
+        """Sonst waere der Weg 'Server-Ausschnitt in den Golden Master' offen
+        beschrieben, aber nirgends belegt."""
+        from tests.golden.pipeline import read_bars
+
+        datei = export_bars_to_csv(tmp_path, "AAPL", self._bars(), None)
+
+        assert datei is not None
+        assert read_bars(datei) == tuple(self._bars())
+
+
+class TestDeepenHistoryKommando:
+    """Der einmalige Tiefen-Backfill (ADR 0028).
+
+    Legt ab und braucht deshalb eine Datenbank. Der Abruf selbst braucht die
+    TWS und ist hier nicht Gegenstand.
+    """
+
+    def test_ohne_provider_meldet_es_die_ausgelieferte_einstellung(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", "AAPL"]) == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_ohne_datenbankadresse_meldet_es_sich_verstaendlich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.delenv("ATA_DATABASE_URL", raising=False)
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", "AAPL"]) == 2
+        assert "Datenbank" in capsys.readouterr().err
+
+    def test_eine_leere_symbolliste_wird_abgelehnt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "deepen-history", "--symbols", ","]) == 2
+        assert "kein Symbol" in capsys.readouterr().err
+
+    def test_die_argumente_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["deepen-history", "--symbols", "AAPL", "--years", "3", "--window-days", "200"]
+        )
+        assert args.symbols == "AAPL"
+        assert args.years == 3
+        assert args.window_days == 200
+
+    def test_ohne_years_entscheidet_die_konfiguration(self) -> None:
+        """Wie ``--provider``: Das Argument uebersteuert, es setzt nicht.
+
+        Sonst haette die Kommandozeile eine eigene Zieltiefe, die von
+        backtesting.history_years abweichen koennte -- und der Bestand
+        entspraeche nicht dem, was die Kennzahlen unterstellen.
+        """
+        assert build_parser().parse_args(["deepen-history"]).years is None
+
+    def test_das_fenster_zaehlt_in_handelstagen(self) -> None:
+        assert build_parser().parse_args(["deepen-history"]).window_days == 365
+
+
+class TestLaufzeitschaetzung:
+    """Die erste Fassung zaehlte nur die Pacing-Pausen und versprach sieben
+    Minuten fuer einen Lauf, der zwanzig brauchte."""
+
+    def test_die_uebertragung_zaehlt_mit(self) -> None:
+        nur_pacing = 36 * 11 / 60
+
+        text = cli._laufzeitschaetzung(36, 11.0)
+
+        gemeldet = float(text.split("grob ")[1].split(" ")[0])
+        assert gemeldet > nur_pacing * 2
+
+    def test_lange_laeufe_erscheinen_in_stunden(self) -> None:
+        """760 Anfragen in Minuten waeren eine unlesbare Zahl."""
+        text = cli._laufzeitschaetzung(760, 11.0)
+
+        assert "Stunden" in text
+
+    def test_kurze_laeufe_bleiben_in_minuten(self) -> None:
+        assert "Minuten" in cli._laufzeitschaetzung(5, 11.0)
+
+
+class TestBilanzDesTiefenBackfills:
+    """Die Schlusszeile darf nicht mehr behaupten, als der Lauf weiss."""
+
+    @staticmethod
+    def _ergebnis(symbol: str, outcome: DeepenOutcome, **kwargs: object) -> SymbolDeepening:
+        return SymbolDeepening(symbol=symbol, outcome=outcome, **kwargs)  # type: ignore[arg-type]
+
+    def _bilanz(self, *ergebnisse: SymbolDeepening) -> str:
+        import io
+        from contextlib import redirect_stdout
+
+        puffer = io.StringIO()
+        with redirect_stdout(puffer):
+            cli._print_deepen_report(
+                DeepeningReport(target_years=5, results=ergebnisse),
+                datetime(2026, 8, 23, tzinfo=ZoneInfo("UTC")),
+                dauer=60.0,
+            )
+        return puffer.getvalue()
+
+    def test_ohne_fehler_und_ohne_kurze_meldet_sie_vollstaendigkeit(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis("MSFT", DeepenOutcome.ALREADY_DEEP_ENOUGH),
+        )
+
+        assert "Alle Aktien decken 5 Jahre ab." in ausgabe
+
+    def test_ein_ausfall_verhindert_die_vollstaendigkeitsaussage(self) -> None:
+        """Steht die TWS still, ist ueber die betroffenen Aktien nichts
+        bekannt -- ein 'alle decken ab' stuende unmittelbar unter der Liste
+        der Fehlschlaege und widerspraeche ihr."""
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis("MSFT", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+        )
+
+        assert "Alle Aktien decken" not in ausgabe
+        assert "durchgelaufenen" in ausgabe
+        assert "sagt der Lauf nichts" in ausgabe
+
+    def test_auch_wenn_jede_einzelne_aktie_ausfaellt(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+            self._ergebnis("MSFT", DeepenOutcome.ERROR, error="RuntimeError: TWS weg"),
+        )
+
+        assert "Alle Aktien decken" not in ausgabe
+
+    def test_eine_zu_kurze_aktie_erscheint_namentlich(self) -> None:
+        ausgabe = self._bilanz(
+            self._ergebnis("AAPL", DeepenOutcome.TARGET_REACHED),
+            self._ergebnis(
+                "NEU",
+                DeepenOutcome.PROVIDER_EXHAUSTED,
+                earliest_after=datetime(2025, 8, 23, tzinfo=ZoneInfo("UTC")),
+            ),
+        )
+
+        assert "Unter dem Zielzeitraum (1)" in ausgabe
+        assert "NEU" in ausgabe
+        assert "Neuemission" in ausgabe
+        assert "Alle Aktien decken" not in ausgabe

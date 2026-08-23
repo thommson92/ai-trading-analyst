@@ -31,7 +31,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from uuid import uuid4
 
@@ -42,9 +42,24 @@ from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
     SymbolBackfill,
 )
+from ai_trading_analyst.application.deepen_history import (
+    FENSTERGROESSE_HANDELSTAGE,
+    DeepenHistoryUseCase,
+    DeepeningReport,
+    DeepenOutcome,
+    SymbolDeepening,
+)
 from ai_trading_analyst.application.dispatch_daily_run import (
     DispatchDailyRunUseCase,
     DispatchOutcome,
+)
+from ai_trading_analyst.application.measure_history_depth import (
+    FENSTERGROESSE_TAGE,
+    HOECHSTZAHL_FENSTER,
+    DepthLimit,
+    HistoryDepthReport,
+    MeasureHistoryDepthUseCase,
+    SymbolDepth,
 )
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
@@ -84,6 +99,7 @@ from ai_trading_analyst.domain.scheduling import DispatchDecision, SchedulerPara
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
+    IntradayBar,
     ScreeningStatus,
     SignalType,
     evaluate_candidate,
@@ -128,6 +144,40 @@ _logger_cli = get_logger(__name__)
 PACING_FREE_LIMIT = 20
 """So viele Symbole duerfen ohne Mindestabstand abgefragt werden -- deutlich
 unter IBKRs Grenze von 60 Anfragen je zehn Minuten."""
+
+UEBERTRAGUNG_JE_JAHRESFENSTER_SEKUNDEN = 30.0
+"""Wie lange ein Jahresfenster ueber die TWS-Verbindung braucht -- gemessen.
+
+Der erste Messlauf (ADR 0028) hat fuer 36 Anfragen ueber rund 20 Minuten
+gebraucht, bei 11 Sekunden Pacing also etwa 30 Sekunden Uebertragung je
+Anfrage. Ein Jahresfenster in 15-Minuten-Aufloesung sind knapp 9.500 Bars;
+die wollen erst einmal ueber die Leitung.
+
+Die Zahl ist eine Groessenordnung, keine Zusage -- sie geht ausschliesslich
+in die Laufzeitvorschau ein. Ohne sie nannte die Vorschau nur die
+Pacing-Pausen und war damit um den Faktor drei zu optimistisch.
+"""
+
+
+def _laufzeitschaetzung(anfragen: int, interval: float) -> str:
+    """Wie lange der Lauf voraussichtlich dauert.
+
+    Pacing **und** Uebertragung. Die erste Fassung dieser Vorschau zaehlte nur
+    die Pausen und versprach sieben Minuten fuer einen Lauf, der zwanzig
+    brauchte.
+    """
+    sekunden = anfragen * (interval + UEBERTRAGUNG_JE_JAHRESFENSTER_SEKUNDEN)
+    if sekunden < 3600:
+        return f"Laufzeit grob {sekunden / 60:.0f} Minuten, wenn jede Aktie alle Fenster nutzt."
+    return f"Laufzeit grob {sekunden / 3600:.1f} Stunden, wenn jede Aktie alle Fenster nutzt."
+
+
+STANDARD_TITEL_TIEFENMESSUNG = 3
+"""Wieviele Titel die Tiefenmessung aus der **Watchlist** nimmt.
+
+Die Frage nach der Anbietertiefe beantworten wenige Titel so gut wie alle,
+und die ganze Watchlist kostete unter Pacing Stunden. Gilt nur fuer die
+Watchlist: Ausdruecklich genannte Symbole werden nie gekuerzt."""
 
 
 def _positive_count(value: str) -> int:
@@ -453,6 +503,418 @@ def command_backfill(args: argparse.Namespace) -> int:
     return 1 if bericht.failures else 0
 
 
+_VERTIEFUNG_TEXT = {
+    DeepenOutcome.TARGET_REACHED: "Ziel erreicht",
+    DeepenOutcome.ALREADY_DEEP_ENOUGH: "war schon tief genug",
+    DeepenOutcome.PROVIDER_EXHAUSTED: "IBKR gab nicht mehr her",
+    DeepenOutcome.WINDOW_LIMIT: "Fensterobergrenze erreicht",
+    DeepenOutcome.ERROR: "FEHLER",
+}
+
+
+def _print_deepen_progress(index: int, total: int, ergebnis: SymbolDeepening) -> None:
+    prefix = f"[{index:>3}/{total}] {ergebnis.symbol:<8}"
+    if ergebnis.failed:
+        print(f"{prefix} FEHLER   {ergebnis.error}", flush=True)
+        return
+    if ergebnis.outcome is DeepenOutcome.ALREADY_DEEP_ENOUGH:
+        print(f"{prefix} uebersprungen -- war schon tief genug", flush=True)
+        return
+    zurueck = ergebnis.earliest_after.date().isoformat() if ergebnis.earliest_after else "--"
+    print(
+        f"{prefix} zurueck bis {zurueck}  ({ergebnis.windows} Fenster, "
+        f"{ergebnis.stored_bars} neue Bars)  {_VERTIEFUNG_TEXT[ergebnis.outcome]}",
+        flush=True,
+    )
+
+
+def _print_deepen_report(bericht: DeepeningReport, jetzt: datetime, dauer: float) -> None:
+    print(f"\n{len(bericht.results)} Aktien in {dauer / 60:.0f} min")
+    print(f"  neue Bars                    {bericht.stored_bars}")
+    print(f"  bereits tief genug           {len(bericht.untouched)}")
+    print(f"  Fehler                       {len(bericht.failures)}")
+
+    if bericht.failures:
+        print(f"\nFehlgeschlagen: {', '.join(item.symbol for item in bericht.failures)}")
+        print("  Ein erneuter Lauf setzt bei jeder dieser Aktien dort an, wo er aufhoerte.")
+
+    zu_kurz = tuple(
+        item for item in bericht.short_of_target if item.outcome is not DeepenOutcome.ERROR
+    )
+    if zu_kurz:
+        # Kein Fehler, aber auch kein erfuellter Anspruch -- und genau das
+        # darf nicht in einer Gesamtzahl untergehen.
+        print(f"\nUnter dem Zielzeitraum ({len(zu_kurz)}):")
+        for item in zu_kurz[:20]:
+            tage = item.depth_days(jetzt)
+            jahre = f"{tage / 365:.1f} Jahre" if tage is not None else "keine Bars"
+            print(f"  {item.symbol:<8} {jahre:<12} {_VERTIEFUNG_TEXT[item.outcome]}")
+        if len(zu_kurz) > 20:
+            print(f"  ... und {len(zu_kurz) - 20} weitere")
+        print(
+            "  Bei einer Neuemission ist das erwartbar und kein Fehler: Die Kennzahlen\n"
+            "  dieser Aktien tragen ihren tatsaechlichen history_start."
+        )
+    if not zu_kurz and not bericht.failures:
+        print(f"\nAlle Aktien decken {bericht.target_years} Jahre ab.")
+    elif not zu_kurz:
+        # Ueber eine gescheiterte Aktie ist nichts bekannt -- ein
+        # "alle decken ab" stuende sonst unmittelbar unter der Liste der
+        # Fehlschlaege und widerspraeche ihr.
+        print(
+            f"\nAlle **durchgelaufenen** Aktien decken {bericht.target_years} Jahre ab. "
+            f"Ueber die {len(bericht.failures)} fehlgeschlagenen sagt der Lauf nichts."
+        )
+
+
+def command_deepen_history(args: argparse.Namespace) -> int:
+    """Fuellt den Bestand rueckwaerts auf ``backtesting.history_years`` auf.
+
+    Der Batch aus ADR 0014 (E3), beschlossen mit ADR 0028. Laeuft fuer eine
+    volle Watchlist stundenlang und ist genau dafuer gebaut: Jedes Fenster
+    wird sofort abgelegt, ein Abbruch kostet nichts, ein erneuter Start setzt
+    dort an, wo der letzte aufhoerte.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Tiefen-Backfill holt Daten von der TWS -- "
+            "entweder '--provider ibkr' angeben oder die Konfiguration umstellen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    zieljahre = args.years if args.years is not None else config.backtesting.history_years
+
+    watchlist = _watchlist_from(args, config, loaded.source_path)
+    if watchlist is None:
+        return 2
+    if args.limit is not None:
+        watchlist = watchlist[: args.limit]
+
+    if args.no_pacing:
+        ibkr = config.market_data.ibkr.model_copy(update={"minimum_request_interval_seconds": 0.0})
+        market_data = config.market_data.model_copy(update={"ibkr": ibkr})
+        config = config.model_copy(update={"market_data": market_data})
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    bar_source = build_ibkr_bar_source(config)
+    use_case = DeepenHistoryUseCase(
+        bar_source,
+        uow_factory,
+        target_years=zieljahre,
+        window_trading_days=args.window_days,
+    )
+
+    interval = config.market_data.ibkr.minimum_request_interval_seconds
+    anfragen = len(watchlist) * use_case.maximum_windows
+    if interval <= 0 and anfragen > PACING_FREE_LIMIT:
+        print(
+            f"--no-pacing ist hier nicht zulaessig: {len(watchlist)} Aktien mal hoechstens "
+            f"{use_case.maximum_windows} Fenster sind bis zu {anfragen} Anfragen, IBKR sperrt "
+            f"die Verbindung ab 60 je zehn Minuten. Hoechstens {PACING_FREE_LIMIT} Anfragen "
+            "ohne Abstand.",
+            file=sys.stderr,
+        )
+        bar_source.close()
+        return 2
+
+    print(
+        f"{len(watchlist)} Aktien auf {zieljahre} Jahre, hoechstens "
+        f"{use_case.maximum_windows} Fenster je {args.window_days} Handelstage, "
+        f"TWS {config.market_data.ibkr.host}:{config.market_data.ibkr.port} "
+        f"(Client-ID {config.market_data.ibkr.client_id}), Abstand {interval:g} s\n"
+    )
+    print(
+        f"Bis zu {anfragen} Anfragen. {_laufzeitschaetzung(anfragen, interval)}\n"
+        "Ein Abbruch ist unkritisch -- jedes Fenster ist sofort abgelegt, ein erneuter\n"
+        "Lauf setzt dort an, wo dieser aufhoert.\n"
+    )
+
+    started = datetime.now(UTC)
+    try:
+        bericht = use_case.execute(watchlist, on_progress=_print_deepen_progress)
+    except KeyboardInterrupt:
+        print(
+            "\nAbgebrochen -- der bisherige Bestand bleibt erhalten, "
+            "ein erneuter Lauf setzt dort an.",
+            file=sys.stderr,
+        )
+        return 130
+    finally:
+        bar_source.close()
+
+    _print_deepen_report(bericht, datetime.now(UTC), (datetime.now(UTC) - started).total_seconds())
+    return 1 if bericht.failures else 0
+
+
+def export_bars_to_csv(
+    ziel: Path, symbol: str, bars: Sequence[IntradayBar], since: date | None
+) -> Path | None:
+    """Schreibt die Bars einer Aktie und liefert die angelegte Datei.
+
+    ``None`` heisst: Nach ``since`` blieb nichts uebrig, also wurde nichts
+    geschrieben. Die Reihenfolge ist wesentlich -- **erst filtern, dann auf
+    Leere pruefen.** Andersherum entstuende bei einem Zeitraum ohne Bars eine
+    Datei mit nichts als der Kopfzeile; der Golden Master naehme sie als
+    Fall an und scheiterte an der leeren Kerzenreihe.
+    """
+    if since is not None:
+        grenze = datetime.combine(since, time.min, tzinfo=UTC)
+        bars = [bar for bar in bars if bar.start >= grenze]
+    if not bars:
+        return None
+    datei = ziel / f"{symbol.lower()}.bars.csv"
+    zeilen = ["start,open,high,low,close,volume"]
+    zeilen.extend(
+        f"{bar.start.isoformat()},{bar.open:.4f},{bar.high:.4f},"
+        f"{bar.low:.4f},{bar.close:.4f},{bar.volume:.0f}"
+        for bar in bars
+    )
+    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return datei
+
+
+def command_export_bars(args: argparse.Namespace) -> int:
+    """Schreibt gespeicherte Bars als CSV heraus.
+
+    Gedacht fuer den Golden Master (``tests/golden``): Dessen eingefrorene
+    Reihen sind erzeugt, nicht gemessen, weil der reale Bestand nur auf dem
+    Server liegt. Mit diesem Kommando laesst sich dort ein echter Ausschnitt
+    ziehen und danebenlegen -- das Format ist dasselbe, und der Golden
+    Master nimmt jede weitere ``*.bars.csv`` von allein als Fall auf.
+
+    Liest nur; der Bestand bleibt unveraendert.
+    """
+    load_config(args.config)
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    symbole = tuple(symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip())
+    if not symbole:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return 2
+
+    ziel = Path(args.output)
+    if not ziel.is_dir():
+        print(f"--output ist kein Verzeichnis: {ziel}", file=sys.stderr)
+        return 2
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    geschrieben = 0
+    for symbol in symbole:
+        with SqlAlchemyUnitOfWork(session_factory) as uow:
+            bars = uow.intraday_bars.list_for(symbol)
+        datei = export_bars_to_csv(ziel, symbol, bars, args.since)
+        if datei is None:
+            print(
+                f"{symbol}: keine gespeicherten Bars im gewaehlten Zeitraum -- "
+                "keine Datei angelegt",
+                file=sys.stderr,
+            )
+            continue
+        print(f"{symbol}: {datei}")
+        geschrieben += 1
+
+    return 0 if geschrieben else 1
+
+
+_GRENZE_TEXT = {
+    DepthLimit.PROVIDER_EXHAUSTED: "IBKR gab nichts mehr her -- gemessene Tiefe",
+    DepthLimit.NO_PROGRESS: "IBKR kam nicht weiter zurueck -- gemessene Tiefe",
+    DepthLimit.WINDOW_LIMIT: "Fensterobergrenze erreicht -- mindestens",
+    DepthLimit.ERROR: "abgebrochen -- mindestens",
+}
+
+
+def _print_depth_progress(index: int, total: int, ergebnis: SymbolDepth) -> None:
+    prefix = f"[{index:>3}/{total}] {ergebnis.symbol:<8}"
+    if ergebnis.failed:
+        print(f"{prefix} FEHLER  {ergebnis.error}", flush=True)
+        return
+    aeltester = ergebnis.earliest.date().isoformat() if ergebnis.earliest else "keine Bars"
+    print(
+        f"{prefix} zurueck bis {aeltester}  "
+        f"({ergebnis.windows} Fenster, {ergebnis.received_bars} Bars)",
+        flush=True,
+    )
+
+
+def _print_depth_report(bericht: HistoryDepthReport, anspruch_jahre: int) -> None:
+    """Der Bericht, aus dem die Entscheidung zu E2 gefaellt wird.
+
+    Ausgewiesen wird, was ankam -- und ob es eine gemessene Tiefe oder nur
+    eine Untergrenze ist. Die Zusammenfassung nennt bewusst die **flachste**
+    Aktie: Sie bestimmt, ab wann eine Kennzahl ueber die Watchlist hinweg
+    vergleichbar ist.
+    """
+    jetzt = bericht.measured_at
+    print(
+        f"\nTiefenmessung {bericht.bar_minutes}-Minuten-Bars, "
+        f"Fenster je {bericht.window_days} Tage, {jetzt.date().isoformat()}\n"
+    )
+    print(f"{'Symbol':<8} {'aeltester Bar':<14} {'Tage':>6} {'Jahre':>6}  Grenze")
+    for ergebnis in bericht.results:
+        tage = ergebnis.depth_days(jetzt)
+        aeltester = ergebnis.earliest.date().isoformat() if ergebnis.earliest else "--"
+        tage_text = str(tage) if tage is not None else "--"
+        jahre_text = f"{tage / 365:.1f}" if tage is not None else "--"
+        print(
+            f"{ergebnis.symbol:<8} {aeltester:<14} {tage_text:>6} {jahre_text:>6}  "
+            f"{_GRENZE_TEXT[ergebnis.limit]}"
+        )
+        if ergebnis.error is not None:
+            print(f"{'':<8} {ergebnis.error}")
+
+    flachste = bericht.shallowest
+    tage = flachste.depth_days(jetzt) if flachste is not None else None
+    if flachste is None or tage is None:
+        print("\nKeine einzige Aktie hat Bars geliefert -- die Messung sagt nichts aus.")
+        return
+
+    print(
+        f"\nFlachste **gemessene** Historie: {flachste.symbol} mit {tage} Tagen "
+        f"({tage / 365:.1f} Jahre), Grenze {flachste.limit.value}."
+    )
+    if any(ergebnis.is_lower_bound for ergebnis in bericht.results):
+        print(
+            "Mindestens ein Ergebnis ist nur eine **Untergrenze** (Fensterobergrenze "
+            "oder Fehler). Die tatsaechliche Tiefe kann groesser sein."
+        )
+    ohne_messung = bericht.unmeasured
+    if ohne_messung:
+        # Ohne diese Zeile stuetzte ein Titel, fuer den nichts ankam, ein
+        # Urteil ueber die Watchlist, an dem er nicht beteiligt war.
+        print(
+            f"\nOhne einen einzigen Bar ({len(ohne_messung)}): "
+            + ", ".join(ergebnis.symbol for ergebnis in ohne_messung)
+            + "\n  Ueber ihre Tiefe sagt die Messung nichts. Das Urteil unten gilt nur "
+            "fuer die gemessenen Titel."
+        )
+    anspruch_tage = anspruch_jahre * 365
+    if tage < anspruch_tage:
+        print(
+            f"\nDer Anspruch aus backtesting.history_years ({anspruch_jahre} Jahre = "
+            f"{anspruch_tage} Tage) wird von dieser Messung **nicht** gedeckt."
+        )
+    elif ohne_messung:
+        print(
+            f"\nDie gemessenen Titel decken {anspruch_jahre} Jahre ab. Ob der Anspruch "
+            "insgesamt haelt, ist damit **nicht** beantwortet -- erst sind die Titel "
+            "ohne Bars zu klaeren."
+        )
+    else:
+        print(f"\nDer Anspruch von {anspruch_jahre} Jahren ist erreichbar.")
+    print(
+        "\nDie Messung hat nichts abgelegt. Ueber E2 (Backfill vertiefen oder Anspruch "
+        "senken) entscheidet dieser Bericht, nicht dieses Kommando."
+    )
+
+
+def command_history_depth(args: argparse.Namespace) -> int:
+    """Misst, wie weit IBKR die Historie einer Aktie hergibt (E2).
+
+    Schreibt nichts und braucht deshalb keine Datenbank. Das Kommando
+    beantwortet eine offene Frage, es holt keinen Bestand -- siehe
+    ``MeasureHistoryDepthUseCase``.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Die Tiefenmessung fragt die TWS -- "
+            "entweder '--provider ibkr' angeben oder die Konfiguration umstellen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    watchlist = _watchlist_from(args, config, loaded.source_path)
+    if watchlist is None:
+        return 2
+    if args.limit is not None:
+        watchlist = watchlist[: args.limit]
+    elif args.symbols is None:
+        # Nur die Watchlist wird gekuerzt. Wer Symbole ausdruecklich nennt,
+        # bekommt sie alle gemessen -- eine stille Kuerzung entschiede
+        # hinter dem Ruecken des Nutzers mit, welche Aktie am Ende die
+        # "flachste Historie" des Berichts stellt.
+        watchlist = watchlist[:STANDARD_TITEL_TIEFENMESSUNG]
+
+    interval = config.market_data.ibkr.minimum_request_interval_seconds
+    if args.no_pacing:
+        ibkr = config.market_data.ibkr.model_copy(update={"minimum_request_interval_seconds": 0.0})
+        market_data = config.market_data.model_copy(update={"ibkr": ibkr})
+        config = config.model_copy(update={"market_data": market_data})
+        interval = 0.0
+
+    # Anders als beim Backfill haengt die Zahl der Anfragen nicht an der Zahl
+    # der Symbole allein: Jede Aktie kostet bis zu '--max-windows' Anfragen.
+    anfragen = len(watchlist) * args.max_windows
+    if interval <= 0 and anfragen > PACING_FREE_LIMIT:
+        print(
+            f"--no-pacing ist hier nicht zulaessig: {len(watchlist)} Aktien mal hoechstens "
+            f"{args.max_windows} Fenster sind bis zu {anfragen} Anfragen, IBKR sperrt die "
+            f"Verbindung ab 60 je zehn Minuten. Hoechstens {PACING_FREE_LIMIT} Anfragen "
+            "ohne Abstand.",
+            file=sys.stderr,
+        )
+        return 2
+
+    bar_source = build_ibkr_bar_source(config)
+    use_case = MeasureHistoryDepthUseCase(
+        bar_source,
+        window_days=args.window_days,
+        maximum_windows=args.max_windows,
+    )
+
+    print(
+        f"{len(watchlist)} Aktien, hoechstens {args.max_windows} Fenster je "
+        f"{args.window_days} Tage, TWS {config.market_data.ibkr.host}:"
+        f"{config.market_data.ibkr.port} (Client-ID {config.market_data.ibkr.client_id}), "
+        f"Abstand {interval:g} s\n"
+    )
+    print(f"Bis zu {anfragen} Anfragen. {_laufzeitschaetzung(anfragen, interval)}\n")
+    try:
+        bericht = use_case.execute(
+            watchlist,
+            config.market_data.ibkr.native_bar_minutes,
+            on_progress=_print_depth_progress,
+        )
+    except KeyboardInterrupt:
+        print("\nAbgebrochen -- die Messung legt nichts ab, es bleibt nichts zurueck.")
+        return 130
+    finally:
+        bar_source.close()
+
+    _print_depth_report(bericht, config.backtesting.history_years)
+    return 1 if bericht.failures else 0
+
+
 def command_screen(args: argparse.Namespace) -> int:
     loaded = load_config(args.config)
     config = loaded.config
@@ -589,8 +1051,7 @@ def _print_backtest_summary(stock: StockBacktest) -> None:
         if horizon.confidence is not BacktestConfidence.INSUFFICIENT_DATA
     )
     print(
-        f"{stock.symbol}: {auswertbar} auswertbare Horizonte "
-        f"von {len(stock.results)} Kombinationen"
+        f"{stock.symbol}: {auswertbar} auswertbare Horizonte von {len(stock.results)} Kombinationen"
     )
 
 
@@ -987,9 +1448,7 @@ def command_technical(args: argparse.Namespace) -> int:
             print(f"{stock.symbol}: {error}", file=sys.stderr)
             fehler += 1
             continue
-        snapshot = compute_technical_snapshot(
-            series, len(series) - 1, params, datetime.now(UTC)
-        )
+        snapshot = compute_technical_snapshot(series, len(series) - 1, params, datetime.now(UTC))
         _print_technical_snapshot(stock.symbol, snapshot)
         if args.show_prompt:
             # Bewusst unabhaengig von --interpret: "zeig mir, was gesendet
@@ -1243,9 +1702,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         if kandidaten:
             print(f"Kandidaten: {', '.join(kandidaten)}")
 
-        require_complete_enough(
-            zusammenfassung, config.scheduler.minimum_completion_ratio
-        )
+        require_complete_enough(zusammenfassung, config.scheduler.minimum_completion_ratio)
 
     def latest_stored_bar() -> datetime | None:
         with uow_factory() as uow:
@@ -1285,9 +1742,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
 
 
 def _print_dispatch(ergebnis: DispatchOutcome) -> None:
-    zeitpunkt = (
-        ergebnis.scheduled.candle_close.isoformat() if ergebnis.scheduled else "unbestimmt"
-    )
+    zeitpunkt = ergebnis.scheduled.candle_close.isoformat() if ergebnis.scheduled else "unbestimmt"
     if ergebnis.error is not None:
         print(f"Lauf fuer {zeitpunkt} gescheitert: {ergebnis.error}", file=sys.stderr)
         return
@@ -1416,6 +1871,146 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     backfill.set_defaults(handler=command_backfill)
+
+    depth = subparsers.add_parser(
+        "history-depth",
+        help=(
+            "Misst, wie weit IBKR die Historie hergibt (offene Entscheidung E2). "
+            "Legt nichts ab und braucht keine Datenbank."
+        ),
+    )
+    depth.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    depth.add_argument(
+        "--symbols",
+        default=None,
+        help="Kommagetrennte Symbole statt der Watchlist.",
+    )
+    depth.add_argument(
+        "--limit",
+        type=_positive_count,
+        default=None,
+        help=(
+            f"Nur die ersten N Aktien. Ohne Angabe werden aus der Watchlist die ersten "
+            f"{STANDARD_TITEL_TIEFENMESSUNG} genommen -- die Messung kostet je Aktie "
+            "mehrere Anfragen. Ausdruecklich genannte '--symbols' werden ohne diese "
+            "Angabe nie gekuerzt."
+        ),
+    )
+    depth.add_argument(
+        "--window-days",
+        type=_positive_count,
+        default=FENSTERGROESSE_TAGE,
+        help=(
+            f"Groesse eines Fensters in Tagen (Standard {FENSTERGROESSE_TAGE}). Ein Jahr "
+            "ist als Anfragegroesse belegt -- es ist der Zeitraum des taeglichen Backfills."
+        ),
+    )
+    depth.add_argument(
+        "--max-windows",
+        type=_positive_count,
+        default=HOECHSTZAHL_FENSTER,
+        help=(
+            f"Reissleine: hoechstens so viele Fenster je Aktie (Standard "
+            f"{HOECHSTZAHL_FENSTER}). Wird sie erreicht, weist der Bericht die Tiefe "
+            "als Untergrenze aus."
+        ),
+    )
+    depth.add_argument(
+        "--no-pacing",
+        action="store_true",
+        help=(
+            "Ohne Mindestabstand zwischen den Anfragen. Nur fuer eine kurze Messung -- "
+            "IBKR sperrt die Verbindung bei mehr als 60 Anfragen in zehn Minuten."
+        ),
+    )
+    depth.set_defaults(handler=command_history_depth)
+
+    deepen = subparsers.add_parser(
+        "deepen-history",
+        help=(
+            "Einmaliger Tiefen-Backfill: fuellt den Bestand rueckwaerts auf "
+            "backtesting.history_years auf (ADR 0028). Laeuft stundenlang, ist "
+            "abbrechbar und setzt beim naechsten Start dort an."
+        ),
+    )
+    deepen.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    deepen.add_argument(
+        "--symbols",
+        default=None,
+        help="Kommagetrennte Symbole statt der Watchlist.",
+    )
+    deepen.add_argument(
+        "--limit",
+        type=_positive_count,
+        default=None,
+        help="Nur die ersten N Aktien -- fuer einen Probelauf vor der vollen Watchlist.",
+    )
+    deepen.add_argument(
+        "--years",
+        type=_positive_count,
+        default=None,
+        help=(
+            "Zieltiefe in Jahren. Ohne Angabe backtesting.history_years aus der "
+            "Konfiguration -- das ist der Regelfall."
+        ),
+    )
+    deepen.add_argument(
+        "--window-days",
+        type=_positive_count,
+        default=FENSTERGROESSE_HANDELSTAGE,
+        help=(
+            f"Groesse eines Fensters in **Handelstagen** (Standard "
+            f"{FENSTERGROESSE_HANDELSTAGE}). IBKR rechnet die Zeitraumangabe bei "
+            "Intraday-Bars in Handelstagen, nicht in Kalendertagen (ADR 0028)."
+        ),
+    )
+    deepen.add_argument(
+        "--no-pacing",
+        action="store_true",
+        help=(
+            "Ohne Mindestabstand zwischen den Anfragen. Nur fuer wenige Symbole -- "
+            "IBKR sperrt die Verbindung bei mehr als 60 Anfragen in zehn Minuten."
+        ),
+    )
+    deepen.set_defaults(handler=command_deepen_history)
+
+    export = subparsers.add_parser(
+        "export-bars",
+        help=(
+            "Schreibt gespeicherte Bars als CSV heraus -- fuer einen echten "
+            "Datenausschnitt im Golden Master (tests/golden)."
+        ),
+    )
+    export.add_argument(
+        "--symbols",
+        required=True,
+        help="Kommagetrennte Symbole. Je Symbol entsteht eine Datei <symbol>.bars.csv.",
+    )
+    export.add_argument(
+        "--output",
+        required=True,
+        help="Vorhandenes Zielverzeichnis, etwa backend\\tests\\golden\\data.",
+    )
+    export.add_argument(
+        "--since",
+        type=date.fromisoformat,
+        default=None,
+        help=(
+            "Nur Bars ab diesem Datum (JJJJ-MM-TT). Ohne Angabe der ganze Bestand -- "
+            "der ist fuer eine eingefrorene Datei meist mehr, als gebraucht wird."
+        ),
+    )
+    export.set_defaults(handler=command_export_bars)
 
     dispatch = subparsers.add_parser(
         "dispatch",

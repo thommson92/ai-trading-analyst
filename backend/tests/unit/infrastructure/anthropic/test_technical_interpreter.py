@@ -104,9 +104,7 @@ def _submit_block(**overrides: object) -> dict[str, object]:
     }
 
 
-def _message(
-    content: list[dict[str, object]], stop_reason: str = "tool_use"
-) -> dict[str, object]:
+def _message(content: list[dict[str, object]], stop_reason: str = "tool_use") -> dict[str, object]:
     return {
         "id": "msg_1",
         "type": "message",
@@ -125,9 +123,7 @@ def _settings(**overrides: object) -> AnthropicTechnicalSettings:
         "model": "claude-haiku-4-5-20251001",
         "max_output_tokens": 2000,
         "request_timeout_seconds": 60,
-        "pricing": AnthropicTechnicalPricing(
-            input_usd_per_million=1.0, output_usd_per_million=5.0
-        ),
+        "pricing": AnthropicTechnicalPricing(input_usd_per_million=1.0, output_usd_per_million=5.0),
     }
     defaults.update(overrides)
     return AnthropicTechnicalSettings(**defaults)  # type: ignore[arg-type]
@@ -291,9 +287,9 @@ class TestSchemaDurchsetzung:
         Wert durch den INSUFFICIENT_DATA-Zweig hindurch und stuende als
         abgeschlossene Einordnung in der Datenbank."""
         with pytest.raises(TechnicalInterpreterError, match="UNAVAILABLE"):
-            _interpreter(
-                _antwortet(_message([_submit_block(status="UNAVAILABLE")]))
-            ).interpret(AAPL, snapshot())
+            _interpreter(_antwortet(_message([_submit_block(status="UNAVAILABLE")]))).interpret(
+                AAPL, snapshot()
+            )
 
     def test_vom_modell_gemeldete_unzulaenglichkeit_wird_uebernommen(self) -> None:
         assessment = _interpreter(
@@ -551,7 +547,7 @@ class TestModelleingabe:
         assert "1 Wendepunkte" not in text
 
     def test_die_lage_zum_durchschnitt_wird_ausgeschrieben(self) -> None:
-        """"Kurs -1.50 % davon entfernt" laesst sich als Betrag lesen."""
+        """ "Kurs -1.50 % davon entfernt" laesst sich als Betrag lesen."""
         text = render_snapshot(AAPL, snapshot(distance_to_ema20_pct=-0.015), EVALUATED_AT)
 
         assert "1.50 % darunter" in text

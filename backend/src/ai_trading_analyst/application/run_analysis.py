@@ -359,9 +359,7 @@ class RunAnalysisUseCase:
         if art == "research":
             return self._evaluate_research(item.stock, item.evaluated_at)
         assert item.technical is not None
-        return self._evaluate_technical_assessment(
-            item.stock, item.technical, item.evaluated_at
-        )
+        return self._evaluate_technical_assessment(item.stock, item.technical, item.evaluated_at)
 
     @staticmethod
     def _assign_agent_result(
@@ -507,17 +505,14 @@ class RunAnalysisUseCase:
         try:
             return self._technical_interpreter.interpret(stock, snapshot)
         except TechnicalInterpreterError as exc:
-            _logger.warning(
-                "Einordnung fuer %s nicht verfuegbar: %s", stock.symbol, exc
-            )
+            _logger.warning("Einordnung fuer %s nicht verfuegbar: %s", stock.symbol, exc)
             return self._unavailable_assessment(evaluated_at, "provider_error", snapshot)
         except Exception as exc:
             # Ein Anbieter, der entgegen seinem Vertrag eine rohe Exception
             # wirft, darf das fertige Screening-Ergebnis nicht mitreissen
             # (ADR 0023, derselbe Befund beim Research Agent).
             _logger.exception(
-                "Anbieter des Technical Agent hat fuer %s eine unerwartete Ausnahme "
-                "geworfen: %s",
+                "Anbieter des Technical Agent hat fuer %s eine unerwartete Ausnahme geworfen: %s",
                 stock.symbol,
                 exc,
             )
@@ -536,9 +531,7 @@ class RunAnalysisUseCase:
             evaluated_at=evaluated_at,
             model=None,
             prompt_version=None,
-            interpreted_analysis_version=(
-                None if snapshot is None else snapshot.analysis_version
-            ),
+            interpreted_analysis_version=(None if snapshot is None else snapshot.analysis_version),
             reason=reason,
         )
 
