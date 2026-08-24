@@ -4,8 +4,8 @@
 > ändert — im Gegensatz zum [Audit selbst](2026-08-23-repository-audit.md),
 > das als eingefrorene Momentaufnahme unverändert bleibt.
 
-**Stand:** 2026-08-24 (nach PR #38 bis #41 sowie den Serverlaeufen vom
-2026-08-24)
+**Stand:** 2026-08-24 (nach PR #38 bis #42, den Serverlaeufen vom 2026-08-24
+und der Aktivierung des Merge-Schutzes)
 
 ## Wozu dieses Dokument
 
@@ -134,7 +134,7 @@ als ADR.
 | E7 | Inhalt der Ergebnis-Benachrichtigung | **offen** | ADR 0024 gegen Doc 02 §2.12 |
 | E8 | F12: externer Dashboard-Zugriff und Auth | **offen** | blockierend für Sprint 6 |
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | ADR 0025; Bedingung: weitere Läufe an echten Kursen |
-| E10 | Required Checks: Pro, public oder Status quo | **offen** | ADR 0009 |
+| E10 | Required Checks: Pro, public oder Status quo | **entschieden** | Repository auf öffentlich gestellt, Schutz aktiv — [ADR 0031](../adr/0031-merge-schutz-aktiv.md), löst ADR 0009 ab |
 | E11 | Kursziele nachrüsten | **offen** | ADR 0017; erst mit dem Scoring-Design |
 | E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **teilweise** | ③ beantwortet: Server auf 3.13 (→ M13). ① `fallback_model` und ② der `temperature=0`-Doppellauf sind offen |
 | E13 | US-007 „relevante Chartmuster": bauen oder streichen | **offen** | ADR 0026 |
@@ -253,7 +253,7 @@ Fehlerrichtung steht jetzt im Kopfkommentar von
 | R4 | Doc 14 Stufe B bricht am falschen Head ab | **geschlossen** | PR #37, `eabcaca` |
 | R5 | Research: Kostenstreuung und schwache Belegqualität | **eingegrenzt** | Belegqualität behoben und zweimal am echten Lauf bestätigt (ADR 0029). Kosten stabil bei 0,52–0,58 USD; der Hebel ist gemessen und **nicht vorhanden** (ADR 0023, Nachtrag Prompt-Caching) — siehe unten |
 | R6 | Backtest ohne historischen Earnings-Filter | **offen** | ADR 0017 L9; Entscheidung E3 |
-| R7 | Kein Merge-Schutz, CI-Grün nicht erzwungen | **offen** | ADR 0009/0011; Entscheidung E10 |
+| R7 | Kein Merge-Schutz, CI-Grün nicht erzwungen | **geschlossen** | [ADR 0031](../adr/0031-merge-schutz-aktiv.md): `main` und `dev` geschützt, fünf CI-Jobs erforderlich, PR Pflicht, Force-Push und Löschen gesperrt |
 | R8 | Manuell gepflegte Preislisten veralten still | **offen** | M14 |
 | R9 | Ein Thread-Pool für Research und Technical Agent | **offen** | M14 |
 | R10 | `pushover` im Schema ungebaut | **offen** | M14; als bewusster Zustand getestet (`test_pushover_ist_weiterhin_nicht_gebaut`) |
@@ -277,5 +277,6 @@ Feststellung des Audits — sie stehen daneben.
 | 2026-08-24 | Ein Research-Lauf besteht aus **zwei** Anfragen — Recherche und Strukturierung —, nicht aus mehreren Recherche-Runden. `pause_turn` trat nicht auf. Die Token entstehen in der serverseitigen Werkzeugschleife *innerhalb einer* Anfrage. |
 | 2026-08-24 | Zwischen den beiden Anfragen lagen **921 Sekunden**. `max_retries` war beim Anthropic-Client nicht gesetzt (SDK-Standard: 2) und `timeout` lag als Skalar auf dem Lesetimeout — 300 + 300 + ~320 s passt auf die Sekunde. Eine abgelaufene Anfrage erzeugt keine Logzeile, wird aber berechnet. Hypothese, die die Protokollierung je Anfrage beantwortet. |
 | 2026-08-24 | `fetch_allowed_domains` deckt keine Domain ab, die in den realen Suchtreffern vorkam — der Lauf machte **null Abrufe**, ohne einen einzigen Fehlversuch. Ausgerechnet `apple.com/newsroom`, die beste Quelle des Laufs, ist nicht abrufbar. |
-| 2026-08-24 | IBKRs `liquidHours` deckt **fünf Tage** ab. Das Audit konnte die Reichweite nicht kennen; sie entscheidet E4 (ADR 0030). |
+| 2026-08-24 | IBKRs `liquidHours` reicht **vier künftige Handelstage** voraus (Fenster von fünf Tagen). Das Audit konnte die Reichweite nicht kennen; sie entscheidet E4 (ADR 0030). |
 | 2026-08-24 | **Prompt-Caching hat keinen Angriffspunkt.** 94 % der Eingabe-Token entstehen in der serverseitigen Werkzeugschleife einer einzigen Anfrage. Nicht gebaut (ADR 0023, Nachtrag). |
+| 2026-08-24 | Das Repository ist **öffentlich**. Damit entfällt die Plan-Schranke aus ADR 0009, und Secret Scanning samt Push Protection sind zusätzlich aktiviert. Das Audit bewertete R7 unter der Annahme eines privaten Repositories im Free-Plan. |

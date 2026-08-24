@@ -43,9 +43,9 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0006](0006-kein-redis-im-mvp.md) | Kein Redis im MVP, Koordination über PostgreSQL | Angenommen (Nachtrag 2026-08-23: Stufe 2 durch ADR 0019 ersetzt) |
 | [0007](0007-gate-g1-indikatorparameter.md) | Indikator-Parameter bleiben bis zur Freigabe leer | Abgelöst durch ADR 0010 |
 | [0008](0008-reproduzierbare-installation.md) | Reproduzierbare Installation über Lock-Dateien | Angenommen (Erzeuger ersetzt durch ADR 0015) |
-| [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Angenommen (offener Punkt; Nachtrag 2026-08-23: Repository-Name im Kommando) |
+| [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Abgelöst durch [0031](0031-merge-schutz-aktiv.md) |
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
-| [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (Nachtrag 2026-08-23: Verhalten besteht nicht mehr, Merge-Schutz weiter offen) |
+| [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (Nachtrag 2026-08-23: Verhalten besteht nicht mehr; der Merge-Schutz steht seit [0031](0031-merge-schutz-aktiv.md)) |
 | [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
 | [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Schritt 4 freigegeben durch ADR 0014) |
 | [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |
@@ -65,6 +65,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0028](0028-historientiefe-gemessen.md) | Historientiefe gemessen — mindestens 17,4 Jahre, `history_years: 5` bestätigt, Tiefen-Backfill beschlossen | Angenommen |
 | [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
 | [0030](0030-wochentagsnaeherung-bleibt.md) | Wochentagsnäherung im Earnings-Filter bleibt — der TWS-Kalender reicht nicht | Angenommen (entkräftet L3 aus ADR 0020) |
+| [0031](0031-merge-schutz-aktiv.md) | Merge-Schutz auf `main` und `dev` — grüne CI erzwungen, Notausgang für den Inhaber | Angenommen (löst ADR 0009 ab) |
 
 ## Offene Entscheidungen
 
@@ -116,4 +117,9 @@ ADR, sobald die nötigen Informationen vorliegen:
   Gemessen erfasste ein Cache-Breakpoint unter einem Prozent der Eingabe-Token;
   die Kosten entstehen in der serverseitigen Werkzeugschleife *innerhalb* einer
   Anfrage. Siehe [ADR 0023](0023-research-agent-zitierarchitektur.md), Nachtrag vom 2026-08-24.
+- Merge-Schutz für `main` und `dev` — **entschieden: aktiv.** Das Repository
+  ist öffentlich, damit ist die Sperre verfügbar; grüne CI ist erzwungen, der
+  Pull Request ist Pflicht, der Inhaber behält einen Notausgang. Siehe
+  [ADR 0031](0031-merge-schutz-aktiv.md), das
+  [ADR 0009](0009-required-checks-nicht-konfigurierbar.md) ablöst.
 - Externer Zugriff auf das Dashboard (F12)
