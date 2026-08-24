@@ -217,6 +217,46 @@ def _wachstum(rechner: _Rechner, metric: MetricName, figure: FigureName, jahre: 
     )
 
 
+def _verwaesserung(rechner: _Rechner) -> None:
+    """Aenderung der Aktienzahl -- **nur innerhalb einer Einreichung**.
+
+    Anders als bei allen uebrigen Wachstumsraten, und der Grund dafuer ist
+    gemessen: Netflix weist im 10-K von 2011 rund 63 Millionen verwaesserte
+    Aktien aus und im 10-K von 2017 rund 431 Millionen. Dazwischen liegen
+    Aktiensplits. Ueber Einreichungen hinweg gerechnet ergab das eine
+    "Verwaesserung" von 113 Prozent im Jahr -- eine Zahl, die nach massiver
+    Kapitalerhoehung aussieht und in Wahrheit einen Split misst.
+
+    Ein einzelnes 10-K weist die Aktienzahl fuer drei Geschaeftsjahre aus,
+    und zwar durchgaengig auf dem Stand nach dem Split. Innerhalb einer
+    Einreichung ist der Vergleich damit sauber. Der Preis ist die kuerzere
+    Spanne -- zwei Jahre statt ``growth_years``. Sie steht am Ergebnis, weil
+    jede Kennzahl ihren Bezugszeitraum traegt.
+    """
+    nach_einreichung: dict[str, list[ReportedFigure]] = {}
+    for stichtag in rechner.stichtage(FigureName.DILUTED_SHARES):
+        figure = rechner.wert(FigureName.DILUTED_SHARES, stichtag)
+        if figure is not None:
+            nach_einreichung.setdefault(figure.source.accession, []).append(figure)
+
+    brauchbar = [reihe for reihe in nach_einreichung.values() if len(reihe) >= 2]
+    if not brauchbar:
+        return
+    reihe = max(brauchbar, key=lambda werte: werte[-1].period_end)
+    frueh, spaet = reihe[0], reihe[-1]
+    jahre = spaet.period_end.year - frueh.period_end.year
+    if jahre < 1:
+        return
+    rechner.add(
+        MetricName.SHARE_COUNT_GROWTH,
+        compound_annual_growth(frueh.value, spaet.value, jahre),
+        unit=MetricUnit.FRACTION,
+        period_start=frueh.period_start or frueh.period_end,
+        period_end=spaet.period_end,
+        quellen=[frueh, spaet],
+    )
+
+
 def compute_fundamental_snapshot(
     *,
     symbol: str,
@@ -325,9 +365,7 @@ def compute_fundamental_snapshot(
 
     _wachstum(rechner, MetricName.REVENUE_GROWTH, FigureName.REVENUE, params.growth_years)
     _wachstum(rechner, MetricName.NET_INCOME_GROWTH, FigureName.NET_INCOME, params.growth_years)
-    _wachstum(
-        rechner, MetricName.SHARE_COUNT_GROWTH, FigureName.DILUTED_SHARES, params.growth_years
-    )
+    _verwaesserung(rechner)
 
     _bewertung(
         rechner,

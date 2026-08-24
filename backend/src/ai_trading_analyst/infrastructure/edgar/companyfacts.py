@@ -54,26 +54,20 @@ SHARES = "shares"
 
 FIGURE_TAGS: Mapping[FigureName, tuple[str, ...]] = {
     FigureName.REVENUE: (
+        "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
-        "Revenues",
         "SalesRevenueNet",
     ),
-    FigureName.NET_INCOME: ("NetIncomeLoss", "ProfitLoss"),
+    FigureName.NET_INCOME: ("NetIncomeLoss",),
     FigureName.GROSS_PROFIT: ("GrossProfit",),
     FigureName.OPERATING_INCOME: ("OperatingIncomeLoss",),
     FigureName.ASSETS: ("Assets",),
     FigureName.LIABILITIES: ("Liabilities",),
-    FigureName.EQUITY: (
-        "StockholdersEquity",
-        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-    ),
+    FigureName.EQUITY: ("StockholdersEquity",),
     FigureName.CURRENT_ASSETS: ("AssetsCurrent",),
     FigureName.CURRENT_LIABILITIES: ("LiabilitiesCurrent",),
-    FigureName.OPERATING_CASH_FLOW: (
-        "NetCashProvidedByUsedInOperatingActivities",
-        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
-    ),
+    FigureName.OPERATING_CASH_FLOW: ("NetCashProvidedByUsedInOperatingActivities",),
     FigureName.CAPITAL_EXPENDITURE: (
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
@@ -87,10 +81,59 @@ ohne Dienstleistungen und damit eine andere Groesse, nicht eine andere
 Schreibweise derselben -- der Befund, an dem ADR 0032 die ganze Regel
 festmacht.
 
-Zur Reihenfolge beim Umsatz: ``ExcludingAssessedTax`` steht vor
-``IncludingAssessedTax``, weil die eingesammelte Umsatzsteuer kein Erloes des
-Unternehmens ist. Emittenten verwenden praktisch immer nur eines von beiden;
-die Reihenfolge entscheidet also selten, muss aber festliegen."""
+Zur Reihenfolge beim Umsatz: ``Revenues`` steht **vorn**, und das ist
+gemessen. Bei Berkshire Hathaway traegt ``RevenueFromContractWithCustomer...``
+nur den Umsatz aus Kundenvertraegen -- Praemien und Kapitalertraege des
+Versicherungsgeschaefts fehlen darin. Ueber sieben Geschaeftsjahre liegt es
+zwischen 41 und 47 Prozent unter ``Revenues``. Wer die Vertragsumsaetze
+zuerst nimmt, bekommt fuer jeden Versicherer und jedes Finanzunternehmen eine
+um fast die Haelfte zu niedrige Umsatzreihe.
+
+``Revenues`` ist die Gesamtzeile; die uebrigen sind Bestandteile, die bei
+Unternehmen ohne nennenswerte vertragsfremde Erloese mit ihr zusammenfallen
+-- bei Apple und NVIDIA auf den Cent. Dass beide Tags nebeneinander stehen,
+bleibt trotzdem gemeldet: Ein Widerspruch heisst hier, dass der Emittent
+nennenswerte Erloese ausserhalb von Kundenvertraegen hat.
+
+``ExcludingAssessedTax`` steht vor ``IncludingAssessedTax``, weil die
+eingesammelte Umsatzsteuer kein Erloes des Unternehmens ist.
+
+**Vier Tags sind nach dem ersten Lauf gegen echte Filings wieder
+herausgeflogen**, weil sie eben nicht dasselbe bedeuten -- gemessen, nicht
+vermutet:
+
+===============================================  ===================================
+``ProfitLoss``                                   schliesst Minderheitenanteile ein,
+                                                 ``NetIncomeLoss`` nicht. Bei
+                                                 Honeywell 14 Jahre lang
+                                                 abweichend, bis 2,8 Prozent.
+``StockholdersEquity...NoncontrollingInterest``  dasselbe auf der Bilanzseite. Bei
+                                                 Honeywell 2025 8,1 Prozent
+                                                 Unterschied.
+``NetCash...ContinuingOperations``               laesst aufgegebene
+                                                 Geschaeftsbereiche weg. Bei
+                                                 Honeywell 2023 und 2024 rund
+                                                 16 Prozent Unterschied.
+===============================================  ===================================
+
+``PaymentsToAcquireProductiveAssets`` stand zunaechst mit auf dieser Liste und
+ist nach der Messung **geblieben**: Ueber sechs Emittenten hinweg gibt es
+keinen einzigen Zeitraum, in dem beide Capex-Tags verschiedene Werte tragen
+(bei Apple zwei ueberlappende Jahre, identisch), und PepsiCo fuehrt 19 Jahre
+lang ausschliesslich das zweite. Es ist eine Bezeichnungsvariante, kein
+anderer Umfang -- gemessen, nicht vermutet.
+
+Der Preis der Strenge ist Abdeckung: Ein Emittent, der nur ``ProfitLoss``
+fuehrt, liefert kein Nettoergebnis. Das ist die richtige Richtung -- fehlend
+statt falsch (ADR 0032 L1).
+
+**Nicht abgeleitet wird der Rohertrag.** Honeywell und Netflix weisen fuer ihr
+juengstes Geschaeftsjahr kein ``GrossProfit`` aus, und aus Umsatz minus
+Herstellungskosten liesse er sich rechnen. Honeywell teilt die Kosten aber auf
+``CostOfGoodsAndServicesSold`` und ``CostOfServices`` auf -- nur den ersten
+abzuziehen ergaebe eine zu hohe Bruttomarge, die plausibel aussieht. Das ist
+derselbe Fehler wie bei ``SalesRevenueGoodsNet``, nur eine Rechenstufe
+spaeter. Die Bruttomarge fehlt dort lieber."""
 
 FIGURE_UNITS: Mapping[FigureName, str] = {
     name: (SHARES if name is FigureName.DILUTED_SHARES else USD) for name in FigureName

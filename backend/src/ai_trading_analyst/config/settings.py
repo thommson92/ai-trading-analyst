@@ -31,6 +31,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
+PositiveFloat = Annotated[float, Field(gt=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
 
 
@@ -264,6 +265,50 @@ class FinnhubConfig(_Section):
     konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
     um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
     aus ADR 0017 L4, da je Symbol angefragt wird."""
+
+
+class EdgarConfig(_Section):
+    """Zugang zu den SEC-Einreichungen (ADR 0022, ADR 0032).
+
+    Kein Geheimnis: EDGAR verlangt keinen Schluessel. ``contact`` ist die
+    Kontaktadresse, die die SEC im ``User-Agent`` erwartet, damit sie bei
+    auffaelligem Abrufverhalten jemanden erreichen kann -- eine Pflichtangabe,
+    kein Zugangsdatum.
+    """
+
+    base_url: str = "https://data.sec.gov"
+    index_base_url: str = "https://www.sec.gov"
+    """Getrennt vom Datenendpunkt, weil das Symbolverzeichnis unter
+    ``www.sec.gov`` liegt und die Fakten unter ``data.sec.gov``."""
+    contact: str = ""
+    request_timeout_seconds: PositiveInt = 60
+    """Grosszuegig: ``companyfacts`` ist je Aktie mehrere Megabyte gross
+    (ADR 0032 L6)."""
+    max_requests_per_second: PositiveFloat = 8.0
+    """Unter der von der SEC genannten Obergrenze von zehn. Der Abstand ist
+    Absicht -- eine Drossel, die genau auf der Grenze liegt, ueberschreitet
+    sie bei jeder Ungenauigkeit der Uhr."""
+
+    @model_validator(mode="after")
+    def _contact_required_when_used(self) -> EdgarConfig:
+        if self.max_requests_per_second > 10:
+            raise ValueError(
+                "max_requests_per_second ueber 10 verstoesst gegen die Vorgabe der SEC"
+            )
+        return self
+
+
+class FundamentalsConfig(_Section):
+    """Deterministische Fundamentalanalyse (ADR 0032)."""
+
+    provider: Literal["fixture", "edgar"] = "fixture"
+    """Wie ``market_data.provider``: ``fixture`` bleibt Standard, damit Start
+    und Tests ohne Netzzugriff funktionieren."""
+    edgar: EdgarConfig = EdgarConfig()
+    growth_years: PositiveInt = 3
+    """Spanne der Wachstumsraten in Geschaeftsjahren. Wird vollstaendig
+    verlangt; ein Unternehmen mit kuerzerer Historie liefert die
+    Wachstumsraten nicht, statt sie ueber eine andere Spanne zu rechnen."""
 
 
 class EarningsFilterConfig(_Section):
@@ -652,6 +697,7 @@ class AppConfig(_Section):
     llm: LlmConfig = LlmConfig()
     research: ResearchConfig = ResearchConfig()
     technical_agent: TechnicalAgentConfig = TechnicalAgentConfig()
+    fundamentals: FundamentalsConfig = FundamentalsConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()
