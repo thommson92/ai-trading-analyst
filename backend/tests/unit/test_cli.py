@@ -1770,6 +1770,17 @@ class TestFundamentalKommando:
         assert args.price == pytest.approx(232.14)
         assert args.provider == "edgar"
 
+    def test_ein_kurs_fuer_mehrere_symbole_wird_abgelehnt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Er bewertete sonst jedes Papier zum Kurs des ersten -- und das
+        Kommando existiert gerade zum Gegenpruefen."""
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL,NVDA", "--price", "232.14"]
+        )
+        assert cli.command_fundamental(args) == 2
+        assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
+
     def test_ohne_kurs_bleibt_das_argument_leer(self) -> None:
         """Nicht 0.0: Ein Kurs von null waere eine Angabe, keine fehlende."""
         args = build_parser().parse_args(["fundamental", "--symbols", "AAPL"])

@@ -264,7 +264,9 @@ Testdaten den Fehler mitgemacht hätten.
 Bei Berkshire Hathaway trägt
 `RevenueFromContractWithCustomerExcludingAssessedTax` nur die
 Vertragsumsätze — Prämien und Kapitalerträge des Versicherungsgeschäfts
-fehlen darin, über sieben Geschäftsjahre 41 bis 47 Prozent. Die
+fehlen darin, über acht Geschäftsjahre (2018–2025) **29,2 bis 33,4 Prozent**.
+Das ältere `SalesRevenueNet` liegt dort sogar 41,6 bis 47,5 Prozent darunter,
+über sechs Jahre (2012–2017). Die
 ursprüngliche Reihenfolge hätte **jedem Versicherer und jedem
 Finanzunternehmen eine fast halbierte Umsatzreihe gegeben** — und damit
 falsche Margen, falsches Wachstum, falsche Bewertung.
@@ -277,7 +279,7 @@ lautet, dass in eine Liste nur Tags gleicher Bedeutung gehören. Gemessen:
 
 | Herausgenommen | Warum | Gemessen |
 |---|---|---|
-| `ProfitLoss` | schließt Minderheitenanteile ein | Honeywell, 14 Jahre, bis 2,8 % |
+| `ProfitLoss` | schließt Minderheitenanteile ein | Honeywell, 18 Jahre, bis 2,8 % |
 | `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest` | dasselbe in der Bilanz | Honeywell 2025: 8,1 % |
 | `NetCashProvidedByUsedInOperatingActivitiesContinuingOperations` | lässt aufgegebene Bereiche weg | Honeywell 2023/24: rund 16 % |
 
@@ -314,7 +316,7 @@ irgendwohin zeigte.
 | AAPL, NVDA, PEP | **100 %** | — |
 | NFLX | 94 % | Bruttomarge |
 | HON, UBER | 89 % | Bruttomarge; bei HON zusätzlich Verschuldungsgrad, bei UBER die Gewinnwachstumsrate |
-| BRK-B | 72 % | Bruttomarge, operative Marge, Liquiditätsgrad, Verwässerung, Gewinnwachstum |
+| BRK-B | **50 %** | Bruttomarge, operative Marge, Liquiditätsgrad, Verwässerung, Gewinnwachstum — und alle vier Bewertungskennzahlen, siehe Korrektur 5 |
 
 Kein einziger ungeklärter Widerspruch mehr — außer den 14 bei Berkshire, und
 die melden eine echte Eigenschaft des Geschäftsmodells: nennenswerte Erlöse
@@ -327,6 +329,44 @@ Liquiditätsgrad.
 
 **L1 bleibt trotzdem offen.** Sieben Emittenten sind nicht die Watchlist. Was
 diese Messung zeigt, ist die Größenordnung, nicht die Abdeckung.
+
+**L2 ist damit überholt.** Die dort beschriebene Ungenauigkeit — eine
+Aktienzahl, die einige Wochen alt ist — bleibt bestehen und ist hinnehmbar.
+Der Fall, den L2 nicht kannte, ist eine Angabe, die überhaupt nicht mehr zum
+Unternehmen gehört; er ist jetzt ausgeschlossen (Korrektur 5).
+
+### Korrektur 5, aus der unabhängigen Review: die veraltete Aktienzahl
+
+Der Lauf oben hat einen fünften Fehler **nicht** gezeigt, und das ist die
+eigentliche Lehre. Die unabhängige Review hat ihn gefunden.
+
+`dei:EntityCommonStockSharesOutstanding` wurde ohne jede Alterprüfung
+genommen. Berkshire Hathaway führt in `companyfacts` genau **sieben** solcher
+Angaben, und die jüngste ist vom **2011-04-29** mit **941.481** Aktien — der
+Deckblattwert der A-Aktien allein, aus einem 10-Q von vor vierzehn Jahren.
+Daraus entstand:
+
+| Kennzahl | Wert |
+|---|---|
+| Marktkapitalisierung | 470.740.500 USD |
+| KGV | 0,0070 |
+| KUV | 0,0013 |
+
+Status `COMPLETED`, Abdeckung 72 Prozent, kein Widerspruch, nichts in
+`missing_metrics`. **Der Fehler liegt um den Faktor 2.400 daneben und sieht
+aus wie eine Zahl.** Die Abdeckungstabelle dieses Nachtrags führte ihn mit
+auf, ohne dass er aufgefallen wäre.
+
+Das ist genau der Fehlertyp, gegen den dieses ADR gebaut ist — und L2 hat ihn
+gestreift, aber unterschätzt: „rund sechs Wochen alt" ist eine andere
+Größenordnung als vierzehn Jahre.
+
+Die Bewertungskennzahlen entstehen jetzt nur noch, wenn der Deckblattwert
+**nicht älter ist als der jüngste Jahresabschluss**, zu dem er ins Verhältnis
+gesetzt wird. Bewusst keine gegriffene Frist: Die Frage ist nicht, wie alt
+eine Aktienzahl sein darf, sondern ob sie dasselbe Unternehmen beschreibt wie
+die Zahlen daneben. Für Berkshire fällt damit die Bewertung vollständig weg —
+fehlend statt falsch.
 
 ### Bewusst nicht abgeleitet: der Rohertrag
 

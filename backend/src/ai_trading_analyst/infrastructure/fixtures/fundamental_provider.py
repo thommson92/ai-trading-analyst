@@ -23,6 +23,7 @@ from ai_trading_analyst.domain.fundamentals import (
     SourceRef,
     compute_fundamental_snapshot,
 )
+from ai_trading_analyst.infrastructure.edgar.companyfacts import INSTANT_FIGURES
 
 _CIK = 0
 _ACCESSION = "0000000000-00-000000"
@@ -46,21 +47,10 @@ _REIHEN: dict[FigureName, tuple[float, ...]] = {
     FigureName.DILUTED_SHARES: (100e6, 99e6, 98e6, 97e6),
 }
 
-_BESTANDSGROESSEN = frozenset(
-    {
-        FigureName.ASSETS,
-        FigureName.LIABILITIES,
-        FigureName.EQUITY,
-        FigureName.CURRENT_ASSETS,
-        FigureName.CURRENT_LIABILITIES,
-    }
-)
-
-
 def _figure(name: FigureName, wert: float, ende: date) -> ReportedFigure:
     return ReportedFigure(
         value=wert,
-        period_start=None if name in _BESTANDSGROESSEN else date(ende.year, 1, 1),
+        period_start=None if name in INSTANT_FIGURES else date(ende.year, 1, 1),
         period_end=ende,
         unit="shares" if name is FigureName.DILUTED_SHARES else "USD",
         source=SourceRef(

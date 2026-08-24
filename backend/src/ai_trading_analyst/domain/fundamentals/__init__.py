@@ -18,7 +18,6 @@ from .metrics import (
 )
 from .values import (
     FUNDAMENTAL_ANALYSIS_VERSION,
-    PRICE_DEPENDENT_METRICS,
     FigureName,
     FundamentalSnapshot,
     FundamentalStatus,
@@ -32,7 +31,6 @@ from .values import (
 
 __all__ = [
     "FUNDAMENTAL_ANALYSIS_VERSION",
-    "PRICE_DEPENDENT_METRICS",
     "FigureName",
     "FundamentalParameters",
     "FundamentalSnapshot",

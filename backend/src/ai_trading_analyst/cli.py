@@ -1700,6 +1700,17 @@ def command_fundamental(args: argparse.Namespace) -> int:
     if not wanted:
         print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
         return 2
+    if args.price is not None and len(wanted) > 1:
+        # Ein Kurs gilt fuer ein Papier. Auf mehrere angewendet bewertete er
+        # jedes zum Kurs des ersten -- und das Kommando existiert gerade zum
+        # Gegenpruefen, waere also in genau seiner Aufgabe irrefuehrend.
+        print(
+            f"--price gilt fuer ein Symbol, angegeben sind {len(wanted)}. "
+            "Entweder ein einzelnes Symbol abfragen oder --price weglassen; "
+            "ohne Kurs entfallen nur die vier bewertungsabhaengigen Kennzahlen.",
+            file=sys.stderr,
+        )
+        return 2
 
     fehler = 0
     for symbol in wanted:

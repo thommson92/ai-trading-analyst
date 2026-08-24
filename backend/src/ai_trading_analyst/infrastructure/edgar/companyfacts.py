@@ -311,9 +311,22 @@ def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _R
         elif not fakt.is_annual_duration:
             continue
         vorheriger = je_stichtag.get(fakt.end)
-        if vorheriger is None or fakt.filed > vorheriger.filed:
+        if vorheriger is None or _ist_juenger(fakt, vorheriger):
             je_stichtag[fakt.end] = fakt
     return je_stichtag
+
+
+def _ist_juenger(fakt: _RawFact, vorheriger: _RawFact) -> bool:
+    """Spaeteres Einreichungsdatum gewinnt, bei Gleichstand die hoehere
+    Vorgangsnummer.
+
+    Der zweite Teil ist heute ohne Wirkung -- ueber vier geprueften
+    Emittenten gibt es keinen Zeitraum, in dem zwei Einreichungen desselben
+    Tages verschiedene Werte tragen. Ohne ihn entschiede dort aber die
+    Reihenfolge im JSON, und genau die auszuschliessen ist der Zweck dieser
+    Regel.
+    """
+    return (fakt.filed, fakt.accession) > (vorheriger.filed, vorheriger.accession)
 
 
 def _parse_fact(eintrag: Any) -> _RawFact | None:

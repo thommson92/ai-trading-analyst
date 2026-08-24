@@ -290,7 +290,7 @@ class EdgarConfig(_Section):
     sie bei jeder Ungenauigkeit der Uhr."""
 
     @model_validator(mode="after")
-    def _contact_required_when_used(self) -> EdgarConfig:
+    def _rate_must_respect_sec_limit(self) -> EdgarConfig:
         if self.max_requests_per_second > 10:
             raise ValueError(
                 "max_requests_per_second ueber 10 verstoesst gegen die Vorgabe der SEC"

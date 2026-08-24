@@ -36,11 +36,12 @@ class FundamentalStatus(StrEnum):
     COMPLETED = "COMPLETED"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
     """Die Einreichungen reichen fuer keine einzige Kennzahl (CLAUDE.md: ohne
-    belastbare Grundlage lautet das Ergebnis INSUFFICIENT_DATA)."""
-    UNAVAILABLE = "UNAVAILABLE"
-    """Die Quelle war nicht erreichbar. Anders als bei der Chartauswertung
-    gibt es diesen Wert hier, weil ein externer Anbieter beteiligt ist, der
-    ausfallen kann -- Fehlerisolation je Aktie wie bei ``EarningsProvider``."""
+    belastbare Grundlage lautet das Ergebnis INSUFFICIENT_DATA).
+
+    Es gibt hier bewusst **kein** ``UNAVAILABLE``: Ein Ausfall der Quelle
+    verlaesst diesen Weg als ``FundamentalDataProviderError``, den der
+    Application-Layer je Aktie isoliert. Ein Statuswert, den nichts erzeugt,
+    saehe wie eine Zusicherung aus, die niemand einloest."""
 
 
 class FigureName(StrEnum):
@@ -96,21 +97,6 @@ class MetricName(StrEnum):
     PRICE_EARNINGS_RATIO = "PRICE_EARNINGS_RATIO"
     PRICE_SALES_RATIO = "PRICE_SALES_RATIO"
     PRICE_FREE_CASH_FLOW_RATIO = "PRICE_FREE_CASH_FLOW_RATIO"
-
-
-PRICE_DEPENDENT_METRICS = frozenset(
-    {
-        MetricName.MARKET_CAPITALIZATION,
-        MetricName.PRICE_EARNINGS_RATIO,
-        MetricName.PRICE_SALES_RATIO,
-        MetricName.PRICE_FREE_CASH_FLOW_RATIO,
-    }
-)
-"""Die Kennzahlen, die den optionalen Kurs brauchen (ADR 0032, Entscheidung 4).
-
-Ohne Kurs fehlen genau diese und keine anderen. Als Menge und nicht als
-Pruefung im Rechenweg, damit sich "was haengt am Kurs?" beantworten laesst,
-ohne den Rechenweg zu lesen."""
 
 
 class MetricUnit(StrEnum):
@@ -273,8 +259,8 @@ class FundamentalSnapshot:
     nachrechnen laesst."""
     tag_conflicts: tuple[TagConflict, ...] = ()
     reason: str | None = None
-    """Warum es nichts zu rechnen gab -- nur bei ``UNAVAILABLE`` oder
-    ``INSUFFICIENT_DATA`` gesetzt."""
+    """Warum es nichts zu rechnen gab -- nur bei ``INSUFFICIENT_DATA``
+    gesetzt."""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))

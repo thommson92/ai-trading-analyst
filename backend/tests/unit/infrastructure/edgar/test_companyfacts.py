@@ -249,6 +249,30 @@ class TestAktienzahl:
         assert aktien is not None
         assert aktien.value == 90.0
 
+    def test_bei_gleichem_einreichungsdatum_entscheidet_nicht_die_reihenfolge(self) -> None:
+        """Sonst haengt das Ergebnis am JSON -- genau das, was die Regel
+        ausschliessen soll. Heute ohne praktische Wirkung, ueber vier
+        geprueften Emittenten gibt es keinen solchen Gleichstand."""
+        def antwort(zuerst: str, dann: str) -> dict[str, Any]:
+            return _antwort(
+                {
+                    "Revenues": _usd(
+                        _fakt(
+                            1.0, start="2024-01-01", end="2024-12-31",
+                            accn=zuerst, filed="2025-02-01",
+                        ),
+                        _fakt(
+                            2.0, start="2024-01-01", end="2024-12-31",
+                            accn=dann, filed="2025-02-01",
+                        ),
+                    )
+                }
+            )
+
+        eine = resolve_company_facts(antwort("a", "b")).figures[FigureName.REVENUE][0]
+        andere = resolve_company_facts(antwort("b", "a")).figures[FigureName.REVENUE][0]
+        assert eine.source.accession == andere.source.accession == "b"
+
     def test_ohne_dei_gibt_es_keine_aktienzahl(self) -> None:
         antwort = _antwort({"Revenues": _usd(_fakt(1.0, start="2024-01-01", end="2024-12-31"))})
         assert resolve_company_facts(antwort).shares_outstanding is None

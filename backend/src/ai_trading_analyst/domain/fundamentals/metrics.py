@@ -155,24 +155,22 @@ class _Rechner:
         *,
         unit: MetricUnit,
         stichtag: date,
-        nur_positiver_nenner: bool = True,
     ) -> None:
         """Zwei Rohgroessen desselben Stichtags ins Verhaeltnis gesetzt.
 
-        ``nur_positiver_nenner`` ist der Regelfall: Ein negatives
+        Ein nichtpositiver Nenner liefert keine Kennzahl: Ein negatives
         Eigenkapital oder ein negativer Umsatz macht das Verhaeltnis nicht
         klein, sondern bedeutungslos -- eine Eigenkapitalrendite bei
         negativem Eigenkapital dreht das Vorzeichen und behauptet damit das
         Gegenteil der Lage.
         """
-        if zaehler is None or nenner is None:
-            return
-        if nenner.value == 0 or (nur_positiver_nenner and nenner.value < 0):
+        if zaehler is None or nenner is None or nenner.value <= 0:
             return
         self.add(
             name,
             zaehler.value / nenner.value,
             unit=unit,
+            period_start=zaehler.period_start,
             period_end=stichtag,
             quellen=[zaehler, nenner],
         )
@@ -431,6 +429,20 @@ def _bewertung(
     Ersatzwert und ohne dass die uebrigen Kennzahlen davon beruehrt waeren.
     """
     if price is None or shares_outstanding is None or price <= 0:
+        return
+    if shares_outstanding.period_end < stichtag:
+        # Der Deckblattwert ist aelter als der juengste Jahresabschluss und
+        # beschreibt damit nicht mehr das Unternehmen, dessen Zahlen hier
+        # stehen. Gemessen an Berkshire Hathaway: Dort ist der letzte
+        # ``dei``-Wert vom 2011-04-29 und nennt 941.481 Aktien -- die
+        # A-Aktien allein, vor vierzehn Jahren. Die Marktkapitalisierung
+        # daraus lag um den Faktor 2.400 daneben, bei Status COMPLETED und
+        # ohne einen einzigen Hinweis.
+        #
+        # Die Pruefung faellt bewusst grob aus: Sie fragt nicht, wie alt der
+        # Wert sein darf, sondern nur, ob er juenger ist als der
+        # Jahresabschluss, zu dem er ins Verhaeltnis gesetzt wird. Alles
+        # andere waere eine gegriffene Frist.
         return
     marktkapitalisierung = price * shares_outstanding.value
     if marktkapitalisierung <= 0:

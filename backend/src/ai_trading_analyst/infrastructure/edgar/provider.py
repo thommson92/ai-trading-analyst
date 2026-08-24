@@ -32,6 +32,12 @@ from .companyfacts import CompanyFactsError, ResolvedFacts, resolve_company_fact
 
 _logger = get_logger(__name__)
 
+MAX_ANTWORT_BYTES = 32 * 1024 * 1024
+"""Obergrenze je Antwort. Gemessen am 2026-08-24: Apple 3,8 MB, Honeywell
+4,6 MB, Netflix 3,6 MB. Die Grenze liegt weit darueber und soll keinen
+regulaeren Abruf treffen -- sie verhindert, dass eine unerwartet grosse oder
+endlose Antwort den Arbeitsspeicher fuellt (ADR 0032 L6)."""
+
 TICKER_INDEX_PATH = "/files/company_tickers.json"
 COMPANY_FACTS_PATH = "/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
@@ -199,10 +205,18 @@ class EdgarFundamentalDataProvider:
                 transport=self._transport,
                 timeout=self._settings.request_timeout_seconds,
                 headers={"User-Agent": self._settings.user_agent},
-                follow_redirects=True,
             ) as client:
+                # Ohne ``follow_redirects``: Eine Umleitung waere bei einer
+                # festen, konfigurierten Adresse kein normaler Zustand,
+                # sondern ein Hinweis -- ihr blind zu folgen hiesse, eine
+                # fremde Antwort als die der SEC zu verarbeiten.
                 antwort = client.get(f"{base_url}{pfad}")
             antwort.raise_for_status()
+            if len(antwort.content) > MAX_ANTWORT_BYTES:
+                raise FundamentalDataProviderError(
+                    f"{beschreibung}: Antwort ist {len(antwort.content) / 1e6:.1f} MB gross "
+                    f"und damit unplausibel -- Obergrenze {MAX_ANTWORT_BYTES / 1e6:.0f} MB."
+                )
             return antwort.json()
         except (httpx.HTTPError, ValueError) as error:
             raise FundamentalDataProviderError(

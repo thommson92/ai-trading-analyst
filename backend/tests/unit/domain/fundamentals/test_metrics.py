@@ -244,6 +244,33 @@ class TestKursAlsOptionaleEingabe:
         assert snapshot.metrics[MetricName.PRICE_EARNINGS_RATIO].value == pytest.approx(5.0)
         assert snapshot.price_used == 50.0
 
+    def test_eine_veraltete_aktienzahl_wird_verworfen(self) -> None:
+        """Der schwerste Fehler des ersten Laufs: Berkshires juengster
+        Deckblattwert stammt vom 2011-04-29 und nennt 941.481 Aktien -- die
+        A-Aktien allein, vierzehn Jahre alt. Die Marktkapitalisierung daraus
+        lag um den Faktor 2.400 daneben, bei Status COMPLETED und ohne einen
+        einzigen Hinweis. Genau der Fehlertyp, gegen den dieses Modul gebaut
+        ist: eine plausible Zahl, auf die keine Pruefung anschlaegt.
+        """
+        snapshot = _snapshot(
+            self._basis(),
+            price=50.0,
+            shares_outstanding=_figure(10.0, 2011, instant=True, unit="shares"),
+        )
+        assert MetricName.MARKET_CAPITALIZATION not in snapshot.metrics
+        assert MetricName.MARKET_CAPITALIZATION in snapshot.missing_metrics
+        assert MetricName.NET_MARGIN in snapshot.metrics
+
+    def test_eine_aktienzahl_vom_bilanzstichtag_selbst_zaehlt(self) -> None:
+        """Die Grenze ist "aelter als der Jahresabschluss", nicht "aelter als
+        eine gegriffene Frist" -- der Stichtag selbst geht durch."""
+        snapshot = _snapshot(
+            self._basis(),
+            price=50.0,
+            shares_outstanding=_figure(10.0, 2025, instant=True, unit="shares"),
+        )
+        assert MetricName.MARKET_CAPITALIZATION in snapshot.metrics
+
     def test_bei_verlust_gibt_es_kein_kgv(self) -> None:
         """Es waere negativ und wuechse mit dem Verlust -- es saehe aus wie
         eine guenstige Bewertung."""
@@ -253,6 +280,55 @@ class TestKursAlsOptionaleEingabe:
         )
         assert MetricName.PRICE_EARNINGS_RATIO not in snapshot.metrics
         assert MetricName.PRICE_SALES_RATIO in snapshot.metrics
+
+
+class TestWeitereVerhaeltnisse:
+    """Die Kennzahlen, die beim ersten Durchgang ohne eigenen Test blieben."""
+
+    def _basis(self) -> dict[FigureName, tuple[ReportedFigure, ...]]:
+        return {
+            FigureName.REVENUE: _reihe({2025: 1000.0}),
+            FigureName.NET_INCOME: _reihe({2025: 100.0}),
+        }
+
+    def test_verschuldungsgrad_und_liquiditaetsgrad(self) -> None:
+        snapshot = _snapshot(
+            self._basis()
+            | {
+                FigureName.LIABILITIES: _reihe({2025: 600.0}, instant=True),
+                FigureName.EQUITY: _reihe({2025: 400.0}, instant=True),
+                FigureName.CURRENT_ASSETS: _reihe({2025: 300.0}, instant=True),
+                FigureName.CURRENT_LIABILITIES: _reihe({2025: 200.0}, instant=True),
+            }
+        )
+        assert snapshot.metrics[MetricName.DEBT_TO_EQUITY].value == pytest.approx(1.5)
+        assert snapshot.metrics[MetricName.CURRENT_RATIO].value == pytest.approx(1.5)
+
+    def test_die_cashflow_marge_bezieht_sich_auf_denselben_umsatz(self) -> None:
+        snapshot = _snapshot(
+            self._basis()
+            | {
+                FigureName.OPERATING_CASH_FLOW: _reihe({2025: 300.0}),
+                FigureName.CAPITAL_EXPENDITURE: _reihe({2025: 100.0}),
+            }
+        )
+        assert snapshot.metrics[MetricName.FREE_CASH_FLOW_MARGIN].value == pytest.approx(0.2)
+
+    def test_die_abdeckung_zaehlt_die_gerechneten_kennzahlen(self) -> None:
+        snapshot = _snapshot({FigureName.REVENUE: _reihe({2025: 1000.0})})
+        assert snapshot.coverage == pytest.approx(1 / len(MetricName))
+
+    def test_jede_kennzahl_traegt_ihren_bezugszeitraum(self) -> None:
+        """Doc 10, Paragraph 6.9 verlangt ihn. Bei den Verhaeltniszahlen
+        fehlte er zunaechst -- ``NET_MARGIN`` meldete ``None..2025-09-27``."""
+        snapshot = _snapshot(self._basis())
+        marge = snapshot.metrics[MetricName.NET_MARGIN]
+        assert marge.period_start == date(2025, 1, 1)
+        assert marge.period_end == date(2025, 12, 31)
+
+    def test_eine_unsinnige_wachstumsspanne_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValueError, match="growth_years"):
+            FundamentalParameters(growth_years=0)
 
 
 class TestHerkunftIstPflicht:

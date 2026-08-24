@@ -127,6 +127,37 @@ class TestFehler:
             provider.fundamentals(AKTIE)
 
 
+class TestAntwortgroesse:
+    def test_eine_unplausibel_grosse_antwort_wird_abgelehnt(self) -> None:
+        """companyfacts ist je Aktie einige Megabyte gross (Honeywell 4,6 MB
+        gemessen). Eine Antwort weit darueber deutet auf etwas anderes hin
+        als auf Fundamentaldaten."""
+        from ai_trading_analyst.infrastructure.edgar import provider as modul
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("company_tickers.json"):
+                return httpx.Response(200, json=VERZEICHNIS)
+            return httpx.Response(200, content=b'{"x": "' + b"y" * 2048 + b'"}')
+
+        anbieter = _provider(httpx.MockTransport(handler))
+        with pytest.raises(FundamentalDataProviderError, match="unplausibel"):
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(modul, "MAX_ANTWORT_BYTES", 1024)
+                anbieter.fundamentals(AKTIE)
+
+    def test_einer_umleitung_wird_nicht_gefolgt(self) -> None:
+        """Bei einer festen, konfigurierten Adresse ist eine Umleitung kein
+        normaler Zustand -- ihr zu folgen hiesse, eine fremde Antwort als die
+        der SEC zu verarbeiten."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("company_tickers.json"):
+                return httpx.Response(301, headers={"Location": "https://woanders.example/x"})
+            return httpx.Response(200, json=FACTS)
+
+        with pytest.raises(FundamentalDataProviderError):
+            _provider(httpx.MockTransport(handler)).fundamentals(AKTIE)
+
+
 class TestKursDurchreichen:
     def test_ohne_kurs_fehlen_die_bewertungskennzahlen(self) -> None:
         snapshot = _provider(_transport()).fundamentals(AKTIE)
