@@ -54,7 +54,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
 | [0019](0019-trading-day-dispatcher.md) | Trading-Day-Dispatcher — idempotenter Einzelstart statt Dauerprozess | Angenommen |
-| [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen |
+| [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen; L2 und L3 durch [0030](0030-wochentagsnaeherung-bleibt.md) abgelöst |
 | [0021](0021-ki-anbindung-anthropic-api.md) | KI-Anbindung — Anthropic API mit Modellprofilen je Analyseaufgabe | Angenommen |
 | [0022](0022-research-agent-quellen.md) | Research Agent — Anthropic Web Search/Web Fetch, SEC EDGAR deterministisch für Fundamentaldaten | Angenommen (GO_WITH_LIMITATIONS) |
 | [0023](0023-research-agent-zitierarchitektur.md) | Research Agent — Zitierarchitektur | Angenommen |
@@ -108,12 +108,12 @@ ADR, sobald die nötigen Informationen vorliegen:
   Technical Agent ordnet ausschließlich deterministisch berechnete Werte
   ein, siehe [ADR 0026](0026-technical-agent-ki-einordnung.md).
 - Handelstagskalender für den Earnings-Filter — **entschieden.** Die
-  Wochentagsnäherung bleibt; IBKRs `liquidHours` deckt gemessen fünf Tage ab,
-  gebraucht werden elf. Siehe [ADR 0030](0030-wochentagsnaeherung-bleibt.md),
+  Wochentagsnäherung bleibt; IBKRs `liquidHours` reicht gemessen vier künftige
+  Handelstage voraus, gebraucht werden elf. Siehe [ADR 0030](0030-wochentagsnaeherung-bleibt.md),
   das die Zusage L3 aus [ADR 0020](0020-earnings-filter-status-und-handelstagskalender.md)
   entkräftet.
 - Prompt-Caching für den Research-Lauf — **entschieden: wird nicht gebaut.**
   Gemessen erfasste ein Cache-Breakpoint unter einem Prozent der Eingabe-Token;
   die Kosten entstehen in der serverseitigen Werkzeugschleife *innerhalb* einer
-  Anfrage. Siehe ADR 0023, Nachtrag vom 2026-08-24.
+  Anfrage. Siehe [ADR 0023](0023-research-agent-zitierarchitektur.md), Nachtrag vom 2026-08-24.
 - Externer Zugriff auf das Dashboard (F12)

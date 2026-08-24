@@ -1510,10 +1510,15 @@ def _print_technical_assessment(
     bleibt, worauf sie sich bezieht -- und damit auffaellt, wenn die Worte
     nicht zu den Zahlen darueber passen.
     """
+    # Auch die Verfahrensversion, aus demselben Grund wie beim Research-Bericht:
+    # Die eingeordneten Zahlen stammen aus einem bestimmten Stand der
+    # deterministischen Auswertung. Ohne ihn laesst sich eine Einordnung
+    # spaeter nicht mehr dem Verfahren zuordnen, auf dem sie beruht.
+    verfahren = assessment.interpreted_analysis_version or "unbekannt"
     herkunft = (
         ""
         if assessment.model is None
-        else f" -- {assessment.model}, Prompt {assessment.prompt_version}"
+        else f" -- {assessment.model}, Prompt {assessment.prompt_version}, Verfahren {verfahren}"
     )
     print(f"  Einordnung: {assessment.status.value}{herkunft}")
     if assessment.reason:

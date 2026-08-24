@@ -345,8 +345,13 @@ Aufzeichnung enthielte nichts. Ein Test hält das fest.
 
 ## Zwischenschritt: Reichweite des Handelskalenders messen (optional)
 
-Kein Abnahmekriterium, sondern die Messung hinter einer offenen
-Entscheidung (E4). Der Earnings-Filter zählt Handelstage bis zum nächsten
+Kein Abnahmekriterium, sondern die Messung, die die Entscheidung E4 getragen
+hat. Sie ist gefallen: Der Kalender reicht nicht, die Wochentagsnäherung
+bleibt ([ADR 0030](adr/0030-wochentagsnaeherung-bleibt.md)). Das Kommando
+bleibt trotzdem — IBKRs Fenster ist eine Eigenschaft des Anbieters, keine
+Naturkonstante, und die Messung lässt sich damit ohne Aufwand wiederholen.
+
+Der Earnings-Filter zählt Handelstage bis zum nächsten
 Termin heute über eine **Wochentagsnäherung**: Montag bis Freitag gelten als
 Handelstage, Börsenfeiertage bleiben unberücksichtigt
 ([ADR 0020](adr/0020-earnings-filter-status-und-handelstagskalender.md), L2/L3). Die Näherung
@@ -372,7 +377,9 @@ reicht. Meldet sie zusätzlich ein „ABER", reicht er für die
 Ausschlussentscheidung, aber nicht für die Zahl `candles_until_earnings`,
 die auch für nicht ausgeschlossene Titel gespeichert wird.
 
-**Entschieden wird damit nichts**; das Ergebnis geht in ein ADR.
+**Gemessen am 2026-08-24** (Referenzkontrakt NVDA): vier künftige
+Handelstage gegen elf gebrauchte. Ein abweichendes Ergebnis wäre ein neues
+ADR, kein Nachtrag zu ADR 0030.
 
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 

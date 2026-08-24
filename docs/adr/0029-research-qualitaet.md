@@ -245,6 +245,23 @@ trat nicht auf. Die Token entstehen in der serverseitigen Werkzeugschleife
 Werkzeugschleife überhaupt wirkt, ist offen und wird gemessen, bevor darüber
 entschieden wird.
 
+### Nachtrag: die offene Cache-Frage ist beantwortet (2026-08-24)
+
+Der Nachtrag darüber lässt zwei Fragen offen und kündigt eine Messung an.
+Beide sind inzwischen beantwortet — **nicht hier, sondern in
+[ADR 0023](0023-research-agent-zitierarchitektur.md), Nachtrag „Prompt-Caching
+wird nicht gebaut"**, weil dort die Kostensteuerung des Research-Adapters
+festgelegt ist.
+
+Kurzfassung, damit niemand diesem Dokument bis zu einem „offen" folgt: Ein
+Cache-Breakpoint erfasst weniger als ein Prozent der Eingabe-Token. Die
+Instrumentierung je Anfrage zeigt 109.324 Token in der Recherche gegen 7.061
+in der Strukturierung; die 94 % entstehen in der serverseitigen
+Werkzeugschleife *innerhalb einer* Anfrage, wo es keinen wiederholten Präfix
+zwischen Anfragen gibt. Damit ist auch die Aussage dieses ADR, Prompt-Caching
+sei „der wirksamere Hebel", widerlegt. Sie bleibt stehen, wie sie war; die
+Korrektur steht hier und in ADR 0023.
+
 ## Begründung
 
 Die Trennung von Rang und Lizenz (1) ist die einzige der vier Entscheidungen,

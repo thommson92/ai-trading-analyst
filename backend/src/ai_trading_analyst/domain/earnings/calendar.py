@@ -9,13 +9,17 @@ Trading-Day-Dispatcher.
 **Die Fehlerrichtung ist riskant, nicht vorsichtig.** Ein mitgezaehlter
 Feiertag macht die Zahl zu **hoch**, der Termin erscheint dadurch weiter weg,
 und ``evaluate_earnings_filter`` schliesst **seltener** aus als es sollte --
-wir handeln in die Quartalszahlen hinein, statt draussen zu bleiben. Das
-Repository-Audit vom 2026-08-23 hat die Abweichung fuer "konservativ"
-gehalten; sie ist es nicht.
+wir handeln in die Quartalszahlen hinein, statt draussen zu bleiben.
+
+Die gegenteilige Annahme steht an zwei Stellen: in ADR 0020 selbst (L2: "Die
+Abweichung wirkt konservativ") und im Repository-Audit vom 2026-08-23, das
+sie uebernommen hat. Beide sind widerlegt; ADR 0020 wird dafuer nicht
+rueckwirkend geaendert, sondern durch ADR 0030 abgeloest.
 
 Die Naeherung bleibt trotzdem, und zwar aus einem gemessenen Grund: IBKRs
-``liquidHours`` deckt nur fuenf Tage ab (Messung 2026-08-24), gebraucht
-werden elf. Es gibt schlicht nichts, womit sie sich ersetzen liesse -- siehe
+``liquidHours`` reicht nur **vier kuenftige Handelstage** voraus (Messung
+2026-08-24, Fenster 2026-08-24 bis 2026-08-28), gebraucht werden elf. Es gibt
+schlicht nichts, womit sie sich ersetzen liesse -- siehe
 ADR 0030, das die Zusage L3 aus ADR 0020 entkraeftet. ``cli calendar-reach``
 wiederholt die Messung ohne Aufwand, falls sich die Datenlage aendert.
 """

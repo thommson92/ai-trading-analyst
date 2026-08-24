@@ -231,9 +231,9 @@ Das ändert nicht, welche Option richtig ist, wohl aber ihre Begründung. Ein
 ADR zu E4 darf sich nicht auf die Konservativitäts-Annahme des Audits stützen.
 
 **Gemessen am 2026-08-24** mit `cli calendar-reach --provider ibkr`
-(Referenzkontrakt NVDA): IBKRs `liquidHours` deckt **fünf Tage** ab
-(2026-08-24 bis 2026-08-28), davon vier künftige Handelstage. Gebraucht werden
-**elf**. Der Kalender reicht auf gut ein Drittel des Ausschlussfensters — es
+(Referenzkontrakt NVDA): IBKRs `liquidHours` deckt fünf Tage ab (2026-08-24
+bis 2026-08-28) und reicht damit **vier künftige Handelstage** voraus.
+Gebraucht werden **elf**. Der Kalender reicht auf gut ein Drittel des Ausschlussfensters — es
 gibt nichts, womit sich die Näherung ersetzen ließe.
 
 Festgehalten in [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md). Die

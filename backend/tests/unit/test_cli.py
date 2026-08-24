@@ -725,6 +725,49 @@ class TestTechnicalKommando:
         ausgabe = capsys.readouterr().out
         assert "Chance/Risiko:           --  (berechnet: 1.05)" in ausgabe
 
+    def test_die_verfahrensversion_steht_neben_der_promptversion(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die eingeordneten Zahlen stammen aus einem bestimmten Stand der
+        deterministischen Auswertung. Ohne ihn laesst sich eine Einordnung
+        spaeter nicht dem Verfahren zuordnen, auf dem sie beruht -- derselbe
+        Grund wie beim Research-Bericht."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 24, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="claude-haiku-4-5-20251001",
+                prompt_version="technical-agent-v3",
+                interpreted_analysis_version="technical-analysis-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=RiskRewardRating.BALANCED,
+            ),
+        )
+
+        assert (
+            "Prompt technical-agent-v3, Verfahren technical-analysis-v1"
+        ) in capsys.readouterr().out
+
+    def test_eine_einordnung_ohne_verfahrensversion_luegt_nicht(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Spalte ist nullable und wird nicht zurueckgerechnet.
+        "unbekannt" ist die ehrliche Antwort, nicht die aktuelle Version."""
+        cli._print_technical_assessment(
+            "AAPL",
+            TechnicalAssessment(
+                status=TechnicalAssessmentStatus.COMPLETED,
+                evaluated_at=datetime(2026, 8, 24, 12, 0, tzinfo=ZoneInfo("UTC")),
+                model="claude-haiku-4-5-20251001",
+                prompt_version="technical-agent-v1",
+                trend_strength=TrendStrength.MODERATE,
+                risk_reward_rating=RiskRewardRating.BALANCED,
+            ),
+        )
+
+        assert "Verfahren unbekannt" in capsys.readouterr().out
+
     def test_ein_ausfall_zeigt_keine_leeren_stufen(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
