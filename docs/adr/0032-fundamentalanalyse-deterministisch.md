@@ -250,3 +250,90 @@ ADR 0022 ausgeschlossen und durch die zentrale Regel aus CLAUDE.md verboten.
 Befund 2 zeigt zusätzlich, warum: Die Wahl zwischen 32,350 und 25,242 Mrd ist
 eine Regel, die nachvollziehbar festliegen muss — kein Urteil, das je Aufruf
 neu ausfallen darf.
+
+---
+
+### Nachtrag: was der erste Lauf gegen echte Filings korrigiert hat (2026-08-24)
+
+Der Entscheidungstext oben bleibt unverändert; er hat sich getragen. Vier
+seiner **Umsetzungen** waren falsch, und alle vier hat erst der Lauf gegen
+echte Einreichungen gezeigt — kein Test hätte sie gefunden, weil die
+Testdaten den Fehler mitgemacht hätten.
+
+**1. Die Umsatzreihenfolge war falsch herum.** `Revenues` steht jetzt vorn.
+Bei Berkshire Hathaway trägt
+`RevenueFromContractWithCustomerExcludingAssessedTax` nur die
+Vertragsumsätze — Prämien und Kapitalerträge des Versicherungsgeschäfts
+fehlen darin, über sieben Geschäftsjahre 41 bis 47 Prozent. Die
+ursprüngliche Reihenfolge hätte **jedem Versicherer und jedem
+Finanzunternehmen eine fast halbierte Umsatzreihe gegeben** — und damit
+falsche Margen, falsches Wachstum, falsche Bewertung.
+
+Das ist derselbe Befund, auf dem dieses ADR aufbaut, nur an einer Stelle, an
+der ich ihn selbst übersehen hatte.
+
+**2. Drei meiner eigenen Tag-Listen verletzten Entscheidung 2.** Die Regel
+lautet, dass in eine Liste nur Tags gleicher Bedeutung gehören. Gemessen:
+
+| Herausgenommen | Warum | Gemessen |
+|---|---|---|
+| `ProfitLoss` | schließt Minderheitenanteile ein | Honeywell, 14 Jahre, bis 2,8 % |
+| `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest` | dasselbe in der Bilanz | Honeywell 2025: 8,1 % |
+| `NetCashProvidedByUsedInOperatingActivitiesContinuingOperations` | lässt aufgegebene Bereiche weg | Honeywell 2023/24: rund 16 % |
+
+`PaymentsToAcquireProductiveAssets` stand ebenfalls zur Diskussion und ist
+nach der Messung **geblieben**: kein einziger Zeitraum mit abweichenden
+Werten über sechs Emittenten, und PepsiCo führt 19 Jahre lang ausschließlich
+dieses Tag. Eine Bezeichnungsvariante, kein anderer Umfang.
+
+**3. Die Verwässerung maß Aktiensplits.** Netflix' 10-K von 2011 nennt 63
+Millionen verwässerte Aktien, das von 2017 nennt 431 Millionen. Über
+Einreichungen hinweg gerechnet ergab das **113 Prozent „Verwässerung" im
+Jahr** — eine Zahl, die nach massiver Kapitalerhöhung aussieht und einen
+Split misst.
+
+Entscheidung 3 („die zuletzt eingereichte Angabe gewinnt") löst das nicht:
+Ein Geschäftsjahr, das in keiner neueren Einreichung mehr als Vergleichszahl
+auftaucht, behält seinen Stand vor dem Split. Die Änderung der Aktienzahl
+entsteht deshalb **ausschließlich innerhalb einer Einreichung**, wo alle drei
+ausgewiesenen Jahre auf demselben Splitstand stehen. Der Preis ist die
+kürzere Spanne — zwei Jahre statt `growth_years`. Sie steht am Ergebnis,
+weil jede Kennzahl ihren Bezugszeitraum trägt.
+
+**4. `TagConflict` führte die Kennzahl statt der Rohgröße.** Ein Widerspruch
+zwischen zwei Cashflow-Tags wurde als Umsatzwiderspruch gemeldet, weil es zu
+einigen Rohgrößen keine gleichnamige Kennzahl gibt und der Rückfall
+irgendwohin zeigte.
+
+### Gemessene Abdeckung — L1 teilweise eingelöst
+
+Über sieben Emittenten, mit Kurs:
+
+| Symbol | Abdeckung | Was fehlt |
+|---|---|---|
+| AAPL, NVDA, PEP | **100 %** | — |
+| NFLX | 94 % | Bruttomarge |
+| HON, UBER | 89 % | Bruttomarge; bei HON zusätzlich Verschuldungsgrad, bei UBER die Gewinnwachstumsrate |
+| BRK-B | 72 % | Bruttomarge, operative Marge, Liquiditätsgrad, Verwässerung, Gewinnwachstum |
+
+Kein einziger ungeklärter Widerspruch mehr — außer den 14 bei Berkshire, und
+die melden eine echte Eigenschaft des Geschäftsmodells: nennenswerte Erlöse
+außerhalb von Kundenverträgen.
+
+Ubers fehlende Gewinnwachstumsrate ist **kein Mangel**: Das Unternehmen war
+vor drei Jahren defizitär, und aus einem Verlust gibt es keine
+Wachstumsrate. Berkshire hat keine klassifizierte Bilanz, daher kein
+Liquiditätsgrad.
+
+**L1 bleibt trotzdem offen.** Sieben Emittenten sind nicht die Watchlist. Was
+diese Messung zeigt, ist die Größenordnung, nicht die Abdeckung.
+
+### Bewusst nicht abgeleitet: der Rohertrag
+
+Honeywell, Netflix und Uber weisen für ihr jüngstes Geschäftsjahr kein
+`GrossProfit` aus. Aus Umsatz minus Herstellungskosten ließe er sich rechnen
+— aber Honeywell teilt die Kosten auf `CostOfGoodsAndServicesSold` und
+`CostOfServices` auf. Nur den ersten abzuziehen ergäbe eine **zu hohe
+Bruttomarge, die plausibel aussieht**: derselbe Fehler wie bei
+`SalesRevenueGoodsNet`, eine Rechenstufe später. Die Bruttomarge fehlt dort
+lieber.

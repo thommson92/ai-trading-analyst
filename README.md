@@ -89,7 +89,8 @@ Noch offen:
 
 | Thema | Stand |
 |---|---|
-| Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
+| Fundamental Agent, KI-Haelfte | Sprint 4 — die deterministischen Kennzahlen stehen ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md)), die Einordnung folgt |
+| Report Generator | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
 
