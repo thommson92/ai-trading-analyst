@@ -21,14 +21,18 @@ from ai_trading_analyst.bootstrap import (
     build_backtest_params,
     build_bar_source,
     build_earnings_provider,
+    build_fundamental_data_provider,
     build_market_data_provider,
     build_research_provider,
     build_technical_interpreter,
     project_root,
 )
+from ai_trading_analyst.config.loader import ConfigError
 from ai_trading_analyst.config.settings import (
     AppConfig,
     EarningsFilterConfig,
+    EdgarConfig,
+    FundamentalsConfig,
     IbkrConfig,
     IndicatorConfig,
     MarketDataConfig,
@@ -42,8 +46,12 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicTechnicalInterpreter,
 )
 from ai_trading_analyst.infrastructure.anthropic.client import VERBINDUNGSAUFBAU_SEKUNDEN
+from ai_trading_analyst.infrastructure.edgar import EdgarFundamentalDataProvider
 from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
+from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
+    FixtureFundamentalDataProvider,
+)
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
@@ -168,6 +176,42 @@ class TestEarningsAnbieterauswahl:
         )
         provider = build_earnings_provider(config, Secrets(_env_file=None))
         assert isinstance(provider, FinnhubEarningsProvider)
+
+
+class TestFundamentalAnbieterauswahl:
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.fundamentals.provider == "fixture"
+        assert isinstance(
+            build_fundamental_data_provider(config), FixtureFundamentalDataProvider
+        )
+
+    def test_edgar_ohne_kontaktadresse_scheitert_verstaendlich(self) -> None:
+        """Die SEC verlangt sie im User-Agent und antwortet ohne sie mit 403.
+        Der Fehler kommt hier statt als 403 mitten im Lauf."""
+        config = AppConfig(
+            indicators=INDICATORS, fundamentals=FundamentalsConfig(provider="edgar")
+        )
+        with pytest.raises(ConfigError, match="contact"):
+            build_fundamental_data_provider(config)
+
+    def test_edgar_mit_kontaktadresse_wird_ohne_netzwerkzugriff_gebaut(self) -> None:
+        config = AppConfig(
+            indicators=INDICATORS,
+            fundamentals=FundamentalsConfig(
+                provider="edgar", edgar=EdgarConfig(contact="pruefer@example.org")
+            ),
+        )
+        assert isinstance(
+            build_fundamental_data_provider(config), EdgarFundamentalDataProvider
+        )
+
+    def test_kein_secret_noetig(self) -> None:
+        """Anders als bei allen uebrigen Anbietern: EDGAR verlangt keinen
+        Schluessel. Der Builder nimmt deshalb gar kein ``secrets``."""
+        import inspect
+
+        assert "secrets" not in inspect.signature(build_fundamental_data_provider).parameters
 
 
 class TestResearchAnbieterauswahl:
