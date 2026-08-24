@@ -56,10 +56,10 @@ Das sind fünf, nicht die drei aus ADR 0009: Die Backend-Matrix ist seit M13
 auf zwei Python-Versionen gewachsen (3.12 Entwicklung, 3.13 Server), und der
 Windows-Job ist dazugekommen.
 
-### Zwei Abweichungen vom vorbereiteten Kommando aus ADR 0009
+### Drei Abweichungen vom vorbereiteten Kommando aus ADR 0009
 
 ADR 0009 hatte den Aufruf vorbereitet, mit dem der Punkt zu schließen wäre.
-Zwei seiner Parameter sind bewusst anders gesetzt worden — das gehört
+Drei seiner Parameter sind bewusst anders gesetzt worden — das gehört
 benannt, sonst sieht es aus wie ein Versehen:
 
 **`enforce_admins`: `true` vorbereitet, `false` gesetzt.** Bei einem
@@ -71,19 +71,28 @@ gegen Böswilligkeit, sondern gegen Unachtsamkeit — und dagegen wirkt er auch
 ohne Zwang gegen den Inhaber.
 
 **`required_pull_request_reviews`: `null` vorbereitet, mit 0 Freigaben
-gesetzt.** Das ist die *strengere* Variante: `null` hätte nur die Checks
-erzwungen, aber weiterhin direkte Pushes erlaubt. Mit dem gesetzten Block ist
-der Pull Request selbst Pflicht — was die Arbeitsweise ohnehin verlangt und
-bisher nur Disziplin war.
+gesetzt.** Das ist die *strengere* Variante: `null` hätte den Pull Request
+nicht zur Pflicht gemacht. Ein direkter Push wäre damit nicht frei gewesen —
+die Required Status Checks gelten auch für ihn —, aber er wäre möglich
+geblieben, sobald die Checks auf dem gepushten Commit grün sind. Mit dem
+gesetzten Block ist der Pull Request selbst Pflicht, was die Arbeitsweise
+ohnehin verlangt und bisher nur Disziplin war.
+
+**`required_status_checks.strict`: `true` vorbereitet, `false` gesetzt.**
+Die dritte Abweichung, und die einzige, die den Schutz *schwächt* statt ihn
+zu verschieben. Begründung und Preis stehen unten in L1.
 
 **Die Zahl muss 0 sein.** GitHub lässt niemanden den eigenen Pull Request
-freigeben. Jede andere Zahl sperrte den einzigen Entwickler dauerhaft aus.
+freigeben. Jede andere Zahl machte den Merge-Knopf für den einzigen
+Entwickler unerreichbar — er käme dann nur noch über den Notausgang an
+seinem eigenen Schutz vorbei, also über genau den Weg, den die Regel
+verhindern soll.
 
 ## Einschränkungen
 
 | # | Einschränkung |
 |---|---|
-| **L1** | **`strict` steht auf `false`: Ein PR kann grün sein und nach dem Merge trotzdem brechen.** Die Checks laufen gegen den Stand des PR-Zweigs, nicht gegen `dev` plus PR. Bewegt sich `dev` währenddessen, bleibt ein semantischer Konflikt unentdeckt. `strict: true` schlösse das, verlangte dafür aber, jeden offenen PR nach jedem Merge nachzuziehen und die CI erneut laufen zu lassen. Bei sequentiell bearbeiteten, kurzlebigen Zweigen ist der Nutzen gering und der Aufwand ständig — die Abwägung kippt, sobald mehrere PRs gleichzeitig offen stehen. Umschaltbar mit einem Parameter. |
+| **L1** | **`strict` steht auf `false` — abweichend von ADR 0009, das `true` vorbereitet hatte: Ein PR kann grün sein und nach dem Merge trotzdem brechen.** Die Checks laufen gegen den Stand des PR-Zweigs, nicht gegen `dev` plus PR. Bewegt sich `dev` währenddessen, bleibt ein semantischer Konflikt unentdeckt. `strict: true` schlösse das, verlangte dafür aber, jeden offenen PR nach jedem Merge nachzuziehen und die CI erneut laufen zu lassen. Bei sequentiell bearbeiteten, kurzlebigen Zweigen ist der Nutzen gering und der Aufwand ständig — die Abwägung kippt, sobald mehrere PRs gleichzeitig offen stehen. Umschaltbar mit einem Parameter. |
 | **L2** | **Der Notausgang ist einer.** `enforce_admins: false` heißt, dass ein unachtsamer Direkt-Push nach `dev` möglich bleibt, wenn er bewusst am PR vorbei erfolgt. Die Sperre erzwingt den Weg, sie verhindert nicht, dass jemand mit den Rechten dazu ihn verlässt. |
 | **L3** | **Die Check-Namen sind Zeichenketten und keine Referenz.** Wird ein Job in `ci.yml` umbenannt, wartet die Sperre auf einen Check, den es nicht mehr gibt — und blockiert jeden Merge, statt ihn durchzulassen. Die Fehlerrichtung ist damit die ungefährliche, aber wer einen Job umbenennt, muss die Liste hier nachziehen. |
 | **L4** | **Öffentlich ist eine Einbahnstraße.** Der Schutz wurde erst durch das Öffentlichmachen möglich. Ein Zurückstellen auf privat nähme ihn wieder weg — und der bis dahin veröffentlichte Stand bliebe in Forks und Caches ohnehin bestehen. Die Voraussetzung dieses ADR ist damit praktisch dauerhaft. |

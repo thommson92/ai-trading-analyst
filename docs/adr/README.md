@@ -45,7 +45,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0008](0008-reproduzierbare-installation.md) | Reproduzierbare Installation über Lock-Dateien | Angenommen (Erzeuger ersetzt durch ADR 0015) |
 | [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Abgelöst durch [0031](0031-merge-schutz-aktiv.md) |
 | [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
-| [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (Nachtrag 2026-08-23: Verhalten besteht nicht mehr, Merge-Schutz weiter offen) |
+| [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (Nachtrag 2026-08-23: Verhalten besteht nicht mehr; der Merge-Schutz steht seit [0031](0031-merge-schutz-aktiv.md)) |
 | [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
 | [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Schritt 4 freigegeben durch ADR 0014) |
 | [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |

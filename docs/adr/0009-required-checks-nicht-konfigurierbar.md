@@ -1,6 +1,6 @@
 # ADR 0009: Required Status Checks derzeit nicht konfigurierbar
 
-- Status: Angenommen (mit offenem Punkt)
+- Status: Abgelöst durch [ADR 0031](0031-merge-schutz-aktiv.md)
 - Datum: 2026-08-06
 
 ## Kontext
@@ -89,3 +89,18 @@ angefasst — er dokumentiert korrekt, was am 2026-08-07 galt.
 
 Der offene Punkt selbst besteht fort: `dev` ist ungeschützt, ein Merge ohne
 grüne CI bleibt technisch möglich (Risiko R7 des Audits, Entscheidung E10).
+
+---
+
+### Nachtrag 2026-08-24: der offene Punkt ist geschlossen
+
+Der Satz darüber — „Der offene Punkt selbst besteht fort: `dev` ist
+ungeschützt" — galt bis zum 2026-08-24 und gilt seither nicht mehr. Das
+Repository wurde öffentlich gestellt; damit entfiel die Plan-Schranke, die
+dieses ADR beschreibt. `main` und `dev` sind geschützt, fünf CI-Jobs sind
+erforderlich, der Pull Request ist Pflicht.
+
+Maßgeblich ist ab jetzt [ADR 0031](0031-merge-schutz-aktiv.md). Es hält auch
+fest, an welchen drei Stellen die gesetzte Konfiguration bewusst vom oben
+vorbereiteten Kommando abweicht. Der Entscheidungstext dieses ADR bleibt
+unverändert — er dokumentiert korrekt, was am 2026-08-06 galt.
