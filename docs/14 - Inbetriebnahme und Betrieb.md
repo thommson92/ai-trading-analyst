@@ -343,6 +343,29 @@ Die Reihe muss über 250 Kerzen hinausreichen — darunter antwortet die
 Kandidatenprüfung ausnahmslos mit `UNKNOWN_DATA_INCOMPLETE`, und die
 Aufzeichnung enthielte nichts. Ein Test hält das fest.
 
+## Zwischenschritt: Reichweite des Handelskalenders messen (optional)
+
+Kein Abnahmekriterium, sondern die Messung hinter einer offenen
+Entscheidung (E4). Der Earnings-Filter zählt Handelstage bis zum nächsten
+Termin heute über eine **Wochentagsnäherung**: Montag bis Freitag gelten als
+Handelstage, Börsenfeiertage bleiben unberücksichtigt
+([ADR 0020](adr/0020-earnings-filter-status-und-handelstagskalender.md), L2/L3). Die Näherung
+zählt damit zu hoch — der Termin erscheint weiter weg, und der Filter
+schließt seltener aus, als er sollte.
+
+Ob der echte Kalender sie ersetzen kann, hängt an einer einzigen Zahl:
+Reicht IBKRs `liquidHours` so weit voraus wie das Ausschlussfenster?
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli calendar-reach --provider ibkr
+```
+
+Das Kommando liest nur; es braucht keine Datenbank und legt nichts ab.
+Gefragt wird stellvertretend das erste Symbol der Watchlist — die
+Handelszeiten gelten für die Börse, nicht für das einzelne Papier. Die
+Schlusszeile sagt, ob der Kalender weit genug reicht. **Entschieden wird
+damit nichts**; das Ergebnis geht in ein ADR.
+
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 
 Kein Abnahmekriterium, sondern eine Gelegenheit. Sobald der Bestand steht,

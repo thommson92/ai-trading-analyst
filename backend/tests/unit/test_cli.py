@@ -24,6 +24,7 @@ from ai_trading_analyst.application.deepen_history import (
     SymbolDeepening,
 )
 from ai_trading_analyst.cli import (
+    _print_calendar_reach,
     _print_research_report,
     build_parser,
     export_bars_to_csv,
@@ -34,6 +35,7 @@ from ai_trading_analyst.config import AppConfig, MissingSecretError, Notificatio
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    ContractSpec,
     EarningsProvider,
     MarketDataProviderError,
     ResearchProvider,
@@ -77,6 +79,7 @@ from ai_trading_analyst.domain.technical import (
     ZoneKind,
     ZoneStrength,
 )
+from ai_trading_analyst.infrastructure.ibkr.calendar import IbkrTradingCalendar
 
 
 def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
@@ -1587,3 +1590,87 @@ class TestResearchAusgabe:
         assert "4 verworfene Zitate" in ausgabe
         assert "[REGULATORY / PRIMARY_SOURCE]" in ausgabe
         assert "Alter laut Anbieter: 3 days ago" in ausgabe
+
+
+class TestKalenderreichweite:
+    """Die Ausgabe von ``calendar-reach`` -- ohne TWS.
+
+    Das Kommando beantwortet die offene Frage hinter E4: Reicht IBKRs
+    ``liquidHours`` so weit voraus wie das Ausschlussfenster des
+    Earnings-Filters? Es entscheidet sie nicht; das tut ein ADR. Genau
+    deshalb muss die Ausgabe beide Antworten unmissverstaendlich geben.
+    """
+
+    THANKSGIVING = (
+        "20261125:0930-20261125:1600;20261126:CLOSED;"
+        "20261127:0930-20261127:1300;20261130:0930-20261130:1600"
+    )
+
+    @staticmethod
+    def _kalender() -> IbkrTradingCalendar:
+        class Quelle:
+            def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
+                return TestKalenderreichweite.THANKSGIVING, "America/New_York"
+
+        return IbkrTradingCalendar(Quelle(), ContractSpec(symbol="AAPL"))
+
+    def _ausgabe(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        *,
+        benoetigt: int,
+        heute: date = date(2026, 11, 24),
+    ) -> str:
+        kalender = self._kalender()
+        _print_calendar_reach(
+            kalender.covered_days(),
+            kalender,
+            "AAPL",
+            benoetigt,
+            benoetigt * 2,
+            2,
+            heute=heute,
+        )
+        return capsys.readouterr().out
+
+    def test_ein_reichender_kalender_wird_als_solcher_benannt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Drei kuenftige Handelstage im Fenster (der 26. ist Feiertag)."""
+        ausgabe = self._ausgabe(capsys, benoetigt=3)
+        assert "Der Kalender reicht weit genug" in ausgabe
+        assert "NICHT weit genug" not in ausgabe
+
+    def test_ein_zu_kurzer_kalender_ebenso(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Der Fall, der E4 auf Weg (b) festlegt -- er muss beim Lesen
+        genauso eindeutig sein wie der andere."""
+        ausgabe = self._ausgabe(capsys, benoetigt=10)
+        assert "NICHT weit genug" in ausgabe
+        assert "3 von 10" in ausgabe
+
+    def test_der_feiertag_zaehlt_nicht_als_handelstag(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der ganze Zweck der Messung: Die Wochentagsnaeherung zaehlt den
+        26.11. mit, der echte Kalender nicht."""
+        ausgabe = self._ausgabe(capsys, benoetigt=3)
+        assert "Kuenftige Handelstage:  3" in ausgabe
+        assert "2026-11-26" in ausgabe
+
+    def test_vergangene_tage_zaehlen_nicht_mit(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst meldete das Kommando Reichweite, die schon verstrichen ist."""
+        ausgabe = self._ausgabe(capsys, benoetigt=3, heute=date(2026, 11, 27))
+        assert "Kuenftige Handelstage:  1" in ausgabe
+        assert "NICHT weit genug" in ausgabe
+
+    def test_ein_leeres_fenster_ist_ein_fehler(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Keine Auskunft ist keine Aussage ueber die Reichweite."""
+        code = _print_calendar_reach(
+            (), self._kalender(), "AAPL", 10, 20, 2, heute=date(2026, 11, 24)
+        )
+        assert code == 1
+        assert "keinen einzigen Tag" in capsys.readouterr().err

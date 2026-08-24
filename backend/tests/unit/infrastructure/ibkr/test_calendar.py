@@ -130,6 +130,27 @@ class TestKalender:
         with pytest.raises(TradingCalendarError, match="nicht lesbar"):
             kalender.session_on(date(2026, 11, 25))
 
+    def test_covered_days_nennt_das_fenster_aufsteigend(self) -> None:
+        """``session_on`` wirft fuer alles ausserhalb des Fensters -- die
+        Reichweite liesse sich damit nur durch Probieren ermitteln, wobei ein
+        Fehler das erwartete Ergebnis waere."""
+        kalender = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL)
+
+        assert kalender.covered_days() == (
+            date(2026, 11, 25),
+            date(2026, 11, 26),
+            date(2026, 11, 27),
+            date(2026, 11, 30),
+        )
+
+    def test_covered_days_enthaelt_auch_die_ruhetage(self) -> None:
+        """Der Feiertag gehoert ins Fenster: Er ist eine Auskunft, keine
+        Luecke -- und genau die Auskunft, um die es bei E4 geht."""
+        kalender = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL)
+
+        assert date(2026, 11, 26) in kalender.covered_days()
+        assert kalender.session_on(date(2026, 11, 26)) is None
+
     def test_gefragt_wird_nur_einmal(self) -> None:
         """Der Dispatcher laeuft einmal -- eine zweite Anfrage waere reine
         Last auf einer Verbindung, die ohnehin knapp ist."""

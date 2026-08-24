@@ -131,6 +131,21 @@ class IbkrTradingCalendar:
             )
         return sessions[day]
 
+    def covered_days(self) -> tuple[date, ...]:
+        """Die Tage, ueber die IBKR ueberhaupt Auskunft gibt -- aufsteigend.
+
+        ``session_on`` beantwortet "Handelstag oder nicht" und wirft fuer
+        alles ausserhalb des Fensters. Fuer die Frage, **wie weit** das
+        Fenster reicht, ist das die falsche Form: Sie liesse sich nur durch
+        Probieren beantworten, und ein ``TradingCalendarError`` waere dabei
+        das erwartete Ergebnis statt eines Fehlers.
+
+        Absichtlich nicht Teil des ``TradingCalendar``-Ports: Der Dispatcher
+        braucht sie nicht, und ein Port waechst nicht fuer ein Diagnose-
+        kommando.
+        """
+        return tuple(sorted(self._load()))
+
     def _load(self) -> dict[date, TradingSession | None]:
         if self._sessions is not None:
             return self._sessions

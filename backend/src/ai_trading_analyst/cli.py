@@ -28,6 +28,7 @@ Beispiele::
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -70,6 +71,7 @@ from ai_trading_analyst.bootstrap import (
     build_ibkr_bar_source,
     build_market_data_provider,
     build_research_provider,
+    build_session_parameters,
     build_technical_analysis_params,
     build_technical_interpreter,
     build_watchlist,
@@ -95,7 +97,11 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.research import ResearchReport
-from ai_trading_analyst.domain.scheduling import DispatchDecision, SchedulerParameters
+from ai_trading_analyst.domain.scheduling import (
+    DispatchDecision,
+    SchedulerParameters,
+    TradingCalendarError,
+)
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
@@ -913,6 +919,125 @@ def command_history_depth(args: argparse.Namespace) -> int:
 
     _print_depth_report(bericht, config.backtesting.history_years)
     return 1 if bericht.failures else 0
+
+
+def command_calendar_reach(args: argparse.Namespace) -> int:
+    """Misst, wie weit der TWS-Kalender in die Zukunft reicht (E4).
+
+    Der Earnings-Filter zaehlt Handelstage bis zum naechsten Termin heute
+    ueber eine Wochentagsnaeherung: Montag bis Freitag gelten als
+    Handelstage, Feiertage bleiben unberuecksichtigt (ADR 0020, L2/L3). Die
+    Naeherung zaehlt damit **zu hoch** -- der Termin erscheint weiter weg,
+    und der Filter schliesst seltener aus als er sollte.
+
+    Ob der echte Kalender sie ersetzen kann, haengt an einer einzigen Zahl:
+    Reicht ``liquidHours`` so weit voraus wie das Ausschlussfenster? Diese
+    Frage beantwortet dieses Kommando. Es entscheidet sie nicht -- das tut
+    ein ADR.
+
+    Schreibt nichts und braucht keine Datenbank.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Die Kalenderreichweite fragt die TWS -- "
+            "entweder '--provider ibkr' angeben oder die Konfiguration umstellen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    watchlist = _watchlist_from(args, config, loaded.source_path)
+    if watchlist is None:
+        return 2
+
+    referenz = watchlist[0]
+    kerzen_je_tag = build_session_parameters(config).candles_per_day
+    fenster_kerzen = config.earnings_filter.configured_exclusion_candles
+    benoetigte_handelstage = math.ceil(fenster_kerzen / kerzen_je_tag)
+
+    bar_source = build_ibkr_bar_source(config)
+    kalender = IbkrTradingCalendar(bar_source, referenz)
+    try:
+        tage = kalender.covered_days()
+    except TradingCalendarError as error:
+        print(f"Handelszeiten nicht lesbar: {error}", file=sys.stderr)
+        return 1
+    finally:
+        bar_source.close()
+
+    return _print_calendar_reach(
+        tage,
+        kalender,
+        referenz.symbol,
+        benoetigte_handelstage,
+        fenster_kerzen,
+        kerzen_je_tag,
+        heute=datetime.now(UTC).date(),
+    )
+
+
+def _print_calendar_reach(
+    tage: tuple[date, ...],
+    kalender: IbkrTradingCalendar,
+    symbol: str,
+    benoetigte_handelstage: int,
+    fenster_kerzen: int,
+    kerzen_je_tag: int,
+    *,
+    heute: date,
+) -> int:
+    """Getrennt vom Kommando, damit die Ausgabe ohne TWS pruefbar ist.
+
+    ``heute`` wird hereingereicht statt hier gelesen: Sonst haengt das
+    Ergebnis der Tests am Kalenderdatum ihres Laufs, und ein Testfall mit
+    festen Daten faellt Monate spaeter still um.
+    """
+    if not tage:
+        print(f"Die Handelszeiten von {symbol} enthalten keinen einzigen Tag.", file=sys.stderr)
+        return 1
+
+    kuenftig = [tag for tag in tage if tag > heute]
+    handelstage = [tag for tag in kuenftig if kalender.session_on(tag) is not None]
+    ruhetage = [tag for tag in kuenftig if kalender.session_on(tag) is None]
+
+    print(f"Kalenderreichweite ueber {symbol} (Referenzkontrakt der Watchlist)\n")
+    print(f"  Abgedeckt:              {tage[0].isoformat()} bis {tage[-1].isoformat()}")
+    print(f"  Tage insgesamt:         {len(tage)}")
+    print(f"  Davon nach heute:       {len(kuenftig)}")
+    print(f"  Kuenftige Handelstage:  {len(handelstage)}")
+    if ruhetage:
+        print(f"  Kuenftige Ruhetage:     {', '.join(tag.isoformat() for tag in ruhetage)}")
+    else:
+        print("  Kuenftige Ruhetage:     keine im abgedeckten Fenster")
+
+    print(
+        f"\n  Gebraucht werden {benoetigte_handelstage} Handelstage "
+        f"({fenster_kerzen} Kerzen / {kerzen_je_tag} je Tag, "
+        "earnings_filter.configured_exclusion_candles)."
+    )
+
+    if len(handelstage) >= benoetigte_handelstage:
+        print(
+            "\n  ERGEBNIS: Der Kalender reicht weit genug. Die Wochentagsnaeherung "
+            "laesst sich durch die echten Nichthandelstage ersetzen (E4, Weg c)."
+        )
+        return 0
+
+    print(
+        f"\n  ERGEBNIS: Der Kalender reicht NICHT weit genug "
+        f"({len(handelstage)} von {benoetigte_handelstage} Handelstagen). "
+        "Die Wochentagsnaeherung bleibt -- ADR zu E4 auf diesem Befund, nicht "
+        "auf der Konservativitaets-Annahme des Audits."
+    )
+    return 0
 
 
 def command_screen(args: argparse.Namespace) -> int:
@@ -2026,6 +2151,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     export.set_defaults(handler=command_export_bars)
+
+    reach = subparsers.add_parser(
+        "calendar-reach",
+        help=(
+            "Misst, wie weit der TWS-Handelskalender voraus reicht -- die offene "
+            "Frage hinter E4 (Wochentagsnaeherung im Earnings-Filter)."
+        ),
+    )
+    reach.add_argument("--provider", choices=("ibkr",), default=None)
+    reach.add_argument(
+        "--watchlist",
+        default=None,
+        help="Watchlist-Datei. Gefragt wird stellvertretend ihr erstes Symbol.",
+    )
+    reach.add_argument("--config", default=None)
+    reach.set_defaults(handler=command_calendar_reach)
 
     dispatch = subparsers.add_parser(
         "dispatch",
