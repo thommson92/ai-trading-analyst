@@ -198,11 +198,17 @@ research:
   # clientseitig keine Logzeile, serverseitig sind die Token trotzdem
   # angefallen und fehlen in jeder Kostenschaetzung.
   request_timeout_seconds: 900
-  # Ausdruecklich statt SDK-Standard (2). Eine Recherche ist der teuerste
-  # Aufruf im System; ein zweiter voller Versuch wiederholt die gesamte
-  # serverseitige Werkzeugschleife. Ein ausgefallener Bericht kostet dagegen
-  # wenig -- er wird UNAVAILABLE und blockiert die technische Analyse nie.
-  max_retries: 1
+  # Keine Wiederholung, ausdruecklich statt SDK-Standard (2). Das SDK
+  # unterscheidet nicht nach Fehlerart: APITimeoutError gilt ihm
+  # bedingungslos als wiederholbar. Eine Wiederholung traefe damit genau den
+  # Fall, gegen den der lange Lesetimeout gebaut ist -- 900 s mal zwei
+  # Versuche sind 1800 s Blockade eines von vier Plaetzen, gegen 900 s beim
+  # alten Stand (300 s mal drei). Und der zweite Versuch startet die
+  # serverseitige Werkzeugschleife von vorn.
+  #
+  # Ein ausgefallener Bericht kostet dagegen wenig: Er wird UNAVAILABLE und
+  # blockiert die technische Analyse nie.
+  max_retries: 0
   # Allowlist statt Blockliste (ADR 0023, Zitierarchitektur Punkt 5) -- gilt
   # aber NUR fuer den Abruf. Die Suche laeuft bewusst offen: Eine Allowlist
   # auf der Suche laesst kaum Treffer uebrig, das Modell verbrennt sein

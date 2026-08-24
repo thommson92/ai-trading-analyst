@@ -569,6 +569,8 @@ class TestWerkzeugbudget:
 
     def test_kostenschaetzung_rechnet_token_und_suchen_zusammen(self) -> None:
         totals = _UsageTotals(
+            symbol="AAPL",
+            model="claude-sonnet-5",
             pricing=AnthropicResearchPricing(
                 input_usd_per_million=2.0,
                 output_usd_per_million=10.0,
@@ -588,6 +590,8 @@ class TestWerkzeugbudget:
         als cache_read -- eine Grenze allein auf input_tokens liefe an dem
         Fall vorbei, gegen den sie eingebaut wurde."""
         totals = _UsageTotals(
+            symbol="AAPL",
+            model="claude-sonnet-5",
             pricing=AnthropicResearchPricing(
                 input_usd_per_million=2.0,
                 output_usd_per_million=10.0,
@@ -1303,17 +1307,56 @@ class TestNutzungsprotokoll:
         assert anfragen
         assert all(AAPL.symbol in eintrag for eintrag in anfragen)
 
-    def test_die_zeile_nennt_eine_dauer(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Sie ist das einzige Mittel, eine stille Wiederholung zu erkennen:
-        Eine abgelaufene Anfrage erzeugt clientseitig keine Protokollzeile,
-        serverseitig sind ihre Token aber angefallen."""
+    def test_die_zeile_nennt_die_gemessene_dauer(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Die Dauer ist das einzige Mittel, eine stille Wiederholung zu
+        erkennen: Eine abgelaufene Anfrage erzeugt clientseitig keine
+        Protokollzeile, serverseitig sind ihre Token aber angefallen.
+
+        Geprueft wird die **Zahl**, nicht nur, dass eine Einheit dasteht --
+        sonst bliebe eine fest verdrahtete Null unbemerkt.
+        """
+        uhr = iter([100.0, 112.5, 200.0, 203.5])
+        monkeypatch.setattr(
+            "ai_trading_analyst.infrastructure.anthropic.provider.time.monotonic",
+            lambda: next(uhr),
+        )
+
         with caplog.at_level("INFO"):
             _provider(_zweiphasig()).research(AAPL)
 
         anfragen = [
             eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
         ]
-        assert all(" s, " in eintrag for eintrag in anfragen)
+        assert "12.5 s" in anfragen[0]
+        assert "3.5 s" in anfragen[1]
+
+    def test_die_zeile_zaehlt_denselben_kontext_wie_die_summenzeile(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Ein erster Entwurf liess die Cache-Schreibungen in der Einzelzeile
+        weg. Solange kein Caching greift, faellt das nicht auf -- sobald es
+        greift, addieren sich die Einzelzeilen nicht mehr zur Summe."""
+        def mit_cache_schreibung(request: httpx.Request) -> httpx.Response:
+            if _ist_strukturierungsphase(request):
+                return _json_response(_message([_submit_block()]))
+            nachricht = _message(
+                [_text_with_citation("https://sec.gov/filing")], stop_reason="end_turn"
+            )
+            nachricht["usage"] = {
+                "input_tokens": 10_000,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 40_000,
+            }
+            return _json_response(nachricht)
+
+        with caplog.at_level("INFO"):
+            _provider(mit_cache_schreibung).research(AAPL)
+
+        erste = next(z for z in caplog.messages if z.startswith("Research-Anfrage 1"))
+        assert "50000 Eingabe-Token" in erste
 
     def test_die_summenzeile_bleibt_bestehen(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level("INFO"):

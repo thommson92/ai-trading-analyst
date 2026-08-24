@@ -44,9 +44,6 @@ def build_client(
     protokollieren: Eine Anfrage, die ungefaehr ein Vielfaches des
     Lesetimeouts gedauert hat, hat mit hoher Wahrscheinlichkeit wiederholt.
     """
-    if max_retries < 0:
-        raise ValueError(f"max_retries ({max_retries}) darf nicht negativ sein")
-
     return anthropic.Anthropic(
         api_key=api_key,
         http_client=http_client,

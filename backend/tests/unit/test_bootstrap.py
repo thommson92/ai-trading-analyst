@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -40,6 +41,7 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicResearchProvider,
     AnthropicTechnicalInterpreter,
 )
+from ai_trading_analyst.infrastructure.anthropic.client import VERBINDUNGSAUFBAU_SEKUNDEN
 from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
@@ -204,6 +206,32 @@ class TestResearchAnbieterauswahl:
         assert isinstance(provider, AnthropicResearchProvider)
         assert provider._max_citations == 7
 
+    def test_timeout_und_wiederholungszahl_kommen_beim_anbieter_an(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dieselbe Luecke wie bei ``max_citations``, nur teurer.
+
+        ``build_client`` ist fuer sich getestet -- aber niemand prueft, dass
+        der Adapter seine Konfiguration dorthin durchreicht. Faellt die
+        Weitergabe weg, gilt still der SDK-Standard: zwei Wiederholungen einer
+        Anfrage, die 900 Sekunden dauern darf. Genau die stillen, trotzdem
+        berechneten Versuche, gegen die die Einstellung gebaut ist.
+        """
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            research=ResearchConfig(
+                provider="anthropic", request_timeout_seconds=123, max_retries=0
+            ),
+        )
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, AnthropicResearchProvider)
+        assert provider._client.max_retries == 0
+        timeout = provider._client.timeout
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read == 123.0
+        assert timeout.connect == VERBINDUNGSAUFBAU_SEKUNDEN
+
 
 class TestTechnicalAgentAnbieterauswahl:
     def test_standard_ist_der_fixture_anbieter(self) -> None:
@@ -228,6 +256,27 @@ class TestTechnicalAgentAnbieterauswahl:
         )
         interpreter = build_technical_interpreter(config, Secrets(_env_file=None))
         assert isinstance(interpreter, AnthropicTechnicalInterpreter)
+
+    def test_timeout_und_wiederholungszahl_kommen_beim_interpreter_an(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dieselbe Zusicherung wie beim Research-Adapter -- beide bauen ihren
+        Client ueber ``build_client``, und beide koennten die Weitergabe
+        verlieren, ohne dass etwas rot wird."""
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            technical_agent=TechnicalAgentConfig(
+                provider="anthropic", request_timeout_seconds=45, max_retries=3
+            ),
+        )
+        interpreter = build_technical_interpreter(config, Secrets(_env_file=None))
+        assert isinstance(interpreter, AnthropicTechnicalInterpreter)
+        assert interpreter._client.max_retries == 3
+        timeout = interpreter._client.timeout
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read == 45.0
+        assert timeout.connect == VERBINDUNGSAUFBAU_SEKUNDEN
 
     def test_das_modellprofil_kommt_aus_llm_technical(self) -> None:
         """Nicht aus ``llm.research``: Der Technical Agent interpretiert nur

@@ -256,6 +256,48 @@ API verlässlich ein Datum liefern -- oder die Quellenbindungs-Regel für
 LLM-recherchierte Zitate (im Unterschied zu strukturierten Anbietern wie
 Finnhub) ausdrücklich einzuschränken.
 
+### Nachtrag: Zeitlimit und Wiederholungen, am Lauf vom 2026-08-24 korrigiert
+
+Punkt 22 der Entscheidung — „ein Zeitlimit am Anthropic-Client
+(`request_timeout_seconds`, 300 s)" — war in zwei Hinsichten zu kurz
+gegriffen. Beide wurden erst sichtbar, als der Agent scharf lief.
+
+**Der Wert lag als Skalar auf allem.** `timeout=300.0` setzt Verbindungsaufbau,
+Lesen, Schreiben und Pool auf denselben Wert. Verbindungsaufbau und Lesezeit
+sind aber verschiedene Fragen: Eine Recherche *darf* lange dauern, ein
+Verbindungsaufbau nicht. Sie stehen jetzt getrennt — 10 s für den Aufbau
+(`VERBINDUNGSAUFBAU_SEKUNDEN`), `request_timeout_seconds` nur noch fürs Lesen.
+
+**300 s waren zu wenig, und der Fehlschlag war der teuerste denkbare.** Der
+AAPL-Lauf vom 2026-08-24 zeigte 921 Sekunden zwischen zwei Protokollzeilen —
+300 + 300 + ~320. Eine Anfrage, die in den Lesetimeout läuft, erzeugt
+clientseitig **keine** Zeile (httpx protokolliert erst eine Antwort, und die
+kommt nie). Serverseitig sind die erzeugten Token trotzdem angefallen, und die
+Nutzungsdaten stammen nur aus dem erfolgreichen Versuch. Stille
+Wiederholungen kosten also Geld, das in keiner Kostenschätzung auftaucht. Die
+Lesezeit steht jetzt auf 900 s, oberhalb dessen, was eine echte Recherche mit
+fünf Websuchen braucht.
+
+**Und daraus folgt: keine Wiederholung mehr für die Recherche.**
+`max_retries` stand vorher gar nicht im Code und lief auf dem SDK-Standard 2.
+Ein erster Entwurf dieses Nachtrags ließ eine Wiederholung stehen, mit der
+Begründung, sie fange kurzlebige Fehler (429, 529) ab. **Das trägt nicht** —
+`_should_retry_exception` des SDK behandelt `APITimeoutError` und
+`APIConnectionError` bedingungslos als wiederholbar, unterscheidet also gar
+nicht. Eine Wiederholung träfe damit genau den Fall, gegen den der lange
+Lesetimeout gebaut ist: 900 s mal zwei Versuche sind 1800 s Blockade eines von
+vier Plätzen, gegen 900 s beim alten Stand. Der zweite Versuch startete
+außerdem die serverseitige Werkzeugschleife von vorn.
+
+`research.max_retries` steht deshalb auf **0**. Ein ausgefallener Bericht
+kostet wenig: Er wird `UNAVAILABLE` und blockiert die technische Analyse nie
+(CLAUDE.md). Der Technical Agent behält 2 — dort ist eine Wiederholung billig
+und die Blockade kurz (60 s mal drei Versuche, eine einzelne Anfrage ohne
+Werkzeugschleife).
+
+Der Punkt 22 oben bleibt unverändert stehen; ein ADR wird nicht rückwirkend
+geändert.
+
 ## Begründung
 
 Die Entscheidungen 1-2 und 6 leiten sich unmittelbar aus Doc 10 Paragraph

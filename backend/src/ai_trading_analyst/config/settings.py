@@ -452,14 +452,22 @@ class ResearchConfig(_Section):
     abgelaufene Anfrage erzeugt clientseitig keine Protokollzeile, aber
     serverseitig sind die Token angefallen. Der Wert liegt jetzt oberhalb
     dessen, was eine echte Recherche mit fuenf Websuchen braucht."""
-    max_retries: NonNegativeInt = 1
-    """Ausdruecklich statt SDK-Standard (2).
+    max_retries: NonNegativeInt = 0
+    """Keine Wiederholung. Ausdruecklich statt SDK-Standard (2).
 
-    Eine Recherche ist der teuerste Aufruf im System -- ein zweiter voller
-    Versuch wiederholt die gesamte serverseitige Werkzeugschleife. Ein
-    ausgefallener Bericht kostet dagegen wenig: Er wird ``UNAVAILABLE`` und
-    blockiert die technische Analyse nie (CLAUDE.md). Eine Wiederholung fuer
-    kurzlebige Fehler (429, 529) bleibt, eine zweite lohnt hier nicht."""
+    Ein erster Entwurf liess eine Wiederholung stehen, mit der Begruendung,
+    sie fange kurzlebige Fehler (429, 529) ab. Das SDK unterscheidet aber
+    nicht: ``_should_retry_exception`` behandelt ``APITimeoutError`` und
+    ``APIConnectionError`` bedingungslos als wiederholbar. Eine Wiederholung
+    traefe damit **genau den Fall**, gegen den der lange Lesetimeout gebaut
+    ist -- und zwar doppelt so teuer wie vorher: 900 s mal zwei Versuche sind
+    1800 s Blockade eines von vier Plaetzen, gegen 900 s beim alten Stand
+    (300 s mal drei). Der zweite Versuch startet ausserdem die serverseitige
+    Werkzeugschleife von vorn, also genau die unsichtbaren Token, die die
+    Protokollierung je Anfrage sichtbar machen soll.
+
+    Ein ausgefallener Bericht kostet dagegen wenig: Er wird ``UNAVAILABLE``
+    und blockiert die technische Analyse nie (CLAUDE.md)."""
     fetch_allowed_domains: tuple[str, ...] = (
         "sec.gov",
         "prnewswire.com",
@@ -521,8 +529,9 @@ class TechnicalAgentConfig(_Section):
     max_retries: NonNegativeInt = 2
     """Ausdruecklich statt SDK-Standard -- hier zufaellig derselbe Wert.
 
-    Anders als bei ``research`` ist eine Wiederholung billig: eine einzelne
-    Anfrage ohne Werkzeugschleife, gedeckelt durch ``max_output_tokens``."""
+    Anders als bei ``research`` ist eine Wiederholung billig und die
+    Blockade kurz: eine einzelne Anfrage ohne Werkzeugschleife, gedeckelt
+    durch ``max_output_tokens``, schlimmstenfalls 60 s mal drei Versuche."""
     pricing: TechnicalAgentPricingConfig = TechnicalAgentPricingConfig()
 
 

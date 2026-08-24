@@ -355,6 +355,24 @@ class AnthropicResearchPricing:
     usd_per_search: float
 
 
+def _gesamter_kontext(usage: Any) -> int:
+    """Der vollstaendig verrechnete Eingabekontext einer einzelnen Anfrage.
+
+    Steht als Funktion da, damit die Zeile je Anfrage und die Summenzeile
+    nicht auseinanderlaufen koennen: Ein erster Entwurf liess die
+    Cache-Schreibungen in der Einzelzeile weg. Solange kein Caching greift,
+    faellt das nicht auf -- sobald es greift, addieren sich die Einzelzeilen
+    nicht mehr zur Summe, und die Einzelzeile untertreibt genau den Kontext,
+    der berechnet wird.
+    """
+    gesamt: int = (
+        usage.input_tokens
+        + (usage.cache_read_input_tokens or 0)
+        + (usage.cache_creation_input_tokens or 0)
+    )
+    return gesamt
+
+
 @dataclass(slots=True)
 class _UsageTotals:
     """Summiert Tokens und serverseitige Werkzeugaufrufe ueber alle
@@ -367,8 +385,10 @@ class _UsageTotals:
     """
 
     pricing: AnthropicResearchPricing
-    symbol: str = "?"
-    model: str = "?"
+    symbol: str
+    model: str
+    """Ohne Vorgabewert: Eine kuenftige Aufrufstelle, die sie vergisst, soll
+    nicht still ein Platzhalterzeichen protokollieren, sondern scheitern."""
     uncached_input_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
@@ -408,7 +428,7 @@ class _UsageTotals:
             phase,
             self.model,
             dauer_sekunden,
-            usage.input_tokens + (usage.cache_read_input_tokens or 0),
+            _gesamter_kontext(usage),
             usage.input_tokens,
             usage.cache_read_input_tokens or 0,
             usage.cache_creation_input_tokens or 0,
@@ -877,9 +897,9 @@ class AnthropicResearchProvider(ResearchProvider):
         if not title:
             # Ohne Titel laesst sich kein char_location-Zitat darauf
             # zurueckfuehren -- das Dokument ist bezahlt, aber unbelegbar.
-            # Es hier mitzuzaehlen haette die BROAD-Schwelle
-            # ``successful_fetches > 0`` mit einem Abruf geoeffnet, der zum
-            # Bericht nichts beitraegt.
+            # Es hier mitzuzaehlen waere eine falsche Angabe am Ergebnis:
+            # ``successful_fetches`` wird seit ``research-analysis-v2`` zwar
+            # nicht mehr verrechnet, aber weiter ausgewiesen.
             _logger.warning("Abgerufenes Dokument ohne Titel -- keine Zitate zuordenbar")
             return
         observations.successful_fetches += 1

@@ -9,7 +9,6 @@ trotzdem berechnete Wiederholungen passt.
 from __future__ import annotations
 
 import httpx
-import pytest
 
 from ai_trading_analyst.infrastructure.anthropic.client import (
     VERBINDUNGSAUFBAU_SEKUNDEN,
@@ -50,7 +49,3 @@ def test_die_wiederholungszahl_wird_gesetzt_und_nicht_geerbt() -> None:
     assert _client(max_retries=0).max_retries == 0  # type: ignore[attr-defined]
     assert _client(max_retries=3).max_retries == 3  # type: ignore[attr-defined]
 
-
-def test_eine_negative_wiederholungszahl_ist_ein_konfigurationsfehler() -> None:
-    with pytest.raises(ValueError, match="max_retries"):
-        _client(max_retries=-1)
