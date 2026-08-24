@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "signal_events",
     "analysis_run_errors",
     "technical_zones",
+    "research_citations",
 }
 
 
@@ -73,3 +74,38 @@ def test_die_chance_risiko_spalten_entstehen_durch_die_migration(engine: Engine)
         "technical_upside_to_resistance_pct",
         "technical_chance_risk_ratio",
     } <= spalten
+
+
+def test_die_spalten_der_research_qualitaet_entstehen_durch_die_migration(
+    engine: Engine,
+) -> None:
+    """ADR 0029 -- zwei neue Enum-Typen, sieben neue Spalten.
+
+    Dieselbe Falle wie beim Technical Agent: Ein ``op.add_column`` mit einem
+    Enum-Typ legt den Typ in Postgres nicht mit an. Ohne diesen Test faellt
+    ein fehlendes ``create`` erst beim ersten Schreiben eines Berichts auf --
+    also auf dem Server, im Tageslauf.
+    """
+    inspector = inspect(engine)
+    ergebnisse = {spalte["name"] for spalte in inspector.get_columns("screening_results")}
+    zitate = {spalte["name"] for spalte in inspector.get_columns("research_citations")}
+
+    assert {
+        "research_analysis_version",
+        "research_coverage",
+        "research_distinct_sources",
+        "research_successful_fetches",
+        "research_rejected_tool_calls",
+        "research_dropped_citations",
+    } <= ergebnisse
+    assert {"source_rank", "source_age", "position"} <= zitate
+
+
+def test_die_position_der_zitate_ist_verpflichtend(engine: Engine) -> None:
+    """Die Rangreihenfolge haengt an dieser Spalte (ADR 0029). Waere sie
+    nullable, koennte eine Zeile ohne Reihenfolge entstehen und das
+    ``order_by`` liefe ins Leere."""
+    spalten = {
+        spalte["name"]: spalte for spalte in inspect(engine).get_columns("research_citations")
+    }
+    assert spalten["position"]["nullable"] is False

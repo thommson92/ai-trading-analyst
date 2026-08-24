@@ -25,10 +25,13 @@ Alle Befehle laufen in PowerShell aus dem Verzeichnis `backend`.
 
 # Stufe A — Umgebung
 
-Voraussetzung: Python 3.12 und PostgreSQL sind installiert.
+Voraussetzung: Python 3.13 und PostgreSQL sind installiert. Auf dem
+Entwicklungsrechner laeuft 3.12 -- `requires-python` laesst beide zu, und die
+CI prueft beide. Wer hier 3.12 einrichtet, bekommt eine Umgebung, die nicht
+der geprueften Serverumgebung entspricht.
 
 ```powershell
-py -3.12 --version
+py -3.13 --version
 Get-Service -Name postgresql*
 git pull
 ```
@@ -97,8 +100,10 @@ feste Kennung, weil jede weitere Migration sie überholt:
 ```
 
 Die Ausgabe von `alembic heads` und die von `alembic current` müssen dieselbe
-Revision nennen. Zum Zeitpunkt der letzten Aktualisierung dieses Dokuments war
-das `f2b8d6104a37`.
+Revision nennen. **Welche Kennung das ist, spielt keine Rolle** — sie ändert
+sich mit jeder neuen Migration, und dieses Dokument nennt sie deshalb
+absichtlich nicht mehr. Maßgeblich ist allein, dass beide Befehle dasselbe
+melden und dass `alembic heads` genau eine Zeile ausgibt.
 
 > **Falle:** Meldet Alembic „Revision … is present more than once" oder mehrere
 > Heads, liegen Dubletten im Verzeichnis `migrations/versions/` — typischerweise

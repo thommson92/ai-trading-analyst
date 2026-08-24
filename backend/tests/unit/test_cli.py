@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -24,6 +24,7 @@ from ai_trading_analyst.application.deepen_history import (
     SymbolDeepening,
 )
 from ai_trading_analyst.cli import (
+    _print_research_report,
     build_parser,
     export_bars_to_csv,
     main,
@@ -42,6 +43,15 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.research import (
+    Citation,
+    ResearchCoverage,
+    ResearchEvidence,
+    ResearchReport,
+    ResearchStatus,
+    SourceLicenseClass,
+    SourceRank,
+)
 from ai_trading_analyst.domain.scheduling import Notifier
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -1528,3 +1538,52 @@ class TestBilanzDesTiefenBackfills:
         assert "NEU" in ausgabe
         assert "Neuemission" in ausgabe
         assert "Alle Aktien decken" not in ausgabe
+
+
+class TestResearchAusgabe:
+    """Die neuen Zeilen aus ADR 0029 waren bisher nur ausgefuehrt, nicht
+    geprueft -- ein Smoke-Test, der nur das Symbol sucht, laesst sie
+    stillschweigend verschwinden."""
+
+    def test_abdeckung_belege_und_rang_stehen_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        report = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime(2026, 8, 23, tzinfo=UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v2",
+            analysis_version="research-analysis-v1",
+            summary="Zusammenfassung",
+            confidence=0.6,
+            coverage=ResearchCoverage.LIMITED,
+            evidence=ResearchEvidence(
+                distinct_sources=2,
+                successful_fetches=1,
+                rejected_tool_calls=3,
+                dropped_citations=4,
+            ),
+            citations=(
+                Citation(
+                    url="https://sec.gov/filing",
+                    title="10-Q",
+                    retrieved_at=datetime(2026, 8, 23, tzinfo=UTC),
+                    cited_text=None,
+                    license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                    transformation="zusammengefasst",
+                    source_rank=SourceRank.REGULATORY,
+                    source_age="3 days ago",
+                ),
+            ),
+        )
+
+        _print_research_report("AAPL", report)
+
+        ausgabe = capsys.readouterr().out
+        assert "Abdeckung: LIMITED" in ausgabe
+        assert "2 Quellen" in ausgabe
+        assert "1 Abrufe" in ausgabe
+        assert "3 abgelehnte Werkzeugaufrufe" in ausgabe
+        assert "4 verworfene Zitate" in ausgabe
+        assert "[REGULATORY / PRIMARY_SOURCE]" in ausgabe
+        assert "Alter laut Anbieter: 3 days ago" in ausgabe

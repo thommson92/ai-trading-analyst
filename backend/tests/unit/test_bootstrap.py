@@ -188,6 +188,22 @@ class TestResearchAnbieterauswahl:
         provider = build_research_provider(config, Secrets(_env_file=None))
         assert isinstance(provider, AnthropicResearchProvider)
 
+    def test_die_zitatobergrenze_aus_der_konfiguration_kommt_beim_anbieter_an(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``max_citations`` steuert, wie viele Belege gespeichert werden
+        (ADR 0029). Ohne diesen Test bliebe die YAML-Einstellung wirkungslos,
+        falls die Verdrahtung in ``bootstrap`` je wegfaellt -- die Vorgabe
+        haette weitergegolten und nichts waere rot geworden."""
+        monkeypatch.setenv("ATA_LLM_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            research=ResearchConfig(provider="anthropic", max_citations=7),
+        )
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, AnthropicResearchProvider)
+        assert provider._max_citations == 7
+
 
 class TestTechnicalAgentAnbieterauswahl:
     def test_standard_ist_der_fixture_anbieter(self) -> None:

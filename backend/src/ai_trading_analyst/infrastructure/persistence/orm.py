@@ -22,7 +22,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from ai_trading_analyst.domain.analysis import RunStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
-from ai_trading_analyst.domain.research import ResearchStatus, SourceLicenseClass
+from ai_trading_analyst.domain.research import (
+    ResearchCoverage,
+    ResearchStatus,
+    SourceLicenseClass,
+    SourceRank,
+)
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 from ai_trading_analyst.domain.technical import (
     BreakoutQuality,
@@ -237,6 +242,7 @@ class ScreeningResultOrm(Base):
     )
     research_model: Mapped[str | None] = mapped_column(nullable=True)
     research_prompt_version: Mapped[str | None] = mapped_column(nullable=True)
+    research_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
     research_summary: Mapped[str | None] = mapped_column(nullable=True)
     research_positive_factors: Mapped[list[str] | None] = mapped_column(
         ARRAY(String), nullable=True
@@ -247,13 +253,24 @@ class ScreeningResultOrm(Base):
     research_risks: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     research_confidence: Mapped[float | None] = mapped_column(nullable=True)
     research_reason: Mapped[str | None] = mapped_column(nullable=True)
+    # Abdeckung neben dem Status, nicht darin (ADR 0029): research_status sagt,
+    # dass der Lauf durchlief -- diese Spalten, worauf er steht.
+    research_coverage: Mapped[ResearchCoverage | None] = mapped_column(
+        _enum_column(ResearchCoverage), nullable=True
+    )
+    research_distinct_sources: Mapped[int | None] = mapped_column(nullable=True)
+    research_successful_fetches: Mapped[int | None] = mapped_column(nullable=True)
+    research_rejected_tool_calls: Mapped[int | None] = mapped_column(nullable=True)
+    research_dropped_citations: Mapped[int | None] = mapped_column(nullable=True)
 
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(
         back_populates="screening_result", cascade="all, delete-orphan"
     )
     research_citations: Mapped[list[ResearchCitationOrm]] = relationship(
-        back_populates="screening_result", cascade="all, delete-orphan"
+        back_populates="screening_result",
+        cascade="all, delete-orphan",
+        order_by="ResearchCitationOrm.position",
     )
     technical_zones: Mapped[list[TechnicalZoneOrm]] = relationship(
         back_populates="screening_result",
@@ -311,12 +328,25 @@ class ResearchCitationOrm(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
+    position: Mapped[int]
+    """Rangreihenfolge aus ``rank_and_cap`` (ADR 0029).
+
+    Ohne eigene Spalte waere sie nach dem ersten Neuladen verloren: Eine
+    Relationship ohne ``order_by`` liefert die Kinder in einer Reihenfolge,
+    die die Datenbank bestimmt. Muster ``TechnicalZoneOrm.position``."""
     url: Mapped[str]
     title: Mapped[str]
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     cited_text: Mapped[str | None] = mapped_column(nullable=True)
     license_class: Mapped[SourceLicenseClass] = mapped_column(_enum_column(SourceLicenseClass))
     transformation: Mapped[str]
+    # Getrennt von der Lizenzklasse (ADR 0029): jene beantwortet die
+    # Rechtsfrage, dieser die Belastbarkeit.
+    source_rank: Mapped[SourceRank | None] = mapped_column(
+        _enum_column(SourceRank), nullable=True
+    )
+    source_age: Mapped[str | None] = mapped_column(nullable=True)
+    """Rohwert des Anbieters, nie geparst -- siehe ``Citation.source_age``."""
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="research_citations")
 

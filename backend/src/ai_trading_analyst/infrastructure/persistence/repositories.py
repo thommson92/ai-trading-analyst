@@ -27,9 +27,12 @@ from ai_trading_analyst.domain.backtesting import (
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.research import (
     Citation,
+    ResearchCoverage,
+    ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
+    SourceRank,
 )
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
@@ -253,6 +256,55 @@ _TECHNICAL_FIELDS = (
 )
 
 
+_RESEARCH_EVIDENCE_FIELDS = (
+    "distinct_sources",
+    "successful_fetches",
+    "rejected_tool_calls",
+    "dropped_citations",
+)
+"""Feldname von ``ResearchEvidence`` = Spaltenname ohne Praefix (Muster
+``_TECHNICAL_FIELDS``). Einmal geschrieben, damit die beiden Zweige des
+Mappers nicht auseinanderlaufen koennen."""
+
+
+def _research_evidence_columns(evidence: ResearchEvidence | None) -> dict[str, Any]:
+    """Die Zahlen hinter der Abdeckung (ADR 0029) als Spaltensatz.
+
+    Ohne Bericht bleiben alle vier leer statt auf null zu stehen: Null
+    abgelehnte Werkzeugaufrufe waere eine Aussage ueber einen Lauf, den es
+    nicht gab.
+    """
+    return {
+        f"research_{name}": getattr(evidence, name) if evidence is not None else None
+        for name in _RESEARCH_EVIDENCE_FIELDS
+    }
+
+
+def _research_evidence(row: ScreeningResultOrm) -> ResearchEvidence | None:
+    """Gegenstueck zu ``_research_evidence_columns``.
+
+    Vor ADR 0029 geschriebene Zeilen haben die Spalten nicht. Sie bekommen
+    ``None`` statt Nullen -- ein alter Bericht weiss nichts ueber seine
+    Abdeckung und soll das auch nicht behaupten.
+    """
+    if (
+        row.research_distinct_sources is None
+        or row.research_successful_fetches is None
+        or row.research_rejected_tool_calls is None
+        or row.research_dropped_citations is None
+    ):
+        # Alle vier werden als Satz geschrieben, also auch als Satz gelesen.
+        # Ein ``or 0`` je Feld haette aus einer fehlenden Messung eine Null
+        # gemacht -- eine Aussage ueber einen Lauf, den es nie gab.
+        return None
+    return ResearchEvidence(
+        distinct_sources=row.research_distinct_sources,
+        successful_fetches=row.research_successful_fetches,
+        rejected_tool_calls=row.research_rejected_tool_calls,
+        dropped_citations=row.research_dropped_citations,
+    )
+
+
 def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
     """Spaltenwerte der Chartauswertung, ``technical_``-praefigiert.
 
@@ -428,6 +480,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
             evaluated_at=research_evaluated_at,
             model=row.research_model,
             prompt_version=row.research_prompt_version,
+            analysis_version=row.research_analysis_version,
             summary=row.research_summary,
             positive_factors=tuple(row.research_positive_factors or ()),
             negative_factors=tuple(row.research_negative_factors or ()),
@@ -441,9 +494,24 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
                     cited_text=citation.cited_text,
                     license_class=SourceLicenseClass(citation.license_class),
                     transformation=citation.transformation,
+                    # Vor ADR 0029 geschriebene Zeilen tragen keinen Rang. Sie
+                    # bekommen UNRANKED -- "wir wissen es nicht" -- statt einer
+                    # nachtraeglich erfundenen Einstufung.
+                    source_rank=(
+                        SourceRank(citation.source_rank)
+                        if citation.source_rank is not None
+                        else SourceRank.UNRANKED
+                    ),
+                    source_age=citation.source_age,
                 )
                 for citation in row.research_citations
             ),
+            coverage=(
+                ResearchCoverage(row.research_coverage)
+                if row.research_coverage is not None
+                else None
+            ),
+            evidence=_research_evidence(row),
             reason=row.research_reason,
         )
     return StockScreeningOutcome(
@@ -489,6 +557,9 @@ class SqlAlchemyScreeningResultRepository:
             research_evaluated_at=research.evaluated_at if research is not None else None,
             research_model=research.model if research is not None else None,
             research_prompt_version=research.prompt_version if research is not None else None,
+            research_analysis_version=(
+                research.analysis_version if research is not None else None
+            ),
             research_summary=research.summary if research is not None else None,
             research_positive_factors=(
                 list(research.positive_factors) if research is not None else None
@@ -499,6 +570,8 @@ class SqlAlchemyScreeningResultRepository:
             research_risks=list(research.risks) if research is not None else None,
             research_confidence=research.confidence if research is not None else None,
             research_reason=research.reason if research is not None else None,
+            research_coverage=research.coverage if research is not None else None,
+            **_research_evidence_columns(research.evidence if research is not None else None),
             **_technical_columns(outcome.technical),
             **_technical_ai_columns(outcome.technical_assessment),
         )
@@ -511,14 +584,19 @@ class SqlAlchemyScreeningResultRepository:
         row.research_citations = [
             ResearchCitationOrm(
                 id=uuid.uuid4(),
+                position=position,
                 url=citation.url,
                 title=citation.title,
                 retrieved_at=citation.retrieved_at,
                 cited_text=citation.cited_text,
                 license_class=citation.license_class,
                 transformation=citation.transformation,
+                source_rank=citation.source_rank,
+                source_age=citation.source_age,
             )
-            for citation in (research.citations if research is not None else ())
+            for position, citation in enumerate(
+                research.citations if research is not None else ()
+            )
         ]
         technical = outcome.technical
         row.technical_zones = [

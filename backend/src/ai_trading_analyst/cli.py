@@ -1189,6 +1189,16 @@ def _print_research_report(symbol: str, report: ResearchReport) -> None:
         print(f"  Modell: {report.model} (Prompt-Version {report.prompt_version})")
     if report.confidence is not None:
         print(f"  Confidence: {report.confidence:.2f}")
+    if report.coverage is not None:
+        print(f"  Abdeckung: {report.coverage.value}")
+    if report.evidence is not None:
+        evidence = report.evidence
+        print(
+            f"  Belege: {evidence.distinct_sources} Quellen, "
+            f"{evidence.successful_fetches} Abrufe, "
+            f"{evidence.rejected_tool_calls} abgelehnte Werkzeugaufrufe, "
+            f"{evidence.dropped_citations} verworfene Zitate"
+        )
     if report.summary:
         print(f"  Zusammenfassung: {report.summary}")
     for label, factors in (
@@ -1203,7 +1213,12 @@ def _print_research_report(symbol: str, report: ResearchReport) -> None:
     if report.citations:
         print("  Zitate:")
         for citation in report.citations:
-            print(f"    - [{citation.license_class.value}] {citation.title} ({citation.url})")
+            rang = citation.source_rank.value
+            alter = f", Alter laut Anbieter: {citation.source_age}" if citation.source_age else ""
+            print(
+                f"    - [{rang} / {citation.license_class.value}] "
+                f"{citation.title} ({citation.url}){alter}"
+            )
             if citation.cited_text:
                 print(f'      "{citation.cited_text}"')
 

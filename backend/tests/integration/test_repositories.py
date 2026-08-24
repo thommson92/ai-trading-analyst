@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
@@ -24,9 +25,12 @@ from ai_trading_analyst.domain.backtesting import (
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.research import (
     Citation,
+    ResearchCoverage,
+    ResearchEvidence,
     ResearchReport,
     ResearchStatus,
     SourceLicenseClass,
+    SourceRank,
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -474,6 +478,8 @@ class TestScreeningResultRepository:
                 cited_text="ein zitierter Ausschnitt",
                 license_class=SourceLicenseClass.PRIMARY_SOURCE,
                 transformation="zusammengefasst",
+                source_rank=SourceRank.REGULATORY,
+                source_age="3 days ago",
             ),
             Citation(
                 url="https://example.com/news",
@@ -482,6 +488,8 @@ class TestScreeningResultRepository:
                 cited_text=None,
                 license_class=SourceLicenseClass.UNKNOWN,
                 transformation="aggregiert aus mehreren Quellen",
+                source_rank=SourceRank.UNRANKED,
+                source_age=None,
             ),
         )
         research = ResearchReport(
@@ -495,6 +503,13 @@ class TestScreeningResultRepository:
             risks=("Risiko A",),
             confidence=0.7,
             citations=citations,
+            coverage=ResearchCoverage.LIMITED,
+            evidence=ResearchEvidence(
+                distinct_sources=4,
+                successful_fetches=1,
+                rejected_tool_calls=2,
+                dropped_citations=2,
+            ),
         )
         outcome = StockScreeningOutcome(
             analysis_run_id=run.id,
@@ -522,6 +537,117 @@ class TestScreeningResultRepository:
         assert set(persisted.research.citations) == set(citations)
         assert persisted.research == replace(research, citations=persisted.research.citations)
         assert len(persisted.research.citations) == 2
+        # Rang, Quellenalter und die Abdeckungszahlen ueberstehen den
+        # Round-Trip (ADR 0029) -- ohne sie waere die Abdeckung nach dem
+        # Neuladen eine Stufe ohne Begruendung.
+        assert persisted.research.coverage is ResearchCoverage.LIMITED
+        assert persisted.research.evidence == research.evidence
+        nach_url = {citation.url: citation for citation in persisted.research.citations}
+        assert nach_url["https://sec.gov/filing"].source_rank is SourceRank.REGULATORY
+        assert nach_url["https://sec.gov/filing"].source_age == "3 days ago"
+        assert nach_url["https://example.com/news"].source_age is None
+
+    def test_ein_bericht_vor_adr_0029_behauptet_keine_abdeckung(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Berichte aus der Zeit vor den neuen Spalten liegen mit NULL in der
+        Datenbank. Sie bekommen ``None`` statt Nullen -- ein alter Bericht
+        weiss nichts ueber seine Abdeckung und soll das nicht behaupten."""
+        stock = make_stock("PREADR29")
+        run = make_run()
+        research = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            summary="Zusammenfassung",
+            confidence=0.7,
+            citations=(
+                Citation(
+                    url="https://sec.gov/altes-filing",
+                    title="SEC-Filing",
+                    retrieved_at=datetime.now(UTC),
+                    cited_text=None,
+                    license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                    transformation="zusammengefasst",
+                ),
+            ),
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.research is not None
+        assert persisted.research.coverage is None
+        assert persisted.research.evidence is None
+
+    def test_ein_zitat_ohne_rang_wird_zu_unranked(
+        self, uow_factory: UowFactory, engine: Engine
+    ) -> None:
+        """Der NULL-Fall laesst sich ueber das Repository nicht herstellen:
+        ``Citation.source_rank`` hat einen Vorgabewert, geschrieben wird also
+        immer 'UNRANKED'. Eine Zeile aus der Zeit vor ADR 0029 traegt aber
+        NULL -- deshalb hier auf die Spalte durchgegriffen. Ohne das bestuende
+        die Zusicherung aus dem falschen Grund, und ein Wegfall der
+        None-Behandlung liesse jeden Altbestand beim Lesen mit ValueError
+        brechen."""
+        stock = make_stock("NULLRANK")
+        run = make_run()
+        research = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            citations=(
+                Citation(
+                    url="https://sec.gov/alt",
+                    title="SEC-Filing",
+                    retrieved_at=datetime.now(UTC),
+                    cited_text=None,
+                    license_class=SourceLicenseClass.PRIMARY_SOURCE,
+                    transformation="zusammengefasst",
+                ),
+            ),
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            research=research,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE research_citations SET source_rank = NULL"))
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.research is not None
+        assert persisted.research.citations[0].source_rank is SourceRank.UNRANKED
 
     def test_research_bericht_ohne_ergebnis_wird_mitgespeichert(
         self, uow_factory: UowFactory
