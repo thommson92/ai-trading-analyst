@@ -296,11 +296,14 @@ class RunAnalysisUseCase:
         """Phase 2: die langsamen Modellaufrufe, alle auf einmal.
 
         Beide Agenten teilen sich einen Pool. Getrennte Pools waeren
-        latenzguenstiger -- eine haengende Recherche belegt bis zu fuenf
-        Minuten einen der vier Plaetze, waehrend die kurzen Einordnungen
-        warten --, verdoppeln aber die Nebenlaeufigkeitsstruktur. Bei der
-        Groesse der Watchlist ist ein gemeinsamer Pool der einfachere und
-        ausreichende Weg; der Ausweg ist damit benannt, nicht gebaut.
+        latenzguenstiger -- eine haengende Recherche belegt bis zu
+        ``research.request_timeout_seconds`` (900 s) einen der vier Plaetze,
+        waehrend die kurzen Einordnungen warten --, verdoppeln aber die
+        Nebenlaeufigkeitsstruktur. Ein realer Lauf braucht rund 15 Minuten je
+        Symbol (Messung 2026-08-24), die Grenze ist also nicht theoretisch.
+        Bei der Groesse der Watchlist ist ein gemeinsamer Pool trotzdem der
+        einfachere Weg; der Ausweg ist benannt, nicht gebaut (Risiko R9 der
+        Audit-Nachverfolgung).
 
         Zugewiesen wird ausschliesslich im Hauptthread aus ``as_completed``
         heraus -- die Arbeiter schreiben nichts.

@@ -165,6 +165,7 @@ def _settings(**overrides: object) -> AnthropicResearchSettings:
         "max_input_tokens_per_symbol": 150_000,
         "max_output_tokens": 16_000,
         "request_timeout_seconds": 300,
+        "max_retries": 1,
         "fetch_allowed_domains": ("sec.gov",),
         "max_citations": 15,
         "pricing": AnthropicResearchPricing(
@@ -568,6 +569,8 @@ class TestWerkzeugbudget:
 
     def test_kostenschaetzung_rechnet_token_und_suchen_zusammen(self) -> None:
         totals = _UsageTotals(
+            symbol="AAPL",
+            model="claude-sonnet-5",
             pricing=AnthropicResearchPricing(
                 input_usd_per_million=2.0,
                 output_usd_per_million=10.0,
@@ -587,6 +590,8 @@ class TestWerkzeugbudget:
         als cache_read -- eine Grenze allein auf input_tokens liefe an dem
         Fall vorbei, gegen den sie eingebaut wurde."""
         totals = _UsageTotals(
+            symbol="AAPL",
+            model="claude-sonnet-5",
             pricing=AnthropicResearchPricing(
                 input_usd_per_million=2.0,
                 output_usd_per_million=10.0,
@@ -1267,6 +1272,101 @@ class TestZitatDeckelung:
         assert report.evidence.dropped_citations == 0
 
 
+class TestNutzungsprotokoll:
+    """Je Anfrage eine Zeile, nicht nur eine Summe je Symbol.
+
+    Die Summe hat eine falsche Faehrte gelegt: Sie meldete "2 Runden" fuer
+    einen Lauf aus einer Recherche- und einer Strukturierungsanfrage -- was
+    beim Lesen wie zwei Recherche-Runden aussah und zu der falschen Annahme
+    fuehrte, ein Cache-Breakpoint koenne den wiederholten Kontext einsparen.
+    Und sie verbarg, dass zwischen den beiden Anfragen 921 Sekunden lagen.
+    """
+
+    def test_jede_anfrage_wird_mit_ihrer_phase_protokolliert(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert len(anfragen) == 2
+        assert "Recherche" in anfragen[0]
+        assert "Strukturierung" in anfragen[1]
+
+    def test_die_zeile_nennt_das_symbol(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Der Tageslauf fuehrt bis zu vier Aufrufe nebenlaeufig. Ohne das
+        Symbol waeren die verschraenkten Zeilen nicht zuzuordnen."""
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert anfragen
+        assert all(AAPL.symbol in eintrag for eintrag in anfragen)
+
+    def test_die_zeile_nennt_die_gemessene_dauer(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Die Dauer ist das einzige Mittel, eine stille Wiederholung zu
+        erkennen: Eine abgelaufene Anfrage erzeugt clientseitig keine
+        Protokollzeile, serverseitig sind ihre Token aber angefallen.
+
+        Geprueft wird die **Zahl**, nicht nur, dass eine Einheit dasteht --
+        sonst bliebe eine fest verdrahtete Null unbemerkt.
+        """
+        uhr = iter([100.0, 112.5, 200.0, 203.5])
+        monkeypatch.setattr(
+            "ai_trading_analyst.infrastructure.anthropic.provider.time.monotonic",
+            lambda: next(uhr),
+        )
+
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert "12.5 s" in anfragen[0]
+        assert "3.5 s" in anfragen[1]
+
+    def test_die_zeile_zaehlt_denselben_kontext_wie_die_summenzeile(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Ein erster Entwurf liess die Cache-Schreibungen in der Einzelzeile
+        weg. Solange kein Caching greift, faellt das nicht auf -- sobald es
+        greift, addieren sich die Einzelzeilen nicht mehr zur Summe."""
+        def mit_cache_schreibung(request: httpx.Request) -> httpx.Response:
+            if _ist_strukturierungsphase(request):
+                return _json_response(_message([_submit_block()]))
+            nachricht = _message(
+                [_text_with_citation("https://sec.gov/filing")], stop_reason="end_turn"
+            )
+            nachricht["usage"] = {
+                "input_tokens": 10_000,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 40_000,
+            }
+            return _json_response(nachricht)
+
+        with caplog.at_level("INFO"):
+            _provider(mit_cache_schreibung).research(AAPL)
+
+        erste = next(z for z in caplog.messages if z.startswith("Research-Anfrage 1"))
+        assert "50000 Eingabe-Token" in erste
+
+    def test_die_summenzeile_bleibt_bestehen(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        summen = [eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Nutzung")]
+        assert len(summen) == 1
+        assert "2 Anfragen" in summen[0]
+
+
 class TestAbdeckung:
     """Die Abdeckung entsteht aus dem, was messbar geschah -- nicht aus einer
     Selbstauskunft des Modells (ADR 0029)."""
@@ -1314,8 +1414,16 @@ class TestAbdeckung:
         assert report.evidence.distinct_sources == 3
         assert report.evidence.successful_fetches == 1
 
-    def test_ohne_abruf_bleibt_es_bei_begrenzt(self) -> None:
-        """Drei Quellen, aber nur Suchschnipsel: kein Dokument gelesen."""
+    def test_ohne_abruf_wird_es_trotzdem_breit(self) -> None:
+        """Drei Quellen, nur Suchschnipsel, kein Dokument gelesen -- seit
+        ``research-analysis-v2`` reicht das (ADR 0029, zweiter Nachtrag).
+
+        Bis ``v1`` war das ``LIMITED``. Der reale Lauf vom 2026-08-24 hatte
+        null Abrufe *ohne einen einzigen Fehlversuch*, weil
+        ``fetch_allowed_domains`` keine der gefundenen Domains abdeckt --
+        BROAD war damit unerreichbar. Die Zahl wird weiter erhoben, nur nicht
+        mehr verrechnet; genau das haelt die zweite Zusicherung fest.
+        """
         report = _provider(
             _zweiphasig(
                 recherche=[
@@ -1325,11 +1433,16 @@ class TestAbdeckung:
                 ]
             )
         ).research(AAPL)
-        assert report.coverage is ResearchCoverage.LIMITED
+        assert report.coverage is ResearchCoverage.BROAD
+        assert report.evidence is not None
+        assert report.evidence.successful_fetches == 0
 
     def test_ohne_substanzquelle_bleibt_es_bei_begrenzt(self) -> None:
         """Drei Quellen und ein gelesenes Dokument -- aber alles Sekundaeres.
-        Fuer BROAD muss mindestens ein Beleg von der Quelle selbst stammen."""
+        Fuer BROAD muss mindestens ein Beleg von der Quelle selbst stammen.
+
+        Seit ``v2`` die verbliebene Huerde: Faellt sie auch, ist die Stufe nur
+        noch eine Quellenzaehlung."""
         report = _provider(
             _zweiphasig(
                 recherche=[
@@ -1349,10 +1462,10 @@ class TestAbdeckung:
     def test_ein_abruf_ohne_titel_zaehlt_nicht_als_gelesenes_dokument(self) -> None:
         """Ohne Titel laesst sich kein Zitat auf das Dokument zurueckfuehren.
 
-        Wuerde es trotzdem gezaehlt, oeffnete es die BROAD-Schwelle
-        ``successful_fetches > 0`` mit einem Abruf, der zum Bericht nichts
-        beigetragen hat -- genau die Selbstueberschaetzung, gegen die die
-        Abdeckung gebaut ist.
+        ``successful_fetches`` ist seit ``research-analysis-v2`` keine
+        Schwelle mehr, wird aber weiter gespeichert und ausgewiesen -- ein
+        mitgezaehlter Abruf ohne Beitrag zum Bericht bliebe also eine falsche
+        Angabe am Ergebnis, auch wenn er die Stufe nicht mehr verschiebt.
         """
         ohne_titel = _web_fetch_result("https://sec.gov/ohne-titel", "")
         report = _provider(
@@ -1368,7 +1481,6 @@ class TestAbdeckung:
 
         assert report.evidence is not None
         assert report.evidence.successful_fetches == 0
-        assert report.coverage is ResearchCoverage.LIMITED
 
     def test_die_verfahrensversion_steht_am_bericht(self) -> None:
         """Ohne sie liesse sich ein gespeicherter Abdeckungswert nicht der

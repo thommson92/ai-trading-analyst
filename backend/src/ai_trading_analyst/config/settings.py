@@ -30,6 +30,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeInt = Annotated[int, Field(ge=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
 
 
@@ -441,11 +442,32 @@ class ResearchConfig(_Section):
     Aufruf ohne ``thinking``-Feld mit adaptivem Denken, und beides teilt sich
     dasselbe Budget. Zu knapp bemessen schneidet es den Werkzeugaufruf ab,
     statt Kosten zu sparen."""
-    request_timeout_seconds: PositiveInt = 300
-    """Ohne eigenen Wert gilt der SDK-Standard von 600 Sekunden Lesezeit mal
-    zwei Wiederholungen -- eine haengende Anfrage blockierte damit einen der
-    nebenlaeufigen Arbeiter fast eine Stunde (Muster
-    ``FinnhubConfig.request_timeout_seconds``)."""
+    request_timeout_seconds: PositiveInt = 900
+    """Lesezeit je Anfrage. Gilt **nicht** fuer den Verbindungsaufbau, der
+    steht bei ``VERBINDUNGSAUFBAU_SEKUNDEN``.
+
+    Frueher 300. Der Lauf vom 2026-08-24 zeigte 921 Sekunden zwischen zwei
+    Protokollzeilen -- 300 + 300 + ~320, also zwei abgelaufene Versuche und
+    ein erfolgreicher. Genau die teuerste denkbare Form des Fehlschlags: Eine
+    abgelaufene Anfrage erzeugt clientseitig keine Protokollzeile, aber
+    serverseitig sind die Token angefallen. Der Wert liegt jetzt oberhalb
+    dessen, was eine echte Recherche mit fuenf Websuchen braucht."""
+    max_retries: NonNegativeInt = 0
+    """Keine Wiederholung. Ausdruecklich statt SDK-Standard (2).
+
+    Ein erster Entwurf liess eine Wiederholung stehen, mit der Begruendung,
+    sie fange kurzlebige Fehler (429, 529) ab. Das SDK unterscheidet aber
+    nicht: ``_should_retry_exception`` behandelt ``APITimeoutError`` und
+    ``APIConnectionError`` bedingungslos als wiederholbar. Eine Wiederholung
+    traefe damit **genau den Fall**, gegen den der lange Lesetimeout gebaut
+    ist -- und zwar doppelt so teuer wie vorher: 900 s mal zwei Versuche sind
+    1800 s Blockade eines von vier Plaetzen, gegen 900 s beim alten Stand
+    (300 s mal drei). Der zweite Versuch startet ausserdem die serverseitige
+    Werkzeugschleife von vorn, also genau die unsichtbaren Token, die die
+    Protokollierung je Anfrage sichtbar machen soll.
+
+    Ein ausgefallener Bericht kostet dagegen wenig: Er wird ``UNAVAILABLE``
+    und blockiert die technische Analyse nie (CLAUDE.md)."""
     fetch_allowed_domains: tuple[str, ...] = (
         "sec.gov",
         "prnewswire.com",
@@ -502,9 +524,14 @@ class TechnicalAgentConfig(_Section):
     knapp bemessen schneidet es den Aufruf ab -- und ein abgeschnittener
     Aufruf wird verworfen, nicht halb verwertet."""
     request_timeout_seconds: PositiveInt = 60
-    """Deutlich kuerzer als bei ``research`` (300 s): Dort laufen
-    serverseitige Werkzeuge ueber mehrere Runden, hier ist es eine einzelne
-    Anfrage."""
+    """Deutlich kuerzer als bei ``research`` (900 s): Dort laufen
+    serverseitige Werkzeuge, hier ist es eine einzelne Anfrage ohne sie."""
+    max_retries: NonNegativeInt = 2
+    """Ausdruecklich statt SDK-Standard -- hier zufaellig derselbe Wert.
+
+    Anders als bei ``research`` ist eine Wiederholung billig und die
+    Blockade kurz: eine einzelne Anfrage ohne Werkzeugschleife, gedeckelt
+    durch ``max_output_tokens``, schlimmstenfalls 60 s mal drei Versuche."""
     pricing: TechnicalAgentPricingConfig = TechnicalAgentPricingConfig()
 
 

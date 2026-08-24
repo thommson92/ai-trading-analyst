@@ -50,6 +50,8 @@ from ai_trading_analyst.domain.technical import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
+from .client import build_client
+
 _logger = get_logger(__name__)
 
 _MARKET_TIMEZONE = ZoneInfo("America/New_York")
@@ -139,6 +141,7 @@ class AnthropicTechnicalSettings:
     model: str
     max_output_tokens: int
     request_timeout_seconds: int
+    max_retries: int
     pricing: AnthropicTechnicalPricing
     fallback_model: str | None = None
 
@@ -476,10 +479,11 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
         settings: AnthropicTechnicalSettings,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._client = anthropic.Anthropic(
+        self._client = build_client(
             api_key=settings.api_key,
             http_client=http_client,
-            timeout=float(settings.request_timeout_seconds),
+            read_timeout_seconds=float(settings.request_timeout_seconds),
+            max_retries=settings.max_retries,
         )
         self._model = settings.model
         self._fallback_model = settings.fallback_model

@@ -123,6 +123,7 @@ def _settings(**overrides: object) -> AnthropicTechnicalSettings:
         "model": "claude-haiku-4-5-20251001",
         "max_output_tokens": 2000,
         "request_timeout_seconds": 60,
+        "max_retries": 1,
         "pricing": AnthropicTechnicalPricing(input_usd_per_million=1.0, output_usd_per_million=5.0),
     }
     defaults.update(overrides)
