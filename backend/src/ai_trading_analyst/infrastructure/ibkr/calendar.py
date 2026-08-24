@@ -18,7 +18,9 @@ abwarten will.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
+from types import MappingProxyType
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -130,6 +132,25 @@ class IbkrTradingCalendar:
                 f"Eintrag fuer {day.isoformat()}."
             )
         return sessions[day]
+
+    def sessions(self) -> Mapping[date, TradingSession | None]:
+        """Das ganze Fenster auf einmal, statt Tag fuer Tag.
+
+        ``session_on`` beantwortet "Handelstag oder nicht" und wirft fuer
+        alles ausserhalb des Fensters. Fuer die Frage, **wie weit** das
+        Fenster reicht, ist das die falsche Form: Sie liesse sich nur durch
+        Probieren beantworten, und ein ``TradingCalendarError`` waere dabei
+        das erwartete Ergebnis statt eines Fehlers.
+
+        Die Rueckgabe ist eine ``Mapping``-Sicht, keine Kopie -- veraendern
+        laesst sie sich damit nicht, und wer sie hat, braucht die
+        TWS-Verbindung nicht mehr.
+
+        Absichtlich nicht Teil des ``TradingCalendar``-Ports: Der Dispatcher
+        braucht sie nicht, und ein Port waechst nicht fuer ein Diagnose-
+        kommando.
+        """
+        return MappingProxyType(self._load())
 
     def _load(self) -> dict[date, TradingSession | None]:
         if self._sessions is not None:

@@ -9,7 +9,7 @@ ausdruecklich nicht Gegenstand dieser Tests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,16 +24,21 @@ from ai_trading_analyst.application.deepen_history import (
     SymbolDeepening,
 )
 from ai_trading_analyst.cli import (
+    _print_calendar_reach,
     _print_research_report,
+    boersentag,
     build_parser,
+    erforderliche_handelstage,
     export_bars_to_csv,
     main,
     require_complete_enough,
 )
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
+from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    ContractSpec,
     EarningsProvider,
     MarketDataProviderError,
     ResearchProvider,
@@ -52,7 +57,7 @@ from ai_trading_analyst.domain.research import (
     SourceLicenseClass,
     SourceRank,
 )
-from ai_trading_analyst.domain.scheduling import Notifier
+from ai_trading_analyst.domain.scheduling import Notifier, TradingSession
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     Candle,
@@ -77,6 +82,7 @@ from ai_trading_analyst.domain.technical import (
     ZoneKind,
     ZoneStrength,
 )
+from ai_trading_analyst.infrastructure.ibkr.calendar import parse_liquid_hours
 
 
 def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
@@ -1587,3 +1593,251 @@ class TestResearchAusgabe:
         assert "4 verworfene Zitate" in ausgabe
         assert "[REGULATORY / PRIMARY_SOURCE]" in ausgabe
         assert "Alter laut Anbieter: 3 days ago" in ausgabe
+
+
+class TestBoersentag:
+    """Der Bezugstag der Messung folgt der Marktzeitzone, nicht UTC.
+
+    Als eigene Funktion geprueft, weil der Unterschied sich am ganzen
+    Kommando nur zu bestimmten Tageszeiten zeigt -- ein Test dort waere je
+    nach Stunde gruen und saehe die Verwechslung nicht.
+    """
+
+    def test_am_abend_gilt_noch_der_laufende_handelstag(self) -> None:
+        """22:30 New Yorker Zeit ist bereits der naechste UTC-Tag. Mit
+        ``.date()`` auf dem UTC-Zeitpunkt fiele ein kuenftiger Handelstag aus
+        der Zaehlung."""
+        jetzt = datetime(2026, 11, 26, 3, 30, tzinfo=UTC)  # 25.11., 22:30 ET
+        assert boersentag(jetzt, "America/New_York") == date(2026, 11, 25)
+        assert jetzt.date() == date(2026, 11, 26)
+
+    def test_tagsueber_stimmen_beide_ueberein(self) -> None:
+        """Genau deshalb faellt der Fehler im Alltag nicht auf."""
+        jetzt = datetime(2026, 11, 25, 18, 0, tzinfo=UTC)  # 13:00 ET
+        assert boersentag(jetzt, "America/New_York") == jetzt.date()
+
+
+class TestErforderlicheHandelstage:
+    """Die Umrechnung Kerzen -> Handelstage, fuer sich geprueft.
+
+    Sie stand erst inline im Kommando und war dort um eins zu klein: Der
+    Filter schliesst aus bei ``kerzen <= fenster``, "nicht ausgeschlossen"
+    beginnt also erst einen Handelstag spaeter. ``ceil`` faellt nur bei
+    ungeraden Fenstern zufaellig richtig aus -- und alle konfigurierbaren
+    Fenster (10, 20) sind bei zwei Kerzen je Tag gerade.
+    """
+
+    @pytest.mark.parametrize(
+        ("fenster", "je_tag", "erwartet"),
+        [
+            # Der Vorgabefall: 20 Kerzen, 2 je Tag. ceil haette 10 gesagt.
+            (20, 2, 11),
+            (10, 2, 6),
+            # Ungerade -- hier stimmte auch ceil, was den Fehler tarnte.
+            (21, 2, 11),
+            (1, 1, 2),
+            (20, 3, 7),
+        ],
+    )
+    def test_eine_stelle_ueber_dem_fenster(self, fenster: int, je_tag: int, erwartet: int) -> None:
+        assert erforderliche_handelstage(fenster, je_tag) == erwartet
+
+    def test_der_grenzfall_stimmt_mit_dem_filter_ueberein(self) -> None:
+        """Die eigentliche Zusicherung: Bei genau so vielen Handelstagen muss
+        der Filter ``EARNINGS_CLEAR`` sagen, einen weniger noch nicht."""
+        fenster, je_tag = 20, 2
+        benoetigt = erforderliche_handelstage(fenster, je_tag)
+
+        assert (benoetigt - 1) * je_tag <= fenster
+        assert benoetigt * je_tag > fenster
+
+    def test_null_kerzen_je_tag_ist_ein_konfigurationsfehler(self) -> None:
+        with pytest.raises(ValueError, match="kerzen_je_tag"):
+            erforderliche_handelstage(20, 0)
+
+
+class TestKalenderreichweite:
+    """Die Ausgabe von ``calendar-reach`` -- ohne TWS.
+
+    Das Kommando beantwortet die offene Frage hinter E4: Reicht IBKRs
+    ``liquidHours`` so weit voraus wie das Ausschlussfenster des
+    Earnings-Filters? Es entscheidet sie nicht; das tut ein ADR. Genau
+    deshalb muss die Ausgabe beide Antworten unmissverstaendlich geben.
+    """
+
+    THANKSGIVING = (
+        "20261125:0930-20261125:1600;20261126:CLOSED;"
+        "20261127:0930-20261127:1300;20261130:0930-20261130:1600"
+    )
+
+    @classmethod
+    def _sitzungen(cls) -> Mapping[date, TradingSession | None]:
+        return parse_liquid_hours(cls.THANKSGIVING, "America/New_York")
+
+    def _ausgabe(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        *,
+        fenster_kerzen: int,
+        heute: date = date(2026, 11, 24),
+        vorlauf_kalendertage: int = 3,
+    ) -> str:
+        _print_calendar_reach(
+            self._sitzungen(),
+            symbol="AAPL",
+            fenster_kerzen=fenster_kerzen,
+            kerzen_je_tag=2,
+            vorlauf_kalendertage=vorlauf_kalendertage,
+            heute=heute,
+        )
+        return capsys.readouterr().out
+
+    def test_ein_reichender_kalender_wird_als_solcher_benannt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Drei kuenftige Handelstage (der 26. ist Feiertag), gebraucht
+        werden bei 4 Kerzen / 2 je Tag drei."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=4)
+        assert "reicht fuer die Ausschlussentscheidung" in ausgabe
+        assert "NICHT weit genug" not in ausgabe
+
+    def test_das_fenster_braucht_eine_stelle_mehr_als_es_breit_ist(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Off-by-one, den die Review gefunden hat: Bei 6 Kerzen / 2 je
+        Tag deckt der Kalender mit drei Handelstagen das Fenster ab -- den
+        Grenzfall entscheiden kann er damit trotzdem nicht."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=6)
+        assert "Gebraucht werden 4 Handelstage" in ausgabe
+        assert "NICHT weit genug" in ausgabe
+        assert "3 von 4" in ausgabe
+
+    def test_ein_zu_kurzer_kalender_wird_als_solcher_benannt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Fall, der E4 auf Weg (b) festlegt -- er muss beim Lesen
+        genauso eindeutig sein wie der andere."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=20)
+        assert "NICHT weit genug" in ausgabe
+        assert "3 von 11" in ausgabe
+
+    def test_der_feiertag_zaehlt_nicht_als_handelstag(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der ganze Zweck der Messung: Die Wochentagsnaeherung zaehlt den
+        26.11. mit, der echte Kalender nicht."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=4)
+        assert "Kuenftige Handelstage:  3" in ausgabe
+        assert "2026-11-26" in ausgabe
+
+    def test_vergangene_tage_zaehlen_nicht_mit(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Sonst meldete das Kommando Reichweite, die schon verstrichen ist."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=4, heute=date(2026, 11, 27))
+        assert "Kuenftige Handelstage:  1" in ausgabe
+        assert "NICHT weit genug" in ausgabe
+
+    def test_der_bezugstag_steht_in_der_ausgabe(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Er ist der Boersentag, nicht der UTC-Tag. Ohne ihn im Bericht
+        laesst sich ein ueberraschendes Ergebnis nicht nachvollziehen."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=4, heute=date(2026, 11, 24))
+        assert "Bezugstag (Boerse):     2026-11-24" in ausgabe
+
+    def test_ein_reichender_kalender_nennt_trotzdem_seine_grenze(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Das gespeicherte Feld ``candles_until_earnings`` gilt auch fuer
+        nicht ausgeschlossene Titel, und Termine kommen bis 30 Kalendertage
+        voraus. Reicht der Kalender nur bis zur Fenstergrenze, ist E4 nur
+        halb beantwortet -- das darf die Ausgabe nicht verschweigen."""
+        ausgabe = self._ausgabe(capsys, fenster_kerzen=4, vorlauf_kalendertage=30)
+        assert "reicht fuer die Ausschlussentscheidung" in ausgabe
+        assert "ABER" in ausgabe
+        assert "30 Kalendertage" in ausgabe
+
+
+class TestKalenderreichweiteVerdrahtung:
+    """Dass das Kommando ueberhaupt aufrufbar ist.
+
+    Ohne diesen Test blieb ein ``AttributeError`` unbemerkt: Der Subparser
+    kannte ``--symbols`` nicht, ``_watchlist_from`` liest es aber -- jeder
+    Aufruf brach ab, auch der in Doc 14 empfohlene.
+    """
+
+    def test_der_befehl_laeuft_ohne_tws_bis_zur_anbieterpruefung(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = main(["calendar-reach"])
+        assert code == 2
+        assert "market_data.provider steht auf" in capsys.readouterr().err
+
+    def test_symbole_lassen_sich_angeben(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code = main(["calendar-reach", "--symbols", "AAPL"])
+        assert code == 2
+        assert "market_data.provider steht auf" in capsys.readouterr().err
+
+    def test_der_bezugstag_ist_der_boersentag(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nicht der UTC-Tag. Ein Lauf um 22:30 New Yorker Zeit liegt bereits
+        im naechsten UTC-Datum -- ein kuenftiger Handelstag fiele aus der
+        Zaehlung, und genau an der Grenze kippt das Ergebnis.
+
+        Dieser Test laeuft als einziger durch das ganze Kommando; ohne ihn
+        bliebe die Zeile, die den Bezugstag bestimmt, ungeprueft.
+        """
+        heute_ny = datetime.now(ZoneInfo("America/New_York")).date()
+        morgen = heute_ny + timedelta(days=1)
+
+        class FakeBarSource:
+            geschlossen = False
+
+            def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
+                tag = morgen.strftime("%Y%m%d")
+                return f"{tag}:0930-{tag}:1600", "America/New_York"
+
+            def close(self) -> None:
+                FakeBarSource.geschlossen = True
+
+        monkeypatch.setattr(cli, "build_ibkr_bar_source", lambda config: FakeBarSource())
+
+        code = main(["calendar-reach", "--provider", "ibkr", "--symbols", "AAPL"])
+
+        assert code == 0
+        ausgabe = capsys.readouterr().out
+        assert f"Bezugstag (Boerse):     {heute_ny.isoformat()}" in ausgabe
+        assert "Kuenftige Handelstage:  1" in ausgabe
+        assert FakeBarSource.geschlossen, "die TWS-Verbindung muss geschlossen werden"
+
+    def test_die_zeitzone_kommt_aus_der_konfiguration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ob ``market.timezone`` beim Bezugstag ankommt, laesst sich an der
+        Ausgabe nicht deterministisch pruefen: Zwei Zeitzonen unterscheiden
+        sich nur einen Teil des Tages, ein solcher Test waere je nach Stunde
+        gruen. Geprueft wird deshalb die Weitergabe selbst -- Muster der
+        Durchreiche-Tests in ``test_bootstrap``.
+        """
+        gesehen: list[str] = []
+
+        def merker(jetzt: datetime, timezone: str) -> date:
+            gesehen.append(timezone)
+            return boersentag(jetzt, timezone)
+
+        class FakeBarSource:
+            def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
+                tag = (
+                    datetime.now(ZoneInfo("America/New_York")).date() + timedelta(days=1)
+                ).strftime("%Y%m%d")
+                return f"{tag}:0930-{tag}:1600", "America/New_York"
+
+            def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(cli, "build_ibkr_bar_source", lambda config: FakeBarSource())
+        monkeypatch.setattr(cli, "boersentag", merker)
+
+        main(["calendar-reach", "--provider", "ibkr", "--symbols", "AAPL"])
+
+        erwartet = load_config(None).config.market.timezone
+        assert gesehen == [erwartet]
+        assert erwartet == "America/New_York", "CLAUDE.md: der Scheduler rechnet in New York"
