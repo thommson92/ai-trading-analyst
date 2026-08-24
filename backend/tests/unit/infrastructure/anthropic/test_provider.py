@@ -1314,8 +1314,16 @@ class TestAbdeckung:
         assert report.evidence.distinct_sources == 3
         assert report.evidence.successful_fetches == 1
 
-    def test_ohne_abruf_bleibt_es_bei_begrenzt(self) -> None:
-        """Drei Quellen, aber nur Suchschnipsel: kein Dokument gelesen."""
+    def test_ohne_abruf_wird_es_trotzdem_breit(self) -> None:
+        """Drei Quellen, nur Suchschnipsel, kein Dokument gelesen -- seit
+        ``research-analysis-v2`` reicht das (ADR 0029, zweiter Nachtrag).
+
+        Bis ``v1`` war das ``LIMITED``. Der reale Lauf vom 2026-08-24 hatte
+        null Abrufe *ohne einen einzigen Fehlversuch*, weil
+        ``fetch_allowed_domains`` keine der gefundenen Domains abdeckt --
+        BROAD war damit unerreichbar. Die Zahl wird weiter erhoben, nur nicht
+        mehr verrechnet; genau das haelt die zweite Zusicherung fest.
+        """
         report = _provider(
             _zweiphasig(
                 recherche=[
@@ -1325,11 +1333,16 @@ class TestAbdeckung:
                 ]
             )
         ).research(AAPL)
-        assert report.coverage is ResearchCoverage.LIMITED
+        assert report.coverage is ResearchCoverage.BROAD
+        assert report.evidence is not None
+        assert report.evidence.successful_fetches == 0
 
     def test_ohne_substanzquelle_bleibt_es_bei_begrenzt(self) -> None:
         """Drei Quellen und ein gelesenes Dokument -- aber alles Sekundaeres.
-        Fuer BROAD muss mindestens ein Beleg von der Quelle selbst stammen."""
+        Fuer BROAD muss mindestens ein Beleg von der Quelle selbst stammen.
+
+        Seit ``v2`` die verbliebene Huerde: Faellt sie auch, ist die Stufe nur
+        noch eine Quellenzaehlung."""
         report = _provider(
             _zweiphasig(
                 recherche=[
@@ -1349,10 +1362,10 @@ class TestAbdeckung:
     def test_ein_abruf_ohne_titel_zaehlt_nicht_als_gelesenes_dokument(self) -> None:
         """Ohne Titel laesst sich kein Zitat auf das Dokument zurueckfuehren.
 
-        Wuerde es trotzdem gezaehlt, oeffnete es die BROAD-Schwelle
-        ``successful_fetches > 0`` mit einem Abruf, der zum Bericht nichts
-        beigetragen hat -- genau die Selbstueberschaetzung, gegen die die
-        Abdeckung gebaut ist.
+        ``successful_fetches`` ist seit ``research-analysis-v2`` keine
+        Schwelle mehr, wird aber weiter gespeichert und ausgewiesen -- ein
+        mitgezaehlter Abruf ohne Beitrag zum Bericht bliebe also eine falsche
+        Angabe am Ergebnis, auch wenn er die Stufe nicht mehr verschiebt.
         """
         ohne_titel = _web_fetch_result("https://sec.gov/ohne-titel", "")
         report = _provider(
@@ -1368,7 +1381,6 @@ class TestAbdeckung:
 
         assert report.evidence is not None
         assert report.evidence.successful_fetches == 0
-        assert report.coverage is ResearchCoverage.LIMITED
 
     def test_die_verfahrensversion_steht_am_bericht(self) -> None:
         """Ohne sie liesse sich ein gespeicherter Abdeckungswert nicht der

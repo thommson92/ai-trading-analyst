@@ -167,6 +167,34 @@ class TestAbdeckungsregel:
         belege = [self._beleg("https://sec.gov/a", SourceRank.REGULATORY)]
         assert derive_coverage(ResearchEvidence(1, 1, 0, 0), belege) is ResearchCoverage.THIN
 
+    def test_abrufe_veraendern_die_stufe_nicht(self) -> None:
+        """Seit ``research-analysis-v2`` (ADR 0029, zweiter Nachtrag).
+
+        Ein realer Lauf hat null Abrufe, weil ``fetch_allowed_domains`` keine
+        Domain abdeckt, die in Suchtreffern auftaucht -- die Bedingung machte
+        BROAD unerreichbar. Die Zahl wird weiter erhoben, geht aber nicht mehr
+        in die Einstufung ein.
+        """
+        belege = [
+            self._beleg("https://sec.gov/a", SourceRank.REGULATORY),
+            self._beleg("https://www.reuters.com/b", SourceRank.GENERAL_MEDIA),
+            self._beleg("https://www.bloomberg.com/c", SourceRank.FINANCIAL_MEDIA),
+        ]
+        ohne = ResearchEvidence(3, 0, 0, 0)
+        mit = ResearchEvidence(3, 3, 0, 0)
+        assert derive_coverage(ohne, belege) is ResearchCoverage.BROAD
+        assert derive_coverage(ohne, belege) is derive_coverage(mit, belege)
+
+    def test_ohne_substanzquelle_bleibt_es_begrenzt(self) -> None:
+        """Die verbliebene Huerde vor BROAD. Faellt sie auch noch, ist die
+        Stufe nur noch eine Quellenzaehlung."""
+        belege = [
+            self._beleg("https://finance.yahoo.com/a", SourceRank.AGGREGATOR),
+            self._beleg("https://www.reuters.com/b", SourceRank.GENERAL_MEDIA),
+            self._beleg("https://www.bloomberg.com/c", SourceRank.FINANCIAL_MEDIA),
+        ]
+        assert derive_coverage(ResearchEvidence(3, 0, 0, 0), belege) is ResearchCoverage.LIMITED
+
 
 class TestEchterQuellensatz:
     """Gegen die Quellen eines tatsaechlichen Laufs, nicht gegen erdachte.
@@ -228,15 +256,17 @@ class TestEchterQuellensatz:
     def test_ein_typischer_nachrichtenbericht_erreicht_broad(self) -> None:
         """Eine Stufe, die nie vergeben wird, ist keine Stufe.
 
-        Genau das drohte: Ohne den Newsroom-Pfad war ``hat_substanz`` bei
-        einem Lauf ohne SEC-Filing immer falsch, und BROAD damit
-        unerreichbar.
+        Zwei Huerden standen dem nacheinander im Weg, beide erst an echten
+        Laeufen sichtbar geworden. Ohne den Newsroom-Pfad war ``hat_substanz``
+        bei einem Lauf ohne SEC-Filing immer falsch. Und ``successful_fetches``
+        ist bei einem typischen Lauf **null** -- deshalb steht hier die Null
+        und nicht die Eins des ersten Entwurfs.
         """
         belege = [self._beleg(url) for url, _, _ in self.ECHTE_QUELLEN]
         evidence = ResearchEvidence(
             distinct_sources=len(belege),
-            successful_fetches=1,
-            rejected_tool_calls=1,
+            successful_fetches=0,
+            rejected_tool_calls=0,
             dropped_citations=13,
         )
         assert derive_coverage(evidence, belege) is ResearchCoverage.BROAD

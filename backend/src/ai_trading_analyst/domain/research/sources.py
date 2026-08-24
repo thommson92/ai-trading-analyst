@@ -26,7 +26,7 @@ from .values import (
     rangindex,
 )
 
-RESEARCH_ANALYSIS_VERSION = "research-analysis-v1"
+RESEARCH_ANALYSIS_VERSION = "research-analysis-v2"
 """Version des Verfahrens in dieser Datei -- Rangzuordnung, Abdeckungsschwellen
 und Deckelung.
 
@@ -257,21 +257,26 @@ def derive_coverage(evidence: ResearchEvidence, citations: Iterable[Citation]) -
     Ausdruecklich nicht aus einer Selbstauskunft des Modells: Ein Modell, das
     eine duenne Quellenlage nicht erkennt, meldet auch eine gute Abdeckung.
     Der Lauf aus ADR 0023 -- eine Suche, null Abrufe, acht Ablehnungen -- ist
-    hier ``THIN``, obwohl er ``COMPLETED`` meldete.
+    hier ``THIN``: Er kam ueber eine einzige Quelle nicht hinaus.
 
-    ``evidence.rejected_tool_calls`` geht bewusst **nicht** ein. Abgelehnte
-    Werkzeugaufrufe sagen etwas ueber verbrannte Kosten, nicht ueber die
-    Belegdichte; was sie an Belegen gekostet haben, steht bereits in den
-    beiden Zahlen, die eingehen. Sie werden gespeichert, weil sie die Diagnose
-    tragen, nicht die Einstufung.
+    Es gehen **zwei** der vier Zahlen aus ``ResearchEvidence`` ein, die
+    anderen beiden bewusst nicht:
+
+    - ``rejected_tool_calls`` sagt etwas ueber verbrannte Kosten, nicht ueber
+      die Belegdichte. Gespeichert als Diagnose, nicht als Einstufung.
+    - ``successful_fetches`` ging bis ``research-analysis-v1`` in ``BROAD``
+      ein und tut es seit ``v2`` nicht mehr (ADR 0029, zweiter Nachtrag). Der
+      Grund ist gemessen, nicht theoretisch: ``fetch_allowed_domains`` deckt
+      keine Domain ab, die in realen Suchtreffern auftaucht, sodass ein
+      typischer Lauf **null** Abrufe hat -- ohne einen einzigen Fehlversuch.
+      Die Bedingung machte ``BROAD`` damit unerreichbar, und eine Stufe, die
+      nie vergeben wird, ist keine Stufe. Die Zahl wird weiter erhoben und
+      gespeichert; sie ist damit rueckholbar, sobald die Allowlist die
+      tatsaechlich gefundenen Primaerquellen erreicht.
     """
     if evidence.distinct_sources < BEGRENZTE_MINDESTQUELLEN:
         return ResearchCoverage.THIN
     hat_substanz = any(citation.source_rank in RAENGE_MIT_SUBSTANZ for citation in citations)
-    if (
-        evidence.distinct_sources >= BREITE_MINDESTQUELLEN
-        and evidence.successful_fetches > 0
-        and hat_substanz
-    ):
+    if evidence.distinct_sources >= BREITE_MINDESTQUELLEN and hat_substanz:
         return ResearchCoverage.BROAD
     return ResearchCoverage.LIMITED

@@ -193,6 +193,58 @@ stützt. Ob daraus eine Konsequenz folgt — engere Suchführung, ein Mindestran
 für zitierfähige Quellen — ist eine eigene Entscheidung und hier bewusst nicht
 getroffen.
 
+### Nachtrag: der Vergleichslauf, und was er widerlegt (2026-08-24)
+
+Der Nachher-Lauf auf dem Server (AAPL, `research-v2`) gegen den Vorher-Lauf
+desselben Tages:
+
+| | vorher | nachher |
+|---|---|---|
+| Kosten | 0,524 USD | **0,584 USD** |
+| Eingabe-Token, ungecacht | 113.685 | 120.933 |
+| Abgelehnte Werkzeugaufrufe | 1 | 0 |
+| Erfolgreiche Abrufe | — | **0** |
+| Rang, Alter, Deckelung, Abdeckung | fehlten | greifen |
+
+**Die Qualitätswirkung ist eingetreten, die Kostenwirkung nicht.** Entscheidung
+(2) — der Prompt nennt die abrufbaren Domains — hat den einen abgelehnten
+Abruf beseitigt, den es gab. Der längere Prompt kostete mehr, als er sparte.
+Der oben stehende Satz, (2) sei „der billigste Eingriff mit der größten
+erwarteten Wirkung", ist damit **widerlegt**. Er bleibt stehen; ein ADR wird
+nicht rückwirkend geändert.
+
+**`BROAD` verlangt keinen erfolgreichen Abruf mehr.** Entscheidung (4) wird an
+dieser einen Stelle korrigiert: `successful_fetches > 0` entfällt aus der
+Schwelle, `RESEARCH_ANALYSIS_VERSION` steigt auf `research-analysis-v2`.
+
+Der Grund ist gemessen, nicht theoretisch. `fetch_allowed_domains` enthält
+`sec.gov`, drei Pressedienste und `nasdaq.com` — **keine davon kam in den
+Suchtreffern vor.** Das Modell hat sich korrekt verhalten: gesucht, nichts
+Abrufbares gefunden, nicht abgerufen, nichts verschwendet. Der erste Nachtrag
+hat `BROAD` über den Newsroom-Pfad erreichbar gemacht; diese zweite Hürde stand
+noch dahinter. Ausgerechnet `apple.com/newsroom`, die beste Quelle des Laufs,
+ist nicht abrufbar.
+
+Der Preis ist ausdrücklich zu benennen: `BROAD` unterscheidet nicht mehr
+zwischen einem gelesenen Filing und gut belegten Suchschnipseln, und der
+Abstand zu `LIMITED` schrumpft auf „zwei Quellen gegen drei plus Substanz".
+`successful_fetches` wird weiter erhoben, gespeichert und ausgewiesen — die
+Bedingung ist damit rückholbar, sobald die Allowlist die tatsächlich
+gefundenen Primärquellen erreicht. Der andere Weg — die Allowlist erweitern —
+wurde erwogen und zurückgestellt: Eine Domain, die Anthropics Crawler
+aussperrt, lässt die gesamte Anfrage mit einem 400 scheitern, das braucht je
+Kandidatin einen echten Lauf.
+
+**Zwei Aussagen des ersten Nachtrags waren falsch.** Er schrieb, über zwei
+Runden werde der Kontext der ersten vollständig neu verrechnet. Ein
+Research-Lauf besteht aber aus **zwei Anfragen unterschiedlicher Art** —
+Recherche und Strukturierung —, nicht aus zwei Recherche-Runden; `pause_turn`
+trat nicht auf. Die Token entstehen in der serverseitigen Werkzeugschleife
+*innerhalb einer* Anfrage. Und es greift **kein** automatisches Prompt-Caching:
+0 gelesene, 0 geschriebene Cache-Token. Ob ein Cache-Breakpoint innerhalb der
+Werkzeugschleife überhaupt wirkt, ist offen und wird gemessen, bevor darüber
+entschieden wird.
+
 ## Begründung
 
 Die Trennung von Rang und Lizenz (1) ist die einzige der vier Entscheidungen,
