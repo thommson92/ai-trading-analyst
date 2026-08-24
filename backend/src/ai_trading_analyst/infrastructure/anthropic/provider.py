@@ -17,6 +17,7 @@ Anthropic-API.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -40,6 +41,8 @@ from ai_trading_analyst.domain.research import (
     rank_and_cap,
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
+
+from .client import build_client
 
 _logger = get_logger(__name__)
 
@@ -364,6 +367,8 @@ class _UsageTotals:
     """
 
     pricing: AnthropicResearchPricing
+    symbol: str = "?"
+    model: str = "?"
     uncached_input_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
@@ -372,7 +377,18 @@ class _UsageTotals:
     web_fetches: int = 0
     turns: int = 0
 
-    def add(self, usage: Any) -> None:
+    def add(self, usage: Any, phase: str, dauer_sekunden: float) -> None:
+        """Verrechnet eine Anfrage und protokolliert sie **einzeln**.
+
+        Die Summe allein hat eine falsche Faehrte gelegt: Sie meldete "2
+        Runden" fuer einen Lauf, der aus einer Recherche- und einer
+        Strukturierungsanfrage bestand -- nicht aus zwei Recherche-Runden.
+        Und sie verbarg, dass zwischen den beiden Anfragen 921 Sekunden lagen.
+        Ohne die Zeile je Anfrage ist jede Kostenaussage geraten.
+
+        Das Symbol steht in der Zeile, weil der Tageslauf bis zu vier Aufrufe
+        nebenlaeufig fuehrt -- ohne es waeren die Zeilen nicht zuzuordnen.
+        """
         self.turns += 1
         self.uncached_input_tokens += usage.input_tokens
         self.cache_read_tokens += usage.cache_read_input_tokens or 0
@@ -383,16 +399,43 @@ class _UsageTotals:
             self.web_searches += server_tool_use.web_search_requests or 0
             self.web_fetches += server_tool_use.web_fetch_requests or 0
 
+        _logger.info(
+            "Research-Anfrage %d %s (%s): %s, %.1f s, %d Eingabe-Token "
+            "(%d ungecacht, %d aus dem Cache, %d in den Cache), "
+            "%d Ausgabe-Token, %d Websuchen, %d Webabrufe",
+            self.turns,
+            self.symbol,
+            phase,
+            self.model,
+            dauer_sekunden,
+            usage.input_tokens + (usage.cache_read_input_tokens or 0),
+            usage.input_tokens,
+            usage.cache_read_input_tokens or 0,
+            usage.cache_creation_input_tokens or 0,
+            usage.output_tokens,
+            0 if server_tool_use is None else (server_tool_use.web_search_requests or 0),
+            0 if server_tool_use is None else (server_tool_use.web_fetch_requests or 0),
+        )
+
     @property
     def input_tokens(self) -> int:
         """Der gesamte Eingabekontext, nicht nur der ungecachte Rest.
 
         ``usage.input_tokens`` zaehlt allein, was *nicht* aus dem Cache kam.
-        Bei mehreren ``pause_turn``-Fortsetzungen greift automatisches
-        Prompt-Caching, sodass der wiederholt verrechnete Kontext groesstenteils
-        als ``cache_read`` erscheint -- eine Budgetgrenze auf
-        ``usage.input_tokens`` liefe genau an dem Fall vorbei, gegen den sie
-        eingebaut wurde.
+
+        Hier stand frueher, bei mehreren ``pause_turn``-Fortsetzungen greife
+        automatisches Prompt-Caching und der wiederholte Kontext erscheine
+        groesstenteils als ``cache_read``. **Das ist gemessen falsch**: Der
+        Lauf vom 2026-08-24 meldet 120.933 ungecachte gegen 0 gelesene und 0
+        geschriebene Cache-Token. Es gibt kein automatisches Caching, und es
+        gab in dem Lauf auch keine ``pause_turn``-Fortsetzung -- die beiden
+        Anfragen waren Recherche und Strukturierung.
+
+        Die Summe bleibt trotzdem die richtige Bezugsgroesse fuer die
+        Budgetbremse, nur aus einem anderen Grund als dem angenommenen:
+        Sobald Caching irgendwann greift, waere eine Grenze auf
+        ``uncached_input_tokens`` beliebig verschiebbar, ohne dass sich am
+        tatsaechlich verrechneten Kontext etwas aendert.
         """
         return self.uncached_input_tokens + self.cache_read_tokens + self.cache_write_tokens
 
@@ -409,13 +452,13 @@ class _UsageTotals:
             + self.web_searches * self.pricing.usd_per_search
         )
 
-    def log(self, symbol: str, model: str) -> None:
+    def log(self) -> None:
         _logger.info(
-            "Research-Nutzung %s (%s): %d Runden, %d Eingabe-Token "
+            "Research-Nutzung %s (%s): %d Anfragen, %d Eingabe-Token "
             "(%d ungecacht, %d aus dem Cache, %d in den Cache), "
             "%d Ausgabe-Token, %d Websuchen, %d Webabrufe, geschaetzt %.3f USD",
-            symbol,
-            model,
+            self.symbol,
+            self.model,
             self.turns,
             self.input_tokens,
             self.uncached_input_tokens,
@@ -445,6 +488,7 @@ class AnthropicResearchSettings:
     max_input_tokens_per_symbol: int
     max_output_tokens: int
     request_timeout_seconds: int
+    max_retries: int
     fetch_allowed_domains: Sequence[str]
     max_citations: int
     pricing: AnthropicResearchPricing
@@ -459,10 +503,11 @@ class AnthropicResearchProvider(ResearchProvider):
         settings: AnthropicResearchSettings,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._client = anthropic.Anthropic(
+        self._client = build_client(
             api_key=settings.api_key,
             http_client=http_client,
-            timeout=float(settings.request_timeout_seconds),
+            read_timeout_seconds=float(settings.request_timeout_seconds),
+            max_retries=settings.max_retries,
         )
         self._model = settings.model
         self._fallback_model = settings.fallback_model
@@ -532,7 +577,7 @@ class AnthropicResearchProvider(ResearchProvider):
         ohne Web-Werkzeuge. Siehe ADR 0023, "Zwei Phasen".
         """
         evaluated_at = datetime.now(UTC)
-        usage = _UsageTotals(pricing=self._pricing)
+        usage = _UsageTotals(pricing=self._pricing, symbol=stock.symbol, model=model)
 
         # Die Nutzung wird auch beim Abbruch protokolliert -- gerade ein
         # gescheiterter Lauf hat schon Geld gekostet und soll nachvollziehbar
@@ -546,7 +591,7 @@ class AnthropicResearchProvider(ResearchProvider):
                 stock, submit_input, citations, observations, evaluated_at, model
             )
         finally:
-            usage.log(stock.symbol, model)
+            usage.log()
 
     def _research_phase(
         self,
@@ -578,6 +623,7 @@ class AnthropicResearchProvider(ResearchProvider):
             # Ignore am Aufruf statt je Argument: Die Ueberladungsaufloesung
             # des SDK scheitert an den rohen Dicts. Die Rueckgabe wird darum
             # ausdruecklich annotiert, damit die Auswertung typgeprueft bleibt.
+            begonnen = time.monotonic()
             response: Message = self._client.messages.create(  # type: ignore[call-overload]
                 model=model,
                 max_tokens=self._max_output_tokens,
@@ -587,7 +633,7 @@ class AnthropicResearchProvider(ResearchProvider):
                 thinking={"type": "adaptive"},
             )
 
-            usage.add(response.usage)
+            usage.add(response.usage, "Recherche", time.monotonic() - begonnen)
             self._scan_tool_results(response.content, observations, evaluated_at)
             citations.extend(
                 self._extract_citations(response.content, observations, evaluated_at)
@@ -651,6 +697,7 @@ class AnthropicResearchProvider(ResearchProvider):
         # nicht. Auf Sonnet 5 teilt sich adaptives Denken das max_tokens-Budget
         # mit der Antwort -- ein langer Werkzeugaufruf wuerde sonst abgeschnitten,
         # obwohl die teure Recherchephase schon erfolgreich war.
+        begonnen = time.monotonic()
         response: Message = self._client.messages.create(  # type: ignore[call-overload]
             model=model,
             max_tokens=self._max_output_tokens,
@@ -660,7 +707,7 @@ class AnthropicResearchProvider(ResearchProvider):
             tool_choice={"type": "tool", "name": _SUBMIT_TOOL_NAME},
             thinking={"type": "disabled"},
         )
-        usage.add(response.usage)
+        usage.add(response.usage, "Strukturierung", time.monotonic() - begonnen)
 
         if response.stop_reason == "max_tokens":
             # Ein hier abgeschnittener tool_use-Block kann eine halbe

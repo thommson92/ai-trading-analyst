@@ -234,6 +234,7 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
             max_input_tokens_per_symbol=config.research.max_input_tokens_per_symbol,
             max_output_tokens=config.research.max_output_tokens,
             request_timeout_seconds=config.research.request_timeout_seconds,
+            max_retries=config.research.max_retries,
             fetch_allowed_domains=config.research.fetch_allowed_domains,
             max_citations=config.research.max_citations,
             pricing=AnthropicResearchPricing(
@@ -261,6 +262,7 @@ def build_technical_interpreter(config: AppConfig, secrets: Secrets) -> Technica
             fallback_model=config.llm.technical.fallback_model,
             max_output_tokens=config.technical_agent.max_output_tokens,
             request_timeout_seconds=config.technical_agent.request_timeout_seconds,
+            max_retries=config.technical_agent.max_retries,
             pricing=AnthropicTechnicalPricing(
                 input_usd_per_million=config.technical_agent.pricing.input_usd_per_million,
                 output_usd_per_million=config.technical_agent.pricing.output_usd_per_million,

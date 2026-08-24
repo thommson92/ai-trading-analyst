@@ -30,6 +30,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PositiveInt = Annotated[int, Field(gt=0)]
+NonNegativeInt = Annotated[int, Field(ge=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
 
 
@@ -441,11 +442,24 @@ class ResearchConfig(_Section):
     Aufruf ohne ``thinking``-Feld mit adaptivem Denken, und beides teilt sich
     dasselbe Budget. Zu knapp bemessen schneidet es den Werkzeugaufruf ab,
     statt Kosten zu sparen."""
-    request_timeout_seconds: PositiveInt = 300
-    """Ohne eigenen Wert gilt der SDK-Standard von 600 Sekunden Lesezeit mal
-    zwei Wiederholungen -- eine haengende Anfrage blockierte damit einen der
-    nebenlaeufigen Arbeiter fast eine Stunde (Muster
-    ``FinnhubConfig.request_timeout_seconds``)."""
+    request_timeout_seconds: PositiveInt = 900
+    """Lesezeit je Anfrage. Gilt **nicht** fuer den Verbindungsaufbau, der
+    steht bei ``VERBINDUNGSAUFBAU_SEKUNDEN``.
+
+    Frueher 300. Der Lauf vom 2026-08-24 zeigte 921 Sekunden zwischen zwei
+    Protokollzeilen -- 300 + 300 + ~320, also zwei abgelaufene Versuche und
+    ein erfolgreicher. Genau die teuerste denkbare Form des Fehlschlags: Eine
+    abgelaufene Anfrage erzeugt clientseitig keine Protokollzeile, aber
+    serverseitig sind die Token angefallen. Der Wert liegt jetzt oberhalb
+    dessen, was eine echte Recherche mit fuenf Websuchen braucht."""
+    max_retries: NonNegativeInt = 1
+    """Ausdruecklich statt SDK-Standard (2).
+
+    Eine Recherche ist der teuerste Aufruf im System -- ein zweiter voller
+    Versuch wiederholt die gesamte serverseitige Werkzeugschleife. Ein
+    ausgefallener Bericht kostet dagegen wenig: Er wird ``UNAVAILABLE`` und
+    blockiert die technische Analyse nie (CLAUDE.md). Eine Wiederholung fuer
+    kurzlebige Fehler (429, 529) bleibt, eine zweite lohnt hier nicht."""
     fetch_allowed_domains: tuple[str, ...] = (
         "sec.gov",
         "prnewswire.com",
@@ -502,9 +516,13 @@ class TechnicalAgentConfig(_Section):
     knapp bemessen schneidet es den Aufruf ab -- und ein abgeschnittener
     Aufruf wird verworfen, nicht halb verwertet."""
     request_timeout_seconds: PositiveInt = 60
-    """Deutlich kuerzer als bei ``research`` (300 s): Dort laufen
-    serverseitige Werkzeuge ueber mehrere Runden, hier ist es eine einzelne
-    Anfrage."""
+    """Deutlich kuerzer als bei ``research`` (900 s): Dort laufen
+    serverseitige Werkzeuge, hier ist es eine einzelne Anfrage ohne sie."""
+    max_retries: NonNegativeInt = 2
+    """Ausdruecklich statt SDK-Standard -- hier zufaellig derselbe Wert.
+
+    Anders als bei ``research`` ist eine Wiederholung billig: eine einzelne
+    Anfrage ohne Werkzeugschleife, gedeckelt durch ``max_output_tokens``."""
     pricing: TechnicalAgentPricingConfig = TechnicalAgentPricingConfig()
 
 

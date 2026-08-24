@@ -165,6 +165,7 @@ def _settings(**overrides: object) -> AnthropicResearchSettings:
         "max_input_tokens_per_symbol": 150_000,
         "max_output_tokens": 16_000,
         "request_timeout_seconds": 300,
+        "max_retries": 1,
         "fetch_allowed_domains": ("sec.gov",),
         "max_citations": 15,
         "pricing": AnthropicResearchPricing(
@@ -1265,6 +1266,62 @@ class TestZitatDeckelung:
         report = _provider(_zweiphasig()).research(AAPL)
         assert report.evidence is not None
         assert report.evidence.dropped_citations == 0
+
+
+class TestNutzungsprotokoll:
+    """Je Anfrage eine Zeile, nicht nur eine Summe je Symbol.
+
+    Die Summe hat eine falsche Faehrte gelegt: Sie meldete "2 Runden" fuer
+    einen Lauf aus einer Recherche- und einer Strukturierungsanfrage -- was
+    beim Lesen wie zwei Recherche-Runden aussah und zu der falschen Annahme
+    fuehrte, ein Cache-Breakpoint koenne den wiederholten Kontext einsparen.
+    Und sie verbarg, dass zwischen den beiden Anfragen 921 Sekunden lagen.
+    """
+
+    def test_jede_anfrage_wird_mit_ihrer_phase_protokolliert(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert len(anfragen) == 2
+        assert "Recherche" in anfragen[0]
+        assert "Strukturierung" in anfragen[1]
+
+    def test_die_zeile_nennt_das_symbol(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Der Tageslauf fuehrt bis zu vier Aufrufe nebenlaeufig. Ohne das
+        Symbol waeren die verschraenkten Zeilen nicht zuzuordnen."""
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert anfragen
+        assert all(AAPL.symbol in eintrag for eintrag in anfragen)
+
+    def test_die_zeile_nennt_eine_dauer(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Sie ist das einzige Mittel, eine stille Wiederholung zu erkennen:
+        Eine abgelaufene Anfrage erzeugt clientseitig keine Protokollzeile,
+        serverseitig sind ihre Token aber angefallen."""
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        anfragen = [
+            eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Anfrage")
+        ]
+        assert all(" s, " in eintrag for eintrag in anfragen)
+
+    def test_die_summenzeile_bleibt_bestehen(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("INFO"):
+            _provider(_zweiphasig()).research(AAPL)
+
+        summen = [eintrag for eintrag in caplog.messages if eintrag.startswith("Research-Nutzung")]
+        assert len(summen) == 1
+        assert "2 Anfragen" in summen[0]
 
 
 class TestAbdeckung:
