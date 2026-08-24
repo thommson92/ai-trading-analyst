@@ -1,10 +1,23 @@
-"""Kerzenzaehlung bis zu einem kuenftigen Earnings-Termin (ADR 0020).
+"""Kerzenzaehlung bis zu einem kuenftigen Earnings-Termin (ADR 0020, ADR 0030).
 
 Wochentagsnaeherung: Montag bis Freitag gelten als vollstaendige
 Handelstage mit ``candles_per_day`` Kerzen, US-Boersenfeiertage und
 verkuerzte Handelstage bleiben unberuecksichtigt (ADR 0020, Einschraenkung
 L2). Kein Kalenderzugriff, keine Abhaengigkeit von IBKR oder dem
 Trading-Day-Dispatcher.
+
+**Die Fehlerrichtung ist riskant, nicht vorsichtig.** Ein mitgezaehlter
+Feiertag macht die Zahl zu **hoch**, der Termin erscheint dadurch weiter weg,
+und ``evaluate_earnings_filter`` schliesst **seltener** aus als es sollte --
+wir handeln in die Quartalszahlen hinein, statt draussen zu bleiben. Das
+Repository-Audit vom 2026-08-23 hat die Abweichung fuer "konservativ"
+gehalten; sie ist es nicht.
+
+Die Naeherung bleibt trotzdem, und zwar aus einem gemessenen Grund: IBKRs
+``liquidHours`` deckt nur fuenf Tage ab (Messung 2026-08-24), gebraucht
+werden elf. Es gibt schlicht nichts, womit sie sich ersetzen liesse -- siehe
+ADR 0030, das die Zusage L3 aus ADR 0020 entkraeftet. ``cli calendar-reach``
+wiederholt die Messung ohne Aufwand, falls sich die Datenlage aendert.
 """
 
 from __future__ import annotations

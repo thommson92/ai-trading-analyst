@@ -64,6 +64,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0027](0027-historientiefe-messen-vor-anspruch.md) | Historientiefe — messen, dann holen, was es gibt (E2, Weg a) | Angenommen (Messergebnis in ADR 0028) |
 | [0028](0028-historientiefe-gemessen.md) | Historientiefe gemessen — mindestens 17,4 Jahre, `history_years: 5` bestätigt, Tiefen-Backfill beschlossen | Angenommen |
 | [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
+| [0030](0030-wochentagsnaeherung-bleibt.md) | Wochentagsnäherung im Earnings-Filter bleibt — der TWS-Kalender reicht nicht | Angenommen (entkräftet L3 aus ADR 0020) |
 
 ## Offene Entscheidungen
 
@@ -106,4 +107,13 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Qualitative Interpretation der Chartauswertung — **entschieden.** Der
   Technical Agent ordnet ausschließlich deterministisch berechnete Werte
   ein, siehe [ADR 0026](0026-technical-agent-ki-einordnung.md).
+- Handelstagskalender für den Earnings-Filter — **entschieden.** Die
+  Wochentagsnäherung bleibt; IBKRs `liquidHours` deckt gemessen fünf Tage ab,
+  gebraucht werden elf. Siehe [ADR 0030](0030-wochentagsnaeherung-bleibt.md),
+  das die Zusage L3 aus [ADR 0020](0020-earnings-filter-status-und-handelstagskalender.md)
+  entkräftet.
+- Prompt-Caching für den Research-Lauf — **entschieden: wird nicht gebaut.**
+  Gemessen erfasste ein Cache-Breakpoint unter einem Prozent der Eingabe-Token;
+  die Kosten entstehen in der serverseitigen Werkzeugschleife *innerhalb* einer
+  Anfrage. Siehe ADR 0023, Nachtrag vom 2026-08-24.
 - Externer Zugriff auf das Dashboard (F12)

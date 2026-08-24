@@ -298,6 +298,48 @@ Werkzeugschleife).
 Der Punkt 22 oben bleibt unverändert stehen; ein ADR wird nicht rückwirkend
 geändert.
 
+### Nachtrag: Prompt-Caching wird nicht gebaut (2026-08-24)
+
+Der Nachtrag zu ADR 0029 nannte Prompt-Caching als „den wirksameren Hebel"
+gegenüber der Domainnennung im Prompt. **Auch das ist widerlegt.** Die
+Protokollierung je Anfrage liefert die Zahl, die dafür gefehlt hat:
+
+| Anfrage | Dauer | Eingabe-Token | Anteil |
+|---|---|---|---|
+| Recherche (5 Websuchen) | 92,3 s | 109.324 | **94 %** |
+| Strukturierung | 30,4 s | 7.061 | 6 % |
+
+Ein Research-Lauf besteht aus **zwei Anfragen unterschiedlicher Art**, nicht
+aus mehreren Recherche-Runden; `pause_turn` trat in keinem gemessenen Lauf auf.
+Es gibt also keinen wiederholten Kontext *zwischen* Anfragen, den ein
+Cache-Breakpoint einsparen könnte. Die Strukturierung ist mit 6 % ohnehin
+vernachlässigbar.
+
+Die 109.324 Token entstehen **innerhalb einer einzigen Anfrage**, in der
+serverseitigen Werkzeugschleife: Jede Websuche legt ihre Treffer in den
+Kontext, und jede folgende Iteration verrechnet den gewachsenen Kontext erneut.
+Der einzige Teil, den ein Cache-Breakpoint erfassen könnte, ist unser
+Systemprompt — in der Größenordnung von 800 Token, also **unter einem Prozent**
+dessen, was anfällt. Nach dem Schreibaufschlag von 1,25× bleibt davon nichts
+Nennenswertes übrig.
+
+**Prompt-Caching wird deshalb nicht gebaut.** Das ist keine Vertagung, sondern
+eine Entscheidung gegen einen Aufwand mit belegbar unter einem Prozent Wirkung.
+Ändert sich die Struktur des Laufs — etwa wenn `pause_turn` bei größeren
+Kontingenten regelmäßig aufträte —, ist das ein neues ADR.
+
+**Der einzige wirksame Hebel ist `max_searches`.** Die Eingabe wächst
+überproportional mit der Zahl der Suchen, weil jede spätere Iteration alle
+früheren Treffer mitverrechnet. Der Wert bleibt bewusst bei **5**: Der Lauf
+kostet 0,560 USD und liefert 17 Quellen bei `BROAD`-Abdeckung. Sparen ginge hier
+unmittelbar auf die Recherchebreite, und die ist der Zweck des Agenten. Diese
+Abwägung ist getroffen, nicht offen — eine Änderung braucht ein eigenes ADR und
+einen Vergleichslauf.
+
+Ebenfalls festzuhalten, weil es die Kostenbetrachtung sonst verzerrt: **Es
+greift kein automatisches Prompt-Caching.** Alle gemessenen Läufe melden 0
+gelesene und 0 geschriebene Cache-Token.
+
 ## Begründung
 
 Die Entscheidungen 1-2 und 6 leiten sich unmittelbar aus Doc 10 Paragraph

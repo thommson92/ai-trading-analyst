@@ -4,7 +4,7 @@
 > ändert — im Gegensatz zum [Audit selbst](2026-08-23-repository-audit.md),
 > das als eingefrorene Momentaufnahme unverändert bleibt.
 
-**Stand:** 2026-08-24 (nach PR #38 und PR #39 sowie dem Serverlauf vom
+**Stand:** 2026-08-24 (nach PR #38 bis #41 sowie den Serverlaeufen vom
 2026-08-24)
 
 ## Wozu dieses Dokument
@@ -56,7 +56,7 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M4 | E1 entscheiden, Ergebnis in den Sprint-5-Zuschnitt | **offen** | durch ADR 0028 entblockt, aber unentschieden |
 | M5 | Golden-Master für Screener und Backtest | **erledigt**, mit Abweichung | PR #37, `813c539`, `backend/tests/golden/`. Abweichung siehe unten |
 | M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, fünf gegengeprobte Sonden. Dabei eine echte Lücke gefunden und geschlossen, siehe unten |
-| M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **offen** | — |
+| M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **erledigt** | [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md), gestützt auf die Kalendermessung vom 2026-08-24 |
 | M8 | E5-Paket Research-Qualität | **erledigt** | [ADR 0029](../adr/0029-research-qualitaet.md) samt Nachträgen; Vergleichslauf 2026-08-24 gemessen — siehe unten |
 | M9 | README- und Roadmap-Status nachziehen | **erledigt** | `README.md`, `docs/03 - Roadmap.md` |
 | M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **erledigt** | Kopfvermerk je Dokument; G1-Status auf „freigegeben" (ADR 0010) |
@@ -128,7 +128,7 @@ als ADR.
 | E1 | Backtesting in den Tageslauf? | **offen** | durch ADR 0028 entblockt |
 | E2 | Historientiefe: Backfill oder Anspruch senken | **entschieden** | [ADR 0027](../adr/0027-historientiefe-messen-vor-anspruch.md) (Weg a), [ADR 0028](../adr/0028-historientiefe-gemessen.md) (Messergebnis) |
 | E3 | Historische Earnings-Termine über SEC EDGAR | **offen** | durch ADR 0028 entblockt |
-| E4 | Wochentagsnäherung ablösen? | **offen** | ADR 0020 L3 ist eine offene Zusage. Zur Fehlerrichtung siehe unten |
+| E4 | Wochentagsnäherung ablösen? | **entschieden** | [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md): nein, der TWS-Kalender reicht nicht. Entkräftet L3 aus ADR 0020 — siehe unten |
 | E5 | Research-Qualitätspaket | **entschieden** | [ADR 0029](../adr/0029-research-qualitaet.md) — ersetzt Teile von ADR 0023 |
 | E6 | Deployment-Zielbild festschreiben | **offen** | — |
 | E7 | Inhalt der Ergebnis-Benachrichtigung | **offen** | ADR 0024 gegen Doc 02 §2.12 |
@@ -189,6 +189,32 @@ Der Kostenanteil liegt zu 62 % bei der Eingabe (120.933 Token), zu 29 % bei der
 Ausgabe (11.386) und zu 9 % bei der Websuche (5 Anfragen). Festgehalten in
 ADR 0029, Nachträge.
 
+### E5 — der zweite Vergleichslauf, und was er über Prompt-Caching sagt
+
+Nach PR #40, mit der Protokollierung je Anfrage:
+
+| Anfrage | Dauer | Eingabe-Token | Anteil |
+|---|---|---|---|
+| Recherche (5 Websuchen) | 92,3 s | 109.324 | **94 %** |
+| Strukturierung | 30,4 s | 7.061 | 6 % |
+
+Ergebnis: `BROAD`, Konfidenz 0,75, **17 Quellen**, 9 von 34 Zitaten verworfen,
+0,560 USD. Gegenüber dem ersten Lauf drei Quellen mehr, geringfügig billiger.
+
+**Damit ist Prompt-Caching beantwortet: Es wird nicht gebaut.** Die Token
+entstehen in der serverseitigen Werkzeugschleife *innerhalb* einer Anfrage;
+zwischen den beiden Anfragen gibt es keinen wiederholten Kontext. Ein
+Cache-Breakpoint erfasste nur den Systemprompt — unter einem Prozent.
+Festgehalten in ADR 0023, Nachtrag vom 2026-08-24. Der einzige wirksame Hebel
+wäre `max_searches`; er bleibt bewusst bei 5.
+
+**Die 921-Sekunden-Lücke ist entschärft, nicht bewiesen.** Der Lauf brauchte
+insgesamt 122,7 Sekunden, die Strukturierung allein 30,4 — unter dem alten
+300-Sekunden-Timeout wäre sie nie abgelaufen. Ein einzelner erfolgreicher Lauf
+reproduziert den Fehlschlag aber nicht und beweist die Wiederholungs-Hypothese
+deshalb nicht. Mit `max_retries: 0` kann sie sich nicht wiederholen, und die
+Zeile je Anfrage zeigte es beim nächsten Mal unmittelbar.
+
 ### E4 — die Fehlerrichtung der Näherung
 
 Das Audit empfiehlt für E4 den Verbleib bei der Wochentagsnäherung mit der
@@ -204,6 +230,17 @@ Richtung.
 Das ändert nicht, welche Option richtig ist, wohl aber ihre Begründung. Ein
 ADR zu E4 darf sich nicht auf die Konservativitäts-Annahme des Audits stützen.
 
+**Gemessen am 2026-08-24** mit `cli calendar-reach --provider ibkr`
+(Referenzkontrakt NVDA): IBKRs `liquidHours` deckt **fünf Tage** ab
+(2026-08-24 bis 2026-08-28), davon vier künftige Handelstage. Gebraucht werden
+**elf**. Der Kalender reicht auf gut ein Drittel des Ausschlussfensters — es
+gibt nichts, womit sich die Näherung ersetzen ließe.
+
+Festgehalten in [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md). Die
+Näherung bleibt, L3 aus ADR 0020 ist entkräftet, und die riskante
+Fehlerrichtung steht jetzt im Kopfkommentar von
+`domain/earnings/calendar.py` statt nur hier.
+
 ---
 
 ## Risiken (R1–R10)
@@ -214,7 +251,7 @@ ADR zu E4 darf sich nicht auf die Konservativitäts-Annahme des Audits stützen.
 | R2 | Kein Golden Master, Verfahrensdrift unentdeckbar | **geschlossen** | PR #37, `813c539` |
 | R3 | Projekt-`CLAUDE.md` mit veralteten Gates | **geschlossen** | PR #37, `eabcaca` |
 | R4 | Doc 14 Stufe B bricht am falschen Head ab | **geschlossen** | PR #37, `eabcaca` |
-| R5 | Research: Kostenstreuung und schwache Belegqualität | **eingegrenzt** | Belegqualität behoben und am echten Lauf bestätigt (ADR 0029). Die Kostenwirkung ist **gemessen und ausgeblieben** — siehe unten |
+| R5 | Research: Kostenstreuung und schwache Belegqualität | **eingegrenzt** | Belegqualität behoben und zweimal am echten Lauf bestätigt (ADR 0029). Kosten stabil bei 0,52–0,58 USD; der Hebel ist gemessen und **nicht vorhanden** (ADR 0023, Nachtrag Prompt-Caching) — siehe unten |
 | R6 | Backtest ohne historischen Earnings-Filter | **offen** | ADR 0017 L9; Entscheidung E3 |
 | R7 | Kein Merge-Schutz, CI-Grün nicht erzwungen | **offen** | ADR 0009/0011; Entscheidung E10 |
 | R8 | Manuell gepflegte Preislisten veralten still | **offen** | M14 |
@@ -240,3 +277,5 @@ Feststellung des Audits — sie stehen daneben.
 | 2026-08-24 | Ein Research-Lauf besteht aus **zwei** Anfragen — Recherche und Strukturierung —, nicht aus mehreren Recherche-Runden. `pause_turn` trat nicht auf. Die Token entstehen in der serverseitigen Werkzeugschleife *innerhalb einer* Anfrage. |
 | 2026-08-24 | Zwischen den beiden Anfragen lagen **921 Sekunden**. `max_retries` war beim Anthropic-Client nicht gesetzt (SDK-Standard: 2) und `timeout` lag als Skalar auf dem Lesetimeout — 300 + 300 + ~320 s passt auf die Sekunde. Eine abgelaufene Anfrage erzeugt keine Logzeile, wird aber berechnet. Hypothese, die die Protokollierung je Anfrage beantwortet. |
 | 2026-08-24 | `fetch_allowed_domains` deckt keine Domain ab, die in den realen Suchtreffern vorkam — der Lauf machte **null Abrufe**, ohne einen einzigen Fehlversuch. Ausgerechnet `apple.com/newsroom`, die beste Quelle des Laufs, ist nicht abrufbar. |
+| 2026-08-24 | IBKRs `liquidHours` deckt **fünf Tage** ab. Das Audit konnte die Reichweite nicht kennen; sie entscheidet E4 (ADR 0030). |
+| 2026-08-24 | **Prompt-Caching hat keinen Angriffspunkt.** 94 % der Eingabe-Token entstehen in der serverseitigen Werkzeugschleife einer einzigen Anfrage. Nicht gebaut (ADR 0023, Nachtrag). |

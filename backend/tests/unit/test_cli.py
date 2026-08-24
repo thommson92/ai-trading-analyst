@@ -1594,6 +1594,50 @@ class TestResearchAusgabe:
         assert "[REGULATORY / PRIMARY_SOURCE]" in ausgabe
         assert "Alter laut Anbieter: 3 days ago" in ausgabe
 
+    def test_beide_versionen_stehen_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Prompt- und Verfahrensversion aendern sich unabhaengig voneinander.
+
+        Die Abdeckungsstufe entsteht aus der Verfahrensversion; ohne sie
+        laesst sich ein gemeldetes BROAD nicht der Regel zuordnen, unter der
+        es entstanden ist. Ein Serverlauf zeigte genau diese Luecke: Er meldete
+        research-v2, aber nichts darueber, nach welcher Abdeckungsregel
+        gerechnet wurde.
+        """
+        report = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime(2026, 8, 24, tzinfo=UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v2",
+            analysis_version="research-analysis-v2",
+            summary="Zusammenfassung",
+        )
+
+        _print_research_report("AAPL", report)
+
+        assert (
+            "Modell: claude-sonnet-5 (Prompt-Version research-v2, "
+            "Verfahren research-analysis-v2)"
+        ) in capsys.readouterr().out
+
+    def test_ein_bericht_ohne_verfahrensversion_luegt_nicht(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Alte Berichte werden nicht zurueckgerechnet und haben keine.
+        "unbekannt" ist die ehrliche Antwort, nicht die aktuelle Version."""
+        report = ResearchReport(
+            status=ResearchStatus.COMPLETED,
+            evaluated_at=datetime(2026, 8, 24, tzinfo=UTC),
+            model="claude-sonnet-5",
+            prompt_version="research-v1",
+            summary="Zusammenfassung",
+        )
+
+        _print_research_report("AAPL", report)
+
+        assert "Verfahren unbekannt" in capsys.readouterr().out
+
 
 class TestBoersentag:
     """Der Bezugstag der Messung folgt der Marktzeitzone, nicht UTC.

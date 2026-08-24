@@ -1355,7 +1355,14 @@ def _print_research_report(symbol: str, report: ResearchReport) -> None:
     if report.reason:
         print(f"  Grund: {report.reason}")
     if report.model:
-        print(f"  Modell: {report.model} (Prompt-Version {report.prompt_version})")
+        # Beide Versionen, nicht nur die des Prompts: Die Abdeckungsstufe
+        # entsteht aus der Verfahrensversion, und ohne sie laesst sich ein
+        # gemeldetes BROAD nicht der Regel zuordnen, unter der es entstand.
+        verfahren = report.analysis_version or "unbekannt"
+        print(
+            f"  Modell: {report.model} (Prompt-Version {report.prompt_version}, "
+            f"Verfahren {verfahren})"
+        )
     if report.confidence is not None:
         print(f"  Confidence: {report.confidence:.2f}")
     if report.coverage is not None:
