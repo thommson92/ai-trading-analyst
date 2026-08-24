@@ -1355,7 +1355,14 @@ def _print_research_report(symbol: str, report: ResearchReport) -> None:
     if report.reason:
         print(f"  Grund: {report.reason}")
     if report.model:
-        print(f"  Modell: {report.model} (Prompt-Version {report.prompt_version})")
+        # Beide Versionen, nicht nur die des Prompts: Die Abdeckungsstufe
+        # entsteht aus der Verfahrensversion, und ohne sie laesst sich ein
+        # gemeldetes BROAD nicht der Regel zuordnen, unter der es entstand.
+        verfahren = report.analysis_version or "unbekannt"
+        print(
+            f"  Modell: {report.model} (Prompt-Version {report.prompt_version}, "
+            f"Verfahren {verfahren})"
+        )
     if report.confidence is not None:
         print(f"  Confidence: {report.confidence:.2f}")
     if report.coverage is not None:
@@ -1503,10 +1510,15 @@ def _print_technical_assessment(
     bleibt, worauf sie sich bezieht -- und damit auffaellt, wenn die Worte
     nicht zu den Zahlen darueber passen.
     """
+    # Auch die Verfahrensversion, aus demselben Grund wie beim Research-Bericht:
+    # Die eingeordneten Zahlen stammen aus einem bestimmten Stand der
+    # deterministischen Auswertung. Ohne ihn laesst sich eine Einordnung
+    # spaeter nicht mehr dem Verfahren zuordnen, auf dem sie beruht.
+    verfahren = assessment.interpreted_analysis_version or "unbekannt"
     herkunft = (
         ""
         if assessment.model is None
-        else f" -- {assessment.model}, Prompt {assessment.prompt_version}"
+        else f" -- {assessment.model}, Prompt {assessment.prompt_version}, Verfahren {verfahren}"
     )
     print(f"  Einordnung: {assessment.status.value}{herkunft}")
     if assessment.reason:
