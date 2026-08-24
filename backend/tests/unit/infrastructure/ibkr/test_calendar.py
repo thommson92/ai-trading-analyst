@@ -130,25 +130,36 @@ class TestKalender:
         with pytest.raises(TradingCalendarError, match="nicht lesbar"):
             kalender.session_on(date(2026, 11, 25))
 
-    def test_covered_days_nennt_das_fenster_aufsteigend(self) -> None:
-        """``session_on`` wirft fuer alles ausserhalb des Fensters -- die
-        Reichweite liesse sich damit nur durch Probieren ermitteln, wobei ein
-        Fehler das erwartete Ergebnis waere."""
+    def test_sessions_liefert_das_ganze_fenster(self) -> None:
+        """``session_on`` wirft fuer alles ausserhalb -- die Reichweite liesse
+        sich damit nur durch Probieren ermitteln, wobei ein Fehler das
+        erwartete Ergebnis waere."""
         kalender = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL)
 
-        assert kalender.covered_days() == (
+        assert sorted(kalender.sessions()) == [
             date(2026, 11, 25),
             date(2026, 11, 26),
             date(2026, 11, 27),
             date(2026, 11, 30),
-        )
+        ]
 
-    def test_covered_days_enthaelt_auch_die_ruhetage(self) -> None:
+    def test_sessions_enthaelt_auch_die_ruhetage(self) -> None:
         """Der Feiertag gehoert ins Fenster: Er ist eine Auskunft, keine
         Luecke -- und genau die Auskunft, um die es bei E4 geht."""
-        kalender = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL)
+        sitzungen = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL).sessions()
 
-        assert date(2026, 11, 26) in kalender.covered_days()
+        assert sitzungen[date(2026, 11, 26)] is None
+        assert sitzungen[date(2026, 11, 25)] is not None
+
+    def test_sessions_laesst_sich_nicht_veraendern(self) -> None:
+        """Wer die Sicht bekommt, braucht die TWS-Verbindung nicht mehr --
+        aber er soll auch nicht in den Zwischenspeicher des Kalenders
+        schreiben koennen."""
+        kalender = IbkrTradingCalendar(FakeQuelle(THANKSGIVING), AAPL)
+        sitzungen = kalender.sessions()
+
+        with pytest.raises(TypeError):
+            sitzungen[date(2026, 12, 24)] = None  # type: ignore[index]
         assert kalender.session_on(date(2026, 11, 26)) is None
 
     def test_gefragt_wird_nur_einmal(self) -> None:

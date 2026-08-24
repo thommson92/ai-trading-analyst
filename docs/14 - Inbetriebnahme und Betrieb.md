@@ -362,9 +362,17 @@ Reicht IBKRs `liquidHours` so weit voraus wie das Ausschlussfenster?
 
 Das Kommando liest nur; es braucht keine Datenbank und legt nichts ab.
 Gefragt wird stellvertretend das erste Symbol der Watchlist — die
-Handelszeiten gelten für die Börse, nicht für das einzelne Papier. Die
-Schlusszeile sagt, ob der Kalender weit genug reicht. **Entschieden wird
-damit nichts**; das Ergebnis geht in ein ADR.
+Handelszeiten gelten für die Börse, nicht für das einzelne Papier. Mit
+`--symbols AAPL` lässt sich ein anderes wählen.
+
+Gebraucht werden **elf** künftige Handelstage, nicht zehn: Der Filter
+schließt aus bis einschließlich 20 Kerzen, die Entscheidung fällt also erst
+einen Handelstag danach. Die Schlusszeile sagt, ob der Kalender so weit
+reicht. Meldet sie zusätzlich ein „ABER", reicht er für die
+Ausschlussentscheidung, aber nicht für die Zahl `candles_until_earnings`,
+die auch für nicht ausgeschlossene Titel gespeichert wird.
+
+**Entschieden wird damit nichts**; das Ergebnis geht in ein ADR.
 
 ## Zwischenschritt: Chartauswertung gegenprüfen (optional)
 

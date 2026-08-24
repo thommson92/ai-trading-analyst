@@ -28,13 +28,13 @@ Beispiele::
 from __future__ import annotations
 
 import argparse
-import math
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import ArgumentError
@@ -101,6 +101,7 @@ from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
     SchedulerParameters,
     TradingCalendarError,
+    TradingSession,
 )
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
@@ -921,6 +922,42 @@ def command_history_depth(args: argparse.Namespace) -> int:
     return 1 if bericht.failures else 0
 
 
+def boersentag(jetzt: datetime, timezone: str) -> date:
+    """Der Handelstag, in dem ein Zeitpunkt liegt.
+
+    Nicht ``jetzt.date()``: Das waere das UTC-Datum. Ein Lauf um 22:30 New
+    Yorker Zeit liegt bereits im naechsten UTC-Tag -- ein kuenftiger
+    Handelstag fiele dadurch aus der Zaehlung, und genau an der Fenstergrenze
+    kippt das Ergebnis. Der Fehler ist einseitig: UTC liegt gegenueber New
+    York nie zurueck, also wird immer zu **wenig** gezaehlt.
+
+    Steht als eigene Funktion da, weil der Unterschied sich sonst nur zu
+    bestimmten Tageszeiten zeigt -- ein Test durch das ganze Kommando waere
+    stundenabhaengig gruen.
+    """
+    return jetzt.astimezone(ZoneInfo(timezone)).date()
+
+
+def erforderliche_handelstage(fenster_kerzen: int, kerzen_je_tag: int) -> int:
+    """Wie weit ein Kalender reichen muss, um das Ausschlussfenster zu
+    entscheiden.
+
+    Nicht ``ceil(kerzen / je_tag)``, sondern eine Stelle mehr. Der Filter
+    schliesst aus bei ``trading_days * je_tag <= fenster_kerzen``
+    (``domain/earnings/filter.py``); "nicht ausgeschlossen" beginnt also erst
+    beim naechsten Handelstag danach. Ein Kalender, der nur bis
+    ``fenster_kerzen // je_tag`` reicht, kann den Grenzfall nicht
+    unterscheiden -- er sieht jeden Termin als "im Fenster".
+
+    Mit den Vorgabewerten (20 Kerzen, 2 je Tag) sind das **11**, nicht 10.
+    ``ceil`` faellt nur bei ungeraden Fenstern zufaellig richtig aus, was den
+    Fehler tarnt.
+    """
+    if kerzen_je_tag < 1:
+        raise ValueError(f"kerzen_je_tag ({kerzen_je_tag}) muss mindestens 1 sein")
+    return fenster_kerzen // kerzen_je_tag + 1
+
+
 def command_calendar_reach(args: argparse.Namespace) -> int:
     """Misst, wie weit der TWS-Kalender in die Zukunft reicht (E4).
 
@@ -930,10 +967,9 @@ def command_calendar_reach(args: argparse.Namespace) -> int:
     Naeherung zaehlt damit **zu hoch** -- der Termin erscheint weiter weg,
     und der Filter schliesst seltener aus als er sollte.
 
-    Ob der echte Kalender sie ersetzen kann, haengt an einer einzigen Zahl:
-    Reicht ``liquidHours`` so weit voraus wie das Ausschlussfenster? Diese
-    Frage beantwortet dieses Kommando. Es entscheidet sie nicht -- das tut
-    ein ADR.
+    Ob der echte Kalender sie ersetzen kann, haengt an einer Zahl: Reicht
+    ``liquidHours`` so weit voraus wie das Ausschlussfenster? Diese Frage
+    beantwortet dieses Kommando. Es entscheidet sie nicht -- das tut ein ADR.
 
     Schreibt nichts und braucht keine Datenbank.
     """
@@ -957,16 +993,11 @@ def command_calendar_reach(args: argparse.Namespace) -> int:
     watchlist = _watchlist_from(args, config, loaded.source_path)
     if watchlist is None:
         return 2
-
     referenz = watchlist[0]
-    kerzen_je_tag = build_session_parameters(config).candles_per_day
-    fenster_kerzen = config.earnings_filter.configured_exclusion_candles
-    benoetigte_handelstage = math.ceil(fenster_kerzen / kerzen_je_tag)
 
     bar_source = build_ibkr_bar_source(config)
-    kalender = IbkrTradingCalendar(bar_source, referenz)
     try:
-        tage = kalender.covered_days()
+        sitzungen = IbkrTradingCalendar(bar_source, referenz).sessions()
     except TradingCalendarError as error:
         print(f"Handelszeiten nicht lesbar: {error}", file=sys.stderr)
         return 1
@@ -974,44 +1005,47 @@ def command_calendar_reach(args: argparse.Namespace) -> int:
         bar_source.close()
 
     return _print_calendar_reach(
-        tage,
-        kalender,
-        referenz.symbol,
-        benoetigte_handelstage,
-        fenster_kerzen,
-        kerzen_je_tag,
-        heute=datetime.now(UTC).date(),
+        sitzungen,
+        symbol=referenz.symbol,
+        fenster_kerzen=config.earnings_filter.configured_exclusion_candles,
+        kerzen_je_tag=build_session_parameters(config).candles_per_day,
+        vorlauf_kalendertage=config.earnings_filter.finnhub.lookahead_calendar_days,
+        heute=boersentag(datetime.now(UTC), config.market.timezone),
     )
 
 
 def _print_calendar_reach(
-    tage: tuple[date, ...],
-    kalender: IbkrTradingCalendar,
+    sitzungen: Mapping[date, TradingSession | None],
+    *,
     symbol: str,
-    benoetigte_handelstage: int,
     fenster_kerzen: int,
     kerzen_je_tag: int,
-    *,
+    vorlauf_kalendertage: int,
     heute: date,
 ) -> int:
     """Getrennt vom Kommando, damit die Ausgabe ohne TWS pruefbar ist.
 
-    ``heute`` wird hereingereicht statt hier gelesen: Sonst haengt das
+    Nimmt die Sitzungen als einfache Abbildung statt des Kalenderobjekts:
+    Damit ist strukturell sichtbar, dass die Ausgabe keine offene Verbindung
+    mehr braucht -- ``bar_source`` ist zu diesem Zeitpunkt schon geschlossen.
+
+    ``heute`` wird hereingereicht statt hier gelesen. Sonst haengt das
     Ergebnis der Tests am Kalenderdatum ihres Laufs, und ein Testfall mit
     festen Daten faellt Monate spaeter still um.
-    """
-    if not tage:
-        print(f"Die Handelszeiten von {symbol} enthalten keinen einzigen Tag.", file=sys.stderr)
-        return 1
 
+    Alles nach den Sitzungen ist benannt zu uebergeben: Drei aufeinander
+    folgende ``int`` liessen sich sonst vertauschen, ohne dass mypy es merkt.
+    """
+    tage = sorted(sitzungen)
+    benoetigt = erforderliche_handelstage(fenster_kerzen, kerzen_je_tag)
     kuenftig = [tag for tag in tage if tag > heute]
-    handelstage = [tag for tag in kuenftig if kalender.session_on(tag) is not None]
-    ruhetage = [tag for tag in kuenftig if kalender.session_on(tag) is None]
+    handelstage = [tag for tag in kuenftig if sitzungen[tag] is not None]
+    ruhetage = [tag for tag in kuenftig if sitzungen[tag] is None]
 
     print(f"Kalenderreichweite ueber {symbol} (Referenzkontrakt der Watchlist)\n")
     print(f"  Abgedeckt:              {tage[0].isoformat()} bis {tage[-1].isoformat()}")
     print(f"  Tage insgesamt:         {len(tage)}")
-    print(f"  Davon nach heute:       {len(kuenftig)}")
+    print(f"  Bezugstag (Boerse):     {heute.isoformat()}")
     print(f"  Kuenftige Handelstage:  {len(handelstage)}")
     if ruhetage:
         print(f"  Kuenftige Ruhetage:     {', '.join(tag.isoformat() for tag in ruhetage)}")
@@ -1019,24 +1053,34 @@ def _print_calendar_reach(
         print("  Kuenftige Ruhetage:     keine im abgedeckten Fenster")
 
     print(
-        f"\n  Gebraucht werden {benoetigte_handelstage} Handelstage "
-        f"({fenster_kerzen} Kerzen / {kerzen_je_tag} je Tag, "
-        "earnings_filter.configured_exclusion_candles)."
+        f"\n  Gebraucht werden {benoetigt} Handelstage: Der Filter schliesst aus bis "
+        f"einschliesslich {fenster_kerzen} Kerzen ({kerzen_je_tag} je Tag), "
+        "die Entscheidung faellt also erst einen Handelstag danach."
     )
 
-    if len(handelstage) >= benoetigte_handelstage:
+    if len(handelstage) < benoetigt:
         print(
-            "\n  ERGEBNIS: Der Kalender reicht weit genug. Die Wochentagsnaeherung "
-            "laesst sich durch die echten Nichthandelstage ersetzen (E4, Weg c)."
+            f"\n  ERGEBNIS: Der Kalender reicht NICHT weit genug "
+            f"({len(handelstage)} von {benoetigt} Handelstagen). "
+            "Die Wochentagsnaeherung bleibt -- ADR zu E4 auf diesem Befund, nicht "
+            "auf der Konservativitaets-Annahme des Audits."
         )
         return 0
 
     print(
-        f"\n  ERGEBNIS: Der Kalender reicht NICHT weit genug "
-        f"({len(handelstage)} von {benoetigte_handelstage} Handelstagen). "
-        "Die Wochentagsnaeherung bleibt -- ADR zu E4 auf diesem Befund, nicht "
-        "auf der Konservativitaets-Annahme des Audits."
+        "\n  ERGEBNIS: Der Kalender reicht fuer die Ausschlussentscheidung. Die "
+        "Wochentagsnaeherung laesst sich dafuer durch die echten Nichthandelstage "
+        "ersetzen (E4, Weg c)."
     )
+    if len(handelstage) < vorlauf_kalendertage:
+        print(
+            f"\n  ABER: Das Feld 'candles_until_earnings' wird auch fuer nicht "
+            f"ausgeschlossene Titel gespeichert, und Termine werden bis "
+            f"{vorlauf_kalendertage} Kalendertage voraus geholt "
+            "(earnings_filter.finnhub.lookahead_calendar_days). So weit reicht der "
+            "Kalender nicht. Fuer die gespeicherte Zahl bliebe die Naeherung -- das "
+            "gehoert in das ADR, nicht in dieses Kommando."
+        )
     return 0
 
 
@@ -2161,9 +2205,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reach.add_argument("--provider", choices=("ibkr",), default=None)
     reach.add_argument(
-        "--watchlist",
+        "--symbols",
         default=None,
-        help="Watchlist-Datei. Gefragt wird stellvertretend ihr erstes Symbol.",
+        help=(
+            "Kommagetrennte Symbole; gefragt wird nur das erste. Ohne Angabe das "
+            "erste der Watchlist -- die Handelszeiten gelten fuer die Boerse, "
+            "nicht fuer das einzelne Papier."
+        ),
     )
     reach.add_argument("--config", default=None)
     reach.set_defaults(handler=command_calendar_reach)
