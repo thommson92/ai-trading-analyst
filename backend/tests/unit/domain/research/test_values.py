@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from ai_trading_analyst.config.settings import ResearchConfig
 from ai_trading_analyst.domain.research import (
     RANGFOLGE,
     Citation,
@@ -18,6 +19,7 @@ from ai_trading_analyst.domain.research import (
     classify_source_rank,
     derive_coverage,
     rangindex,
+    rank_and_cap,
 )
 
 
@@ -117,7 +119,9 @@ class TestQuellenrangZuordnung:
             ("https://www.nasdaq.com/articles/eine-meinung", SourceRank.AGGREGATOR),
             ("https://finance.yahoo.com/news/a", SourceRank.AGGREGATOR),
             ("https://irgendein-blog.example/beitrag", SourceRank.UNRANKED),
-            ("https://apple.com/newsroom", SourceRank.UNRANKED),
+            # Die Hauptdomain fuer sich ist kein Unternehmensauftritt -- erst
+            # der Newsroom-Pfad macht sie zu einem (eigener Fall unten).
+            ("https://apple.com/iphone", SourceRank.UNRANKED),
         ],
     )
     def test_rang_kommt_aus_der_domain(self, url: str, erwartet: SourceRank) -> None:
@@ -162,3 +166,109 @@ class TestAbdeckungsregel:
     def test_eine_quelle_ist_keine_recherche(self) -> None:
         belege = [self._beleg("https://sec.gov/a", SourceRank.REGULATORY)]
         assert derive_coverage(ResearchEvidence(1, 1, 0, 0), belege) is ResearchCoverage.THIN
+
+
+class TestEchterQuellensatz:
+    """Gegen die Quellen eines tatsaechlichen Laufs, nicht gegen erdachte.
+
+    Die Liste stammt aus dem AAPL-Lauf vom 2026-08-24 auf dem Server (38
+    Zitate, 19 verschiedene Quellen). Sie steht hier, weil die erdachten
+    Faelle eine Luecke nicht gezeigt haben: ``www.apple.com/newsroom/...``
+    -- fuer einen CEO-Wechsel die verlaesslichste denkbare Quelle -- fiel
+    auf ``UNRANKED`` durch, und damit war ``BROAD`` fuer einen typischen
+    Nachrichtenbericht unerreichbar.
+    """
+
+    ECHTE_QUELLEN = (
+        # (URL, erwarteter Rang, Zahl der Zitate im Lauf)
+        ("https://www.apple.com/newsroom/2026/04/tim-cook-x/", SourceRank.COMPANY, 2),
+        ("https://www.apple.com/newsroom/2026/08/eu-app-store/", SourceRank.COMPANY, 1),
+        ("https://www.bloomberg.com/news/articles/2026-08-18/x", SourceRank.FINANCIAL_MEDIA, 2),
+        ("https://www.cnbc.com/quotes/AAPL", SourceRank.FINANCIAL_MEDIA, 1),
+        ("https://www.cnn.com/markets/stocks/AAPL", SourceRank.GENERAL_MEDIA, 2),
+        ("https://finance.yahoo.com/news/x", SourceRank.AGGREGATOR, 1),
+        # Die grosse Mehrheit des Laufs: Portale und Analyseseiten, die wir
+        # nicht einordnen koennen. UNRANKED ist hier die richtige Antwort,
+        # nicht ein Mangel der Einstufung -- es macht sichtbar, worauf sich
+        # die Recherche tatsaechlich stuetzt.
+        ("https://247wallst.com/investing/2026/08/03/x", SourceRank.UNRANKED, 7),
+        ("https://247wallst.com/investing/2026/08/18/x", SourceRank.UNRANKED, 3),
+        ("https://www.ad-hoc-news.de/boerse/news/x", SourceRank.UNRANKED, 3),
+        ("https://ts2.tech/en/x", SourceRank.UNRANKED, 3),
+        ("https://appleinsider.com/articles/26/08/18/x", SourceRank.UNRANKED, 2),
+        ("https://9to5mac.com/2026/08/17/x", SourceRank.UNRANKED, 2),
+        ("https://stockanalysis.com/stocks/aapl/forecast/", SourceRank.UNRANKED, 2),
+        ("https://clearank.com/stock/apple-aapl/", SourceRank.UNRANKED, 2),
+        ("https://robinhood.com/us/en/stocks/AAPL/", SourceRank.UNRANKED, 1),
+        ("https://simplywall.st/stocks/us/tech/nasdaq-aapl/apple/future", SourceRank.UNRANKED, 1),
+        ("https://techcrunch.com/2026/08/18/x", SourceRank.UNRANKED, 1),
+        ("https://tickernerd.com/stock/aapl-forecast/", SourceRank.UNRANKED, 1),
+        ("https://lawfold.com/apple-antitrust-lawsuit/", SourceRank.UNRANKED, 1),
+    )
+    """19 Quellen, 38 Zitate -- der vollstaendige Lauf."""
+
+    @staticmethod
+    def _beleg(url: str, nummer: int = 0) -> Citation:
+        return Citation(
+            url=url,
+            title="Titel",
+            retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
+            cited_text=f"{url}#{nummer}",
+            license_class=SourceLicenseClass.UNKNOWN,
+            transformation="zusammengefasst",
+            source_rank=classify_source_rank(url),
+        )
+
+    @pytest.mark.parametrize(
+        ("url", "erwartet"), [(url, rang) for url, rang, _ in ECHTE_QUELLEN]
+    )
+    def test_die_quellen_eines_echten_laufs(self, url: str, erwartet: SourceRank) -> None:
+        assert classify_source_rank(url) is erwartet
+
+    def test_ein_typischer_nachrichtenbericht_erreicht_broad(self) -> None:
+        """Eine Stufe, die nie vergeben wird, ist keine Stufe.
+
+        Genau das drohte: Ohne den Newsroom-Pfad war ``hat_substanz`` bei
+        einem Lauf ohne SEC-Filing immer falsch, und BROAD damit
+        unerreichbar.
+        """
+        belege = [self._beleg(url) for url, _, _ in self.ECHTE_QUELLEN]
+        evidence = ResearchEvidence(
+            distinct_sources=len(belege),
+            successful_fetches=1,
+            rejected_tool_calls=1,
+            dropped_citations=13,
+        )
+        assert derive_coverage(evidence, belege) is ResearchCoverage.BROAD
+
+    def test_der_newsroom_pfad_hebt_keine_nachrichtenseite(self) -> None:
+        """Er wird **nach** den Medienlisten geprueft. Sonst machte ein
+        ``/press-releases``-Bereich einer Nachrichtenseite sie zur
+        Unternehmensmeldung -- und COMPANY zaehlt zur Substanz."""
+        assert (
+            classify_source_rank("https://www.bloomberg.com/press-releases/x")
+            is SourceRank.FINANCIAL_MEDIA
+        )
+        assert (
+            classify_source_rank("https://irgendeine-ag.example/press-release/zahlen")
+            is SourceRank.COMPANY
+        )
+
+    def test_die_obergrenze_laesst_keine_quelle_des_echten_laufs_fallen(self) -> None:
+        """Bei 15 gingen vier der 19 Quellen verloren, obwohl die Deckelung
+        gerade die Vielfalt schuetzen soll -- deshalb steht der Standard auf
+        25. Der Test haelt beides fest: dass 25 reicht und dass 15 es nicht
+        tat."""
+        belege = [
+            self._beleg(url, nummer)
+            for url, _, anzahl in self.ECHTE_QUELLEN
+            for nummer in range(anzahl)
+        ]
+        assert len(belege) == 38
+
+        behalten, verworfen = rank_and_cap(belege, ResearchConfig().max_citations)
+        assert len({beleg.url for beleg in behalten}) == len(self.ECHTE_QUELLEN)
+        assert verworfen == len(belege) - ResearchConfig().max_citations
+
+        zu_knapp, _ = rank_and_cap(belege, 15)
+        assert len({beleg.url for beleg in zu_knapp}) < len(self.ECHTE_QUELLEN)

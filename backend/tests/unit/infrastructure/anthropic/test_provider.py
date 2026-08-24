@@ -1128,43 +1128,36 @@ class TestPromptInjection:
 
 
 class TestQuellenrang:
-    """Der Rang steht neben der Lizenzklasse, nicht an ihrer Stelle (ADR 0029).
+    """Dass der Adapter die Einstufung **anwendet** -- welche Domain welchen
+    Rang bekommt, gehoert in die Domain-Tests (``domain/research``), seit die
+    Regel dort steht.
 
-    Beide entstehen deterministisch aus der URL -- die Lizenzklasse
-    beantwortet, was mit dem Inhalt rechtlich geschehen darf, der Rang, wie
-    belastbar er ist.
+    Geprueft wird deshalb nur, was allein hier passieren kann: dass beide
+    Zitatwege (Suchtreffer und Abruf) den Rang setzen und dass Rang und
+    Lizenzklasse zwei verschiedene Felder bleiben.
     """
 
-    @pytest.mark.parametrize(
-        ("url", "erwartet"),
-        [
-            ("https://www.sec.gov/Archives/edgar/data/1/10-q.htm", SourceRank.REGULATORY),
-            ("https://investor.apple.com/news/quartalszahlen", SourceRank.COMPANY),
-            ("https://ir.microsoft.com/mitteilung", SourceRank.COMPANY),
-            ("https://www.businesswire.com/news/1", SourceRank.COMPANY),
-            ("https://www.bloomberg.com/news/artikel", SourceRank.FINANCIAL_MEDIA),
-            ("https://www.reuters.com/markets/apple", SourceRank.GENERAL_MEDIA),
-            ("https://seekingalpha.com/article/1", SourceRank.AGGREGATOR),
-            ("https://irgendein-blog.example/beitrag", SourceRank.UNRANKED),
-        ],
-    )
-    def test_rang_kommt_aus_der_domain(self, url: str, erwartet: SourceRank) -> None:
-        report = _provider(_zweiphasig(recherche=[_text_with_citation(url)])).research(AAPL)
-        (citation,) = report.citations
-        assert citation.source_rank is erwartet
-
-    def test_investor_ohne_praefix_ist_kein_unternehmensauftritt(self) -> None:
-        """``investor.apple.com`` ja, ``apple.com`` nein -- der Praefixvergleich
-        darf nicht auf die blosse Zeichenfolge im Host anspringen."""
+    def test_ein_suchtreffer_bekommt_seinen_rang(self) -> None:
         report = _provider(
-            _zweiphasig(recherche=[_text_with_citation("https://apple.com/newsroom")])
+            _zweiphasig(recherche=[_text_with_citation("https://sec.gov/filing")])
         ).research(AAPL)
-        assert report.citations[0].source_rank is SourceRank.UNRANKED
+        assert report.citations[0].source_rank is SourceRank.REGULATORY
+
+    def test_ein_abgerufenes_dokument_bekommt_seinen_rang(self) -> None:
+        report = _provider(
+            _zweiphasig(
+                recherche=[
+                    _web_fetch_result("https://www.bloomberg.com/news/a", "Artikel"),
+                    _text_with_char_location_citation("Artikel"),
+                ]
+            )
+        ).research(AAPL)
+        assert report.citations[0].source_rank is SourceRank.FINANCIAL_MEDIA
 
     def test_rang_und_lizenzklasse_bleiben_unabhaengig(self) -> None:
-        """Reuters ist urheberrechtlich NEWS_MEDIA und im Rang GENERAL_MEDIA;
-        eine unbekannte Domain ist UNKNOWN und UNRANKED. Waeren beide Felder
-        dasselbe, liesse sich das hier nicht auseinanderhalten."""
+        """Reuters ist urheberrechtlich NEWS_MEDIA und im Rang GENERAL_MEDIA.
+        Waeren beide Felder dasselbe, liesse sich das hier nicht
+        auseinanderhalten."""
         report = _provider(
             _zweiphasig(recherche=[_text_with_citation("https://www.reuters.com/markets/a")])
         ).research(AAPL)

@@ -72,7 +72,7 @@ Verfahrensänderung und muss am Ergebnis sichtbar sein.
 ### 3. Zitate werden nach Rang sortiert und gedeckelt
 
 Nach der vorhandenen Deduplizierung wird nach `RANGFOLGE` sortiert und auf
-`research.max_citations` (Standard 15) gekappt. Wie viele Zitate dabei
+`research.max_citations` (Standard 25, siehe Nachtrag) gekappt. Wie viele Zitate dabei
 weggefallen sind, steht am Bericht.
 
 **Gekappt wird reihum je Quelle, nicht der Reihe nach.** Ein Deckel, der
@@ -150,6 +150,48 @@ fehlt bei `web_fetch` vollständig. Daraus ein Datum zu rechnen wäre ein
 abgeleiteter Wert an einer Stelle, die Genauigkeit verspricht — CLAUDE.md
 verbietet genau das. Der Wert wird gespeichert, nie geparst, und fließt in
 keine Berechnung ein.
+
+### Nachtrag: am ersten echten Lauf nachgeschärft (2026-08-24)
+
+Ein Lauf gegen die Anthropic-API (AAPL, `research-v1`, 38 Zitate aus 19
+Quellen, 0,524 USD) hat drei Dinge gezeigt, die die erdachten Testfälle nicht
+zeigen konnten.
+
+**`www.apple.com/newsroom/…` fiel auf `UNRANKED` durch.** Für einen
+CEO-Wechsel die verlässlichste denkbare Quelle — und die Einstufung sah sie
+nicht, weil sie nur IR-*Unterdomains* erkannte (`investor.apple.com`). Die
+Hauptdomain eines Unternehmens lässt sich weder auflisten noch am Host
+erkennen; ihr Newsroom-Pfad dagegen schon. `_UNTERNEHMENSPFADE` prüft
+`/newsroom`, `/press-release`, `/press-releases`, `/investor-relations` —
+**nach** den Medienlisten, damit ein `/press-releases`-Bereich einer
+Nachrichtenseite sie nicht zur Unternehmensmeldung macht.
+
+**Damit war `BROAD` faktisch unerreichbar.** Ohne `REGULATORY` oder `COMPANY`
+ist `hat_substanz` falsch, und ein Nachrichtenbericht ohne SEC-Filing hat
+weder das eine noch das andere. Eine Stufe, die nie vergeben wird, ist keine
+Stufe. Der Newsroom-Pfad behebt das; ein Test hält es an genau diesem
+Quellensatz fest.
+
+**Die Obergrenze von 15 war zu knapp.** Bei 19 verschiedenen Quellen hätte die
+Deckelung vier davon ganz verloren — obwohl sie gerade die Vielfalt schützen
+soll. Ab 20 überleben alle; der Standard steht jetzt auf **25**, das lässt Luft
+und halbiert die Zeilenzahl trotzdem.
+
+**Was der Lauf außerdem geradegerückt hat:** Dieses ADR nannte den nicht
+benannten Domain-Katalog im Prompt als vermutlich größten Kostenposten. Der
+Lauf zeigt **einen einzigen** `url_not_allowed` — die Ersparnis daraus ist
+Kleingeld. Der eigentliche Posten steht daneben: **113.685 Eingabe-Token,
+davon 0 aus dem Cache.** Über zwei Runden wird der Kontext der ersten
+vollständig neu verrechnet. Prompt-Caching ist damit der wirksamere Hebel und
+gehört in eine eigene Entscheidung; es ist **nicht** Teil dieses ADR.
+
+Und ein Befund über die Recherche selbst, nicht über ihre Einstufung: **31 der
+38 Zitate bleiben `UNRANKED`** — 24/7 Wall St., ts2.tech, clearank, tickernerd,
+lawfold und ähnliche. Das ist kein Mangel der Rangzuordnung, sondern ihr
+eigentlicher Zweck: Sie macht sichtbar, worauf sich die Recherche tatsächlich
+stützt. Ob daraus eine Konsequenz folgt — engere Suchführung, ein Mindestrang
+für zitierfähige Quellen — ist eine eigene Entscheidung und hier bewusst nicht
+getroffen.
 
 ## Begründung
 

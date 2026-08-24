@@ -212,10 +212,13 @@ research:
     - businesswire.com
     - globenewswire.com
     - nasdaq.com
-  # Obergrenze der gespeicherten Belege je Bericht (ADR 0029). Ein realer Lauf
-  # brachte rund 40 Zitate, ungewichtet. Gespeichert werden die nach
-  # Quellenrang staerksten; die Zahl der verworfenen steht am Bericht.
-  max_citations: 15
+  # Obergrenze der gespeicherten Belege je Bericht (ADR 0029). An einem echten
+  # Lauf bemessen: Der AAPL-Lauf vom 2026-08-24 brachte 38 Zitate aus 19
+  # verschiedenen Quellen. Bei 15 haette die Deckelung vier Quellen ganz
+  # verloren, obwohl sie gerade die Vielfalt schuetzen soll; ab 20 ueberleben
+  # alle. Gedeckelt wird reihum je Quelle, nicht der Reihe nach; die Zahl der
+  # verworfenen Zitate steht am Bericht.
+  max_citations: 25
   # Nur fuer die Kostenschaetzung im Log. VON HAND GEPFLEGT -- die Anwendung
   # fragt keine Preisliste ab, ein veralteter Wert faellt nirgends auf.
   #

@@ -100,6 +100,7 @@ _GENERAL_MEDIA_DOMAINS = (
     "reuters.com",
     "apnews.com",
     "bbc.com",
+    "cnn.com",
     "nytimes.com",
     "washingtonpost.com",
 )
@@ -145,12 +146,42 @@ def _domain_matches(host: str, domains: tuple[str, ...]) -> bool:
     return any(host == domain or host.endswith(f".{domain}") for domain in domains)
 
 
+_UNTERNEHMENSPFADE = (
+    "/newsroom",
+    "/press-release",
+    "/press-releases",
+    "/investor-relations",
+)
+"""Pfade, unter denen ein Unternehmen auf der eigenen Seite selbst meldet.
+
+Der Anlass ist gemessen, nicht ausgedacht: Ein realer Lauf zu AAPL
+(2026-08-24) zitierte den CEO-Wechsel aus
+``www.apple.com/newsroom/...`` -- die verlaesslichste denkbare Quelle dafuer
+-- und die Einstufung meldete ``UNRANKED``. Die Hauptdomain eines
+Unternehmens laesst sich nicht auflisten und nicht am Host erkennen; ihr
+Newsroom-Pfad dagegen schon.
+
+Bewusst kurz gehalten und **erst nach den Medienlisten** geprueft: Ein
+Nachrichtenanbieter mit einem ``/press-release``-Bereich bleibt
+Nachrichtenanbieter. Der Pfad hebt nur, was sonst durchfiele."""
+
+
+def _ist_unternehmensmeldung(url: str) -> bool:
+    pfad = urlparse(url).path.lower()
+    return pfad.startswith(_UNTERNEHMENSPFADE)
+
+
 def classify_source_rank(url: str) -> SourceRank:
     """Quellenrang deterministisch aus der URL.
 
-    Die Reihenfolge der Pruefungen ist die Rangfolge selbst: Der erste Treffer
-    gewinnt. Nie vom Sprachmodell erfragt -- ein Text, der behauptet, eine
-    amtliche Quelle zu sein, veraendert hier nichts.
+    Die Reihenfolge ist die Rangfolge selbst: Der erste Treffer gewinnt. Nie
+    vom Sprachmodell erfragt -- ein Text, der behauptet, eine amtliche Quelle
+    zu sein, veraendert hier nichts.
+
+    Eine Ausnahme von der reinen Rangreihenfolge: Der Newsroom-Pfad wird
+    **nach** den Medienlisten geprueft. Sonst haette ein
+    ``/press-releases``-Bereich einer Nachrichtenseite sie zur
+    Unternehmensmeldung gemacht.
     """
     host = host_of(url)
     if _domain_matches(host, _REGULATORY_DOMAINS):
@@ -163,6 +194,8 @@ def classify_source_rank(url: str) -> SourceRank:
         return SourceRank.GENERAL_MEDIA
     if _domain_matches(host, _AGGREGATOR_DOMAINS):
         return SourceRank.AGGREGATOR
+    if _ist_unternehmensmeldung(url):
+        return SourceRank.COMPANY
     return SourceRank.UNRANKED
 
 

@@ -453,13 +453,18 @@ class ResearchConfig(_Section):
         "globenewswire.com",
         "nasdaq.com",
     )
-    max_citations: PositiveInt = 15
+    max_citations: PositiveInt = 25
     """Obergrenze der gespeicherten Belege je Bericht (ADR 0029).
 
-    Ein realer Lauf brachte rund 40 Zitate, ungewichtet. Gespeichert werden
-    die nach ``SourceRank`` staerksten; wie viele weggefallen sind, steht am
-    Bericht (``ResearchEvidence.dropped_citations``) -- die Auslassung bleibt
-    damit nicht still."""
+    An einem echten Lauf bemessen, nicht geschaetzt: Der AAPL-Lauf vom
+    2026-08-24 brachte **38 Zitate aus 19 verschiedenen Quellen**. Bei 15
+    haette die Deckelung vier Quellen ganz verloren, obwohl sie gerade die
+    Vielfalt schuetzen soll; ab 20 ueberleben alle. 25 laesst Luft nach oben
+    und halbiert die Zeilenzahl trotzdem.
+
+    Wie viele Zitate weggefallen sind, steht am Bericht
+    (``ResearchEvidence.dropped_citations``) -- die Auslassung bleibt damit
+    nicht still."""
     pricing: ResearchPricingConfig = ResearchPricingConfig()
 
 
