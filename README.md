@@ -33,6 +33,12 @@ abgeschlossener 195-Minuten-Kerzen aus nativen 15-Minuten-Bars,
 Indikatorberechnung, Screener, Earnings-Filter, Backtesting und der
 Trading-Day-Dispatcher.
 
+Die **Historientiefe** ist gemessen und aufgefüllt: Der Tiefen-Backfill lief am
+2026-08-24 über die volle Watchlist, der Backtest erreicht seither `NORMAL`
+statt `LOW_SAMPLE`
+([ADR 0027](docs/adr/0027-historientiefe-messen-vor-anspruch.md),
+[ADR 0028](docs/adr/0028-historientiefe-gemessen.md)).
+
 Gate G1 ist fachlich freigegeben
 ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei Signalregeln und
 die 2-aus-3-Kandidatenregel sind reiner Domain-Code
@@ -86,7 +92,6 @@ Noch offen:
 | Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
-| Fünf Jahre Historie im Bestand | Tiefe gemessen und Batch gebaut ([ADR 0028](docs/adr/0028-historientiefe-gemessen.md)); der Lauf über die volle Watchlist steht aus |
 
 Der Erledigungsstand der Befunde aus dem
 [Repository-Audit](docs/audits/2026-08-23-repository-audit.md) wird in der
@@ -439,10 +444,14 @@ von `dev` ab und werden per Pull Request zurückgeführt (siehe
 [ADR 0002](docs/adr/0002-branching-modell.md)). Vor jedem PR laufen die
 Test-Suite und eine unabhängige Code-Review.
 
-**Bekannte Einschränkung:** Required Status Checks lassen sich für dieses
-private Repository im aktuellen GitHub-Plan nicht konfigurieren (weder über
-Branch Protection noch über Rulesets — beide verlangen GitHub Pro oder ein
-öffentliches Repository). Bis das geklärt ist, gilt ersatzweise: kein Merge
-ohne vorher geprüfte grüne CI (`gh pr checks <nummer>`). Details und die
-vorbereitete Konfiguration in
-[ADR 0009](docs/adr/0009-required-checks-nicht-konfigurierbar.md).
+Seit dem 2026-08-24 ist das nicht mehr nur Vereinbarung, sondern erzwungen:
+`main` und `dev` sind geschützt, ein Merge braucht einen Pull Request und
+fünf grüne CI-Jobs. Force-Push und Löschen sind gesperrt. Der
+Repository-Inhaber behält bewusst einen Notausgang, damit ein Flake ihn nicht
+aus seinem eigenen Repository aussperrt — was das im Einzelnen heißt und was
+dabei *nicht* erzwungen wird, steht in
+[ADR 0031](docs/adr/0031-merge-schutz-aktiv.md), das
+[ADR 0009](docs/adr/0009-required-checks-nicht-konfigurierbar.md) ablöst.
+
+Die dort beschriebene Interimsregel bleibt trotzdem sinnvoll: `gh pr checks
+<nummer>` zeigt einen Fehlschlag früher als ein blockierter Merge-Knopf.
