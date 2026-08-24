@@ -16,6 +16,7 @@ Anthropic-API.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -201,6 +202,40 @@ _SUBMIT_REPORT_TOOL: dict[str, Any] = {
         }
     ],
 }
+
+
+_NARRATIVE_TAG = "recherchetext"
+
+
+def _neutralize_delimiters(symbol: str, narrative: str) -> str:
+    """Entschaerft die Abgrenzung des Recherchetexts gegen ihren eigenen Text.
+
+    Der Recherchetext ist zu grossen Teilen fremden Ursprungs: Suchtreffer
+    und abgerufene Dokumente beschreibt, wer die Seite betreibt. Steht darin
+    das schliessende Tag, endet die Datenregion vorzeitig und alles danach
+    steht in Instruktionsposition -- die Abgrenzung waere dann eine Bitte,
+    keine Grenze (CLAUDE.md: markierte Daten, nie Instruktion).
+
+    Die Tags werden deshalb im Text unkenntlich gemacht, statt ihn
+    abzuweisen: Ein legitimer Recherchetext enthaelt sie nicht, und ein
+    Bericht ist zu teuer, um ihn wegen eines Zeichenspiels zu verwerfen. Der
+    Inhalt bleibt lesbar, verliert aber seine Struktur-Wirkung.
+    """
+    entschaerft = re.sub(
+        rf"<\s*/?\s*{_NARRATIVE_TAG}\s*>",
+        f"[{_NARRATIVE_TAG}]",
+        narrative,
+        flags=re.IGNORECASE,
+    )
+    if entschaerft != narrative:
+        # Sichtbar machen, nicht verschlucken: Der Recherchetext hat die
+        # eigene Abgrenzung nachgebildet. Das ist kein Normalfall.
+        _logger.warning(
+            "'%s': Recherchetext enthielt die eigene Abgrenzung <%s> -- entschaerft",
+            symbol,
+            _NARRATIVE_TAG,
+        )
+    return entschaerft
 
 
 def _classify_license(url: str) -> SourceLicenseClass:
@@ -625,7 +660,8 @@ class AnthropicResearchProvider(ResearchProvider):
         return (
             f"Strukturiere den folgenden Recherchetext zu {stock.symbol} "
             f"({stock.exchange}).\n\n"
-            f"<recherchetext>\n{narrative}\n</recherchetext>"
+            f"<{_NARRATIVE_TAG}>\n{_neutralize_delimiters(stock.symbol, narrative)}\n"
+            f"</{_NARRATIVE_TAG}>"
         )
 
     def _build_web_tools(self) -> list[dict[str, Any]]:

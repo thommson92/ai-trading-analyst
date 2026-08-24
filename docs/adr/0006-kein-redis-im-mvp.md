@@ -68,3 +68,26 @@ kontrolliert behandelt wird.
 - Die Job-Verarbeitung ist an PostgreSQL gebunden. Bei einem Datenbankwechsel
   müsste dieser Mechanismus ersetzt werden — bei einem persönlichen System mit
   festgelegtem Stack ein hinnehmbarer Preis.
+
+
+---
+
+### Nachtrag 2026-08-23 (Maßnahme M12 aus dem Repository-Audit)
+
+Die Entscheidung selbst — kein Redis im MVP, Koordination über PostgreSQL —
+gilt unverändert. Zwei ihrer Annahmen sind es nicht mehr:
+
+- **„Stufe 2 (ab Sprint 2, mit eigenem Worker-Prozess)" ist nicht eingetreten
+  und wird es nicht.** An ihre Stelle ist der Trading-Day-Dispatcher getreten:
+  ein idempotenter Einzelstart, ausgelöst von der Windows-Aufgabenplanung,
+  statt eines dauerhaft laufenden Worker-Prozesses
+  ([ADR 0019](0019-trading-day-dispatcher.md)). Die Begründung gegen Redis
+  trägt dadurch eher besser als schlechter — es gibt keine Queue mehr,
+  gegen die eine Warteschlange nötig wäre.
+- **Der `worker`-Service aus der Konsequenzliste existiert nicht**, ebenso
+  wenig das übrige Docker-Compose-Zielbild. Betrieben wird nativ auf Windows
+  (Doc 14). Ob das die beschlossene Architektur wird, ist offen (E6 aus dem
+  Audit).
+
+Der Entscheidungstext bleibt unverändert; dieser Nachtrag hält nur fest,
+was aus ihm überholt ist.

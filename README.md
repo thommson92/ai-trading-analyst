@@ -83,10 +83,14 @@ Noch offen:
 
 | Thema | Stand |
 |---|---|
-| Technical Agent — Lauf gegen echte Kurse | Sprint 4 — Code steht, Prompt noch nicht am realen Chart erprobt |
 | Fundamental und Report Agent | Sprint 4, noch nicht begonnen |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
+| Fünf Jahre Historie im Bestand | Tiefe gemessen und Batch gebaut ([ADR 0028](docs/adr/0028-historientiefe-gemessen.md)); der Lauf über die volle Watchlist steht aus |
+
+Der Erledigungsstand der Befunde aus dem
+[Repository-Audit](docs/audits/2026-08-23-repository-audit.md) wird in der
+[Nachverfolgung](docs/audits/2026-08-23-nachverfolgung.md) geführt.
 
 ## Struktur
 

@@ -113,3 +113,32 @@ ergebnisloses Nachjustieren der Workflow-Datei.
   selbst gehostete Runner (self-hosted) auf eigener Infrastruktur.
 - Dieses ADR ersetzt keine fruehere Entscheidung, sondern ergaenzt ADR 0009
   um die konkret erhobenen Belege und eine daraus abgeleitete Ausweichregel.
+
+
+---
+
+### Nachtrag 2026-08-23 (Maßnahme M12 aus dem Repository-Audit)
+
+**Das beobachtete Verhalten besteht nicht mehr.** Der Status dieses ADR lautet
+seit 2026-08-07 „Angenommen (mit offenem Punkt)"; der offene Punkt war, ob
+GitHub für neue Pushes und Pull Requests überhaupt Läufe startet. Am
+2026-08-23 erhoben:
+
+- `gh api repos/thommson92/ai-trading-analyst/actions/runs` meldet
+  **`total_count: 171`** — zum Zeitpunkt der Entscheidung waren es **3** über
+  die gesamte Repository-Historie.
+- Beide Trigger feuern nachweislich: die letzten Läufe stammen sowohl aus
+  `push` als auch aus `pull_request`, jeweils mit `conclusion: success`
+  (u. a. PR #37 und dessen Merge nach `dev`).
+
+Damit ist die Ausweichregel aus Punkt 2 in der Praxis nicht mehr nötig. Sie
+wird trotzdem nicht gestrichen: Die Ursache war plattformseitig und nie
+erklärt, also ist auch das Verschwinden nicht erklärt. Was sich belegen
+lässt, ist das Verhalten heute — nicht, dass es so bleibt.
+
+**Unberührt bleibt der zweite Punkt:** Dass CI läuft, erzwingt nicht, dass
+sie vor einem Merge grün sein muss. Dieser Schutz fehlt weiterhin
+(ADR 0009, Risiko R7 des Audits).
+
+Nebenbefund: Der Kommandobeleg im Abschnitt „Beobachtetes tatsächliches
+Verhalten" nennt noch den alten Repository-Namen `TradingViewAnalyzer`.
