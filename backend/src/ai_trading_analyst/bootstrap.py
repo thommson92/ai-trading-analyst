@@ -17,10 +17,11 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
-from ai_trading_analyst.config.loader import load_config, load_secrets
+from ai_trading_analyst.config.loader import ConfigError, load_config, load_secrets
 from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
     EarningsProvider,
+    FundamentalDataProvider,
     HistoricalBarSource,
     MarketDataProvider,
     ResearchProvider,
@@ -29,6 +30,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters
+from ai_trading_analyst.domain.fundamentals import FundamentalParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
@@ -43,11 +45,18 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicTechnicalPricing,
     AnthropicTechnicalSettings,
 )
+from ai_trading_analyst.infrastructure.edgar import (
+    EdgarConnectionSettings,
+    EdgarFundamentalDataProvider,
+)
 from ai_trading_analyst.infrastructure.finnhub import (
     FinnhubConnectionSettings,
     FinnhubEarningsProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
+from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
+    FixtureFundamentalDataProvider,
+)
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
@@ -211,6 +220,34 @@ def build_technical_analysis_params(config: AppConfig) -> TechnicalAnalysisParam
         trend_lookback=section.trend_lookback,
         trend_flat_pct=section.trend_flat_pct,
         extremes_lookback=section.extremes_lookback,
+    )
+
+
+def build_fundamental_data_provider(config: AppConfig) -> FundamentalDataProvider:
+    """Waehlt den Fundamentaldaten-Anbieter anhand der Konfiguration (ADR 0032).
+
+    Ohne ``secrets``-Parameter, anders als die uebrigen Builder: EDGAR
+    verlangt keinen Schluessel. Die von der SEC geforderte Kontaktadresse ist
+    eine Pflichtangabe im ``User-Agent``, kein Zugangsdatum -- sie steht in
+    der Konfiguration.
+    """
+    section = config.fundamentals
+    if section.provider == "fixture":
+        return FixtureFundamentalDataProvider()
+    if not section.edgar.contact.strip():
+        raise ConfigError(
+            "fundamentals.edgar.contact ist leer. Die SEC verlangt im User-Agent "
+            "eine Kontaktadresse und antwortet ohne sie mit 403."
+        )
+    return EdgarFundamentalDataProvider(
+        EdgarConnectionSettings(
+            base_url=section.edgar.base_url,
+            index_base_url=section.edgar.index_base_url,
+            contact=section.edgar.contact,
+            request_timeout_seconds=section.edgar.request_timeout_seconds,
+            max_requests_per_second=section.edgar.max_requests_per_second,
+        ),
+        parameters=FundamentalParameters(growth_years=section.growth_years),
     )
 
 

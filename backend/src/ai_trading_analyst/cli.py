@@ -68,6 +68,7 @@ from ai_trading_analyst.bootstrap import (
     build_backtest_params,
     build_earnings_filter_params,
     build_earnings_provider,
+    build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
     build_research_provider,
@@ -87,6 +88,7 @@ from ai_trading_analyst.config.settings import (
 )
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
+    FundamentalDataProviderError,
     MarketDataProvider,
     MarketDataProviderError,
     ResearchProviderError,
@@ -96,6 +98,7 @@ from ai_trading_analyst.domain.analysis import (
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot, Metric, MetricUnit
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
@@ -1666,6 +1669,123 @@ def command_technical(args: argparse.Namespace) -> int:
     return 1 if fehler else 0
 
 
+def command_fundamental(args: argparse.Namespace) -> int:
+    """Deterministische Fundamentalanalyse eines Symbols (ADR 0032).
+
+    Gedacht zum Gegenpruefen an echten Einreichungen: Welche XBRL-Tags ein
+    Emittent verwendet, laesst sich nur an seinen tatsaechlichen Filings
+    beurteilen -- ADR 0032 L1 fuehrt die Abdeckung der Tag-Listen ausdruecklich
+    als ungemessen.
+
+    Braucht weder Datenbank noch Marktdatenanbieter. Der Kurs ist die
+    optionale, nicht blockierende Eingabe aus ADR 0032 und wird hier von Hand
+    uebergeben, damit sich das Kommando ohne gefuellten Bestand ausfuehren
+    laesst -- ohne ihn fehlen genau die vier bewertungsabhaengigen Kennzahlen.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        section = config.fundamentals.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"fundamentals": section})
+
+    try:
+        provider = build_fundamental_data_provider(config)
+    except ConfigError as error:
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
+
+    wanted = [symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()]
+    if not wanted:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return 2
+    if args.price is not None and len(wanted) > 1:
+        # Ein Kurs gilt fuer ein Papier. Auf mehrere angewendet bewertete er
+        # jedes zum Kurs des ersten -- und das Kommando existiert gerade zum
+        # Gegenpruefen, waere also in genau seiner Aufgabe irrefuehrend.
+        print(
+            f"--price gilt fuer ein Symbol, angegeben sind {len(wanted)}. "
+            "Entweder ein einzelnes Symbol abfragen oder --price weglassen; "
+            "ohne Kurs entfallen nur die vier bewertungsabhaengigen Kennzahlen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    fehler = 0
+    for symbol in wanted:
+        stock = Stock(id=uuid4(), symbol=symbol, exchange=args.exchange)
+        try:
+            snapshot = provider.fundamentals(stock, price=args.price)
+        except FundamentalDataProviderError as error:
+            print(f"{symbol}: {error}", file=sys.stderr)
+            fehler += 1
+            continue
+        _print_fundamental_snapshot(snapshot)
+        print()
+    return 1 if fehler else 0
+
+
+def _print_fundamental_snapshot(snapshot: FundamentalSnapshot) -> None:
+    """Kennzahlen, Herkunft und ausdruecklich das Fehlende.
+
+    Die fehlenden Kennzahlen werden **aufgezaehlt** und nicht bloss
+    weggelassen: Ein Bericht, aus dem eine Kennzahl still verschwindet, sieht
+    aus wie einer, in dem sie nie vorgesehen war (CLAUDE.md).
+    """
+    print(f"{snapshot.symbol}: {snapshot.status.value} (Verfahren {snapshot.analysis_version})")
+    if snapshot.reason:
+        print(f"  Grund: {snapshot.reason}")
+    if snapshot.fiscal_years:
+        print(
+            f"  Geschaeftsjahre: {snapshot.fiscal_years[0]}-{snapshot.fiscal_years[-1]} "
+            f"({len(snapshot.fiscal_years)})"
+        )
+    print(f"  Abdeckung: {snapshot.coverage:.0%}", end="")
+    print(
+        f"  Kurs: {snapshot.price_used:.2f}"
+        if snapshot.price_used is not None
+        else "  Kurs: nicht uebergeben -- Bewertungskennzahlen entfallen"
+    )
+
+    for name, metric in snapshot.metrics.items():
+        print(f"  {name.value:28} {_format_metric(metric):>18}   {metric.period_end}")
+
+    if snapshot.missing_metrics:
+        print(f"  Nicht verfuegbar: {', '.join(name.value for name in snapshot.missing_metrics)}")
+
+    for konflikt in snapshot.tag_conflicts:
+        abweichung = konflikt.relative_deviation
+        print(
+            f"  WIDERSPRUCH {konflikt.figure.value} {konflikt.period_end}: "
+            f"{konflikt.chosen_tag}={konflikt.chosen_value:,.0f} gegen "
+            f"{konflikt.other_tag}={konflikt.other_value:,.0f}"
+            + (f" ({abweichung:.1%})" if abweichung is not None else "")
+        )
+
+    quellen = {source.url for metric in snapshot.metrics.values() for source in metric.sources}
+    for url in sorted(quellen)[:3]:
+        print(f"  Quelle: {url}")
+    if len(quellen) > 3:
+        print(f"  ... und {len(quellen) - 3} weitere Einreichungen")
+
+
+def _format_metric(metric: Metric) -> str:
+    """Eine Kennzahl in der Einheit, die sie traegt.
+
+    Der Grund fuer die getrennten Einheiten FRACTION und RATIO: Eine Marge
+    von 0,25 heisst 25 Prozent, ein KGV von 0,25 heisst 0,25. Dieselbe
+    Formatierung fuer beide waere in jeder zweiten Zeile falsch.
+    """
+    if metric.unit is MetricUnit.CURRENCY:
+        return f"{metric.value / 1e6:,.1f} Mio {metric.currency}"
+    if metric.unit is MetricUnit.FRACTION:
+        return f"{metric.value:.2%}"
+    if metric.unit is MetricUnit.SHARES:
+        return f"{metric.value:,.0f}"
+    return f"{metric.value:.2f}"
+
+
 def command_research(args: argparse.Namespace) -> int:
     """Manueller Probelauf des Research Agent fuer ein einzelnes Symbol.
 
@@ -2355,6 +2475,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt zusaetzlich, welche Daten dem Modell uebergeben wurden.",
     )
     technical.set_defaults(handler=command_technical)
+
+    fundamental = subparsers.add_parser(
+        "fundamental",
+        help="Deterministische Fundamentalkennzahlen aus den SEC-Einreichungen (ADR 0032).",
+    )
+    fundamental.add_argument(
+        "--provider",
+        choices=("fixture", "edgar"),
+        default=None,
+        help=(
+            "Uebersteuert fundamentals.provider nur fuer diesen Lauf. 'edgar' ruft "
+            "die SEC ab -- kostenlos, aber gedrosselt und je Aktie mehrere Megabyte."
+        ),
+    )
+    fundamental.add_argument(
+        "--symbols",
+        required=True,
+        help="Kommagetrennte Symbole, z. B. 'AAPL,NVDA'.",
+    )
+    fundamental.add_argument(
+        "--exchange",
+        default="NASDAQ",
+        help="Nur fuer die Bildung des Symbols relevant; EDGAR kennt keine Boerse.",
+    )
+    fundamental.add_argument(
+        "--price",
+        type=float,
+        default=None,
+        help=(
+            "Kurs fuer die Bewertungskennzahlen -- die optionale, nicht blockierende "
+            "Eingabe aus ADR 0032. Ohne ihn entfallen genau die vier "
+            "bewertungsabhaengigen Kennzahlen, alle uebrigen bleiben vollstaendig."
+        ),
+    )
+    fundamental.set_defaults(handler=command_fundamental)
 
     research = subparsers.add_parser(
         "research",

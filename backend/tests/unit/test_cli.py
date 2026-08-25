@@ -48,6 +48,17 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.fundamentals import (
+    FUNDAMENTAL_ANALYSIS_VERSION,
+    FigureName,
+    FundamentalSnapshot,
+    FundamentalStatus,
+    Metric,
+    MetricName,
+    MetricUnit,
+    SourceRef,
+    TagConflict,
+)
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -1680,6 +1691,100 @@ class TestResearchAusgabe:
         _print_research_report("AAPL", report)
 
         assert "Verfahren unbekannt" in capsys.readouterr().out
+
+
+class TestFundamentalKommando:
+    """Ausgabe der deterministischen Fundamentalanalyse (ADR 0032)."""
+
+    def _snapshot(self, **kwargs: object) -> FundamentalSnapshot:
+        quelle = SourceRef(
+            cik=42, accession="0000000042-25-000001", form="10-K",
+            filed=date(2025, 2, 1), tag="Revenues",
+        )
+        metric = Metric(
+            name=MetricName.NET_MARGIN, value=0.25, unit=MetricUnit.FRACTION,
+            period_end=date(2024, 12, 31), sources=(quelle,),
+            retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
+        )
+        vorgabe: dict[str, object] = {
+            "symbol": "TEST",
+            "status": FundamentalStatus.COMPLETED,
+            "evaluated_at": datetime(2026, 8, 24, tzinfo=UTC),
+            "metrics": {MetricName.NET_MARGIN: metric},
+            "fiscal_years": (2022, 2023, 2024),
+        }
+        return FundamentalSnapshot(**(vorgabe | kwargs))  # type: ignore[arg-type]
+
+    def test_der_anteil_wird_als_prozent_gezeigt(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """FRACTION und RATIO sind getrennte Einheiten: Eine Marge von 0,25
+        heisst 25 Prozent, ein KGV von 0,25 heisst 0,25."""
+        cli._print_fundamental_snapshot(self._snapshot())
+        assert "25.00%" in capsys.readouterr().out
+
+    def test_fehlende_kennzahlen_werden_aufgezaehlt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ein Bericht, aus dem eine Kennzahl still verschwindet, sieht aus
+        wie einer, in dem sie nie vorgesehen war (CLAUDE.md)."""
+        cli._print_fundamental_snapshot(self._snapshot())
+        ausgabe = capsys.readouterr().out
+        assert "Nicht verfuegbar:" in ausgabe
+        assert MetricName.REVENUE.value in ausgabe
+
+    def test_ohne_kurs_sagt_die_ausgabe_warum_die_bewertung_fehlt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_fundamental_snapshot(self._snapshot())
+        assert "Kurs: nicht uebergeben" in capsys.readouterr().out
+
+    def test_mit_kurs_steht_er_in_der_ausgabe(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Ohne ihn liesse sich eine Bewertungskennzahl spaeter nicht mehr
+        nachrechnen."""
+        cli._print_fundamental_snapshot(self._snapshot(price_used=232.14))
+        assert "Kurs: 232.14" in capsys.readouterr().out
+
+    def test_ein_widerspruch_wird_gezeigt_statt_verschwiegen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        konflikt = TagConflict(
+            figure=FigureName.REVENUE, period_end=date(2024, 12, 31),
+            chosen_tag="Revenues", chosen_value=1000.0,
+            other_tag="RevenueFromContractWithCustomerExcludingAssessedTax", other_value=560.0,
+        )
+        cli._print_fundamental_snapshot(self._snapshot(tag_conflicts=(konflikt,)))
+        ausgabe = capsys.readouterr().out
+        assert "WIDERSPRUCH REVENUE" in ausgabe
+        assert "44.0%" in ausgabe
+
+    def test_die_verfahrensversion_steht_in_der_ausgabe(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_fundamental_snapshot(self._snapshot())
+        assert FUNDAMENTAL_ANALYSIS_VERSION in capsys.readouterr().out
+
+    def test_der_unterbefehl_kennt_den_optionalen_kurs(self) -> None:
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--price", "232.14", "--provider", "edgar"]
+        )
+        assert args.symbols == "AAPL"
+        assert args.price == pytest.approx(232.14)
+        assert args.provider == "edgar"
+
+    def test_ein_kurs_fuer_mehrere_symbole_wird_abgelehnt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Er bewertete sonst jedes Papier zum Kurs des ersten -- und das
+        Kommando existiert gerade zum Gegenpruefen."""
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL,NVDA", "--price", "232.14"]
+        )
+        assert cli.command_fundamental(args) == 2
+        assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
+
+    def test_ohne_kurs_bleibt_das_argument_leer(self) -> None:
+        """Nicht 0.0: Ein Kurs von null waere eine Angabe, keine fehlende."""
+        args = build_parser().parse_args(["fundamental", "--symbols", "AAPL"])
+        assert args.price is None
 
 
 class TestBoersentag:

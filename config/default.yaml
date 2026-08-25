@@ -285,6 +285,36 @@ technical_agent:
     input_usd_per_million: 1.0
     output_usd_per_million: 5.0
 
+fundamentals:
+  # Deterministische Fundamentalanalyse (Doc 10, Paragraph 6.9; ADR 0032).
+  # Quelle sind die SEC-Einreichungen, direkt und ohne Sprachmodell im
+  # Beschaffungspfad (ADR 0022).
+  #
+  # "fixture" bleibt Standard -- Start und Tests laufen ohne Netzzugriff
+  # (Muster technical_agent.provider).
+  provider: fixture
+  # Spanne der Wachstumsraten in Geschäftsjahren. Sie wird VOLLSTÄNDIG
+  # verlangt: Ein Unternehmen mit kürzerer Historie liefert keine
+  # Wachstumsrate, statt eine über zwei Jahre neben einer über drei zu
+  # stellen, die gleich aussieht und keine ist.
+  growth_years: 3
+  edgar:
+    base_url: https://data.sec.gov
+    # Getrennt, weil das Symbolverzeichnis unter www.sec.gov liegt und die
+    # Fakten unter data.sec.gov.
+    index_base_url: https://www.sec.gov
+    # PFLICHTANGABE DER SEC, kein Geheimnis: Sie verlangt im User-Agent eine
+    # Kontaktadresse, um bei auffälligem Abrufverhalten jemanden zu
+    # erreichen. Leer lassen heißt, den Abruf ohne sie zu versuchen -- die
+    # SEC antwortet dann mit 403.
+    contact: ""
+    # Großzügig: companyfacts ist je Aktie mehrere Megabyte groß (ADR 0032 L6).
+    request_timeout_seconds: 60
+    # Unter der von der SEC genannten Obergrenze von zehn. Der Abstand ist
+    # Absicht -- eine Drossel genau auf der Grenze überschreitet sie bei
+    # jeder Ungenauigkeit der Uhr.
+    max_requests_per_second: 8.0
+
 data_availability:
   # Der Lauf startet ab Kerzenschluss, rechnet aber erst nach nachgewiesener
   # Vollstaendigkeit der Kerze (Risiko R9).

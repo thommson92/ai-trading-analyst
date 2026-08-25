@@ -66,6 +66,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
 | [0030](0030-wochentagsnaeherung-bleibt.md) | Wochentagsnäherung im Earnings-Filter bleibt — der TWS-Kalender reicht nicht | Angenommen (entkräftet L3 aus ADR 0020) |
 | [0031](0031-merge-schutz-aktiv.md) | Merge-Schutz auf `main` und `dev` — grüne CI erzwungen, Notausgang für den Inhaber | Angenommen (löst ADR 0009 ab) |
+| [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen (Nachtrag 2026-08-24: vier Umsetzungsfehler am echten Lauf korrigiert) |
 
 ## Offene Entscheidungen
 
@@ -122,4 +123,8 @@ ADR, sobald die nötigen Informationen vorliegen:
   Pull Request ist Pflicht, der Inhaber behält einen Notausgang. Siehe
   [ADR 0031](0031-merge-schutz-aktiv.md), das
   [ADR 0009](0009-required-checks-nicht-konfigurierbar.md) ablöst.
+- Vergleichsgruppe für die Fundamentalanalyse („Bewertung gegenüber
+  Wettbewerbern", Doc 10 Paragraph 6.9) — **offen.** Nicht aus XBRL ableitbar;
+  [ADR 0032](0032-fundamentalanalyse-deterministisch.md) weist den Bereich als
+  fehlend aus, statt ihn zu schätzen.
 - Externer Zugriff auf das Dashboard (F12)

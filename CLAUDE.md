@@ -72,7 +72,10 @@ Insbesondere darf die deterministische Chartanalyse **nicht** auf eine
 vorherige Web-Recherche warten. Fällt Research aus, bleiben technische Analyse
 und Backtesting vollständig.
 
-Einzige gerichtete Kopplung — Optionsanalyse und Support-/Resistance-Zonen:
+Es gibt genau **zwei** gerichtete Kopplungen. Beide gehorchen denselben drei
+Bedingungen: optionale Eingabe, nicht blockierend, keine eigene Ableitung.
+
+**Optionsanalyse und Support-/Resistance-Zonen:**
 
 1. Die Optionsanalyse darf die **deterministisch ermittelten** Zonen der
    technischen Analyse als **optionale** Eingabe verwenden.
@@ -82,6 +85,16 @@ Einzige gerichtete Kopplung — Optionsanalyse und Support-/Resistance-Zonen:
    sinken entsprechend. Kein Ersatzwert, keine stille Auslassung.
 3. Die Optionsanalyse leitet **keine eigenen** Zonen ab, insbesondere nicht aus
    KI-Freitext.
+
+**Fundamentalanalyse und Kurs** ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md)):
+
+1. Die Fundamentalanalyse darf den Schlusskurs der letzten **abgeschlossenen**
+   Kerze als **optionale** Eingabe für Bewertungskennzahlen verwenden.
+2. Die Abhängigkeit ist **nicht blockierend**. Fehlt der Kurs, laufen die
+   übrigen Kennzahlen vollständig; die bewertungsabhängigen Felder werden als
+   nicht verfügbar gekennzeichnet, die Datenabdeckung sinkt entsprechend.
+3. Die Fundamentalanalyse **beschafft keinen Kurs selbst** und leitet keinen
+   ab.
 
 ## Daten und Ergebnisse
 

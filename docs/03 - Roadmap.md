@@ -91,8 +91,16 @@ KI-Analyse
   `cli technical --interpret`. An echten Kursen verifiziert (PR #35); die
   dabei gefundenen Abweichungen sind in ADR 0026 festgehalten und haben den
   Prompt auf v3 gehoben
-- Fundamental Agent -- Quelle entschieden (SEC EDGAR XBRL, deterministisch,
-  [ADR 0022](adr/0022-research-agent-quellen.md)), noch nicht begonnen
+- Fundamental Agent -- **deterministische Hälfte umgesetzt**
+  ([ADR 0032](adr/0032-fundamentalanalyse-deterministisch.md)): Kennzahlen aus
+  den SEC-Einreichungen über `data.sec.gov`, ohne Sprachmodell im
+  Beschaffungspfad ([ADR 0022](adr/0022-research-agent-quellen.md)). Acht der
+  fünfzehn Analysebereiche aus Doc 10, Paragraph 6.9 sind gerechnet, die
+  Bewertung kommt hinzu, sobald ein Kurs hineingereicht wird -- als optionale,
+  nicht blockierende Eingabe (CLAUDE.md, zweite gerichtete Kopplung).
+  Nachprüfbar über `cli fundamental`, an sieben echten Emittenten verifiziert;
+  die dabei gefundenen vier Fehler stehen im Nachtrag zu ADR 0032. Die
+  KI-Einordnung folgt getrennt
 - Report Generator
 
 ---

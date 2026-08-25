@@ -16,6 +16,7 @@ from uuid import UUID
 
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
@@ -163,6 +164,35 @@ class ResearchProvider(Protocol):
 
         Raises:
             ResearchProviderError: wenn die Quelle nicht erreichbar war.
+        """
+        ...
+
+
+class FundamentalDataProviderError(Exception):
+    """Die Fundamentaldatenquelle war fuer eine Aktie nicht verwertbar.
+
+    Wird vom Application-Layer pro Aktie isoliert (Muster
+    ``EarningsProviderError``) -- ein Ausfall von EDGAR ist ein normaler
+    Betriebszustand, kein Laufabbruch. Screening, technische Analyse und
+    Backtesting laufen unabhaengig davon weiter (CLAUDE.md: Analysemodule
+    sind entkoppelt).
+    """
+
+
+class FundamentalDataProvider(Protocol):
+    """Liefert die deterministisch gerechneten Fundamentalkennzahlen."""
+
+    def fundamentals(self, stock: Stock, price: float | None = None) -> FundamentalSnapshot:
+        """Kennzahlen aus den Einreichungen der Aktie (ADR 0032).
+
+        ``price`` ist eine **optionale, nicht blockierende** Eingabe: Fehlt
+        er, entstehen die bewertungsabhaengigen Kennzahlen nicht, alle
+        uebrigen vollstaendig. Die Umsetzung beschafft selbst keinen Kurs und
+        leitet keinen ab (CLAUDE.md, zweite gerichtete Kopplung).
+
+        Raises:
+            FundamentalDataProviderError: wenn die Quelle nicht erreichbar war
+                oder eine Antwort lieferte, die nicht auswertbar ist.
         """
         ...
 
