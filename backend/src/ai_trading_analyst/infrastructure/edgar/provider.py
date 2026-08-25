@@ -125,6 +125,7 @@ class EdgarFundamentalDataProvider:
         return compute_fundamental_snapshot(
             symbol=stock.symbol,
             figures=facts.figures,
+            trailing=facts.trailing,
             shares_outstanding=facts.shares_outstanding,
             price=price,
             retrieved_at=abgerufen,

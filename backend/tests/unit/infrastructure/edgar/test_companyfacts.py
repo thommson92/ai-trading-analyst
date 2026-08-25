@@ -191,6 +191,82 @@ class TestTagReihenfolge:
         assert [figure.value for figure in umsaetze] == [800.0, 900.0]
 
 
+class TestZwoelfmonatswert:
+    """ADR 0033, Entscheidung 1 und 2."""
+
+    def _reihe(self, jahr_wert: float, teil_wert: float, vor_wert: float, *, jahr: int,
+               accn: str = "0000000000-26-000001") -> dict[str, Any]:
+        """Jahresabschluss, laufendes Halbjahr und Vorjahres-Halbjahr."""
+        return _usd(
+            _fakt(jahr_wert, start=f"{jahr}-01-01", end=f"{jahr}-12-31"),
+            _fakt(vor_wert, start=f"{jahr}-01-01", end=f"{jahr}-06-30"),
+            _fakt(teil_wert, start=f"{jahr + 1}-01-01", end=f"{jahr + 1}-06-30",
+                  accn=accn, form="10-Q", filed=f"{jahr + 1}-08-01"),
+        )
+
+    def test_die_formel_verrechnet_nur_ausgewiesene_zeitraeume(self) -> None:
+        """Jahr + laufendes Teilstueck - Vorjahresteilstueck. Nie werden zwei
+        Zeitraeume zu einem laengeren zusammengefasst -- das umgeht die
+        Verwechslung von kumulierten und diskreten Quartalen."""
+        antwort = _antwort({"Revenues": self._reihe(1000.0, 600.0, 500.0, jahr=2025)})
+        zwoelf = resolve_company_facts(antwort).trailing[FigureName.REVENUE]
+        assert zwoelf.value == pytest.approx(1100.0)
+        assert zwoelf.period_end == date(2026, 6, 30)
+
+    def test_ohne_vorjahresstueck_gibt_es_keinen_zwoelfmonatswert(self) -> None:
+        antwort = _antwort(
+            {
+                "Revenues": _usd(
+                    _fakt(1000.0, start="2025-01-01", end="2025-12-31"),
+                    _fakt(600.0, start="2026-01-01", end="2026-06-30", form="10-Q"),
+                )
+            }
+        )
+        assert FigureName.REVENUE not in resolve_company_facts(antwort).trailing
+
+    def test_das_juengste_fenster_gewinnt_nicht_das_erste_tag(self) -> None:
+        """Gemessen an Honeywell: ``Revenues`` endet dort 2011. Nach blosser
+        Tag-Reihenfolge entstand ein Zwoelfmonatsumsatz per 2012 -- vierzehn
+        Jahre alt, aus einem laengst aufgegebenen Tag."""
+        antwort = _antwort(
+            {
+                "Revenues": self._reihe(100.0, 60.0, 50.0, jahr=2011, accn="alt"),
+                "RevenueFromContractWithCustomerExcludingAssessedTax": self._reihe(
+                    1000.0, 600.0, 500.0, jahr=2025
+                ),
+            }
+        )
+        zwoelf = resolve_company_facts(antwort).trailing[FigureName.REVENUE]
+        assert zwoelf.period_end == date(2026, 6, 30)
+        assert zwoelf.value == pytest.approx(1100.0)
+
+    def test_bei_gleichem_ende_entscheidet_die_tag_reihenfolge(self) -> None:
+        """Dann geht es wieder um die Bedeutung, nicht um die Aktualitaet --
+        und ``Revenues`` ist die Gesamtzeile."""
+        antwort = _antwort(
+            {
+                "Revenues": self._reihe(1000.0, 600.0, 500.0, jahr=2025),
+                "RevenueFromContractWithCustomerExcludingAssessedTax": self._reihe(
+                    700.0, 420.0, 350.0, jahr=2025, accn="andere"
+                ),
+            }
+        )
+        zwoelf = resolve_company_facts(antwort).trailing[FigureName.REVENUE]
+        assert zwoelf.source.tag == "Revenues"
+
+    def test_bestandsgroessen_bekommen_keinen_zwoelfmonatswert(self) -> None:
+        """Sie gelten zu einem Stichtag; ein Fenster daraus waere sinnlos."""
+        antwort = _antwort(
+            {
+                "Revenues": self._reihe(1000.0, 600.0, 500.0, jahr=2025),
+                "Assets": _usd(_fakt(5000.0, start=None, end="2026-06-30", form="10-Q")),
+            }
+        )
+        aufgeloest = resolve_company_facts(antwort)
+        assert FigureName.ASSETS not in aufgeloest.trailing
+        assert aufgeloest.figures[FigureName.ASSETS][0].period_end == date(2026, 6, 30)
+
+
 class TestTagListenSindBedeutungsgleich:
     """ADR 0032, Entscheidung 2 -- die Regel, an der drei eigene Listen
     scheiterten, als sie zum ersten Mal auf echte Filings trafen."""

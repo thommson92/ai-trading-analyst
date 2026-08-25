@@ -98,7 +98,12 @@ from ai_trading_analyst.domain.analysis import (
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
-from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot, Metric, MetricUnit
+from ai_trading_analyst.domain.fundamentals import (
+    FundamentalSnapshot,
+    Metric,
+    MetricBasis,
+    MetricUnit,
+)
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
@@ -1749,7 +1754,10 @@ def _print_fundamental_snapshot(snapshot: FundamentalSnapshot) -> None:
     )
 
     for name, metric in snapshot.metrics.items():
-        print(f"  {name.value:28} {_format_metric(metric):>18}   {metric.period_end}")
+        print(
+            f"  {name.value:28} {_format_metric(metric):>18}   "
+            f"{_BASISKUERZEL[metric.basis]} bis {metric.period_end}"
+        )
 
     if snapshot.missing_metrics:
         print(f"  Nicht verfuegbar: {', '.join(name.value for name in snapshot.missing_metrics)}")
@@ -1768,6 +1776,18 @@ def _print_fundamental_snapshot(snapshot: FundamentalSnapshot) -> None:
         print(f"  Quelle: {url}")
     if len(quellen) > 3:
         print(f"  ... und {len(quellen) - 3} weitere Einreichungen")
+
+
+_BASISKUERZEL = {
+    MetricBasis.TRAILING_TWELVE_MONTHS: "12M",
+    MetricBasis.FISCAL_YEAR: "GJ ",
+    MetricBasis.POINT_IN_TIME: "Stg",
+}
+"""Ein Zwoelfmonatsfenster und ein Geschaeftsjahr sind beide rund 365 Tage
+lang -- am Zeitraum allein waeren sie nicht zu unterscheiden. Ohne dieses
+Kuerzel liesse sich Einschraenkung L2 aus ADR 0033 im Bericht nicht
+aufloesen: Zwei Kennzahlen desselben Berichts koennen verschiedene
+Zeitbezuege haben."""
 
 
 def _format_metric(metric: Metric) -> str:

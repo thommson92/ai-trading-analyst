@@ -66,7 +66,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
 | [0030](0030-wochentagsnaeherung-bleibt.md) | Wochentagsnäherung im Earnings-Filter bleibt — der TWS-Kalender reicht nicht | Angenommen (entkräftet L3 aus ADR 0020) |
 | [0031](0031-merge-schutz-aktiv.md) | Merge-Schutz auf `main` und `dev` — grüne CI erzwungen, Notausgang für den Inhaber | Angenommen (löst ADR 0009 ab) |
-| [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen (Nachtrag 2026-08-24: vier Umsetzungsfehler am echten Lauf korrigiert) |
+| [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen; Entscheidung 3 durch [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) abgelöst |
+| [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) | Niveauzahlen und Bewertung auf die letzten zwölf Monate statt auf den Jahresabschluss | Angenommen (löst Entscheidung 3 aus ADR 0032 ab) |
 
 ## Offene Entscheidungen
 

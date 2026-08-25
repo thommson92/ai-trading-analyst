@@ -17,6 +17,7 @@ from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
+    MetricBasis,
     MetricName,
     MetricUnit,
     ReportedFigure,
@@ -282,6 +283,87 @@ class TestKursAlsOptionaleEingabe:
         assert MetricName.PRICE_SALES_RATIO in snapshot.metrics
 
 
+class TestZwoelfmonatswerte:
+    """ADR 0033: Niveauzahlen und Bewertung auf den letzten zwoelf Monaten,
+    Wachstumsraten weiter auf Geschaeftsjahren."""
+
+    def _jahresreihe(self) -> dict[FigureName, tuple[ReportedFigure, ...]]:
+        return {
+            FigureName.REVENUE: _reihe({2022: 700.0, 2023: 800.0, 2024: 900.0, 2025: 1000.0}),
+            FigureName.NET_INCOME: _reihe({2022: 70.0, 2023: 80.0, 2024: 90.0, 2025: 100.0}),
+        }
+
+    def _zwoelf(self, wert: float, name: FigureName = FigureName.REVENUE) -> ReportedFigure:
+        return ReportedFigure(
+            value=wert,
+            period_start=date(2025, 7, 1),
+            period_end=date(2026, 6, 30),
+            unit="USD",
+            source=_quelle(2026, accession="10q", tag="T"),
+        )
+
+    def test_der_zwoelfmonatswert_ersetzt_den_jahreswert(self) -> None:
+        snapshot = _snapshot(
+            self._jahresreihe(), trailing={FigureName.REVENUE: self._zwoelf(1200.0)}
+        )
+        umsatz = snapshot.metrics[MetricName.REVENUE]
+        assert umsatz.value == 1200.0
+        assert umsatz.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+        assert umsatz.period_end == date(2026, 6, 30)
+
+    def test_die_wachstumsrate_bleibt_auf_geschaeftsjahren(self) -> None:
+        """ADR 0033, Entscheidung 4 -- und zugleich der Beweis, dass der
+        Zwoelfmonatswert die Jahresreihe nicht verschiebt: Sonst waere der
+        juengste Stichtag der des Fensters und die Spanne stimmte nicht mehr."""
+        snapshot = _snapshot(
+            self._jahresreihe(), trailing={FigureName.REVENUE: self._zwoelf(1200.0)}
+        )
+        wachstum = snapshot.metrics[MetricName.REVENUE_GROWTH]
+        assert wachstum.basis is MetricBasis.FISCAL_YEAR
+        assert wachstum.period_end == date(2025, 12, 31)
+        assert wachstum.value == pytest.approx(compound_annual_growth(700.0, 1000.0, 3))
+
+    def test_eine_kennzahl_mischt_die_basis_nicht(self) -> None:
+        """ADR 0033, Entscheidung 6. Der Umsatz steht auf zwoelf Monaten, der
+        Gewinn faellt auf das Geschaeftsjahr zurueck -- eine Marge daraus
+        waere falsch und entsteht deshalb gar nicht."""
+        snapshot = _snapshot(
+            self._jahresreihe(), trailing={FigureName.REVENUE: self._zwoelf(1200.0)}
+        )
+        assert MetricName.NET_MARGIN not in snapshot.metrics
+        assert MetricName.REVENUE in snapshot.metrics
+
+    def test_stehen_beide_auf_zwoelf_monaten_entsteht_die_marge(self) -> None:
+        snapshot = _snapshot(
+            self._jahresreihe(),
+            trailing={
+                FigureName.REVENUE: self._zwoelf(1200.0),
+                FigureName.NET_INCOME: self._zwoelf(300.0, FigureName.NET_INCOME),
+            },
+        )
+        marge = snapshot.metrics[MetricName.NET_MARGIN]
+        assert marge.value == pytest.approx(0.25)
+        assert marge.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+
+    def test_ein_veralteter_zwoelfmonatswert_wird_verworfen(self) -> None:
+        """Gemessen an Honeywell: Dort endet ``Revenues`` im Jahr 2011, und
+        die Tag-Reihenfolge allein lieferte einen Zwoelfmonatsumsatz per
+        2012-06-30 -- vierzehn Jahre alt. Ein Fenster, das nicht juenger ist
+        als der letzte Jahresabschluss, bringt keine Aktualitaet und kostet
+        nur die Pruefungssicherheit."""
+        veraltet = ReportedFigure(
+            value=99.0,
+            period_start=date(2011, 7, 1),
+            period_end=date(2012, 6, 30),
+            unit="USD",
+            source=_quelle(2012, accession="alt"),
+        )
+        snapshot = _snapshot(self._jahresreihe(), trailing={FigureName.REVENUE: veraltet})
+        umsatz = snapshot.metrics[MetricName.REVENUE]
+        assert umsatz.value == 1000.0
+        assert umsatz.basis is MetricBasis.FISCAL_YEAR
+
+
 class TestWeitereVerhaeltnisse:
     """Die Kennzahlen, die beim ersten Durchgang ohne eigenen Test blieben."""
 
@@ -339,6 +421,7 @@ class TestHerkunftIstPflicht:
                 name=MetricName.REVENUE,
                 value=1.0,
                 unit=MetricUnit.CURRENCY,
+                basis=MetricBasis.FISCAL_YEAR,
                 period_end=date(2025, 12, 31),
                 sources=(),
                 retrieved_at=JETZT,
@@ -351,6 +434,7 @@ class TestHerkunftIstPflicht:
                 name=MetricName.NET_MARGIN,
                 value=0.1,
                 unit=MetricUnit.FRACTION,
+                basis=MetricBasis.FISCAL_YEAR,
                 period_end=date(2025, 12, 31),
                 sources=(_quelle(2025),),
                 retrieved_at=JETZT,

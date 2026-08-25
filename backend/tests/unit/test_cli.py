@@ -54,6 +54,7 @@ from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
+    MetricBasis,
     MetricName,
     MetricUnit,
     SourceRef,
@@ -1703,6 +1704,7 @@ class TestFundamentalKommando:
         )
         metric = Metric(
             name=MetricName.NET_MARGIN, value=0.25, unit=MetricUnit.FRACTION,
+            basis=MetricBasis.TRAILING_TWELVE_MONTHS,
             period_end=date(2024, 12, 31), sources=(quelle,),
             retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
         )

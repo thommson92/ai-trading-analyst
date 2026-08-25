@@ -7,7 +7,7 @@ uebrigen Adapter-Tests auch tun.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,7 +15,11 @@ import httpx
 import pytest
 
 from ai_trading_analyst.domain.analysis import FundamentalDataProviderError, Stock
-from ai_trading_analyst.domain.fundamentals import FundamentalStatus, MetricName
+from ai_trading_analyst.domain.fundamentals import (
+    FundamentalStatus,
+    MetricBasis,
+    MetricName,
+)
 from ai_trading_analyst.infrastructure.edgar import (
     EdgarConnectionSettings,
     EdgarFundamentalDataProvider,
@@ -211,6 +215,49 @@ class TestEchteEinreichung:
             Stock(id=uuid4(), symbol="AAPL", exchange="NASDAQ"), price=232.14
         )
         assert snapshot.status is FundamentalStatus.COMPLETED
-        assert snapshot.metrics[MetricName.REVENUE].value == pytest.approx(416_161_000_000)
-        assert snapshot.metrics[MetricName.NET_MARGIN].value == pytest.approx(0.2692, abs=1e-4)
+
+        # Niveauzahlen auf den letzten zwoelf Monaten (ADR 0033): Der
+        # Jahresabschluss per 2025-09-27 nennt 416,2 Mrd, die zwoelf Monate
+        # bis 2026-06-27 nennen 466,8 Mrd.
+        umsatz = snapshot.metrics[MetricName.REVENUE]
+        assert umsatz.value == pytest.approx(466_823_000_000)
+        assert umsatz.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+        assert umsatz.period_end == date(2026, 6, 27)
+        assert snapshot.metrics[MetricName.NET_MARGIN].value == pytest.approx(0.2762, abs=1e-4)
+
+        # ... die Wachstumsraten dagegen auf Geschaeftsjahren
+        wachstum = snapshot.metrics[MetricName.REVENUE_GROWTH]
+        assert wachstum.basis is MetricBasis.FISCAL_YEAR
+        assert wachstum.period_end == date(2025, 9, 27)
         assert snapshot.metrics[MetricName.SHARE_COUNT_GROWTH].value < 0
+
+        # Das KGV faellt dadurch deutlich niedriger aus als auf Jahresbasis
+        # (26,3 statt 30,3) -- die Aktie sah 15 Prozent teurer aus, als sie ist.
+        assert snapshot.metrics[MetricName.PRICE_EARNINGS_RATIO].value == pytest.approx(
+            26.28, abs=0.05
+        )
+
+    def test_ohne_quartalsmeldungen_faellt_alles_auf_jahreswerte_zurueck(self) -> None:
+        """ADR 0033, Entscheidung 5. Geprueft an demselben echten Ausschnitt,
+        nur ohne die 10-Q -- so laesst sich der Rueckfall nicht mit einem
+        kuenstlichen Sonderfall verwechseln."""
+        pfad = Path(__file__).parent / "data" / "companyfacts-ausschnitt.json"
+        facts = json.loads(pfad.read_text())
+        for inhalt in facts["facts"]["us-gaap"].values():
+            for einheit, fakten in inhalt["units"].items():
+                inhalt["units"][einheit] = [e for e in fakten if e.get("form") != "10-Q"]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("company_tickers.json"):
+                return httpx.Response(
+                    200, json={"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+                )
+            return httpx.Response(200, json=facts)
+
+        snapshot = _provider(httpx.MockTransport(handler)).fundamentals(
+            Stock(id=uuid4(), symbol="AAPL", exchange="NASDAQ")
+        )
+        umsatz = snapshot.metrics[MetricName.REVENUE]
+        assert umsatz.value == pytest.approx(416_161_000_000)
+        assert umsatz.basis is MetricBasis.FISCAL_YEAR
+        assert umsatz.period_end == date(2025, 9, 27)

@@ -22,9 +22,9 @@ Drei gemessene Befunde aus ADR 0032 bestimmen den Aufbau:
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import date
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any
 
 from ai_trading_analyst.domain.fundamentals import (
@@ -161,6 +161,14 @@ Nicht ``WeightedAverageNumberOfDilutedSharesOutstanding``: Fuer die
 Marktkapitalisierung zaehlt die Zahl der heute ausstehenden Aktien, nicht
 der Jahresdurchschnitt."""
 
+TEILSTUECK_TOLERANZ_TAGE = 5
+"""Wie weit das Vorjahresteilstueck vom laufenden abweichen darf.
+
+Ein Geschaeftsjahr mit 52 oder 53 Wochen verschiebt die Quartalsenden um
+einige Tage. Ohne Toleranz faende die Formel das Gegenstueck bei jedem
+Emittenten mit Wochenkalender nicht -- mit einer grossen verrechnete sie
+Zeitraeume verschiedener Laenge."""
+
 CONFLICT_TOLERANCE = 0.005
 """Ab welcher relativen Abweichung zwei Tags als widerspruechlich gelten.
 
@@ -190,15 +198,28 @@ class _RawFact:
         return MIN_ANNUAL_DAYS <= dauer <= MAX_ANNUAL_DAYS
 
 
+TRAILING_FIGURES = frozenset(FigureName) - INSTANT_FIGURES - {FigureName.DILUTED_SHARES}
+"""Rohgroessen, fuer die ein Zwoelfmonatswert gebildet wird.
+
+Bestandsgroessen nicht -- sie gelten zu einem Stichtag und werden ohnehin
+aus der juengsten Einreichung genommen. Die Aktienzahl ebenfalls nicht: Der
+gewichtete Jahresdurchschnitt laesst sich nicht sinnvoll ueber drei
+Einreichungen verrechnen, und die Verwaesserung wird ohnehin nur innerhalb
+einer Einreichung gemessen (ADR 0032, Korrektur 3)."""
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedFacts:
-    """Das Ergebnis der Aufloesung: Jahreswerte je Rohgroesse."""
+    """Das Ergebnis der Aufloesung."""
 
     cik: int
     entity_name: str
     figures: Mapping[FigureName, tuple[ReportedFigure, ...]]
+    """Jahresreihe je Rohgroesse -- Grundlage der Wachstumsraten."""
     shares_outstanding: ReportedFigure | None
     conflicts: tuple[TagConflict, ...]
+    trailing: Mapping[FigureName, ReportedFigure] = field(default_factory=dict)
+    """Zwoelfmonatswerte, wo sie sich bilden liessen (ADR 0033)."""
 
 
 def resolve_company_facts(payload: Any) -> ResolvedFacts:
@@ -224,12 +245,17 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
         raise CompanyFactsError("Taxonomie 'us-gaap' fehlt -- kein US-GAAP-Bericht (ADR 0032 L3)")
 
     figures: dict[FigureName, tuple[ReportedFigure, ...]] = {}
+    trailing: dict[FigureName, ReportedFigure] = {}
     conflicts: list[TagConflict] = []
     for name, tags in FIGURE_TAGS.items():
         aufgeloest, widersprueche = _resolve_figure(cik, us_gaap, name, tags)
         if aufgeloest:
             figures[name] = aufgeloest
         conflicts.extend(widersprueche)
+        if name in TRAILING_FIGURES:
+            zwoelfmonate = _resolve_trailing(cik, us_gaap, name, tags)
+            if zwoelfmonate is not None:
+                trailing[name] = zwoelfmonate
 
     return ResolvedFacts(
         cik=cik,
@@ -237,6 +263,51 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
         figures=figures,
         shares_outstanding=_resolve_shares_outstanding(cik, facts.get("dei")),
         conflicts=tuple(conflicts),
+        trailing=trailing,
+    )
+
+
+def _resolve_trailing(
+    cik: int, us_gaap: Mapping[str, Any], name: FigureName, tags: Sequence[str]
+) -> ReportedFigure | None:
+    """Der Zwoelfmonatswert, gebildet **innerhalb eines Tags**.
+
+    Erst je Tag gerechnet (ADR 0033, Entscheidung 2). Andernfalls koennte die
+    Subtraktion einen Vertragsumsatz von einem Gesamtumsatz abziehen -- der
+    Berkshire-Fehler aus ADR 0032, nur als Differenz und damit mit groesserem
+    Hebel.
+
+    Ausgewaehlt wird dann **der juengste** Zwoelfmonatswert, nicht der des
+    erstbesten Tags der Liste. Der Unterschied ist nicht theoretisch: Bei
+    Honeywell endet ``Revenues`` im Jahr 2011, und die Tag-Reihenfolge allein
+    lieferte einen Zwoelfmonatsumsatz per 2012-06-30 -- vierzehn Jahre alt,
+    aus einem laengst aufgegebenen Tag, und damit das genaue Gegenteil
+    dessen, wozu dieses ADR angetreten ist.
+
+    Enden zwei Tags am selben Tag, entscheidet weiterhin die Reihenfolge der
+    Liste: Dann geht es wieder um die Bedeutung, nicht um die Aktualitaet.
+    Dieser Teil des Schluessels ist ausdruecklich hingeschrieben, obwohl
+    ``max`` bei Gleichstand ohnehin den ersten Treffer liefert -- er haengt
+    damit nicht an einem Implementierungsdetail. Eine Mutation dieser Stelle
+    bleibt deshalb gruen; das ist bekannt und kein fehlender Test.
+    """
+    einheit = FIGURE_UNITS[name]
+    kandidaten = [
+        (fakt, rang, tag)
+        for rang, tag in enumerate(tags)
+        if (fakt := _trailing_fact(us_gaap.get(tag), einheit)) is not None
+    ]
+    if not kandidaten:
+        return None
+    fakt, _, tag = max(kandidaten, key=lambda eintrag: (eintrag[0].end, -eintrag[1]))
+    return ReportedFigure(
+        value=fakt.value,
+        period_start=fakt.start,
+        period_end=fakt.end,
+        unit=einheit,
+        source=SourceRef(
+            cik=cik, accession=fakt.accession, form=fakt.form, filed=fakt.filed, tag=tag
+        ),
     )
 
 
@@ -293,27 +364,121 @@ def _weicht_ab(gewaehlt: float, anderer: float) -> bool:
     return abs(anderer - gewaehlt) / abs(gewaehlt) > CONFLICT_TOLERANCE
 
 
-def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _RawFact]:
-    """Jahresfakten eines Tags, je Stichtag der zuletzt eingereichte Wert."""
+def _parse_facts(tag_inhalt: Any, einheit: str) -> list[_RawFact]:
+    """Alle lesbaren Fakten eines Tags in einer Einheit, ungefiltert."""
     if not isinstance(tag_inhalt, dict):
-        return {}
+        return []
     units = tag_inhalt.get("units")
     if not isinstance(units, dict):
-        return {}
-    je_stichtag: dict[date, _RawFact] = {}
-    for eintrag in units.get(einheit, ()):
-        fakt = _parse_fact(eintrag)
-        if fakt is None or fakt.form not in ANNUAL_FORMS:
-            continue
-        if instant:
-            if fakt.start is not None:
-                continue
-        elif not fakt.is_annual_duration:
-            continue
-        vorheriger = je_stichtag.get(fakt.end)
+        return []
+    return [fakt for eintrag in units.get(einheit, ()) if (fakt := _parse_fact(eintrag))]
+
+
+def _juengste_je[S](
+    fakten: Iterable[_RawFact], schluessel: Callable[[_RawFact], S]
+) -> dict[S, _RawFact]:
+    """Je Schluessel der zuletzt eingereichte Fakt.
+
+    **Erst filtern, dann zusammenfassen** -- die Reihenfolge ist nicht
+    beliebig. Wird zuerst ueber alle Formulare zusammengefasst, gewinnt fuer
+    ein Geschaeftsjahr womoeglich ein 10-Q, das es als Vergleichszahl
+    nachtraegt; ein anschliessender Filter auf Jahresabschluesse wirft den
+    Zeitraum dann **ganz** heraus, statt den Jahreswert zu behalten. Beim
+    Umbau auf ADR 0033 sind Apple auf diese Weise zwei Geschaeftsjahre
+    abhandengekommen.
+    """
+    je_schluessel: dict[S, _RawFact] = {}
+    for fakt in fakten:
+        k = schluessel(fakt)
+        vorheriger = je_schluessel.get(k)
         if vorheriger is None or _ist_juenger(fakt, vorheriger):
-            je_stichtag[fakt.end] = fakt
-    return je_stichtag
+            je_schluessel[k] = fakt
+    return je_schluessel
+
+
+def _facts_by_period(tag_inhalt: Any, einheit: str) -> dict[tuple[date | None, date], _RawFact]:
+    """Fakten nach Zeitraum, ueber **alle** Formulare.
+
+    Grundlage der Zwoelfmonatsrechnung. Der Schluessel ist der ganze
+    Zeitraum und nicht nur sein Ende, weil ein 10-Q zu demselben Enddatum
+    ein Quartal *und* ein kumuliertes Neunmonatsstueck fuehren kann.
+    """
+    return _juengste_je(_parse_facts(tag_inhalt, einheit), lambda fakt: (fakt.start, fakt.end))
+
+
+def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _RawFact]:
+    """Die Reihe, auf der die Wachstumsraten rechnen -- Jahresabschluesse.
+
+    Bestandsgroessen kommen dagegen aus **jedem** Formular: Eine Bilanz aus
+    dem juengsten 10-Q ist der aus dem letzten 10-K ohne Einschraenkung
+    vorzuziehen (ADR 0033, Entscheidung 3).
+    """
+    if instant:
+        passend = [fakt for fakt in _parse_facts(tag_inhalt, einheit) if fakt.start is None]
+    else:
+        passend = [
+            fakt
+            for fakt in _parse_facts(tag_inhalt, einheit)
+            if fakt.is_annual_duration and fakt.form in ANNUAL_FORMS
+        ]
+    return _juengste_je(passend, lambda fakt: fakt.end)
+
+
+def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
+    """Der Zwoelfmonatswert eines Tags (ADR 0033, Entscheidung 1).
+
+    ``Geschaeftsjahr + laufendes Teilstueck - Vorjahresteilstueck gleicher
+    Laenge``. Es werden nur Zeitraeume verrechnet, die der Emittent selbst so
+    ausgewiesen hat -- nie zwei zu einem laengeren zusammengefasst. Das
+    umgeht die Verwechslung von kumulierten und diskreten Quartalen, die in
+    ``companyfacts`` nebeneinander stehen.
+    """
+    fakten = _facts_by_period(tag_inhalt, einheit)
+    jahre = sorted(
+        (schluessel for schluessel, fakt in fakten.items() if fakt.is_annual_duration),
+        key=lambda schluessel: schluessel[1],
+    )
+    if not jahre:
+        return None
+    jahr_start, jahr_ende = jahre[-1]
+    if jahr_start is None:
+        return None
+
+    laufend = sorted(
+        (schluessel for schluessel in fakten if schluessel[0] == jahr_ende + timedelta(days=1)),
+        key=lambda schluessel: schluessel[1],
+    )
+    if not laufend:
+        return None
+    teil_start, teil_ende = laufend[-1]
+    if teil_start is None:
+        return None
+    tage = (teil_ende - teil_start).days
+
+    vorjahr = [
+        schluessel
+        for schluessel in fakten
+        if schluessel[0] == jahr_start
+        and abs((schluessel[1] - jahr_start).days - tage) <= TEILSTUECK_TOLERANZ_TAGE
+    ]
+    if not vorjahr:
+        return None
+
+    jahr = fakten[(jahr_start, jahr_ende)]
+    teil = fakten[(teil_start, teil_ende)]
+    vor = fakten[vorjahr[0]]
+    # Die Herkunft ist die juengste der drei Einreichungen: Sie bestimmt,
+    # wie aktuell der Wert ist, und ist die einzige, die ein Leser braucht,
+    # um ihn wiederzufinden.
+    quelle = max((jahr, teil, vor), key=lambda fakt: (fakt.filed, fakt.accession))
+    return _RawFact(
+        value=jahr.value + teil.value - vor.value,
+        start=teil_ende - timedelta(days=(jahr_ende - jahr_start).days),
+        end=teil_ende,
+        accession=quelle.accession,
+        form=quelle.form,
+        filed=quelle.filed,
+    )
 
 
 def _ist_juenger(fakt: _RawFact, vorheriger: _RawFact) -> bool:
