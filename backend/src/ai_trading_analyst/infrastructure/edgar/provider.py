@@ -90,6 +90,24 @@ class _Drossel:
             self._zuletzt = jetzt
 
 
+def _schreibweisen(symbol: str) -> tuple[str, ...]:
+    """Das Symbol und seine Varianten fuer Aktiengattungen.
+
+    Klassenaktien schreibt jede Quelle anders: Die Watchlist fuehrt Berkshire
+    als ``BRK.B``, IBKR als ``BRK B``, die SEC als ``BRK-B``. Ohne diese
+    Uebersetzung meldete der Lauf einen fehlenden Emittenten, wo nur die
+    Schreibweise abweicht -- und eine Messung der Tag-Abdeckung zaehlte einen
+    Fehlschlag, der mit Tags nichts zu tun hat.
+
+    Bewusst keine Suche und keine Aehnlichkeit: nur die beiden Trennzeichen,
+    die tatsaechlich vorkommen. Ein Symbol, das die SEC nicht kennt, soll
+    weiterhin fehlschlagen und nicht auf ein aehnliches umgebogen werden.
+    """
+    gross = symbol.upper()
+    varianten = [gross, gross.replace(".", "-"), gross.replace(" ", "-")]
+    return tuple(dict.fromkeys(varianten))
+
+
 class EdgarFundamentalDataProvider:
     """Implementiert ``FundamentalDataProvider`` gegen die EDGAR-REST-API."""
 
@@ -158,13 +176,14 @@ class EdgarFundamentalDataProvider:
 
     def _cik_fuer(self, symbol: str) -> int:
         index = self._ticker_index()
-        cik = index.get(symbol.upper())
-        if cik is None:
-            raise FundamentalDataProviderError(
-                f"Kein SEC-Emittent zum Symbol '{symbol}'. Die SEC fuehrt nur "
-                "US-berichtspflichtige Unternehmen (ADR 0032 L3)."
-            )
-        return cik
+        for schreibweise in _schreibweisen(symbol):
+            cik = index.get(schreibweise)
+            if cik is not None:
+                return cik
+        raise FundamentalDataProviderError(
+            f"Kein SEC-Emittent zum Symbol '{symbol}'. Die SEC fuehrt nur "
+            "US-berichtspflichtige Unternehmen (ADR 0032 L3)."
+        )
 
     def _ticker_index(self) -> Mapping[str, int]:
         """Die Zuordnung Symbol zu CIK, einmal je Prozess.

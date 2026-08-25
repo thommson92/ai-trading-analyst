@@ -28,6 +28,7 @@ Beispiele::
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -102,6 +103,7 @@ from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     Metric,
     MetricBasis,
+    MetricName,
     MetricUnit,
 )
 from ai_trading_analyst.domain.research import ResearchReport
@@ -1701,10 +1703,24 @@ def command_fundamental(args: argparse.Namespace) -> int:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
 
-    wanted = [symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()]
-    if not wanted:
-        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+    if bool(args.watchlist) == bool(args.symbols):
+        print(
+            "Entweder --symbols oder --watchlist angeben, nicht beides und nicht keines.",
+            file=sys.stderr,
+        )
         return 2
+
+    if args.watchlist:
+        vertraege = build_watchlist(config, project_root(loaded.source_path))
+        wanted = sorted({vertrag.symbol for vertrag in vertraege})
+        if not wanted:
+            print("Die Watchlist ist leer.", file=sys.stderr)
+            return 2
+    else:
+        wanted = [symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()]
+        if not wanted:
+            print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+            return 2
     if args.price is not None and len(wanted) > 1:
         # Ein Kurs gilt fuer ein Papier. Auf mehrere angewendet bewertete er
         # jedes zum Kurs des ersten -- und das Kommando existiert gerade zum
@@ -1717,18 +1733,148 @@ def command_fundamental(args: argparse.Namespace) -> int:
         )
         return 2
 
-    fehler = 0
+    fehler: list[tuple[str, str]] = []
+    ergebnisse: list[FundamentalSnapshot] = []
     for symbol in wanted:
         stock = Stock(id=uuid4(), symbol=symbol, exchange=args.exchange)
         try:
             snapshot = provider.fundamentals(stock, price=args.price)
         except FundamentalDataProviderError as error:
+            fehler.append((symbol, str(error)))
             print(f"{symbol}: {error}", file=sys.stderr)
-            fehler += 1
             continue
-        _print_fundamental_snapshot(snapshot)
-        print()
+        ergebnisse.append(snapshot)
+        if args.summary:
+            _print_fundamental_summary_line(snapshot)
+        else:
+            _print_fundamental_snapshot(snapshot)
+            print()
+
+    if args.summary:
+        _print_fundamental_aggregate(ergebnisse, fehler, mit_kurs=args.price is not None)
+    if args.output is not None:
+        _write_fundamental_csv(Path(args.output), ergebnisse)
+        print(f"Einzelwerte geschrieben nach {args.output}")
     return 1 if fehler else 0
+
+
+def _print_fundamental_summary_line(snapshot: FundamentalSnapshot) -> None:
+    """Eine Zeile je Aktie -- fuer Laeufe ueber die ganze Watchlist.
+
+    Der volle Block je Aktie waere bei rund hundert Titeln laenger als der
+    Puffer der PowerShell; was oben herausscrollt, ist verloren.
+    """
+    zwoelf = sum(
+        1 for m in snapshot.metrics.values() if m.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+    )
+    fehlend = ", ".join(name.value for name in snapshot.missing_metrics)
+    print(
+        f"{snapshot.symbol:8} {snapshot.status.value:17} {snapshot.coverage:4.0%} "
+        f"{zwoelf:2}x12M {len(snapshot.tag_conflicts):3} Widerspr.  {fehlend}"
+    )
+
+
+def _print_fundamental_aggregate(
+    ergebnisse: Sequence[FundamentalSnapshot],
+    fehler: Sequence[tuple[str, str]],
+    *,
+    mit_kurs: bool,
+) -> None:
+    """Die Auswertung, um die es beim Watchlist-Lauf geht (ADR 0032 L1).
+
+    Die Frage ist nicht, wie eine einzelne Aktie aussieht, sondern **wie oft
+    eine Kennzahl fehlt**. Von Hand gepflegte Tag-Listen decken nicht jeden
+    Emittenten ab; wie gut sie es tun, war bislang an sieben Titeln geschaetzt.
+    """
+    print()
+    print(f"=== {len(ergebnisse)} Aktien ausgewertet, {len(fehler)} Fehlschlaege ===")
+    if not ergebnisse:
+        return
+
+    abdeckungen = sorted(snapshot.coverage for snapshot in ergebnisse)
+    mitte = abdeckungen[len(abdeckungen) // 2]
+    print(
+        f"Abdeckung: niedrigste {abdeckungen[0]:.0%}, Median {mitte:.0%}, "
+        f"hoechste {abdeckungen[-1]:.0%}"
+    )
+    if not mit_kurs:
+        print(
+            "Ohne --price entfallen die vier bewertungsabhaengigen Kennzahlen bei "
+            "JEDER Aktie -- das drueckt die Abdeckung um rund 22 Prozentpunkte."
+        )
+
+    print()
+    print("Je Kennzahl, wie oft sie fehlt:")
+    for name in MetricName:
+        fehlt = sum(1 for snapshot in ergebnisse if name in snapshot.missing_metrics)
+        if fehlt:
+            anteil = fehlt / len(ergebnisse)
+            print(f"  {name.value:28} {fehlt:3} von {len(ergebnisse)}  ({anteil:.0%})")
+
+    zwoelf_je_aktie = [
+        sum(1 for m in snapshot.metrics.values() if m.basis is MetricBasis.TRAILING_TWELVE_MONTHS)
+        for snapshot in ergebnisse
+    ]
+    ohne_zwoelf = [
+        snapshot.symbol for snapshot, anzahl in zip(ergebnisse, zwoelf_je_aktie, strict=True)
+        if anzahl == 0
+    ]
+    print()
+    print(f"Ohne einen einzigen Zwoelfmonatswert: {len(ohne_zwoelf)} Aktien")
+    if ohne_zwoelf:
+        print(f"  {', '.join(ohne_zwoelf)}")
+
+    mit_widerspruch = [s for s in ergebnisse if s.tag_conflicts]
+    print(f"Mit gemeldeten Tag-Widerspruechen: {len(mit_widerspruch)} Aktien")
+    for snapshot in mit_widerspruch[:10]:
+        groesste = max(
+            snapshot.tag_conflicts,
+            key=lambda k: k.relative_deviation if k.relative_deviation is not None else 0.0,
+        )
+        abweichung = groesste.relative_deviation
+        print(
+            f"  {snapshot.symbol:8} {len(snapshot.tag_conflicts):3}  groesste: "
+            f"{groesste.figure.value} "
+            + (f"{abweichung:.0%}" if abweichung is not None else "unbestimmt")
+        )
+    if len(mit_widerspruch) > 10:
+        print(f"  ... und {len(mit_widerspruch) - 10} weitere")
+
+    if fehler:
+        print()
+        print("Fehlschlaege:")
+        for symbol, meldung in fehler:
+            print(f"  {symbol:8} {meldung}")
+
+
+def _write_fundamental_csv(pfad: Path, ergebnisse: Sequence[FundamentalSnapshot]) -> None:
+    """Alle Einzelwerte in eine Datei -- der Terminalpuffer reicht nicht.
+
+    Bewusst je Kennzahl eine Zeile und nicht eine Spalte je Kennzahl: So
+    laesst sich die Datei auch dann lesen, wenn spaeter Kennzahlen dazu-
+    kommen, und Basis und Zeitraum stehen an jedem Wert statt in der
+    Kopfzeile.
+    """
+    with pfad.open("w", encoding="utf-8", newline="") as datei:
+        schreiber = csv.writer(datei)
+        schreiber.writerow(
+            ["symbol", "status", "abdeckung", "kennzahl", "wert", "einheit", "basis",
+             "zeitraum_ende", "quelle_tag", "quelle_formular", "quelle_eingereicht"]
+        )
+        for snapshot in ergebnisse:
+            if not snapshot.metrics:
+                schreiber.writerow(
+                    [snapshot.symbol, snapshot.status.value, f"{snapshot.coverage:.4f}",
+                     "", "", "", "", "", "", "", ""]
+                )
+            for name, metric in snapshot.metrics.items():
+                quelle = metric.sources[0]
+                schreiber.writerow(
+                    [snapshot.symbol, snapshot.status.value, f"{snapshot.coverage:.4f}",
+                     name.value, f"{metric.value:.6f}", metric.unit.value, metric.basis.value,
+                     metric.period_end.isoformat(), quelle.tag, quelle.form,
+                     quelle.filed.isoformat()]
+                )
 
 
 def _print_fundamental_snapshot(snapshot: FundamentalSnapshot) -> None:
@@ -2511,8 +2657,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fundamental.add_argument(
         "--symbols",
-        required=True,
-        help="Kommagetrennte Symbole, z. B. 'AAPL,NVDA'.",
+        default="",
+        help="Kommagetrennte Symbole, z. B. 'AAPL,NVDA'. Alternativ --watchlist.",
+    )
+    fundamental.add_argument(
+        "--watchlist",
+        action="store_true",
+        help=(
+            "Wertet jedes Symbol der Watchlist aus. Gedacht fuer die Messung der "
+            "Tag-Abdeckung (ADR 0032 L1) -- sinnvoll nur zusammen mit --summary."
+        ),
+    )
+    fundamental.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Eine Zeile je Aktie statt des vollen Blocks, dazu eine Auswertung am "
+            "Ende. Der volle Block laeuft bei hundert Titeln aus dem Terminalpuffer."
+        ),
+    )
+    fundamental.add_argument(
+        "--output",
+        default=None,
+        help="Schreibt alle Einzelwerte als CSV, damit nichts am Puffer haengt.",
     )
     fundamental.add_argument(
         "--exchange",

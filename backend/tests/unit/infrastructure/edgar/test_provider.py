@@ -123,6 +123,30 @@ class TestFehler:
         with pytest.raises(FundamentalDataProviderError, match="Kein SEC-Emittent"):
             provider.fundamentals(Stock(id=uuid4(), symbol="GIBTESNICHT", exchange="NASDAQ"))
 
+    def test_klassenaktien_werden_in_die_schreibweise_der_sec_uebersetzt(self) -> None:
+        """Die Watchlist fuehrt Berkshire als ``BRK.B``, IBKR als ``BRK B``,
+        die SEC als ``BRK-B``. Ohne Uebersetzung zaehlte eine Messung der
+        Tag-Abdeckung einen Fehlschlag, der mit Tags nichts zu tun hat."""
+        verzeichnis = {"0": {"cik_str": 42, "ticker": "BRK-B", "title": "Berkshire"}}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("company_tickers.json"):
+                return httpx.Response(200, json=verzeichnis)
+            return httpx.Response(200, json=FACTS)
+
+        for geschrieben in ("BRK.B", "BRK B", "BRK-B"):
+            anbieter = _provider(httpx.MockTransport(handler))
+            snapshot = anbieter.fundamentals(
+                Stock(id=uuid4(), symbol=geschrieben, exchange="NYSE")
+            )
+            assert snapshot.status is FundamentalStatus.COMPLETED
+
+    def test_ein_unbekanntes_symbol_wird_nicht_umgebogen(self) -> None:
+        """Nur die beiden Trennzeichen, keine Aehnlichkeitssuche."""
+        provider = _provider(_transport())
+        with pytest.raises(FundamentalDataProviderError):
+            provider.fundamentals(Stock(id=uuid4(), symbol="TES", exchange="NASDAQ"))
+
     def test_ein_fehlschlag_wird_als_anbieterfehler_gemeldet(self) -> None:
         """Der Application-Layer isoliert ihn je Aktie -- ein Ausfall von
         EDGAR ist ein normaler Betriebszustand, kein Laufabbruch."""

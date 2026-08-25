@@ -1783,6 +1783,84 @@ class TestFundamentalKommando:
         assert cli.command_fundamental(args) == 2
         assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
 
+    def test_symbole_und_watchlist_schliessen_sich_aus(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(["fundamental", "--symbols", "AAPL", "--watchlist"])
+        assert cli.command_fundamental(args) == 2
+        assert "nicht beides" in capsys.readouterr().err
+
+    def test_ohne_symbole_und_ohne_watchlist_passiert_nichts(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(["fundamental"])
+        assert cli.command_fundamental(args) == 2
+        assert "nicht keines" in capsys.readouterr().err
+
+    def test_die_sammelzeile_nennt_abdeckung_und_fehlendes(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der volle Block laeuft bei hundert Titeln aus dem Terminalpuffer."""
+        cli._print_fundamental_summary_line(self._snapshot())
+        ausgabe = capsys.readouterr().out
+        assert "TEST" in ausgabe
+        assert "6%" in ausgabe
+        assert MetricName.REVENUE.value in ausgabe
+
+    def test_die_auswertung_zaehlt_je_kennzahl_wie_oft_sie_fehlt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Frage des Watchlist-Laufs ist nicht, wie eine einzelne Aktie
+        aussieht, sondern wie oft eine Kennzahl fehlt (ADR 0032 L1)."""
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=False)
+        ausgabe = capsys.readouterr().out
+        assert "1 Aktien ausgewertet" in ausgabe
+        assert "Je Kennzahl, wie oft sie fehlt" in ausgabe
+        assert f"{MetricName.GROSS_MARGIN.value:28}   1 von 1" in ausgabe
+
+    def test_die_auswertung_weist_auf_den_fehlenden_kurs_hin(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst saehe eine um 22 Punkte gedrueckte Abdeckung wie ein Mangel
+        der Tag-Listen aus."""
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=False)
+        assert "Ohne --price" in capsys.readouterr().out
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
+        assert "Ohne --price" not in capsys.readouterr().out
+
+    def test_fehlschlaege_stehen_am_ende_noch_einmal(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei zweihundert Titeln ist die Fehlerzeile laengst
+        weggescrollt."""
+        cli._print_fundamental_aggregate(
+            [self._snapshot()], [("BRK B", "Kein SEC-Emittent")], mit_kurs=True
+        )
+        ausgabe = capsys.readouterr().out
+        assert "1 Fehlschlaege" in ausgabe
+        assert "BRK B" in ausgabe
+
+    def test_die_csv_traegt_basis_und_zeitraum_an_jedem_wert(self, tmp_path: Path) -> None:
+        """Nicht in der Kopfzeile: Zwei Kennzahlen desselben Berichts koennen
+        verschiedene Zeitbezuege haben (ADR 0033 L2)."""
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(ziel, [self._snapshot()])
+        zeilen = ziel.read_text(encoding="utf-8").splitlines()
+        assert zeilen[0].startswith("symbol,status,abdeckung,kennzahl")
+        assert "TRAILING_TWELVE_MONTHS" in zeilen[1]
+        assert "2024-12-31" in zeilen[1]
+
+    def test_eine_aktie_ohne_kennzahlen_verschwindet_nicht_aus_der_csv(
+        self, tmp_path: Path
+    ) -> None:
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(
+            ziel, [self._snapshot(metrics={}, status=FundamentalStatus.INSUFFICIENT_DATA)]
+        )
+        zeilen = ziel.read_text(encoding="utf-8").splitlines()
+        assert len(zeilen) == 2
+        assert "INSUFFICIENT_DATA" in zeilen[1]
+
     def test_ohne_kurs_bleibt_das_argument_leer(self) -> None:
         """Nicht 0.0: Ein Kurs von null waere eine Angabe, keine fehlende."""
         args = build_parser().parse_args(["fundamental", "--symbols", "AAPL"])
