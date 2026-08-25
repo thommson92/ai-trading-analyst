@@ -125,16 +125,38 @@ class _Rechner:
         }
         self._aktuell: dict[FigureName, ReportedFigure] = {}
         self._zwoelfmonate: set[FigureName] = set()
+        # Bezugspunkt fuer die Aktualitaet ist der juengste Jahresabschluss
+        # des **ganzen Berichts**, nicht der der einzelnen Rohgroesse. Der
+        # Unterschied entscheidet: Hat ein Emittent ein Tag aufgegeben, ist
+        # dessen eigene Jahresreihe genauso alt wie sein Zwoelfmonatswert,
+        # und ein Vergleich gegen sie ginge immer aus. Gemessen: Netflix
+        # traegt fuer den Rohertrag ein Fenster bis 2012-09-30, Berkshire
+        # fuer das Betriebsergebnis eines bis 2013-03-31 -- beide haetten
+        # die Pruefung gegen die eigene Reihe bestanden.
+        # Nur Zeitraumgroessen: Bilanzstichtage stammen seit ADR 0033 aus dem
+        # juengsten Quartalsbericht und liegen damit auf demselben Datum wie
+        # das Ende des Zwoelfmonatsfensters. Zaehlte man sie mit, waere kein
+        # Fenster je "juenger" -- die Pruefung verwarf dann alle.
+        juengster_abschluss = max(
+            (
+                figure.period_end
+                for reihe in self._jahre.values()
+                for figure in reihe.values()
+                if figure.period_start is not None
+            ),
+            default=None,
+        )
         for name in FigureName:
             zwoelf = trailing.get(name)
-            if zwoelf is not None and self._jahre[name]:
+            if (
+                zwoelf is not None
+                and juengster_abschluss is not None
+                and zwoelf.period_end <= juengster_abschluss
+            ):
                 # Ein Zwoelfmonatswert, der nicht juenger ist als der letzte
-                # Jahreswert, bringt keine Aktualitaet -- er kostete nur die
-                # Pruefungssicherheit des Abschlusses (ADR 0033 L1). Das
-                # tritt auf, wenn ein Emittent ein Tag aufgegeben hat und die
-                # alten Angaben stehen bleiben.
-                if zwoelf.period_end <= max(self._jahre[name]):
-                    zwoelf = None
+                # Jahresabschluss, bringt keine Aktualitaet -- er kostete nur
+                # die Pruefungssicherheit des Abschlusses (ADR 0033 L1).
+                zwoelf = None
             if zwoelf is not None:
                 self._aktuell[name] = zwoelf
                 self._zwoelfmonate.add(name)
@@ -423,6 +445,10 @@ def compute_fundamental_snapshot(
             MetricName.FREE_CASH_FLOW_MARGIN,
             freier_cashflow.value / umsatz.value if umsatz.value > 0 else None,
             unit=MetricUnit.FRACTION,
+            # Die Basis stammt aus dem Cashflow-Paar. Das genuegt, weil der
+            # Umsatz den ``stichtag`` selbst definiert und der freie
+            # Cashflow nur zustande kommt, wenn er an demselben Stichtag
+            # endet -- eine Vermischung ist damit ausgeschlossen.
             basis=freier_cashflow.basis,
             period_end=stichtag,
             quellen=[*freier_cashflow.quellen, umsatz],

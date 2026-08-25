@@ -22,6 +22,7 @@ Drei gemessene Befunde aus ADR 0032 bestimmen den Aufbau:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -35,6 +36,20 @@ from ai_trading_analyst.domain.fundamentals import (
 )
 
 ANNUAL_FORMS = frozenset({"10-K", "10-K/A"})
+
+PERIODIC_FORMS = ANNUAL_FORMS | {"10-Q", "10-Q/A"}
+"""Regelmaessige Finanzberichte -- die einzigen Quellen fuer Bausteine der
+Zwoelfmonatsrechnung und fuer Bilanzstichtage.
+
+Ohne diesen Filter gewinnt ueber "zuletzt eingereicht" gelegentlich ein
+anderes Formular. Gemessen am 2026-08-25: Der Jahresbaustein des
+Zwoelfmonatsgewinns kam bei NVIDIA, Netflix und Uber aus einer
+**DEF 14A**-Vollmachtserklaerung, Apples Investitionen aus einem **8-K**.
+Bei NVIDIA stimmt der Wert der Vollmachtserklaerung auf den Cent mit dem
+10-K ueberein -- aber eine Tabelle zur Vorstandsverguetung ist keine
+Rechnungslegung, und ein dort neu gefasster Wert liefe ungeprueft in die
+Kennzahl. Dasselbe gilt fuer Bilanzpositionen aus 8-K-Anlagen, die
+typischerweise Pro-forma-Rechnungen sind."""
 """Nur Jahresabschluesse und ihre Aenderungsberichte (ADR 0032,
 Entscheidung 3). ``10-K/A`` gehoert ausdruecklich dazu: In Apples Daten
 traegt ein Aenderungsbericht die berichtigte Zahl, und ohne ihn stuende der
@@ -253,9 +268,10 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
             figures[name] = aufgeloest
         conflicts.extend(widersprueche)
         if name in TRAILING_FIGURES:
-            zwoelfmonate = _resolve_trailing(cik, us_gaap, name, tags)
+            zwoelfmonate, zwoelf_widersprueche = _resolve_trailing(cik, us_gaap, name, tags)
             if zwoelfmonate is not None:
                 trailing[name] = zwoelfmonate
+            conflicts.extend(zwoelf_widersprueche)
 
     return ResolvedFacts(
         cik=cik,
@@ -269,7 +285,7 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
 
 def _resolve_trailing(
     cik: int, us_gaap: Mapping[str, Any], name: FigureName, tags: Sequence[str]
-) -> ReportedFigure | None:
+) -> tuple[ReportedFigure | None, list[TagConflict]]:
     """Der Zwoelfmonatswert, gebildet **innerhalb eines Tags**.
 
     Erst je Tag gerechnet (ADR 0033, Entscheidung 2). Andernfalls koennte die
@@ -298,16 +314,39 @@ def _resolve_trailing(
         if (fakt := _trailing_fact(us_gaap.get(tag), einheit)) is not None
     ]
     if not kandidaten:
-        return None
+        return None, []
     fakt, _, tag = max(kandidaten, key=lambda eintrag: (eintrag[0].end, -eintrag[1]))
-    return ReportedFigure(
-        value=fakt.value,
-        period_start=fakt.start,
-        period_end=fakt.end,
-        unit=einheit,
-        source=SourceRef(
-            cik=cik, accession=fakt.accession, form=fakt.form, filed=fakt.filed, tag=tag
+
+    # Derselbe Widerspruch wie in der Jahresreihe kann auch hier auftreten --
+    # und wurde zunaechst nicht gemeldet. Gemessen an Berkshire Hathaway:
+    # Fuer das Fenster bis 2026-06-30 liefert ``Revenues`` 384,7 Milliarden
+    # und der Vertragsumsatz 259,7 -- 32 Prozent Unterschied, denselben
+    # Zeitraum. Heute gewinnt der richtige; sobald der andere einmal
+    # juenger endet, gewinnt er, und niemand erfuehre davon.
+    conflicts = [
+        TagConflict(
+            figure=name,
+            period_end=fakt.end,
+            chosen_tag=tag,
+            chosen_value=fakt.value,
+            other_tag=anderer_tag,
+            other_value=anderer.value,
+        )
+        for anderer, _, anderer_tag in kandidaten
+        if anderer_tag != tag and anderer.end == fakt.end and _weicht_ab(fakt.value, anderer.value)
+    ]
+
+    return (
+        ReportedFigure(
+            value=fakt.value,
+            period_start=fakt.start,
+            period_end=fakt.end,
+            unit=einheit,
+            source=SourceRef(
+                cik=cik, accession=fakt.accession, form=fakt.form, filed=fakt.filed, tag=tag
+            ),
         ),
+        conflicts,
     )
 
 
@@ -377,16 +416,7 @@ def _parse_facts(tag_inhalt: Any, einheit: str) -> list[_RawFact]:
 def _juengste_je[S](
     fakten: Iterable[_RawFact], schluessel: Callable[[_RawFact], S]
 ) -> dict[S, _RawFact]:
-    """Je Schluessel der zuletzt eingereichte Fakt.
-
-    **Erst filtern, dann zusammenfassen** -- die Reihenfolge ist nicht
-    beliebig. Wird zuerst ueber alle Formulare zusammengefasst, gewinnt fuer
-    ein Geschaeftsjahr womoeglich ein 10-Q, das es als Vergleichszahl
-    nachtraegt; ein anschliessender Filter auf Jahresabschluesse wirft den
-    Zeitraum dann **ganz** heraus, statt den Jahreswert zu behalten. Beim
-    Umbau auf ADR 0033 sind Apple auf diese Weise zwei Geschaeftsjahre
-    abhandengekommen.
-    """
+    """Je Schluessel der zuletzt eingereichte Fakt."""
     je_schluessel: dict[S, _RawFact] = {}
     for fakt in fakten:
         k = schluessel(fakt)
@@ -396,25 +426,45 @@ def _juengste_je[S](
     return je_schluessel
 
 
-def _facts_by_period(tag_inhalt: Any, einheit: str) -> dict[tuple[date | None, date], _RawFact]:
-    """Fakten nach Zeitraum, ueber **alle** Formulare.
+def _facts_by_period(
+    tag_inhalt: Any, einheit: str, formulare: frozenset[str]
+) -> dict[tuple[date | None, date], _RawFact]:
+    """Fakten nach Zeitraum, beschraenkt auf die genannten Formulare.
 
     Grundlage der Zwoelfmonatsrechnung. Der Schluessel ist der ganze
     Zeitraum und nicht nur sein Ende, weil ein 10-Q zu demselben Enddatum
     ein Quartal *und* ein kumuliertes Neunmonatsstueck fuehren kann.
+
+    Der Formularfilter gehoert **vor** das Zusammenfassen, aus demselben
+    Grund wie in ``_annual_facts``: Bei NVIDIA, Netflix und Uber ist die
+    juengste Einreichung zum letzten Geschaeftsjahresergebnis eine
+    Vollmachtserklaerung. Nachtraeglich gefiltert verschwindet der ganze
+    Zeitraum, und mit ihm der Jahresbaustein der Zwoelfmonatsrechnung.
     """
-    return _juengste_je(_parse_facts(tag_inhalt, einheit), lambda fakt: (fakt.start, fakt.end))
+    passend = [fakt for fakt in _parse_facts(tag_inhalt, einheit) if fakt.form in formulare]
+    return _juengste_je(passend, lambda fakt: (fakt.start, fakt.end))
 
 
 def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _RawFact]:
     """Die Reihe, auf der die Wachstumsraten rechnen -- Jahresabschluesse.
 
-    Bestandsgroessen kommen dagegen aus **jedem** Formular: Eine Bilanz aus
-    dem juengsten 10-Q ist der aus dem letzten 10-K ohne Einschraenkung
-    vorzuziehen (ADR 0033, Entscheidung 3).
+    Bestandsgroessen kommen dagegen aus jedem **regelmaessigen** Bericht:
+    Eine Bilanz aus dem juengsten 10-Q ist der aus dem letzten 10-K ohne
+    Einschraenkung vorzuziehen (ADR 0033, Entscheidung 3).
+
+    **Erst filtern, dann zusammenfassen** -- die Reihenfolge hier ist nicht
+    beliebig. Wird zuerst ueber alle Formulare zusammengefasst und danach auf
+    Jahresabschluesse gefiltert, verschwindet ein Geschaeftsjahr **ganz**,
+    sobald ein 10-Q es zuletzt als Vergleichszahl nachgetragen hat -- statt
+    dass der Jahreswert bliebe. Beim Umbau auf ADR 0033 sind Apple auf diese
+    Weise zwei Geschaeftsjahre abhandengekommen.
     """
     if instant:
-        passend = [fakt for fakt in _parse_facts(tag_inhalt, einheit) if fakt.start is None]
+        passend = [
+            fakt
+            for fakt in _parse_facts(tag_inhalt, einheit)
+            if fakt.start is None and fakt.form in PERIODIC_FORMS
+        ]
     else:
         passend = [
             fakt
@@ -433,9 +483,13 @@ def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
     umgeht die Verwechslung von kumulierten und diskreten Quartalen, die in
     ``companyfacts`` nebeneinander stehen.
     """
-    fakten = _facts_by_period(tag_inhalt, einheit)
+    fakten = _facts_by_period(tag_inhalt, einheit, PERIODIC_FORMS)
     jahre = sorted(
-        (schluessel for schluessel, fakt in fakten.items() if fakt.is_annual_duration),
+        (
+            schluessel
+            for schluessel, fakt in fakten.items()
+            if fakt.is_annual_duration and fakt.form in ANNUAL_FORMS
+        ),
         key=lambda schluessel: schluessel[1],
     )
     if not jahre:
@@ -463,17 +517,27 @@ def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
     ]
     if not vorjahr:
         return None
+    # Das laengengleichste Gegenstueck, nicht das erste der Liste: Sonst
+    # entschiede bei zwei Kandidaten innerhalb der Toleranz die Reihenfolge
+    # im JSON -- genau die Abhaengigkeit, die ``_ist_juenger`` an anderer
+    # Stelle ausschliesst.
+    naechstes = min(vorjahr, key=lambda k: abs((k[1] - jahr_start).days - tage))
 
     jahr = fakten[(jahr_start, jahr_ende)]
     teil = fakten[(teil_start, teil_ende)]
-    vor = fakten[vorjahr[0]]
+    vor = fakten[naechstes]
     # Die Herkunft ist die juengste der drei Einreichungen: Sie bestimmt,
     # wie aktuell der Wert ist, und ist die einzige, die ein Leser braucht,
     # um ihn wiederzufinden.
     quelle = max((jahr, teil, vor), key=lambda fakt: (fakt.filed, fakt.accession))
     return _RawFact(
         value=jahr.value + teil.value - vor.value,
-        start=teil_ende - timedelta(days=(jahr_ende - jahr_start).days),
+        # Der Fensteranfang ist der Tag nach dem Ende des Vorjahresstuecks --
+        # eine Grenze, die in den Einreichungen tatsaechlich vorkommt. Aus
+        # der Jahreslaenge zurueckgerechnet wich sie ab, sobald die Toleranz
+        # einen Unterschied auffing (bei Honeywell um einen Tag), und waere
+        # damit ein Datum, das nirgends steht.
+        start=vor.end + timedelta(days=1),
         end=teil_ende,
         accession=quelle.accession,
         form=quelle.form,
@@ -506,8 +570,16 @@ def _parse_fact(eintrag: Any) -> _RawFact | None:
     if not isinstance(eintrag, dict):
         return None
     try:
+        wert = float(eintrag["val"])
+        if not math.isfinite(wert):
+            # ``float("NaN")`` ueberlebte jede Pruefung: Alle Vergleiche mit
+            # NaN sind falsch, also greift weder die Nullpruefung noch die
+            # Widerspruchsmeldung. Die SEC sendet so etwas nicht -- aber ein
+            # Wert, der still durch alle Schutzregeln laeuft, gehoert hier
+            # ausgesondert und nicht darauf verlassen, dass er nie kommt.
+            return None
         return _RawFact(
-            value=float(eintrag["val"]),
+            value=wert,
             start=date.fromisoformat(eintrag["start"]) if eintrag.get("start") else None,
             end=date.fromisoformat(eintrag["end"]),
             accession=str(eintrag["accn"]),

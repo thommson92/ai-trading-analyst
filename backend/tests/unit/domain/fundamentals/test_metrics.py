@@ -293,7 +293,7 @@ class TestZwoelfmonatswerte:
             FigureName.NET_INCOME: _reihe({2022: 70.0, 2023: 80.0, 2024: 90.0, 2025: 100.0}),
         }
 
-    def _zwoelf(self, wert: float, name: FigureName = FigureName.REVENUE) -> ReportedFigure:
+    def _zwoelf(self, wert: float) -> ReportedFigure:
         return ReportedFigure(
             value=wert,
             period_start=date(2025, 7, 1),
@@ -338,12 +338,21 @@ class TestZwoelfmonatswerte:
             self._jahresreihe(),
             trailing={
                 FigureName.REVENUE: self._zwoelf(1200.0),
-                FigureName.NET_INCOME: self._zwoelf(300.0, FigureName.NET_INCOME),
+                FigureName.NET_INCOME: self._zwoelf(300.0),
             },
         )
         marge = snapshot.metrics[MetricName.NET_MARGIN]
         assert marge.value == pytest.approx(0.25)
         assert marge.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+
+    def _veraltet(self) -> ReportedFigure:
+        return ReportedFigure(
+            value=99.0,
+            period_start=date(2011, 7, 1),
+            period_end=date(2012, 6, 30),
+            unit="USD",
+            source=_quelle(2012, accession="alt"),
+        )
 
     def test_ein_veralteter_zwoelfmonatswert_wird_verworfen(self) -> None:
         """Gemessen an Honeywell: Dort endet ``Revenues`` im Jahr 2011, und
@@ -351,17 +360,30 @@ class TestZwoelfmonatswerte:
         2012-06-30 -- vierzehn Jahre alt. Ein Fenster, das nicht juenger ist
         als der letzte Jahresabschluss, bringt keine Aktualitaet und kostet
         nur die Pruefungssicherheit."""
-        veraltet = ReportedFigure(
-            value=99.0,
-            period_start=date(2011, 7, 1),
-            period_end=date(2012, 6, 30),
-            unit="USD",
-            source=_quelle(2012, accession="alt"),
-        )
-        snapshot = _snapshot(self._jahresreihe(), trailing={FigureName.REVENUE: veraltet})
+        snapshot = _snapshot(self._jahresreihe(), trailing={FigureName.REVENUE: self._veraltet()})
         umsatz = snapshot.metrics[MetricName.REVENUE]
         assert umsatz.value == 1000.0
         assert umsatz.basis is MetricBasis.FISCAL_YEAR
+
+    def test_massgeblich_ist_der_juengste_abschluss_des_ganzen_berichts(self) -> None:
+        """Nicht die Jahresreihe der einzelnen Rohgroesse: Hat ein Emittent
+        ein Tag aufgegeben, ist dessen eigene Reihe genauso alt wie sein
+        Zwoelfmonatswert, und ein Vergleich gegen sie ginge immer aus.
+
+        Gemessen: Netflix traegt fuer den Rohertrag ein Fenster bis
+        2012-09-30, Berkshire fuer das Betriebsergebnis eines bis
+        2013-03-31 -- beide haetten die Pruefung gegen die eigene Reihe
+        bestanden."""
+        figures = self._jahresreihe() | {
+            FigureName.GROSS_PROFIT: (_figure(40.0, 2011),),
+        }
+        snapshot = _snapshot(figures, trailing={FigureName.GROSS_PROFIT: self._veraltet()})
+        rohertrag = [
+            metric
+            for metric in snapshot.metrics.values()
+            if metric.basis is MetricBasis.TRAILING_TWELVE_MONTHS
+        ]
+        assert not rohertrag
 
 
 class TestWeitereVerhaeltnisse:

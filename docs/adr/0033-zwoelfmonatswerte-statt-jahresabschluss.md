@@ -222,3 +222,66 @@ Berkshires 50 Prozent sind unverändert und haben nichts mit diesem ADR zu
 tun: Dort fehlen die Bewertungskennzahlen wegen der veralteten Aktienzahl
 (ADR 0032, Korrektur 5) und die Bilanzkennzahlen mangels klassifizierter
 Bilanz.
+
+---
+
+### Nachtrag: Befunde der unabhängigen Review (2026-08-25)
+
+Die Review hat alle Messwerte beider Tabellen unabhängig gegen
+`data.sec.gov` nachgerechnet — sie reproduzieren sich exakt. Acht Befunde,
+alle übernommen; drei davon ändern das Verfahren und gehören deshalb hierher.
+
+**1. Der Widerspruch zwischen zwei Tags wurde beim Zwölfmonatswert nicht
+gemeldet.** Entscheidung 2 regelt nur die *Bildung* innerhalb eines Tags, die
+*Auswahl* zwischen Tags blieb ungeprüft. Gemessen bei Berkshire Hathaway, für
+dasselbe Fenster bis 2026-06-30:
+
+| Tag | Wert |
+|---|---|
+| `Revenues` | 384,7 Mrd |
+| `RevenueFromContractWithCustomerExcludingAssessedTax` | **259,7 Mrd** |
+
+**32 Prozent Unterschied.** Heute gewinnt der richtige — aber nur, weil beide
+Fenster am selben Tag enden und dann die Tag-Reihenfolge entscheidet. Endete
+der Vertragsumsatz einmal später, gewänne er still, und Umsatz, drei Margen
+und zwei Bewertungskennzahlen lägen um ein Drittel daneben. Die Meldung, die
+ADR 0032 als Gründungsargument führt, gilt jetzt auch hier.
+
+**2. Bausteine der Zwölfmonatsrechnung stammten teils aus
+Vollmachtserklärungen.** `_annual_facts` verlangt einen Jahresabschluss, die
+Zwölfmonatsrechnung verlangte gar nichts. Gemessen kam der Jahresbaustein des
+Ergebnisses bei **NVIDIA, Netflix und Uber aus einer `DEF 14A`**, Apples
+Investitionen aus einem `8-K`. Bei NVIDIA stimmt der Wert der
+Vollmachtserklärung auf den Cent mit dem 10-K überein — aber eine Tabelle zur
+Vorstandsvergütung ist keine Rechnungslegung. Bausteine und Bilanzstichtage
+kommen jetzt ausschließlich aus `10-K`, `10-K/A`, `10-Q` und `10-Q/A`.
+
+Entscheidung 3 sagte „gleich aus welchem Formular". Das ist damit
+eingeschränkt auf regelmäßige Finanzberichte.
+
+**3. Die Verwerfung veralteter Fenster prüfte gegen den falschen
+Bezugspunkt.** Sie verglich mit der Jahresreihe *derselben* Rohgröße — und
+hat ein Tag der Emittent aufgegeben, ist dessen Jahresreihe genauso alt wie
+sein Fenster. Gemessen überlebten so ein Rohertragsfenster bis **2012-09-30**
+bei Netflix und ein Betriebsergebnisfenster bis **2013-03-31** bei Berkshire.
+In den Bericht kam davon nichts, weil die Stichtagsregel aus Entscheidung 6
+sie abfing — aber das war Glück der Zusammensetzung, nicht die Prüfung.
+Maßgeblich ist jetzt der jüngste Jahresabschluss des **ganzen Berichts**.
+
+Dabei ist ein zweiter Fehler entstanden und behoben worden: Zählt man die
+Bilanzstichtage mit, liegt der Bezugspunkt seit Entscheidung 3 auf demselben
+Datum wie das Fensterende — und *kein* Fenster wäre je jünger. Der Bezugspunkt
+zählt deshalb nur Zeitraumgrößen.
+
+**Kleinere Befunde**, ohne Wirkung auf das Verfahren: Der Fensteranfang war
+aus der Jahreslänge zurückgerechnet statt aus der tatsächlichen Grenze des
+Vorjahresstücks (bei Honeywell ein Tag daneben, ein Datum, das nirgends
+steht); unter mehreren Vorjahresstücken innerhalb der Toleranz entschied die
+Reihenfolge im JSON; `float("NaN")` hätte jede Schutzregel überlebt, weil
+alle Vergleiche mit NaN falsch sind.
+
+**Was die Review bestätigt hat:** Die Formel kann kumulierte und diskrete
+Quartale nicht verwechseln — `laufend` wählt immer das längste Stück ab
+Jahresbeginn, und das Gegenstück wird über die Länge gesucht. Keine Kennzahl
+kann Zwölfmonats- und Jahreswerte mischen. Wachstumsraten und Verwässerung
+rechnen unverändert auf Geschäftsjahren.
