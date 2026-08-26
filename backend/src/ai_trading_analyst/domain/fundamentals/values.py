@@ -19,7 +19,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-FUNDAMENTAL_ANALYSIS_VERSION = "fundamental-v2"
+FUNDAMENTAL_ANALYSIS_VERSION = "fundamental-v3"
 """Version des Auswertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung).
 
@@ -32,7 +32,14 @@ Tag-Listen um 22 Prozent auseinanderliegen koennen.
 ``v2`` gegenueber ``v1``: Niveauzahlen und Bewertung stehen auf den letzten
 zwoelf Monaten statt auf dem letzten Geschaeftsjahr (ADR 0033). Bei Apple
 sind das 466,8 statt 416,2 Milliarden Umsatz -- dieselbe Kennzahl, ein
-anderer Zeitraum. Wachstumsraten bleiben auf Geschaeftsjahren."""
+anderer Zeitraum. Wachstumsraten bleiben auf Geschaeftsjahren.
+
+``v3`` gegenueber ``v2`` (ADR 0034, nach dem Lauf ueber die volle
+Watchliste): Ein Zeitraumwert, der ein halbes Jahr oder mehr hinter dem Rest
+des Berichts zurueckliegt, gilt als ueberholt und fehlt -- bei Cummins stand
+zuvor ein Jahresueberschuss von 2010 als aktuell im Ergebnis. Der Umsatz ist
+nicht mehr Bedingung der ganzen Auswertung. Und drei nachrangige Tags
+kommen hinzu, die nicht exakt dasselbe bedeuten wie ihre Vorgaenger."""
 
 
 class FundamentalStatus(StrEnum):

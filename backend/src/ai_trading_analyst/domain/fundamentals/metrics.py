@@ -42,6 +42,16 @@ from .values import (
     TagConflict,
 )
 
+MAX_RUECKSTAND_TAGE = 180
+"""Ab welchem Rueckstand ein Zeitraumwert als ueberholt gilt (ADR 0034).
+
+Bezugspunkt ist der juengste Zeitraumwert des ganzen Berichts. Ein halbes
+Jahr ist die Grenze, weil darunter nur Kalenderartefakte liegen koennen --
+ein Geschaeftsjahr mit 52 oder 53 Wochen verschiebt das Jahresende um Tage,
+nicht um Monate. Ein Rueckstand von einem halben Jahr oder mehr heisst
+dagegen, dass die juengste Einreichung diese Groesse nicht mehr getragen
+hat."""
+
 
 @dataclass(frozen=True, slots=True)
 class FundamentalParameters:
@@ -146,6 +156,7 @@ class _Rechner:
             ),
             default=None,
         )
+        self._juengster_abschluss = juengster_abschluss
         for name in FigureName:
             zwoelf = trailing.get(name)
             if (
@@ -164,10 +175,56 @@ class _Rechner:
                 # Rueckfall auf den juengsten Jahres- bzw. Stichtagswert
                 # (ADR 0033, Entscheidung 5). Er ist nicht falsch, nur
                 # aelter -- und die Basis am Ergebnis sagt, welcher es ist.
-                self._aktuell[name] = self._jahre[name][max(self._jahre[name])]
+                juengster = self._jahre[name][max(self._jahre[name])]
+                if self.ist_ueberholt(juengster):
+                    continue
+                self._aktuell[name] = juengster
         self._retrieved_at = retrieved_at
         self._currency = currency
         self.metrics: dict[MetricName, Metric] = {}
+
+    def ist_ueberholt(self, figure: ReportedFigure) -> bool:
+        """Liegt dieser Wert ein halbes Jahr oder mehr hinter dem Rest?
+
+        Der Rueckfall auf die Jahresreihe nimmt den juengsten Wert **dieser
+        einen** Rohgroesse. Hat der Emittent das Tag irgendwann aufgegeben,
+        ist das der juengste eines laengst beendeten Zeitraums -- und stuende
+        ungekennzeichnet neben lauter aktuellen Zahlen.
+
+        Gemessen an Cummins: ``NetIncomeLoss`` endet dort 2010-12-31, der
+        uebrige Bericht 2025-12-31. Der Jahresueberschuss von 1,04 Mrd stand
+        als aktuell im Ergebnis, mit Status COMPLETED, waehrend der
+        tatsaechliche bei rund 3,9 Mrd liegt -- und die Wachstumsrate darauf
+        beschrieb die Jahre 2008 bis 2010.
+
+        Bestandsgroessen werden mitgemessen, obwohl sie keinen Zeitraum
+        tragen. Sie stammen im Normalfall aus dem juengsten Quartalsbericht
+        und liegen damit **vor** dem Bezugspunkt -- die Schranke greift bei
+        ihnen gar nicht. Wo sie doch greift, ist es derselbe Fall: eine
+        Bilanzposition, die der Emittent irgendwann nicht mehr getaggt hat.
+        Ein Liquiditaetsgrad aus Umlaufvermoegen von 2015 waere so falsch wie
+        ein Jahresueberschuss von 2010.
+        """
+        if self._juengster_abschluss is None:
+            return False
+        return (self._juengster_abschluss - figure.period_end).days >= MAX_RUECKSTAND_TAGE
+
+    def juengster_zeitraum(self) -> date | None:
+        """Das Ende des juengsten aktuellen Zeitraumwerts.
+
+        Ersatzanker fuer den Stichtag, wenn kein Umsatz vorliegt (ADR 0034).
+        Bestandsgroessen zaehlen nicht mit: Sie stammen aus dem juengsten
+        Quartalsbericht und lieferten sonst einen Stichtag, zu dem es gar
+        keine Ergebnisrechnung gibt.
+        """
+        return max(
+            (
+                figure.period_end
+                for figure in self._aktuell.values()
+                if figure.period_start is not None
+            ),
+            default=None,
+        )
 
     def aktuell(self, name: FigureName) -> ReportedFigure | None:
         return self._aktuell.get(name)
@@ -183,6 +240,15 @@ class _Rechner:
 
     def stichtage(self, name: FigureName) -> list[date]:
         return sorted(self._jahre[name])
+
+    def berichtsjahre(self) -> list[date]:
+        """Die Geschaeftsjahre, auf denen der Bericht steht.
+
+        Der Umsatz, wo er vorliegt; sonst der Jahresueberschuss. Ohne diesen
+        Rueckfall stuende bei einem Emittenten ohne Umsatzzeile eine leere
+        Jahresliste neben lauter gerechneten Kennzahlen.
+        """
+        return self.stichtage(FigureName.REVENUE) or self.stichtage(FigureName.NET_INCOME)
 
     def add(
         self,
@@ -290,6 +356,13 @@ def _jahresspanne(
     frueh = rechner.jahreswert(name, aeltester)
     spaet = rechner.jahreswert(name, juengster)
     if frueh is None or spaet is None:
+        return None
+    if rechner.ist_ueberholt(spaet):
+        # Dieselbe Schranke wie beim Niveauwert, und sie wird hier eigens
+        # gebraucht: Die Wachstumsrate liest die Jahresreihe unmittelbar,
+        # nicht den aktuellen Wert. Ohne sie beschriebe Cummins'
+        # Gewinnwachstum die Jahre 2008 bis 2010 und stuende unbeschriftet
+        # neben Umsatzwachstum bis 2025.
         return None
     return frueh, spaet
 
@@ -416,16 +489,22 @@ def compute_fundamental_snapshot(
     rechner = _Rechner(figures, trailing or {}, retrieved_at=retrieved_at, currency=currency)
 
     umsatz = rechner.aktuell(FigureName.REVENUE)
-    if umsatz is None:
+    # Der Umsatz gibt den Stichtag vor, wo es ihn gibt -- er ist die Groesse,
+    # gegen die die meisten Kennzahlen laufen. Er ist aber **keine
+    # Bedingung** mehr (ADR 0034): Goldman Sachs traegt seine Ertraege in
+    # einem Tag, das keine Umsatzzeile im hiesigen Sinn ist, und verlor
+    # dadurch Jahresueberschuss, Bilanz und Cashflow gleich mit -- Status
+    # INSUFFICIENT_DATA bei vollstaendig vorliegender Einreichung.
+    stichtag = umsatz.period_end if umsatz is not None else rechner.juengster_zeitraum()
+    if stichtag is None:
         return FundamentalSnapshot(
             symbol=symbol,
             status=FundamentalStatus.INSUFFICIENT_DATA,
             evaluated_at=evaluated_at,
             analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
-            reason="keine Umsatzangaben in den Einreichungen",
+            reason="keine auswertbaren Zeitraumangaben in den Einreichungen",
             tag_conflicts=tuple(tag_conflicts),
         )
-    stichtag = umsatz.period_end
 
     rechner.betrag(MetricName.REVENUE, FigureName.REVENUE)
     rechner.betrag(MetricName.NET_INCOME, FigureName.NET_INCOME)
@@ -441,6 +520,7 @@ def compute_fundamental_snapshot(
             period_end=stichtag,
             quellen=freier_cashflow.quellen,
         )
+    if freier_cashflow is not None and umsatz is not None:
         rechner.add(
             MetricName.FREE_CASH_FLOW_MARGIN,
             freier_cashflow.value / umsatz.value if umsatz.value > 0 else None,
@@ -509,7 +589,7 @@ def compute_fundamental_snapshot(
         evaluated_at=evaluated_at,
         analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
         metrics=rechner.metrics,
-        fiscal_years=tuple(tag.year for tag in rechner.stichtage(FigureName.REVENUE)),
+        fiscal_years=tuple(tag.year for tag in rechner.berichtsjahre()),
         price_used=price,
         tag_conflicts=tuple(tag_conflicts),
     )
@@ -521,7 +601,7 @@ def _bewertung(
     stichtag: date,
     price: float | None,
     shares_outstanding: ReportedFigure | None,
-    umsatz: ReportedFigure,
+    umsatz: ReportedFigure | None,
     freier_cashflow: _FreierCashflow | None,
 ) -> None:
     """Die vier kursabhaengigen Kennzahlen (ADR 0032, Entscheidung 4).
@@ -574,7 +654,7 @@ def _bewertung(
         teile_durch(MetricName.PRICE_EARNINGS_RATIO, gewinn.value, gewinn_basis, [gewinn])
 
     umsatz_basis = rechner.basis(FigureName.REVENUE)
-    if umsatz_basis is not None:
+    if umsatz is not None and umsatz_basis is not None:
         teile_durch(MetricName.PRICE_SALES_RATIO, umsatz.value, umsatz_basis, [umsatz])
 
     if freier_cashflow is not None:

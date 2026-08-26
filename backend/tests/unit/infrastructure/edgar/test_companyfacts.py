@@ -354,7 +354,6 @@ class TestTagListenSindBedeutungsgleich:
         "tag",
         [
             "SalesRevenueGoodsNet",
-            "ProfitLoss",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
         ],
@@ -362,6 +361,27 @@ class TestTagListenSindBedeutungsgleich:
     def test_tags_mit_anderer_bedeutung_stehen_in_keiner_liste(self, tag: str) -> None:
         alle = {eintrag for tags in FIGURE_TAGS.values() for eintrag in tags}
         assert tag not in alle
+
+    @pytest.mark.parametrize(
+        ("figure", "tag", "rang"),
+        [
+            (FigureName.NET_INCOME, "NetIncomeLossAvailableToCommonStockholdersBasic", 1),
+            (FigureName.NET_INCOME, "ProfitLoss", 2),
+            (FigureName.REVENUE, "RevenuesNetOfInterestExpense", 4),
+        ],
+    )
+    def test_die_zugelassenen_abweichler_stehen_hinten(
+        self, figure: FigureName, tag: str, rang: int
+    ) -> None:
+        """ADR 0034 laesst drei Tags zu, die nicht exakt dasselbe bedeuten.
+
+        Sie duerfen nur greifen, wenn kein Tag hoeherer Ordnung etwas
+        hergibt -- ihre Stelle in der Liste ist die ganze Absicherung. Stuende
+        ``ProfitLoss`` vorn, bekaeme jeder Konzern mit Minderheitenanteilen
+        stillschweigend das falsche Ergebnis, obwohl das richtige danebenliegt.
+        """
+        assert FIGURE_TAGS[figure][rang] == tag
+        assert FIGURE_TAGS[figure].index(tag) == rang
 
 
 class TestUnbrauchbareEintraege:

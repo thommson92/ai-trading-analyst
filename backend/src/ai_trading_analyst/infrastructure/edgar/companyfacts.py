@@ -73,8 +73,13 @@ FIGURE_TAGS: Mapping[FigureName, tuple[str, ...]] = {
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "SalesRevenueNet",
+        "RevenuesNetOfInterestExpense",
     ),
-    FigureName.NET_INCOME: ("NetIncomeLoss",),
+    FigureName.NET_INCOME: (
+        "NetIncomeLoss",
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "ProfitLoss",
+    ),
     FigureName.GROSS_PROFIT: ("GrossProfit",),
     FigureName.OPERATING_INCOME: ("OperatingIncomeLoss",),
     FigureName.ASSETS: ("Assets",),
@@ -118,11 +123,8 @@ herausgeflogen**, weil sie eben nicht dasselbe bedeuten -- gemessen, nicht
 vermutet:
 
 ===============================================  ===================================
-``ProfitLoss``                                   schliesst Minderheitenanteile ein,
-                                                 ``NetIncomeLoss`` nicht. Bei
-                                                 Honeywell 14 Jahre lang
-                                                 abweichend, bis 2,8 Prozent.
-``StockholdersEquity...NoncontrollingInterest``  dasselbe auf der Bilanzseite. Bei
+``StockholdersEquity...NoncontrollingInterest``  schliesst Minderheitenanteile ein,
+                                                 ``StockholdersEquity`` nicht. Bei
                                                  Honeywell 2025 8,1 Prozent
                                                  Unterschied.
 ``NetCash...ContinuingOperations``               laesst aufgegebene
@@ -138,9 +140,26 @@ keinen einzigen Zeitraum, in dem beide Capex-Tags verschiedene Werte tragen
 lang ausschliesslich das zweite. Es ist eine Bezeichnungsvariante, kein
 anderer Umfang -- gemessen, nicht vermutet.
 
-Der Preis der Strenge ist Abdeckung: Ein Emittent, der nur ``ProfitLoss``
-fuehrt, liefert kein Nettoergebnis. Das ist die richtige Richtung -- fehlend
-statt falsch (ADR 0032 L1).
+**Drei Tags stehen bewusst als nachrangige Alternativen darin, obwohl sie
+nicht dasselbe bedeuten** (ADR 0034). Der Watchlist-Lauf ueber 192 Aktien hat
+gezeigt, was die reine Strenge kostet: Illinois Tool Works taggt seinen
+Jahresueberschuss ausschliesslich als ``ProfitLoss``, Monster Beverage
+ausschliesslich als ``NetIncomeLossAvailableToCommonStockholdersBasic``, und
+Goldman Sachs fuehrt seine Ertraege nur als ``RevenuesNetOfInterestExpense``.
+Alle drei lieferten dadurch **gar keinen** Wert -- kein Nettoergebnis, keine
+Nettomarge, keine Rendite; bei Goldman Sachs fiel die ganze Auswertung aus.
+
+Sie greifen nur, wenn kein Tag hoeherer Ordnung etwas hergibt, und die
+Abweichung bleibt sichtbar: Der verwendete Tag steht an jedem Wert, und wo
+zwei Tags nebeneinander liegen und sich unterscheiden, wird das weiterhin als
+Widerspruch gemeldet. Was sie genau anders zaehlen -- Minderheitenanteile,
+Vorzugsdividenden, Zinsaufwand -- steht in ADR 0034.
+
+Der Preis der Strenge ist Abdeckung; der Preis der Milde ist
+Vergleichbarkeit. Die Grenze verlaeuft hier zwischen "anderer Umfang
+derselben Groesse", das nachrangig zugelassen wird, und "andere Groesse",
+das nicht -- ``SalesRevenueGoodsNet`` und der abgeleitete Rohertrag bleiben
+draussen.
 
 **Nicht abgeleitet wird der Rohertrag.** Honeywell und Netflix weisen fuer ihr
 juengstes Geschaeftsjahr kein ``GrossProfit`` aus, und aus Umsatz minus

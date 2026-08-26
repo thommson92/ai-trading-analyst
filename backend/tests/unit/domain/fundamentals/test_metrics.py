@@ -82,12 +82,120 @@ class TestWachstumsrate:
         assert compound_annual_growth(100.0, -20.0, 3) is None
 
 
-class TestFehlendeGroessen:
-    def test_ohne_umsatz_gibt_es_nichts_zu_rechnen(self) -> None:
-        snapshot = _snapshot({FigureName.NET_INCOME: _reihe({2025: 10.0})})
+class TestUeberholteWerte:
+    """ADR 0034 -- die Schranke gegen Zahlen, die ein Tag-Ende ueberlebt haben.
+
+    Gemessen an Cummins: ``NetIncomeLoss`` endet dort 2010, der uebrige
+    Bericht 2025. Ein Jahresueberschuss von 2010 stand als aktuell im
+    Ergebnis, bei Status COMPLETED.
+    """
+
+    def test_ein_aufgegebenes_tag_liefert_keinen_aktuellen_wert(self) -> None:
+        snapshot = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2023: 900.0, 2024: 950.0, 2025: 1000.0}),
+                FigureName.NET_INCOME: _reihe({2008: 50.0, 2009: 60.0, 2010: 70.0}),
+            }
+        )
+        assert MetricName.NET_INCOME not in snapshot.metrics
+        assert MetricName.NET_INCOME in snapshot.missing_metrics
+        assert MetricName.NET_MARGIN not in snapshot.metrics
+
+    def test_auch_die_wachstumsrate_faellt_weg(self) -> None:
+        """Die Rate liest die Jahresreihe unmittelbar, nicht den aktuellen
+        Wert -- ohne eigene Pruefung beschriebe sie 2007 bis 2010 und stuende
+        unbeschriftet neben einer Umsatzrate bis 2025."""
+        snapshot = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2022: 800.0, 2023: 900.0, 2024: 950.0, 2025: 1000.0}),
+                FigureName.NET_INCOME: _reihe({2007: 40.0, 2008: 50.0, 2009: 60.0, 2010: 70.0}),
+            }
+        )
+        assert MetricName.REVENUE_GROWTH in snapshot.metrics
+        assert MetricName.NET_INCOME_GROWTH not in snapshot.metrics
+
+    def test_ein_halbes_jahr_rueckstand_ist_noch_keiner(self) -> None:
+        """Ein Geschaeftsjahr mit 52 oder 53 Wochen verschiebt das Jahresende
+        um Tage. Die Schranke darf solche Kalenderartefakte nicht treffen."""
+        umsatz = ReportedFigure(
+            value=1000.0,
+            period_start=date(2025, 1, 1),
+            period_end=date(2025, 12, 31),
+            unit="USD",
+            source=_quelle(2025),
+        )
+        gewinn = ReportedFigure(
+            value=100.0,
+            period_start=date(2024, 12, 26),
+            period_end=date(2025, 12, 25),
+            unit="USD",
+            source=_quelle(2025),
+        )
+        snapshot = _snapshot(
+            {FigureName.REVENUE: (umsatz,), FigureName.NET_INCOME: (gewinn,)}
+        )
+        assert MetricName.NET_INCOME in snapshot.metrics
+
+    def test_bestandsgroessen_gehorchen_derselben_schranke(self) -> None:
+        """Eine Bilanzposition, die der Emittent aufgegeben hat, ist genauso
+        ueberholt wie eine Ergebniszeile. Im Normalfall stammen Stichtags-
+        werte aus dem juengsten Quartalsbericht und liegen damit vor dem
+        Bezugspunkt -- dann greift die Schranke gar nicht."""
+        aktuell = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2025: 1000.0}),
+                FigureName.CURRENT_ASSETS: _reihe({2025: 300.0}, instant=True),
+                FigureName.CURRENT_LIABILITIES: _reihe({2025: 200.0}, instant=True),
+            }
+        )
+        assert MetricName.CURRENT_RATIO in aktuell.metrics
+
+        veraltet = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2024: 950.0, 2025: 1000.0}),
+                FigureName.CURRENT_ASSETS: _reihe({2015: 300.0}, instant=True),
+                FigureName.CURRENT_LIABILITIES: _reihe({2015: 200.0}, instant=True),
+            }
+        )
+        assert MetricName.CURRENT_RATIO in veraltet.missing_metrics
+
+
+class TestOhneUmsatz:
+    """ADR 0034 -- der Umsatz gibt den Stichtag vor, ist aber keine Bedingung.
+
+    Gemessen an Goldman Sachs: Ertraege stehen dort nur in einem Tag, das
+    keine Umsatzzeile im hiesigen Sinn ist. Jahresueberschuss, Bilanz und
+    Cashflow lagen vollstaendig vor -- und fielen mit weg.
+    """
+
+    def test_die_umsatzfreien_kennzahlen_entstehen_trotzdem(self) -> None:
+        snapshot = _snapshot(
+            {
+                FigureName.NET_INCOME: _reihe({2025: 100.0}),
+                FigureName.EQUITY: _reihe({2025: 500.0}, instant=True),
+                FigureName.ASSETS: _reihe({2025: 2000.0}, instant=True),
+            }
+        )
+        assert snapshot.status is FundamentalStatus.COMPLETED
+        assert snapshot.metrics[MetricName.NET_INCOME].value == 100.0
+        assert snapshot.metrics[MetricName.RETURN_ON_EQUITY].value == pytest.approx(0.2)
+        assert MetricName.NET_MARGIN in snapshot.missing_metrics
+        assert MetricName.REVENUE in snapshot.missing_metrics
+
+    def test_die_geschaeftsjahre_fallen_auf_den_gewinn_zurueck(self) -> None:
+        snapshot = _snapshot({FigureName.NET_INCOME: _reihe({2024: 90.0, 2025: 100.0})})
+        assert snapshot.fiscal_years == (2024, 2025)
+
+    def test_ohne_jeden_zeitraumwert_bleibt_es_bei_insufficient_data(self) -> None:
+        """Nur Bilanzstichtage sind keine Auswertung: Es gibt keinen
+        Zeitraum, auf den sich eine Kennzahl beziehen koennte."""
+        snapshot = _snapshot({FigureName.ASSETS: _reihe({2025: 2000.0}, instant=True)})
         assert snapshot.status is FundamentalStatus.INSUFFICIENT_DATA
         assert snapshot.reason is not None
         assert not snapshot.metrics
+
+
+class TestFehlendeGroessen:
 
     def test_eine_fehlende_rohgroesse_laesst_die_kennzahl_fehlen(self) -> None:
         """Kein Ersatzwert und keine Null -- die Kennzahl taucht in
