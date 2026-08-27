@@ -416,6 +416,14 @@ def _verwaesserung(rechner: _Rechner) -> None:
         return
     reihe = max(brauchbar, key=lambda werte: werte[-1].period_end)
     frueh, spaet = reihe[0], reihe[-1]
+    if rechner.ist_ueberholt(spaet):
+        # Dieselbe Schranke wie ueberall (ADR 0034). Sie wird hier eigens
+        # gebraucht, weil diese Rate ihre eigene Reihe bildet und weder ueber
+        # ``aktuell`` noch ueber ``_jahresspanne`` laeuft. Gemessen an Exxon:
+        # Die verwaesserte Aktienzahl endet dort 2013, der uebrige Bericht
+        # 2025 -- und minus 4,8 Prozent im Jahr standen unbeschriftet neben
+        # Kennzahlen per 2026-03-31.
+        return
     jahre = spaet.period_end.year - frueh.period_end.year
     if jahre < 1:
         return

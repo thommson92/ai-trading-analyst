@@ -114,6 +114,29 @@ class TestUeberholteWerte:
         assert MetricName.REVENUE_GROWTH in snapshot.metrics
         assert MetricName.NET_INCOME_GROWTH not in snapshot.metrics
 
+    def test_auch_die_verwaesserung_faellt_weg(self) -> None:
+        """Die Aktienzahl bildet ihre eigene Reihe und laeuft weder ueber den
+        aktuellen Wert noch ueber die Jahresspanne. Gemessen an Exxon: Die
+        verwaesserte Aktienzahl endet dort 2013, der uebrige Bericht 2025."""
+        alt_quelle = _quelle(2013, accession="0000000000-13-000001")
+        aktien = tuple(
+            ReportedFigure(
+                value=wert,
+                period_start=date(jahr, 1, 1),
+                period_end=date(jahr, 12, 31),
+                unit="shares",
+                source=alt_quelle,
+            )
+            for jahr, wert in [(2011, 4600.0), (2012, 4500.0), (2013, 4400.0)]
+        )
+        snapshot = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2024: 950.0, 2025: 1000.0}),
+                FigureName.DILUTED_SHARES: aktien,
+            }
+        )
+        assert MetricName.SHARE_COUNT_GROWTH not in snapshot.metrics
+
     def test_ein_halbes_jahr_rueckstand_ist_noch_keiner(self) -> None:
         """Ein Geschaeftsjahr mit 52 oder 53 Wochen verschiebt das Jahresende
         um Tage. Die Schranke darf solche Kalenderartefakte nicht treffen."""

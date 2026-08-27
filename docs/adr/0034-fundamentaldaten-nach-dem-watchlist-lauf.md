@@ -218,3 +218,111 @@ umsatzabhaengigen Kennzahlen auf ein altes Datum zu ziehen.
 - **L4 -- Die Wirkung auf die volle Watchliste ist nicht nachgemessen.** Die
   Zahlen oben stammen aus acht gezielt ausgewaehlten Emittenten. Der
   Vergleichslauf ueber alle 192 steht aus.
+
+## Nachtrag 2026-08-27: der Vergleichslauf, und was er noch gezeigt hat
+
+Einschraenkung L4 ist eingeloest. Der Lauf ueber alle 192 Symbole ist mit dem
+``fundamental-v3``-Stand wiederholt worden; die Zahlen unten stammen aus einer
+unabhaengigen Nachrechnung, die den Serverlauf **Zeile fuer Zeile
+reproduziert** -- gleicher Median, gleiche Maxima, dieselben 18 Aktien ohne
+Zwoelfmonatswert, derselbe eine Fehlschlag.
+
+### Damit ist ADR 0032 L1 beantwortet
+
+191 auswertbare Aktien, ein Fehlschlag (Novo Nordisk, IFRS). Abdeckung:
+niedrigste 0 Prozent, Median 67, hoechste 78 -- und 78 ist zugleich das
+Erreichbare, weil ohne Kurs die vier bewertungsabhaengigen Kennzahlen bei
+jeder Aktie entfallen.
+
+Der mittlere Emittent verliert also **zwei** Kennzahlen ueber die vier
+kursabhaengigen hinaus. Welche, ist eindeutig:
+
+| Kennzahl | fehlt bei | Ursache |
+|---|---|---|
+| Bruttomarge | 110 von 191 (58 %) | ``GrossProfit`` nicht getaggt; ADR 0032 leitet den Rohertrag nicht ab |
+| Verschuldungsgrad | 84 von 191 (44 %) | ``Liabilities`` nicht getaggt (Entscheidung 4) und die Stichtagsbindung aus L3 |
+| Operative Marge | 41 (21 %) | ``OperatingIncomeLoss`` fehlt bei Banken und Versicherern |
+| Eigenkapitalrendite | 33 (17 %) | Stichtagsbindung |
+| Freier Cashflow und seine Marge | 27 / 28 (14 / 15 %) | fehlender Investitions- oder Cashflow-Tag |
+| Umsatz, Jahresueberschuss | 6 / 5 (3 %) | im Wesentlichen die Nicht-US-Emittenten |
+
+**Zwei Ablehnungen von Ableitungen kosten zusammen die Haelfte der Luecke.**
+Das ist der Preis von ADR 0032 L1, jetzt beziffert statt behauptet. Er wird
+nicht neu verhandelt: Beide Ableitungen erzeugten eine plausibel aussehende
+falsche Zahl.
+
+### Damit ist ADR 0033 L3 beantwortet
+
+18 Aktien ohne einen einzigen Zwoelfmonatswert. Sie zerfallen in vier
+Gruppen, und keine davon ist ein Mangel des Verfahrens:
+
+- **Zehn** Emittenten mit Geschaeftsjahresende im Mai oder Juni, deren
+  Abschluss gerade erst geschlossen hat und fuer die es noch kein Teilstueck
+  gibt (ADP, CAH, FDX, KLAC, LRCX, MSFT, NKE, ORCL, PG, STX). Der Rueckfall
+  auf das Geschaeftsjahr ist dort der **aktuellere** Wert, nicht der aeltere.
+- **Vier** ohne US-GAAP-Daten (CHKP, DOX, MGA, SPCX) -- ADR 0032 L3.
+- **Drei** Kalenderjahr-Bilanzierer, deren Umsatz- oder Gewinn-Tag im
+  Teilstueck nicht gefuehrt wird (C, KO, XOM).
+- **Einer** (LHX), dessen Zwoelfmonatsumsatz unter Entscheidung 1 als
+  ueberholt herausfaellt.
+
+### Die Aktualitaetsschranke greift jetzt auch bei der Aktienzahl
+
+Ein dritter Weg an ihr vorbei ist im Vergleichslauf aufgefallen: Die
+Verwaesserung bildet ihre eigene Reihe -- eine Einreichung, mehrere
+Geschaeftsjahre -- und laeuft weder ueber den aktuellen Wert noch ueber die
+Jahresspanne. Bei Exxon endet die verwaesserte Aktienzahl **2013**, der
+uebrige Bericht 2025; minus 4,8 Prozent im Jahr standen unbeschriftet neben
+Kennzahlen per 2026-03-31.
+
+Dieselbe Schranke, dieselbe Folge: Der Wert fehlt. Die Abdeckung von Exxon
+faellt dadurch von 67 auf 61 Prozent -- sechs Punkte, die vorher eine Zahl
+aus einem anderen Jahrzehnt waren.
+
+### Ein Ticker kann auf einen Nachfolger ohne Historie zeigen
+
+Exxon Mobil steht im Lauf mit 0 Prozent. Das ist keine Aufloesungsschwaeche:
+Der SEC-Index fuehrt ``XOM`` seit einer Umstrukturierung auf CIK 2115436,
+``ExxonMobil Holdings Corp``, und dieser Registrant hat bislang
+**ausschliesslich 10-Q eingereicht**. Es gibt keinen Jahresabschluss, also
+keine Jahresreihe und keinen Baustein fuer ein Zwoelfmonatsfenster. Die
+Historie liegt beim Vorgaenger-CIK 34088, den der Index nicht mehr nennt.
+
+Der Lauf meldet dafuer ``INSUFFICIENT_DATA``, und das ist richtig. Ein
+Rueckgriff auf den Vorgaenger-CIK waere eine eigene Entscheidung: Er hiesse,
+Zahlen einer rechtlich anderen Gesellschaft unter dem Ticker der neuen
+auszuweisen.
+
+### Die Begruendung zum zweiten Investitions-Tag war falsch
+
+ADR 0032 hat ``PaymentsToAcquireProductiveAssets`` mit der Messung behalten,
+ueber sechs Emittenten hinweg gebe es **keinen** Zeitraum, in dem beide
+Capex-Tags verschiedene Werte tragen. Ueber 191 Emittenten stimmt das nicht:
+
+```
+PCAR 2015   PropertyPlantAndEquipment  ... ProductiveAssets   660 % Abweichung
+ABT  2014   1.077 Mio                  ... 5.290 Mio          391 %
+PANW                                                          289 %
+ISRG                                                          105 %
+```
+
+17 Aktien melden ueberhaupt Capex-Widersprueche. **Die Entscheidung bleibt
+trotzdem**, aber mit tragfaehiger Begruendung statt der widerlegten:
+
+- Wo beide Tags vorliegen, gewinnt der erste, und die Abweichung wird
+  gemeldet. Der Fehler ist dort sichtbar und wirkungslos.
+- Wo nur der zweite vorliegt, macht der Emittent die Unterscheidung gar nicht
+  -- 19 der 31 betroffenen Aktien fuehren **keinen** anderen Capex-Tag,
+  darunter Home Depot, PepsiCo, Visa, Qualcomm, Chevron und Kroger.
+- Wo beide vorliegen und sich ueberlappen, stimmen sie bei 6 von 11
+  gemessenen Emittenten auf den Cent ueberein.
+
+Ihn zu streichen kostete 19 Aktien ihren freien Cashflow, seine Marge und das
+Kurs-Cashflow-Verhaeltnis -- um einen Fehler zu vermeiden, der genau dort
+auftritt, wo er ohnehin erkannt wird.
+
+**L5 (neu):** Wo ausschliesslich ``PaymentsToAcquireProductiveAssets``
+vorliegt, laesst sich nicht pruefen, ob der Emittent darunter mehr als
+Sachanlagen fasst. Ein zu hoher Investitionsbetrag ergaebe einen zu
+niedrigen freien Cashflow -- fehlerhaft in die vorsichtige Richtung, aber
+unbemerkt.
