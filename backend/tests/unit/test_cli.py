@@ -40,6 +40,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
     ContractSpec,
     EarningsProvider,
+    FundamentalDataProviderError,
     MarketDataProviderError,
     ResearchProvider,
     RunStatus,
@@ -1694,6 +1695,21 @@ class TestResearchAusgabe:
         assert "Verfahren unbekannt" in capsys.readouterr().out
 
 
+def _wirft_oserror(*_args: object, **_kwargs: object) -> None:
+    raise OSError(13, "Zugriff verweigert")
+
+
+class _KeinAbrufProvider:
+    """Meldet fuer jedes Symbol einen Ausfall -- ohne Netz."""
+
+    def fundamentals(self, stock: object, price: float | None = None) -> object:
+        raise FundamentalDataProviderError(f"kein Netz im Test ({stock!r}, {price!r})")
+
+
+def _kein_provider(_config: object) -> _KeinAbrufProvider:
+    return _KeinAbrufProvider()
+
+
 class TestFundamentalKommando:
     """Ausgabe der deterministischen Fundamentalanalyse (ADR 0032)."""
 
@@ -1796,6 +1812,51 @@ class TestFundamentalKommando:
         args = build_parser().parse_args(["fundamental"])
         assert cli.command_fundamental(args) == 2
         assert "nicht keines" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("scheitert_an", ["mkdir", "touch"])
+    def test_ein_unbeschreibbares_ziel_faellt_vor_dem_ersten_abruf_auf(
+        self,
+        scheitert_an: str,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Der Lauf ueber die Watchliste laedt rund 800 MB und dauert Minuten.
+
+        Das fehlende Verzeichnis erst beim Schreiben zu bemerken, warf den
+        ganzen Lauf weg -- gemessen am 2026-08-26 an einem Lauf ueber 191
+        Aktien, dessen Einzelwerte danach verloren waren.
+        """
+
+        class _VerbotenerProvider:
+            def fundamentals(self, stock: object, price: float | None = None) -> object:
+                raise AssertionError(f"Es darf kein Abruf beginnen ({stock!r}, {price!r})")
+
+        monkeypatch.setattr(
+            cli, "build_fundamental_data_provider", lambda _config: _VerbotenerProvider()
+        )
+        datei = tmp_path / "nicht" / "vorhanden"
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--output", str(datei)]
+        )
+        # Beide Wege muessen greifen: ein fehlendes Verzeichnis faellt beim
+        # Anlegen auf, ein schreibgeschuetztes erst beim Anfassen der Datei.
+        monkeypatch.setattr(Path, scheitert_an, _wirft_oserror)
+        assert cli.command_fundamental(args) == 2
+        assert "--output nicht beschreibbar" in capsys.readouterr().err
+
+    def test_ein_fehlendes_verzeichnis_wird_angelegt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein Tippfehler im Pfad soll auffallen, ein noch nicht angelegtes
+        Ausgabeverzeichnis nicht stoeren."""
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", _kein_provider)
+        datei = tmp_path / "artifacts" / "abdeckung.csv"
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--output", str(datei)]
+        )
+        cli.command_fundamental(args)
+        assert datei.parent.is_dir()
 
     def test_die_sammelzeile_nennt_abdeckung_und_fehlendes(
         self, capsys: pytest.CaptureFixture[str]

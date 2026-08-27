@@ -1733,6 +1733,18 @@ def command_fundamental(args: argparse.Namespace) -> int:
         )
         return 2
 
+    ziel = Path(args.output) if args.output is not None else None
+    if ziel is not None:
+        # Vor dem ersten Abruf, nicht nach dem letzten: Ein Lauf ueber die
+        # Watchliste laedt rund 800 MB und dauert Minuten. Ein fehlendes
+        # Verzeichnis erst beim Schreiben zu bemerken, warf all das weg.
+        try:
+            ziel.parent.mkdir(parents=True, exist_ok=True)
+            ziel.touch()
+        except OSError as error:
+            print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
     fehler: list[tuple[str, str]] = []
     ergebnisse: list[FundamentalSnapshot] = []
     for symbol in wanted:
@@ -1750,11 +1762,14 @@ def command_fundamental(args: argparse.Namespace) -> int:
             _print_fundamental_snapshot(snapshot)
             print()
 
+    # Erst schreiben, dann zusammenfassen: Die Sammelausgabe ist lang, und
+    # was in ihr scheitert, darf nicht die Einzelwerte des ganzen Laufs
+    # mitnehmen.
+    if ziel is not None:
+        _write_fundamental_csv(ziel, ergebnisse)
+        print(f"Einzelwerte geschrieben nach {ziel}")
     if args.summary:
         _print_fundamental_aggregate(ergebnisse, fehler, mit_kurs=args.price is not None)
-    if args.output is not None:
-        _write_fundamental_csv(Path(args.output), ergebnisse)
-        print(f"Einzelwerte geschrieben nach {args.output}")
     return 1 if fehler else 0
 
 
