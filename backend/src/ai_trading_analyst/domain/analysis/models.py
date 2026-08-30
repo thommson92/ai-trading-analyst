@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
@@ -111,6 +112,14 @@ class StockScreeningOutcome:
     bleibt das Feld leer und alles Uebrige vollstaendig; es gibt keinen
     Ersatzwert (CLAUDE.md: Analysemodule sind entkoppelt, fehlende Werte
     bleiben fehlend)."""
+    backtest: tuple[BacktestResult, ...] = ()
+    """Die historische Signalstatistik je Signalkombination (Doc 10,
+    Paragraph 7; ADR 0038) -- nur bei ``ScreeningStatus.CANDIDATE`` gefuellt.
+
+    Rechnet auf derselben bereits geladenen Kerzenreihe wie Screening und
+    Chartauswertung, ohne zusaetzlichen Abruf. Reicht die Historie im
+    Betrachtungsfenster nicht, bleibt das Feld leer und der Bericht weist
+    Punkt 5 als Luecke aus."""
 
 
 @dataclass(frozen=True, slots=True)

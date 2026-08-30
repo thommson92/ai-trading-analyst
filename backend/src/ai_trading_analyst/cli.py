@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
@@ -66,6 +68,8 @@ from ai_trading_analyst.application.measure_history_depth import (
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
 from ai_trading_analyst.bootstrap import (
+    app_version,
+    build_agent_concurrency,
     build_backtest_params,
     build_earnings_filter_params,
     build_earnings_provider,
@@ -155,6 +159,7 @@ from ai_trading_analyst.infrastructure.watchlists import (
     load_watchlist_directory,
 )
 from ai_trading_analyst.observability.logging_setup import configure_logging, get_logger
+from ai_trading_analyst.presentation.report_text import render_run
 
 _logger_cli = get_logger(__name__)
 
@@ -1973,6 +1978,92 @@ def _format_metric(metric: Metric) -> str:
     return f"{metric.value:.2f}"
 
 
+def command_report(args: argparse.Namespace) -> int:
+    """Die gespeicherten Analyseberichte eines Laufs (Doc 10, Paragraph 6.12).
+
+    Liest nur -- die Berichte entstehen im Tageslauf, nicht hier. Ein Befehl,
+    der sie neu bauen wuerde, ergaebe fuer einen alten Lauf einen anderen
+    Bericht als den gespeicherten (ADR 0039, Entscheidung 4).
+    """
+    configure_logging(LoggingConfig(level="WARNING", format="console"))
+
+    try:
+        lauf_id = uuid.UUID(args.run)
+    except ValueError:
+        print(f"--run ist keine Lauf-ID: '{args.run}'", file=sys.stderr)
+        return 2
+
+    # Vor dem ersten Datenbankzugriff: Ein nicht beschreibbares Ziel soll
+    # sofort auffallen und nicht erst, wenn alles gelesen ist.
+    ziel = Path(args.output) if args.output is not None else None
+    neu_angelegt = False
+    if ziel is not None:
+        try:
+            ziel.parent.mkdir(parents=True, exist_ok=True)
+            neu_angelegt = not ziel.exists()
+            ziel.touch()
+        except OSError as error:
+            print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
+    def ohne_ergebnis(code: int) -> int:
+        """Bricht ab, ohne eine leere Datei zurueckzulassen.
+
+        Die Probe oben legt das Ziel an, damit ein nicht beschreibbarer Pfad
+        vor dem ersten Datenbankzugriff auffaellt. Bleibt sie liegen, sieht
+        ein leerer Bericht aus wie ein Bericht ohne Inhalt -- und ueberschriebe
+        beim zweiten Versuch stillschweigend nichts.
+        """
+        if ziel is not None and neu_angelegt:
+            ziel.unlink(missing_ok=True)
+        return code
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    with SqlAlchemyUnitOfWork(session_factory) as uow:
+        # Erst nachsehen, ob es den Lauf ueberhaupt gibt: "keine Berichte"
+        # heisst bei einem vorhandenen Lauf "keine Kandidaten", bei einer
+        # falschen ID aber etwas ganz anderes. Beides gleich zu melden
+        # verschickte einen Tippfehler als Ergebnis.
+        lauf = uow.analysis_runs.get(lauf_id)
+        berichte = list(uow.stock_reports.list_for_run(lauf_id))
+
+    if lauf is None:
+        print(f"Kein Lauf mit der ID {lauf_id}", file=sys.stderr)
+        return ohne_ergebnis(1)
+
+    if args.symbol is not None:
+        gesucht = args.symbol.strip().upper()
+        berichte = [bericht for bericht in berichte if bericht.symbol == gesucht]
+        if not berichte:
+            print(f"Kein Bericht zu '{gesucht}' in Lauf {lauf_id}", file=sys.stderr)
+            return ohne_ergebnis(1)
+
+    if not berichte:
+        print(
+            f"Keine Berichte zu Lauf {lauf_id} ({lauf.status.value}) -- "
+            f"{lauf.candidates_found} Kandidaten."
+        )
+        return ohne_ergebnis(0)
+
+    if args.format == "json":
+        ausgabe = json.dumps(
+            [bericht.document for bericht in berichte], ensure_ascii=False, indent=2
+        )
+    else:
+        ausgabe = render_run([(bericht.symbol, bericht.document) for bericht in berichte])
+
+    if ziel is not None:
+        ziel.write_text(ausgabe + "\n", encoding="utf-8")
+        print(f"{len(berichte)} Bericht(e) geschrieben nach {ziel}")
+    else:
+        print(ausgabe)
+    return 0
+
+
 def command_research(args: argparse.Namespace) -> int:
     """Manueller Probelauf des Research Agent fuer ein einzelnes Symbol.
 
@@ -2192,7 +2283,15 @@ def command_dispatch(args: argparse.Namespace) -> int:
             rule,
             build_earnings_filter_params(config),
             build_technical_analysis_params(config),
+            build_backtest_params(config),
             expected_last_candle=erwartete_kerze,
+            agent_concurrency=build_agent_concurrency(config),
+            app_version=app_version(),
+            # Nur im Tageslauf, nicht bei einem manuellen 'screen': Eine
+            # Push-Nachricht auf Zuruf waere ueberraschend (ADR 0040).
+            notifier=notifier,
+            notify_without_candidates=config.notifications.send_when_no_candidates,
+            market_timezone=config.market.timezone,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
@@ -2760,6 +2859,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Uebersteuert research.max_fetches nur fuer diesen Lauf.",
     )
     research.set_defaults(handler=command_research)
+
+    report = subparsers.add_parser(
+        "report",
+        help="Die gespeicherten Analyseberichte eines Laufs anzeigen (ADR 0039).",
+    )
+    report.add_argument(
+        "--run",
+        required=True,
+        help="Lauf-ID (UUID). Zu finden ueber die API oder in der Tabelle analysis_runs.",
+    )
+    report.add_argument(
+        "--symbol",
+        default=None,
+        help="Nur den Bericht dieser Aktie, statt aller Kandidaten des Laufs.",
+    )
+    report.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help=(
+            "'text' ist die lesbare Fassung, 'json' das gespeicherte Dokument "
+            "unveraendert -- die verbindliche Fassung."
+        ),
+    )
+    report.add_argument(
+        "--output",
+        default=None,
+        help="Datei statt Konsole. Wird vor dem ersten Datenbankzugriff geprueft.",
+    )
+    report.set_defaults(handler=command_report)
     return parser
 
 

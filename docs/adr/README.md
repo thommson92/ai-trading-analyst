@@ -70,6 +70,11 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) | Niveauzahlen und Bewertung auf die letzten zwölf Monate statt auf den Jahresabschluss | Angenommen (löst Entscheidung 3 aus ADR 0032 ab) |
 | [0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) | Aktualitätsschranke, Umsatz ohne Vetorecht, drei zugelassene Abweichler | Angenommen (ergänzt ADR 0032 und 0033; Nachtrag 2026-08-27 löst L1 aus ADR 0032, L3 aus ADR 0033 und L4 ein) |
 | [0035](0035-fundamentaldaten-im-tageslauf.md) | Fundamentaldaten im Tageslauf — nur für Kandidaten, Kurs aus der letzten abgeschlossenen Kerze, je Lauf gespeichert | Angenommen |
+| [0036](0036-nativer-windows-betrieb.md) | Nativer Windows-Betrieb ist das Deployment des MVP -- keine Container | Angenommen |
+| [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
+| [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
+| [0039](0039-report-generator.md) | Report Generator -- achtzehn Punkte, Luecken benannt, ohne Sprachmodell | Angenommen (fuehrt die Berichtsschema-Version ein, die Doc 10 Paragraph 8 fordert) |
+| [0040](0040-inhalt-der-ergebnismeldung.md) | Die Ergebnismeldung nennt Symbole und Signalgruende -- keine Kurse | Angenommen (entscheidet E7 des Audits vom 2026-08-23; lockert ADR 0024 bewusst) |
 
 ## Offene Entscheidungen
 
@@ -99,13 +104,22 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Historische Berichtstermine für das Backtesting — **zurückgestellt.**
   Vorgemerkter Weg ist SEC EDGAR (Einreichungsdatum des `8-K` mit Item
   2.02): amtlich, kostenlos und ohne Lizenzbeschränkung. Siehe ADR 0017,
-  Einschränkung L9.
+  Einschränkung L9. Die Abweichung ist seit
+  [ADR 0038](0038-backtest-im-tageslauf.md) am Ergebnis gekennzeichnet
+  (`BacktestResult.earnings_exclusion_applied`) statt unsichtbar; zu
+  entscheiden ist sie vor Sprint 5, wenn das Scoring die Zahl braucht.
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
   bestätigt).
 - Benachrichtigungskanal (F10) — **entschieden.** Telegram Bot API, siehe
   [ADR 0024](0024-benachrichtigungskanal-telegram.md).
+- Inhalt der Ergebnis-Benachrichtigung — **entschieden.** Symbole,
+  Signaltypen, Fehlsignalrisiko als Stufe und der Hinweis auf einen
+  unbekannten Berichtstermin; keine Kurse, keine Kennzahlen, kein Link.
+  Siehe [ADR 0040](0040-inhalt-der-ergebnismeldung.md), das ADR 0024
+  bewusst lockert. Ob eine Punktzahl hineingehoert, ist neu zu entscheiden,
+  sobald es ein Scoring gibt.
 - KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
   gestuften Modellprofilen je Analyseaufgabe, siehe
   [ADR 0021](0021-ki-anbindung-anthropic-api.md).
@@ -136,4 +150,9 @@ ADR, sobald die nötigen Informationen vorliegen:
   Bei Kalenderjahr-Bilanzierern fällt der Liquiditätsgrad dadurch aus
   (gemessen an Coca-Cola). Siehe [ADR 0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md),
   Einschränkung L3.
+- Deployment-Zielbild -- **entschieden.** Der native Betrieb auf dem
+  Windows-Server ist das Deployment des MVP; Containerisierung wird zum
+  Dashboard-Sprint neu bewertet. Siehe
+  [ADR 0036](0036-nativer-windows-betrieb.md), das Doc 13 und Doc 10
+  Paragraph 14 abloest.
 - Externer Zugriff auf das Dashboard (F12)

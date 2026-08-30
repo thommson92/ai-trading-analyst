@@ -36,6 +36,7 @@ from ai_trading_analyst.domain.fundamentals import (
     SourceRef,
     TagConflict,
 )
+from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -79,6 +80,7 @@ from .orm import (
     ScreeningResultOrm,
     SignalEventOrm,
     StockOrm,
+    StockReportOrm,
     TechnicalZoneOrm,
 )
 
@@ -321,6 +323,7 @@ _FUNDAMENTALS_FIELDS = (
     "status",
     "analysis_version",
     "evaluated_at",
+    "company_name",
     "reason",
     "price_used",
     "fiscal_years",
@@ -366,6 +369,7 @@ def _fundamentals_columns(snapshot: FundamentalSnapshot | None) -> dict[str, Any
         "fundamentals_status": snapshot.status,
         "fundamentals_analysis_version": snapshot.analysis_version,
         "fundamentals_evaluated_at": snapshot.evaluated_at,
+        "fundamentals_company_name": snapshot.company_name,
         "fundamentals_reason": snapshot.reason,
         "fundamentals_price_used": snapshot.price_used,
         "fundamentals_fiscal_years": list(snapshot.fiscal_years),
@@ -391,6 +395,7 @@ def _fundamentals_from_row(row: ScreeningResultOrm) -> FundamentalSnapshot | Non
         status=FundamentalStatus(row.fundamentals_status),
         evaluated_at=row.fundamentals_evaluated_at,
         analysis_version=row.fundamentals_analysis_version or "",
+        company_name=row.fundamentals_company_name,
         metrics={
             MetricName(metrik.name): Metric(
                 name=MetricName(metrik.name),
@@ -961,21 +966,74 @@ def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[Backtes
                 history_start=first.history_start,
                 history_end=first.history_end,
                 horizons=horizons,
+                earnings_exclusion_applied=first.earnings_exclusion_applied,
             )
         )
     return tuple(results)
+
+
+class SqlAlchemyStockReportRepository:
+    """Berichte schreiben und je Lauf wieder lesen (ADR 0039).
+
+    Kein Update-Pfad. Das Dokument geht als JSONB hinein und kommt unveraendert
+    heraus -- es ist die verbindliche Fassung, nicht eine Ableitung, die man
+    beim Lesen neu bauen duerfte.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, report: StockReport) -> None:
+        self._session.add(
+            StockReportOrm(
+                id=uuid.uuid4(),
+                analysis_run_id=report.analysis_run_id,
+                stock_id=report.stock_id,
+                created_at=report.created_at,
+                report_schema_version=report.report_schema_version,
+                app_version=report.app_version,
+                scoring_version=report.scoring_version,
+                recommendation=report.recommendation,
+                swing_score=report.swing_score,
+                investment_score=report.investment_score,
+                summary=report.summary,
+                document=as_document(report),
+            )
+        )
+
+    def list_for_run(self, analysis_run_id: uuid.UUID) -> Sequence[StoredReport]:
+        rows = (
+            self._session.execute(
+                select(StockReportOrm)
+                .where(StockReportOrm.analysis_run_id == analysis_run_id)
+                .order_by(StockReportOrm.created_at)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            StoredReport(
+                symbol=row.stock.symbol,
+                created_at=row.created_at,
+                report_schema_version=row.report_schema_version,
+                app_version=row.app_version,
+                document=row.document,
+            )
+            for row in rows
+        ]
 
 
 class SqlAlchemyBacktestResultRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def add(self, result: BacktestResult) -> None:
+    def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
         sorted_signal_types = sorted(signal_type.value for signal_type in result.signal_types)
         rows = [
             BacktestResultOrm(
                 id=uuid.uuid4(),
                 stock_id=result.stock_id,
+                analysis_run_id=analysis_run_id,
                 signal_types=sorted_signal_types,
                 signal_rule_version=result.signal_rule_version,
                 evaluated_at=result.evaluated_at,
@@ -991,6 +1049,7 @@ class SqlAlchemyBacktestResultRepository:
                 drawdown=horizon.drawdown,
                 held_above_entry_rate=horizon.held_above_entry_rate,
                 confidence=horizon.confidence,
+                earnings_exclusion_applied=result.earnings_exclusion_applied,
             )
             for horizon in result.horizons
         ]
@@ -1005,3 +1064,4 @@ class SqlAlchemyBacktestResultRepository:
             .all()
         )
         return _group_rows_into_results(rows)
+

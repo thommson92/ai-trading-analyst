@@ -18,8 +18,38 @@ Ein Skalar-``timeout`` legt denselben Wert auf Verbindungsaufbau, Lesen,
 Schreiben und Pool. Wer den Lesetimeout gross genug fuer eine echte
 Recherche waehlt, macht damit unbemerkt auch den Verbindungsaufbau
 minutenlang geduldig -- eine unerreichbare Gegenstelle blockiert dann einen
-der vier Arbeiter, statt sofort aufzugeben.
+Platz im Agenten-Pool, statt sofort aufzugeben.
 """
+
+
+TECHNISCHES_VERSAGEN: tuple[type[anthropic.APIError], ...] = (
+    anthropic.APIConnectionError,
+    anthropic.RateLimitError,
+    anthropic.InternalServerError,
+)
+"""Fehlerarten, bei denen ein Ausweichmodell versucht werden darf (ADR 0037).
+
+ADR 0021 laesst den Fallback ausdruecklich nur bei **technischem Versagen**
+greifen -- „Timeout, Ratenlimit, Providerfehler", „nie als stille
+Qualitaetsminderung ohne Kennzeichnung". Beide Adapter fingen bis dahin
+``anthropic.APIError``, und darunter faellt auch ein 400 oder 404: Ein
+vertippter Modellname im Profil fuehrte damit zum Ausweichmodell, statt
+aufzufallen (ADR 0026, offener Punkt).
+
+Die Trennlinie: Ein 400/404 sagt „die Anfrage ist falsch" -- sie wird mit
+einem anderen Modell nicht richtiger. Ein Timeout, ein Ratenlimit oder ein
+5xx sagt „die Anfrage war in Ordnung, der Dienst konnte gerade nicht".
+
+``APIConnectionError`` schliesst ``APITimeoutError`` mit ein.
+
+Bewusst eine **Aufzaehlung**, keine Regel ueber ``status_code``: Ein neuer
+Fehlertyp im SDK landet damit ausserhalb und schlaegt sofort durch. Das ist
+die sichere Richtung -- er faellt auf, statt still auszuweichen.
+"""
+
+
+def ist_technisches_versagen(error: anthropic.APIError) -> bool:
+    return isinstance(error, TECHNISCHES_VERSAGEN)
 
 
 def build_client(

@@ -42,7 +42,7 @@ from ai_trading_analyst.domain.research import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
-from .client import build_client
+from .client import build_client, ist_technisches_versagen
 
 _logger = get_logger(__name__)
 
@@ -548,13 +548,13 @@ class AnthropicResearchProvider(ResearchProvider):
         try:
             return self._attempt(stock, self._model)
         except anthropic.APIError as error:
-            if self._fallback_model is None:
+            if self._fallback_model is None or not ist_technisches_versagen(error):
                 raise ResearchProviderError(
                     f"Research fuer '{stock.symbol}' konnte nicht abgerufen werden: {error}"
                 ) from error
             _logger.warning(
-                "Research fuer %s mit Modell %s fehlgeschlagen (%s) -- "
-                "Versuch mit Ausweichmodell %s (ModelProfile.fallback_model)",
+                "Research fuer %s mit Modell %s technisch gescheitert (%s) -- "
+                "Versuch mit Ausweichmodell %s (ModelProfile.fallback_model, ADR 0037)",
                 stock.symbol,
                 self._model,
                 error,

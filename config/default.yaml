@@ -151,15 +151,30 @@ llm:
   # Modell-Identifier vor dem ersten produktiven Lauf gegen den dann
   # aktuellen Anthropic-Katalog und dessen Preise pruefen -- sie aendern
   # sich unabhaengig von diesem Projekt.
+  #
+  # fallback_model greift NUR bei technischem Versagen -- Timeout,
+  # Verbindungsabbruch, Ratenlimit, 5xx (ADR 0037). Ein 400 oder 404 schlaegt
+  # sofort durch: Ein vertippter Modellname soll auffallen und nicht still
+  # ein anderes Modell verwenden.
+  #
+  # Ausgewichen wird jeweils auf die ANDERE Stufe, auch nach oben. Der
+  # haeufigste technische Ausfall ist das Ratenlimit, und das zaehlt je
+  # Modell getrennt -- ein Ausweichmodell derselben Stufe brachte nichts. Die
+  # verwendete Modellversion steht an jedem Ergebnis, die Abweichung ist also
+  # sichtbar und keine stille Qualitaetsaenderung (ADR 0021).
   provider: anthropic
   research:
     model: claude-sonnet-5
+    fallback_model: claude-haiku-4-5-20251001
   technical:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
   fundamental:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
   report:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
 
 research:
   # Recherchequellen des Research Agent
@@ -192,6 +207,12 @@ research:
   # Wert (VERBINDUNGSAUFBAU_SEKUNDEN im Adapter). Ein Skalar-Timeout legte
   # frueher denselben Wert auf beides.
   #
+  # Gleichzeitige Recherche-Aufrufe -- EIGENER Pool, getrennt vom Technical
+  # Agent (ADR 0037, Risiko R9). Bewusst klein: Ein Aufruf dauert rund 15
+  # Minuten und kostet ~0,58 USD. Mehr Nebenlaeufigkeit verkuerzt nicht den
+  # einzelnen Aufruf, sie erhoeht nur, wie viele teure Gespraeche gleichzeitig
+  # offen sind.
+  max_concurrent_calls: 2
   # Frueher 300. Am 2026-08-24 lagen 921 Sekunden zwischen zwei Logzeilen --
   # 300 + 300 + ~320, also zwei abgelaufene Versuche und ein erfolgreicher.
   # Die teuerste Form des Fehlschlags: Eine abgelaufene Anfrage erzeugt
@@ -202,8 +223,8 @@ research:
   # unterscheidet nicht nach Fehlerart: APITimeoutError gilt ihm
   # bedingungslos als wiederholbar. Eine Wiederholung traefe damit genau den
   # Fall, gegen den der lange Lesetimeout gebaut ist -- 900 s mal zwei
-  # Versuche sind 1800 s Blockade eines von vier Plaetzen, gegen 900 s beim
-  # alten Stand (300 s mal drei). Und der zweite Versuch startet die
+  # Versuche sind 1800 s Blockade eines der research-Plaetze, gegen 900 s
+  # beim alten Stand (300 s mal drei). Und der zweite Versuch startet die
   # serverseitige Werkzeugschleife von vorn.
   #
   # Ein ausgefallener Bericht kostet dagegen wenig: Er wird UNAVAILABLE und
@@ -271,6 +292,12 @@ technical_agent:
   # Werkzeugaufruf ab, und ein abgeschnittener Aufruf wird verworfen, nicht
   # halb verwertet.
   max_output_tokens: 2000
+  # Gleichzeitige Einordnungen -- EIGENER Pool, getrennt von research
+  # (ADR 0037, Risiko R9). Groesser als dort, weil eine Einordnung Sekunden
+  # dauert und Bruchteile eines Cents kostet. Vorher teilten sich beide
+  # Agenten vier Plaetze, und eine haengende Recherche belegte bis zu 900 s
+  # einen davon, waehrend die kurzen Einordnungen warteten.
+  max_concurrent_calls: 4
   # Deutlich kürzer als bei research (900 s): Dort laufen serverseitige
   # Werkzeuge, hier ist es eine einzelne Anfrage ohne sie.
   request_timeout_seconds: 60

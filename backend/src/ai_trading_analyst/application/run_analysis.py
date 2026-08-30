@@ -8,6 +8,7 @@ laeuft ausschliesslich ueber ``ai_trading_analyst.domain.screening.evaluate_cand
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -33,6 +34,11 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.backtesting import (
+    BacktestParameters,
+    BacktestResult,
+    compute_backtest_results,
+)
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
     EarningsFilterResult,
@@ -40,7 +46,14 @@ from ai_trading_analyst.domain.earnings import (
     evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.report import (
+    StockReport,
+    as_document,
+    build_report,
+    render_notification,
+)
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
+from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
@@ -68,12 +81,27 @@ Ein Tippfehler landete sonst im ``else``-Zweig und wiese ein
 Research-Ergebnis dem Feld der Einordnung zu.
 """
 
-_MAX_CONCURRENT_AGENT_CALLS = 4
-"""Obergrenze gleichzeitiger Modellaufrufe ueber **beide** Agenten hinweg.
-Jeder Aufruf ist unabhaengig (kein gemeinsamer veraenderlicher Zustand ausser
-dem laut Anthropic-SDK threadsicheren HTTP-Client) -- eine unbegrenzte
-Nebenlaeufigkeit wuerde bei vielen Kandidaten gleichzeitig ebenso viele teure
-LLM-Gespraeche parallel auslösen, statt nur die Wartezeit zu verkuerzen."""
+@dataclass(frozen=True, slots=True)
+class AgentConcurrency:
+    """Wie viele Modellaufrufe je Agent gleichzeitig laufen duerfen.
+
+    **Je Agent ein eigener Pool** (ADR 0037, Risiko R9). Vorher teilten sich
+    beide vier Plaetze; eine haengende Recherche belegte bis zu
+    ``research.request_timeout_seconds`` (900 s) einen davon, waehrend die
+    Einordnungen warteten -- die bei einem realen Lauf Sekunden dauern.
+
+    Eine Obergrenze braucht es trotzdem je Pool: Jeder Aufruf ist unabhaengig
+    (kein gemeinsamer veraenderlicher Zustand ausser dem laut Anthropic-SDK
+    threadsicheren HTTP-Client), aber unbegrenzte Nebenlaeufigkeit wuerde bei
+    vielen Kandidaten ebenso viele teure Gespraeche gleichzeitig auslösen,
+    statt die Wartezeit je Aufruf zu verkuerzen.
+    """
+
+    research: int = 2
+    technical: int = 4
+
+    def fuer(self, art: _Agentenart) -> int:
+        return self.research if art == "research" else self.technical
 
 
 @dataclass
@@ -89,6 +117,7 @@ class _PreparedOutcome:
     technical: TechnicalSnapshot | None
     fundamentals: FundamentalSnapshot | None
     earnings: EarningsFilterResult | None
+    backtest: tuple[BacktestResult, ...]
     needs_research: bool
     research: ResearchReport | None = None
     technical_assessment: TechnicalAssessment | None = None
@@ -156,7 +185,13 @@ class RunAnalysisUseCase:
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
         technical_params: TechnicalAnalysisParameters,
+        backtest_params: BacktestParameters,
         expected_last_candle: datetime | None = None,
+        agent_concurrency: AgentConcurrency | None = None,
+        app_version: str = "",
+        notifier: Notifier | None = None,
+        notify_without_candidates: bool = False,
+        market_timezone: str = "America/New_York",
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -167,7 +202,13 @@ class RunAnalysisUseCase:
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
         self._technical_params = technical_params
+        self._backtest_params = backtest_params
         self._expected_last_candle = expected_last_candle
+        self._agent_concurrency = agent_concurrency or AgentConcurrency()
+        self._app_version = app_version
+        self._notifier = notifier
+        self._notify_without_candidates = notify_without_candidates
+        self._market_timezone = market_timezone
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -255,11 +296,37 @@ class RunAnalysisUseCase:
             uow.analysis_runs.update(run)
             uow.commit()
 
-        return AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+        summary = AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+        self._notify(summary)
+        return summary
+
+    def _notify(self, summary: AnalysisRunSummary) -> None:
+        """Die kompakte Zusammenfassung an den Kanal (ADR 0040).
+
+        Nur wenn ein Notifier hineingereicht wurde -- der Tageslauf tut das,
+        ein manuelles ``cli screen`` nicht. Ein unerreichbarer Kanal darf den
+        Lauf nicht nachtraeglich scheitern lassen (ADR 0024): Er ist eine
+        Systemgrenze, und das Ergebnis steht zu diesem Zeitpunkt bereits in
+        der Datenbank.
+        """
+        if self._notifier is None:
+            return
+        if not summary.run.candidates_found and not self._notify_without_candidates:
+            return
+        try:
+            # Auch das Rendern gehoert hinein: Der Docstring sagt, dass der
+            # Kanal den Lauf nicht nachtraeglich scheitern laesst, und das
+            # Ergebnis steht zu diesem Zeitpunkt bereits in der Datenbank.
+            betreff, text = render_notification(summary, timezone=self._market_timezone)
+            self._notifier.send(betreff, text)
+        except NotifierError as error:
+            _logger.error("Ergebnismeldung ging nicht raus: %s", error)
+        except Exception:
+            _logger.exception("Ergebnismeldung liess sich nicht erzeugen")
 
     def _prepare_stock(self, stock: Stock) -> _PreparedItem:
         """Screening und Earnings-Filter fuer eine Aktie -- ohne Research
-        (folgt nebenlaeufig in ``_run_research_concurrently``) und ohne
+        (folgt nebenlaeufig in ``_run_agents_concurrently``) und ohne
         Persistenz (folgt sequentiell in ``_persist_outcome``)."""
         try:
             series = self._market_data_provider.get_candle_series(stock)
@@ -271,6 +338,7 @@ class RunAnalysisUseCase:
             technical: TechnicalSnapshot | None = None
             fundamentals: FundamentalSnapshot | None = None
             earnings: EarningsFilterResult | None = None
+            backtest: tuple[BacktestResult, ...] = ()
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
                 # Bewusst vor dem Earnings-Filter und unabhaengig von dessen
@@ -282,6 +350,9 @@ class RunAnalysisUseCase:
                 technical = compute_technical_snapshot(
                     series, decision_index, self._technical_params, evaluated_at
                 )
+                # Aus demselben Grund und auf derselben Kerzenserie: Der
+                # Backtest rechnet ohne Netz (ADR 0038).
+                backtest = self._evaluate_backtest(stock, series, evaluated_at)
                 # Der Kurs der letzten **abgeschlossenen** Kerze, genau der,
                 # auf dem Screening und Chartauswertung stehen (ADR 0035,
                 # Entscheidung 2). Das Fundamentalmodul beschafft keinen
@@ -302,6 +373,7 @@ class RunAnalysisUseCase:
                 technical=technical,
                 fundamentals=fundamentals,
                 earnings=earnings,
+                backtest=backtest,
                 needs_research=needs_research,
             )
         except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
@@ -310,15 +382,12 @@ class RunAnalysisUseCase:
     def _run_agents_concurrently(self, prepared: list[_PreparedItem]) -> None:
         """Phase 2: die langsamen Modellaufrufe, alle auf einmal.
 
-        Beide Agenten teilen sich einen Pool. Getrennte Pools waeren
-        latenzguenstiger -- eine haengende Recherche belegt bis zu
+        **Je Agent ein eigener Pool** (ADR 0037, Risiko R9). Bei einem
+        gemeinsamen Pool belegte eine haengende Recherche bis zu
         ``research.request_timeout_seconds`` (900 s) einen der vier Plaetze,
-        waehrend die kurzen Einordnungen warten --, verdoppeln aber die
-        Nebenlaeufigkeitsstruktur. Ein realer Lauf braucht rund 15 Minuten je
-        Symbol (Messung 2026-08-24), die Grenze ist also nicht theoretisch.
-        Bei der Groesse der Watchlist ist ein gemeinsamer Pool trotzdem der
-        einfachere Weg; der Ausweg ist benannt, nicht gebaut (Risiko R9 der
-        Audit-Nachverfolgung).
+        waehrend die Einordnungen warteten -- die Sekunden dauern. Ein realer
+        Recherche-Aufruf braucht rund 15 Minuten (Messung 2026-08-24), die
+        Grenze war also nicht theoretisch.
 
         Zugewiesen wird ausschliesslich im Hauptthread aus ``as_completed``
         heraus -- die Arbeiter schreiben nichts.
@@ -339,13 +408,31 @@ class RunAnalysisUseCase:
         if not auftraege:
             return
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(_MAX_CONCURRENT_AGENT_CALLS, len(auftraege))
-        ) as executor:
-            futures = {
-                executor.submit(self._agent_result, item, art): (item, art)
-                for item, art in auftraege
-            }
+        nach_art: dict[_Agentenart, list[_PreparedOutcome]] = {"research": [], "technical": []}
+        for item, art in auftraege:
+            nach_art[art].append(item)
+
+        # ExitStack statt geschachtelter with-Bloecke: Beide Pools muessen
+        # offen sein, waehrend ``as_completed`` ueber die Auftraege beider
+        # laeuft. Geschachtelt liefe der aeussere Pool sonst leer, bis der
+        # innere fertig ist -- genau die Serialisierung, die R9 beseitigt.
+        with contextlib.ExitStack() as stack:
+            futures: dict[
+                concurrent.futures.Future[ResearchReport | TechnicalAssessment],
+                tuple[_PreparedOutcome, _Agentenart],
+            ] = {}
+            for art, posten in nach_art.items():
+                if not posten:
+                    continue
+                executor = stack.enter_context(
+                    concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(self._agent_concurrency.fuer(art), len(posten)),
+                        thread_name_prefix=f"agent-{art}",
+                    )
+                )
+                for item in posten:
+                    futures[executor.submit(self._agent_result, item, art)] = (item, art)
+
             for future in concurrent.futures.as_completed(futures):
                 item, art = futures[future]
                 try:
@@ -410,12 +497,56 @@ class RunAnalysisUseCase:
             technical_assessment=item.technical_assessment,
             earnings=item.earnings,
             research=item.research,
+            backtest=item.backtest,
         )
+        bericht = self._build_report(outcome)
         with self._uow_factory() as uow:
             uow.stocks.add(item.stock)
             uow.screening_results.add(outcome)
+            # In derselben Transaktion wie das Screening-Ergebnis: Beide
+            # gehoeren zu demselben Lauf und derselben Kerze, eines ohne das
+            # andere waere ein halber Datensatz (ADR 0038).
+            for backtest_result in item.backtest:
+                uow.backtest_results.add(backtest_result, run.id)
+            if bericht is not None:
+                uow.stock_reports.add(bericht)
             uow.commit()
         return outcome
+
+    def _build_report(self, outcome: StockScreeningOutcome) -> StockReport | None:
+        """Der Bericht zu einem Kandidaten -- oder ``None``.
+
+        Nur fuer Kandidaten (ADR 0039): Ueber sie wird berichtet, ueber die
+        uebrigen nicht. Ein Lauf ohne Kandidaten hinterlaesst keine Berichte;
+        gespeichert wird er trotzdem, in ``analysis_runs``.
+
+        **Ausserhalb der Transaktion und mit eigener Fehlerisolation.** Der
+        Bericht ist ein abgeleitetes Artefakt: Er fuehrt zusammen, was schon
+        gerechnet ist. Scheitert das Zusammenfuehren -- etwa weil ein
+        Teilergebnis ein Feld traegt, das die Dokumenterzeugung nicht kennt --,
+        darf das nicht das deterministische Screening-Ergebnis kosten, das
+        daneben steht. Es waere genau die Kopplung, die CLAUDE.md ausschliesst.
+        """
+        if outcome.result.status != ScreeningStatus.CANDIDATE:
+            return None
+        try:
+            bericht = build_report(
+                outcome, created_at=datetime.now(UTC), app_version=self._app_version
+            )
+            # Eine Vorprobe, deren Ergebnis verworfen wird: Das Repository
+            # bildet das Dokument selbst, aber erst **innerhalb** der
+            # Transaktion -- ein Fehler dabei risse das Screening-Ergebnis mit.
+            # Hier faellt er vorher auf und kostet nur den Bericht. Der Preis
+            # ist ein zweiter Durchlauf je Kandidat.
+            as_document(bericht)
+        except Exception:
+            _logger.exception(
+                "Bericht fuer %s liess sich nicht erzeugen -- das Screening-Ergebnis "
+                "bleibt davon unberuehrt",
+                outcome.stock.symbol,
+            )
+            return None
+        return bericht
 
     def _persist_error(
         self, run: AnalysisRun, stock: Stock, exc: Exception
@@ -430,6 +561,36 @@ class RunAnalysisUseCase:
             uow.processing_errors.add(error)
             uow.commit()
         return error
+
+    def _evaluate_backtest(
+        self, stock: Stock, series: CandleSeries, evaluated_at: datetime
+    ) -> tuple[BacktestResult, ...]:
+        """Die historische Signalstatistik einer bereits qualifizierten Aktie
+        (Doc 10, Paragraph 7; ADR 0038).
+
+        Reine Domain-Rechnung auf der schon geladenen Kerzenserie -- kein
+        Netz, keine externe Quelle.
+
+        Gefangen wird ausschliesslich der eine dokumentierte Fall: Im
+        Betrachtungsfenster liegt keine Kerze, dann gibt es keine Statistik
+        und der Bericht weist Punkt 5 als Luecke aus. Jeder andere Fehler
+        waere ein Programmfehler und schlaegt bewusst in die Fehlerisolation
+        je Aktie durch, statt still zu verschwinden.
+        """
+        try:
+            return compute_backtest_results(
+                series,
+                stock_id=stock.id,
+                candidate_params=self._candidate_rule_params,
+                backtest_params=self._backtest_params,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+            )
+        except ValueError as error:
+            _logger.warning(
+                "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
+            )
+            return ()
 
     def _evaluate_fundamentals(self, stock: Stock, price: float) -> FundamentalSnapshot | None:
         """Die Fundamentalkennzahlen einer bereits qualifizierten Aktie.
@@ -505,7 +666,7 @@ class RunAnalysisUseCase:
         stempelt seinen eigenen, tatsaechlichen Bearbeitungszeitpunkt --
         Research ist ein mehrere Gespraechsrunden langer, nebenlaeufig zu
         anderen Aktien laufender Vorgang (siehe
-        ``RunAnalysisUseCase._run_research_concurrently``), keine
+        ``RunAnalysisUseCase._run_agents_concurrently``), keine
         Momentaufnahme wie der Earnings-Filter. ``evaluated_at`` wird nur im
         Fehlerfall unten verwendet, wo kein eigener Zeitpunkt vom Anbieter
         vorliegt.

@@ -17,6 +17,7 @@ from datetime import date
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import (
@@ -59,6 +60,15 @@ _TECHNICAL_PARAMS = TechnicalAnalysisParameters()
 Fenster: Die Fixture-Serie ist lang genug, und damit prueft dieser Lauf
 zugleich, dass die ausgelieferten Werte in sich stimmig sind."""
 
+_BACKTEST_PARAMS = BacktestParameters(
+    horizons=(5, 10, 20),
+    cooldown_candles=5,
+    minimum_sample_size=10,
+    normal_confidence_sample_size=30,
+    history_years=5,
+)
+"""Aus demselben Grund die ausgelieferten Werte aus ``config/default.yaml``."""
+
 
 class _AlwaysFailingMarketDataProvider:
     def list_stocks(self) -> tuple[Stock, ...]:
@@ -82,6 +92,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         _PARAMS,
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
+        _BACKTEST_PARAMS,
     )
 
     summary = use_case.execute()
@@ -165,6 +176,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         _PARAMS,
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
+        _BACKTEST_PARAMS,
     )
 
     summary = use_case.execute()

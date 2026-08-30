@@ -560,15 +560,17 @@ def _fehler(status: int, typ: str) -> httpx.Response:
 
 
 class TestAusweichmodell:
-    """Bewusst mit einem 400 statt eines 529: Das SDK wiederholt
-    ueberlastungsnahe Statuscodes von sich aus mit **demselben** Modell. Ein
-    Test gegen 529 waere gruen, ohne dass der Ausweichpfad je durchlaufen
-    wurde -- genau das ist beim Schreiben dieser Tests passiert.
+    """Der Fallback greift nur bei technischem Versagen (ADR 0037).
+
+    ``max_retries=0`` in allen Faellen mit 429: Das SDK wiederholt
+    ueberlastungsnahe Statuscodes sonst von sich aus mit **demselben** Modell.
+    Der Test waere dann gruen, ohne dass der Ausweichpfad je durchlaufen wurde
+    -- genau das ist beim Schreiben der ersten Fassung passiert.
     """
 
-    def test_bei_einem_apifehler_wird_das_ausweichmodell_versucht(self) -> None:
+    def test_bei_technischem_versagen_wird_das_ausweichmodell_versucht(self) -> None:
         antworten = [
-            _fehler(400, "invalid_request_error"),
+            _fehler(429, "rate_limit_error"),
             httpx.Response(200, json=_message([_submit_block()])),
         ]
 
@@ -576,7 +578,7 @@ class TestAusweichmodell:
             return antworten.pop(0)
 
         assessment = AnthropicTechnicalInterpreter(
-            _settings(fallback_model="claude-haiku-4-5"),
+            _settings(fallback_model="claude-haiku-4-5", max_retries=0),
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         ).interpret(AAPL, snapshot())
 
@@ -586,19 +588,38 @@ class TestAusweichmodell:
         # nur eine SDK-interne Wiederholung mit dem *ersten* Modell war.
         assert assessment.model == "claude-haiku-4-5"
 
+    def test_ein_vertippter_modellname_weicht_nicht_aus(self) -> None:
+        """Ein 404 auf den Modellnamen wird mit einem anderen Modell nicht
+        richtiger. Vorher fing der Fallback ``anthropic.APIError`` und damit
+        auch diesen Fall -- der Tippfehler lief still ueber das
+        Ausweichmodell durch (ADR 0026, offener Punkt; ADR 0037)."""
+        modelle: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            modelle.append(str(json.loads(request.content)["model"]))
+            return _fehler(404, "not_found_error")
+
+        with pytest.raises(TechnicalInterpreterError, match="AAPL"):
+            AnthropicTechnicalInterpreter(
+                _settings(fallback_model="claude-haiku-4-5"),
+                http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+            ).interpret(AAPL, snapshot())
+
+        assert modelle == ["claude-haiku-4-5-20251001"], (
+            "Das Ausweichmodell wurde entgegen ADR 0037 versucht"
+        )
+
     def test_ohne_ausweichmodell_wird_der_fehler_durchgereicht(self) -> None:
         with pytest.raises(TechnicalInterpreterError):
-            _interpreter(lambda request: _fehler(400, "invalid_request_error")).interpret(
+            _interpreter(lambda request: _fehler(429, "rate_limit_error")).interpret(
                 AAPL, snapshot()
             )
 
     def test_scheitern_beide_modelle_nennt_die_meldung_beide(self) -> None:
         with pytest.raises(TechnicalInterpreterError, match="noch ueber"):
             AnthropicTechnicalInterpreter(
-                _settings(fallback_model="claude-haiku-4-5"),
+                _settings(fallback_model="claude-haiku-4-5", max_retries=0),
                 http_client=httpx.Client(
-                    transport=httpx.MockTransport(
-                        lambda request: _fehler(400, "invalid_request_error")
-                    )
+                    transport=httpx.MockTransport(lambda request: _fehler(429, "rate_limit_error"))
                 ),
             ).interpret(AAPL, snapshot())

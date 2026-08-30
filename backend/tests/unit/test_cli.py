@@ -8,6 +8,7 @@ ausdruecklich nicht Gegenstand dieser Tests.
 
 from __future__ import annotations
 
+import argparse
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -1955,6 +1956,77 @@ class TestFundamentalKommando:
         """Nicht 0.0: Ein Kurs von null waere eine Angabe, keine fehlende."""
         args = build_parser().parse_args(["fundamental", "--symbols", "AAPL"])
         assert args.price is None
+
+
+class TestReportKommando:
+    """``cli report`` liest nur (ADR 0039). Geprueft werden die Wege, die ohne
+    Datenbank erreichbar sind -- Argumentpruefung und Ausgabeform."""
+
+    def test_eine_kaputte_lauf_id_bricht_vor_der_datenbank_ab(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def nie(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Die Datenbank wurde entgegen der Erwartung geoeffnet")
+
+        monkeypatch.setattr(cli, "_open_database", nie)
+
+        code = cli.command_report(
+            argparse.Namespace(run="keine-uuid", symbol=None, format="text", output=None)
+        )
+
+        assert code == 2
+        assert "keine Lauf-ID" in capsys.readouterr().err
+
+    def test_ein_nicht_beschreibbares_ziel_bricht_vor_der_datenbank_ab(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Derselbe Fehler hat bei ``cli fundamental`` schon einmal einen
+        vollstaendigen Watchlist-Lauf gekostet -- geprueft wird deshalb, dass
+        die Pruefung wirklich vorher greift.
+
+        Das Ziel liegt **unterhalb einer regulaeren Datei**. Das scheitert auf
+        jedem Betriebssystem, weil eine Datei kein Verzeichnis sein kann --
+        anders als ein angeblich unschreibbarer absoluter Pfad: Der
+        Windows-Job der CI laeuft als Administrator und legte ``C:\\...``
+        anstandslos an, womit die Probe durchging und der Test dort fiel.
+        """
+
+        def nie(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Die Datenbank wurde entgegen der Erwartung geoeffnet")
+
+        monkeypatch.setattr(cli, "_open_database", nie)
+
+        keine_datei = tmp_path / "datei.txt"
+        keine_datei.write_text("kein Verzeichnis", encoding="utf-8")
+
+        code = cli.command_report(
+            argparse.Namespace(
+                run=str(uuid.uuid4()),
+                symbol=None,
+                format="text",
+                output=str(keine_datei / "bericht.txt"),
+            )
+        )
+
+        assert code == 2
+        assert "nicht beschreibbar" in capsys.readouterr().err
+
+    def test_der_unterbefehl_haengt_am_richtigen_handler(self) -> None:
+        args = cli.build_parser().parse_args(["report", "--run", "abc"])
+        assert args.handler is cli.command_report
+        assert args.format == "text"
+        assert args.symbol is None
+        assert args.output is None
+
+    def test_json_ist_waehlbar(self) -> None:
+        args = cli.build_parser().parse_args(
+            ["report", "--run", "abc", "--format", "json", "--symbol", "aapl"]
+        )
+        assert args.format == "json"
+        assert args.symbol == "aapl"
 
 
 class TestBoersentag:

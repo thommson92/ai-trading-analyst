@@ -73,7 +73,7 @@ class TestErfolgreicherLauf:
         assert {s.symbol for s in report.stocks} == {"AAA", "BBB"}
         assert not report.failures
         assert len(backtest_results_repo.added) == 8  # 4 Kombinationen je Aktie
-        stock_ids = {result.stock_id for result in backtest_results_repo.added}
+        stock_ids = {result.stock_id for result in backtest_results_repo.results}
         assert stock_ids == {stock_a.id, stock_b.id}
 
     def test_die_aktie_wird_vor_den_ergebnissen_gespeichert(self) -> None:

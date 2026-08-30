@@ -11,12 +11,13 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from importlib import metadata
 from pathlib import Path
 
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
+from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.config.loader import ConfigError, load_config, load_secrets
 from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig, Secrets
 from ai_trading_analyst.domain.analysis import (
@@ -205,6 +206,26 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     )
 
 
+def app_version() -> str:
+    """Die Anwendungsversion aus den Paketmetadaten (Doc 10, Paragraph 8).
+
+    Aus ``pyproject.toml``, nicht aus einer zweiten Konstante im Code -- die
+    liefe irgendwann auseinander. Ist das Paket nicht installiert, ist die
+    Umgebung nicht die aus Doc 14 (dort steht ``pip install --no-deps -e .``);
+    das ist ein Umgebungsfehler und soll auffallen, statt einen leeren
+    Versionsstring in jeden Bericht zu schreiben.
+    """
+    return metadata.version("ai-trading-analyst")
+
+
+def build_agent_concurrency(config: AppConfig) -> AgentConcurrency:
+    """Je Agent ein eigener Pool (ADR 0037, Risiko R9)."""
+    return AgentConcurrency(
+        research=config.research.max_concurrent_calls,
+        technical=config.technical_agent.max_concurrent_calls,
+    )
+
+
 def build_technical_analysis_params(config: AppConfig) -> TechnicalAnalysisParameters:
     """Uebersetzt den Konfigurationsabschnitt in die Domain-Parameter (ADR 0025)."""
     section = config.technical_analysis
@@ -351,6 +372,10 @@ def build_app() -> FastAPI:
         candidate_rule_params,
         earnings_filter_params,
         build_technical_analysis_params(loaded.config),
+        build_backtest_params(loaded.config),
+        agent_concurrency=build_agent_concurrency(loaded.config),
+        app_version=app_version(),
+        market_timezone=loaded.config.market.timezone,
     )
 
     def check_database_ready() -> bool:

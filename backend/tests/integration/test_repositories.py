@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -12,6 +13,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
+    AnalysisRun,
     RunStatus,
     Stock,
     StockProcessingError,
@@ -23,6 +25,12 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.report import (
+    REPORT_SCHEMA_VERSION,
+    ReportSection,
+    StockReport,
+    build_report,
+)
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -875,6 +883,157 @@ class TestBacktestResultRepository:
 
         with uow_factory() as uow:
             assert uow.backtest_results.list_for_stock(stock_b.id) == ()
+
+    def test_die_lauf_bindung_und_die_earnings_kennzeichnung_ueberleben(
+        self, uow_factory: UowFactory, engine: Engine
+    ) -> None:
+        """ADR 0038: Der Backtest aus dem Tageslauf traegt die Lauf-ID, der aus
+        ``cli backtest`` nicht. Und beide sagen, ob nahe Berichtstermine
+        ausgeschlossen wurden -- heute nirgends."""
+        stock = make_stock("BTR")
+        run = make_run(status=RunStatus.RUNNING)
+        horizon = HorizonMetrics(
+            horizon=5,
+            raw_event_count=2,
+            deduplicated_event_count=2,
+            hit_rate=0.5,
+            mean_return=0.01,
+            median_return=0.01,
+            max_loss=-0.02,
+            drawdown=-0.03,
+            held_above_entry_rate=0.5,
+            confidence=BacktestConfidence.LOW_SAMPLE,
+        )
+
+        def ergebnis(evaluated_at: datetime) -> BacktestResult:
+            return BacktestResult(
+                stock_id=stock.id,
+                signal_types=frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS}),
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+                history_start=datetime(2020, 1, 2, tzinfo=UTC),
+                history_end=datetime(2025, 1, 2, tzinfo=UTC),
+                horizons=(horizon,),
+            )
+
+        im_lauf = ergebnis(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+        auf_zuruf = ergebnis(datetime(2026, 8, 29, 12, 0, tzinfo=UTC))
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.backtest_results.add(im_lauf, run.id)
+            uow.backtest_results.add(auf_zuruf)
+            uow.commit()
+
+        with uow_factory() as uow:
+            alle = uow.backtest_results.list_for_stock(stock.id)
+
+        assert len(alle) == 2
+        assert all(not r.earnings_exclusion_applied for r in alle)
+
+        # Die Lauf-Bindung steht in einer Spalte, die kein Port zurueckliest --
+        # der Bericht holt die Statistik aus dem Screening-Ergebnis, nicht aus
+        # der Tabelle. Geprueft wird sie deshalb direkt.
+        with engine.connect() as verbindung:
+            zeilen = verbindung.execute(
+                text(
+                    "SELECT evaluated_at, analysis_run_id FROM backtest_results "
+                    "WHERE stock_id = :stock_id"
+                ),
+                {"stock_id": stock.id},
+            ).all()
+        zuordnung: dict[datetime, uuid.UUID | None] = {
+            zeile[0]: zeile[1] for zeile in zeilen
+        }
+        assert zuordnung[im_lauf.evaluated_at] == run.id
+        assert zuordnung[auf_zuruf.evaluated_at] is None
+
+
+class TestStockReportRepository:
+    """ADR 0039: Ein Bericht je Lauf und Aktie, nie ueberschrieben, und beim
+    Lesen kommt das gespeicherte Dokument zurueck -- kein neu gebautes."""
+
+    def _bericht(self, stock: Stock, run: AnalysisRun) -> StockReport:
+        return build_report(
+            make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id),
+            created_at=datetime.now(UTC),
+            app_version="0.1.0",
+        )
+
+    def test_ein_bericht_uebersteht_den_rundlauf(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("RPT")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with uow_factory() as uow:
+            (gespeichert,) = uow.stock_reports.list_for_run(run.id)
+
+        assert gespeichert.symbol == "RPT"
+        assert gespeichert.report_schema_version == REPORT_SCHEMA_VERSION
+        assert gespeichert.app_version == "0.1.0"
+        # Das JSONB kommt vollstaendig zurueck -- alle achtzehn Abschnitte.
+        assert set(gespeichert.document["abschnitte"]) == {s.value for s in ReportSection}
+
+    def test_ein_zweiter_bericht_zum_selben_lauf_wird_abgewiesen(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Doc 10, Paragraph 8: Ein abgeschlossener Bericht wird nicht
+        ueberschrieben. Die Unique Constraint verhindert auch das stille
+        zweite Insert."""
+        stock = make_stock("RPT2")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with pytest.raises(IntegrityError), uow_factory() as uow:
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+    def test_ein_anderer_lauf_bekommt_keine_fremden_berichte(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("RPT3")
+        run_a, run_b = make_run(status=RunStatus.RUNNING), make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run_a)
+            uow.analysis_runs.add(run_b)
+            uow.stock_reports.add(self._bericht(stock, run_a))
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.stock_reports.list_for_run(run_b.id) == []
+
+    def test_die_sprint_5_spalten_bleiben_leer(self, uow_factory: UowFactory) -> None:
+        """Scoring gehoert zu Sprint 5, die Formulierung zur KI-Haelfte. Beide
+        Spalten stehen bereit und werden nicht gefuellt (ADR 0039)."""
+        stock = make_stock("RPT4")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with uow_factory() as uow:
+            zeile = uow.stock_reports.list_for_run(run.id)[0]
+
+        assert zeile.document["scoring_version"] is None
+        empfehlung = zeile.document["abschnitte"][ReportSection.EMPFEHLUNG.value]
+        assert not empfehlung["verfuegbar"]
+        assert empfehlung["vorbehalte"]
 
 
 class TestProcessingErrorRepository:

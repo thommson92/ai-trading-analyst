@@ -65,6 +65,20 @@ class BacktestResult:
     history_start: datetime
     history_end: datetime
     horizons: tuple[HorizonMetrics, ...]
+    earnings_exclusion_applied: bool = False
+    """Wurden Ereignisse nahe einem Berichtstermin aus dem Replay
+    ausgeschlossen? (ADR 0038, Entscheidung 3.)
+
+    Heute durchgehend ``False``: Historische Berichtstermine gibt es nicht,
+    ADR 0017 haelt das als Einschraenkung L9 fest. Der Backtest zaehlt damit
+    Ereignisse, die der Live-Filter ausgeschlossen haette -- die Kennzahlen
+    messen eine leicht andere Strategie als die gehandelte (Risiko R6).
+
+    Ein Feld, das immer ``False`` ist, sieht nach Vorratshaltung aus. Es ist
+    das Gegenteil: Sobald der EDGAR-Adapter fuer ``8-K``-Termine da ist (E3),
+    sagen die alten Zeilen weiterhin die Wahrheit ueber sich selbst, statt
+    rueckwirkend so auszusehen, als waeren sie gefiltert worden.
+    """
 
 
 @dataclass(frozen=True, slots=True)

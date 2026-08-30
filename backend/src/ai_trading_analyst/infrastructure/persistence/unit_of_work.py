@@ -13,6 +13,7 @@ from ai_trading_analyst.domain.analysis import (
     IntradayBarRepository,
     ProcessingErrorRepository,
     ScreeningResultRepository,
+    StockReportRepository,
     StockRepository,
 )
 
@@ -22,6 +23,7 @@ from .repositories import (
     SqlAlchemyIntradayBarRepository,
     SqlAlchemyProcessingErrorRepository,
     SqlAlchemyScreeningResultRepository,
+    SqlAlchemyStockReportRepository,
     SqlAlchemyStockRepository,
 )
 
@@ -36,6 +38,7 @@ class SqlAlchemyUnitOfWork:
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
     backtest_results: BacktestResultRepository
+    stock_reports: StockReportRepository
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -49,6 +52,7 @@ class SqlAlchemyUnitOfWork:
         self.screening_results = SqlAlchemyScreeningResultRepository(self._session)
         self.processing_errors = SqlAlchemyProcessingErrorRepository(self._session)
         self.backtest_results = SqlAlchemyBacktestResultRepository(self._session)
+        self.stock_reports = SqlAlchemyStockReportRepository(self._session)
         return self
 
     def __exit__(

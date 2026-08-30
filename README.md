@@ -75,10 +75,24 @@ aus, `--interpret` zusätzlich die Einordnung und `--show-prompt` die
 vollständige Modelleingabe — damit nachprüfbar bleibt, dass das Sprachmodell
 nur den fertigen Snapshot sieht.
 
-Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt: Ein
-ausgefallener Tageslauf meldet sich über Telegram
-([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)), statt nur im
-Protokoll zu erscheinen.
+Zusammengeführt wird das alles vom **Report Generator** (Doc 10,
+Paragraph 6.12): Je Kandidat entsteht ein Bericht über alle achtzehn
+Pflichtpunkte — auch die vier, die auf Optionsanalyse und Scoring aus
+Sprint 5 stehen. Sie erscheinen ausdrücklich als Lücke mit Begründung, nicht
+als weggelassener Punkt ([ADR 0039](docs/adr/0039-report-generator.md)). Zu
+Punkt 5 gehört die historische Signalstatistik, die seit
+[ADR 0038](docs/adr/0038-backtest-im-tageslauf.md) im Tageslauf entsteht.
+Der Bericht wird als JSON-Dokument unveränderlich gespeichert;
+`cli report --run <lauf-id>` zeigt ihn lesbar oder als Dokument. Die
+KI-Formulierung folgt getrennt.
+
+Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt
+([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)): Ein
+ausgefallener Tageslauf meldet sich über Telegram, statt nur im Protokoll zu
+erscheinen. Nach einem erfolgreichen Lauf kommt eine Kurzfassung — Symbole,
+Signaltypen, Fehlsignalrisiko als Stufe. Kurse und Kennzahlen bleiben
+bewusst draußen, die Nachricht verlässt das eigene Netz
+([ADR 0040](docs/adr/0040-inhalt-der-ergebnismeldung.md)).
 
 Welcher Anbieter jeweils läuft, entscheidet `config/default.yaml`. Alle
 externen Quellen stehen dort bewusst auf `fixture`, damit Start und Tests ohne
@@ -90,7 +104,7 @@ Noch offen:
 | Thema | Stand |
 |---|---|
 | Fundamental Agent, KI-Hälfte | Sprint 4 — die deterministischen Kennzahlen stehen ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md), [ADR 0033](docs/adr/0033-zwoelfmonatswerte-statt-jahresabschluss.md)), die Einordnung folgt |
-| Report Generator | Sprint 4, noch nicht begonnen |
+| Report Generator, KI-Hälfte | Sprint 4 — der deterministische Bericht steht ([ADR 0039](docs/adr/0039-report-generator.md)), die Formulierung folgt |
 | Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
 

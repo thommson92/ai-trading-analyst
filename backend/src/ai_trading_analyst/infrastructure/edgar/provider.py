@@ -78,10 +78,12 @@ class EdgarConnectionSettings:
 class _Drossel:
     """Haelt den Mindestabstand zwischen zwei Anfragen ein.
 
-    Threadsicher, weil der Tageslauf mehrere Aktien nebenlaeufig bearbeitet
-    (``_MAX_CONCURRENT_AGENT_CALLS``) -- eine Drossel, die das nicht
-    beruecksichtigt, laesst genau dann zu viele Anfragen durch, wenn es
-    darauf ankommt.
+    Threadsicher, obwohl der Tageslauf die Fundamentaldaten heute
+    **sequentiell** holt (Phase 1 von ``RunAnalysisUseCase``, ausserhalb der
+    Agenten-Pools). Die Sperre kostet nichts und haelt die Zusicherung, wenn
+    der Beschaffungspfad spaeter nebenlaeufig wird -- eine Drossel, die das
+    nicht beruecksichtigt, laesst genau dann zu viele Anfragen durch, wenn es
+    darauf ankommt, und SEC EDGAR deckelt bei zehn je Sekunde.
     """
 
     def __init__(self, max_per_second: float, sleep: Callable[[float], None] = time.sleep) -> None:
@@ -100,6 +102,19 @@ class _Drossel:
                 self._sleep(rest)
                 jetzt += rest
             self._zuletzt = jetzt
+
+
+@dataclass(frozen=True, slots=True)
+class _Emittent:
+    """Ein Eintrag des SEC-Symbolverzeichnisses.
+
+    Frueher stand dort nur die CIK. Der amtliche Name kommt aus derselben
+    Datei und derselben Anfrage -- er kostet nichts und ist die einzige
+    Quelle, die das System fuer Berichtspunkt 1 hat (Doc 10, Paragraph 6.12).
+    """
+
+    cik: int
+    name: str | None
 
 
 def _schreibweisen(symbol: str) -> tuple[str, ...]:
@@ -137,7 +152,7 @@ class EdgarFundamentalDataProvider:
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``)."""
         self._drossel = _Drossel(settings.max_requests_per_second, sleep)
-        self._cik_index: Mapping[str, int] | None = None
+        self._cik_index: Mapping[str, _Emittent] | None = None
         self._index_sperre = threading.Lock()
 
     def fundamentals(self, stock: Stock, price: float | None = None) -> FundamentalSnapshot:
@@ -151,9 +166,10 @@ class EdgarFundamentalDataProvider:
         Beschaffung. Dasselbe Verhaeltnis wie beim IBKR-Provider, der Kerzen
         holt und die Indikatorformeln der Domain darauf anwendet.
         """
-        facts, abgerufen = self._company_facts(stock)
+        facts, abgerufen, name = self._company_facts(stock)
         return compute_fundamental_snapshot(
             symbol=stock.symbol,
+            company_name=name,
             figures=facts.figures,
             trailing=facts.trailing,
             shares_outstanding=facts.shares_outstanding,
@@ -164,40 +180,42 @@ class EdgarFundamentalDataProvider:
             tag_conflicts=facts.conflicts,
         )
 
-    def _company_facts(self, stock: Stock) -> tuple[ResolvedFacts, datetime]:
+    def _company_facts(self, stock: Stock) -> tuple[ResolvedFacts, datetime, str | None]:
         """Aufgeloeste Jahreswerte und der Zeitpunkt ihres Abrufs.
+
+        Dazu der amtliche Name des Registranten aus dem Symbolverzeichnis.
 
         Der Abrufzeitpunkt gehoert zum Ergebnis, weil Doc 10, Paragraph 6.9
         ihn an jeder Kennzahl verlangt -- er hier zu ermitteln und nicht in
         der Aufrufstelle stellt sicher, dass er den tatsaechlichen Abruf
         meint und nicht den Beginn des Laufs.
         """
-        cik = self._cik_fuer(stock.symbol)
+        emittent = self._emittent_fuer(stock.symbol)
         rohwert = self._hole(
             self._settings.base_url,
-            COMPANY_FACTS_PATH.format(cik=cik),
+            COMPANY_FACTS_PATH.format(cik=emittent.cik),
             beschreibung=f"companyfacts fuer '{stock.symbol}'",
         )
         abgerufen = self._now()
         try:
-            return resolve_company_facts(rohwert), abgerufen
+            return resolve_company_facts(rohwert), abgerufen, emittent.name
         except CompanyFactsError as error:
             raise FundamentalDataProviderError(
                 f"Einreichungen fuer '{stock.symbol}' nicht auswertbar: {error}"
             ) from error
 
-    def _cik_fuer(self, symbol: str) -> int:
+    def _emittent_fuer(self, symbol: str) -> _Emittent:
         index = self._ticker_index()
         for schreibweise in _schreibweisen(symbol):
-            cik = index.get(schreibweise)
-            if cik is not None:
-                return cik
+            emittent = index.get(schreibweise)
+            if emittent is not None:
+                return emittent
         raise FundamentalDataProviderError(
             f"Kein SEC-Emittent zum Symbol '{symbol}'. Die SEC fuehrt nur "
             "US-berichtspflichtige Unternehmen (ADR 0032 L3)."
         )
 
-    def _ticker_index(self) -> Mapping[str, int]:
+    def _ticker_index(self) -> Mapping[str, _Emittent]:
         """Die Zuordnung Symbol zu CIK, einmal je Prozess.
 
         Die Datei aendert sich taeglich, aber innerhalb eines Laufs nicht --
@@ -209,7 +227,7 @@ class EdgarFundamentalDataProvider:
                 self._cik_index = self._lade_ticker_index()
             return self._cik_index
 
-    def _lade_ticker_index(self) -> dict[str, int]:
+    def _lade_ticker_index(self) -> dict[str, _Emittent]:
         rohwert = self._hole(
             self._settings.index_base_url,
             TICKER_INDEX_PATH,
@@ -219,12 +237,19 @@ class EdgarFundamentalDataProvider:
             raise FundamentalDataProviderError(
                 "Symbolverzeichnis der SEC hat ein unerwartetes Format"
             )
-        index: dict[str, int] = {}
+        index: dict[str, _Emittent] = {}
         for eintrag in rohwert.values():
             if isinstance(eintrag, dict):
                 ticker, cik = eintrag.get("ticker"), eintrag.get("cik_str")
                 if isinstance(ticker, str) and isinstance(cik, int):
-                    index[ticker.upper()] = cik
+                    # ``title`` ist der amtliche Name des Registranten und die
+                    # einzige Quelle, die das System dafuer hat -- Berichtspunkt
+                    # 1 verlangt "Symbol und Unternehmen" (Doc 10, Paragraph
+                    # 6.12). Fehlt er, bleibt der Name leer statt geraten.
+                    name = eintrag.get("title")
+                    index[ticker.upper()] = _Emittent(
+                        cik=cik, name=name if isinstance(name, str) and name else None
+                    )
         if not index:
             raise FundamentalDataProviderError("Symbolverzeichnis der SEC enthielt keinen Eintrag")
         _logger.info("SEC-Symbolverzeichnis geladen: %d Eintraege", len(index))

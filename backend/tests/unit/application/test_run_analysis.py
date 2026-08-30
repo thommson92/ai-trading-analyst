@@ -9,31 +9,43 @@ dem Ergebnis richtig umgeht.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
-from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
-from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus
+import pytest
+
+from ai_trading_analyst.application import run_analysis
+from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
+from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
     EarningsFilterStatus,
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
-from ai_trading_analyst.domain.research import ResearchStatus
+from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
+from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
+from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
     TechnicalAssessmentStatus,
+    TechnicalSnapshot,
     TechnicalStatus,
 )
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
+    FakeBacktestResultRepository,
     FakeEarningsProvider,
     FakeFundamentalDataProvider,
     FakeMarketDataProvider,
     FakeProcessingErrorRepository,
     FakeResearchProvider,
     FakeScreeningResultRepository,
+    FakeStockReportRepository,
     FakeStockRepository,
     FakeTechnicalInterpreter,
     FakeUnitOfWork,
@@ -48,6 +60,18 @@ _PARAMS = CandidateRuleParameters(
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11
+_BACKTEST_PARAMS = BacktestParameters(
+    horizons=(2,),
+    cooldown_candles=5,
+    minimum_sample_size=1,
+    normal_confidence_sample_size=2,
+    history_years=5,
+)
+"""Ein kurzer Horizont, damit die elf Kerzen der Testreihe ueberhaupt
+Ereignisse liefern. Was der Backtest inhaltlich rechnet, prueft
+``tests/unit/domain/backtesting``; hier zaehlt nur, dass der Use Case ihn
+aufruft und das Ergebnis richtig ablegt."""
+
 _TECHNICAL_PARAMS = TechnicalAnalysisParameters(
     pivot_reach=1,
     atr_length=2,
@@ -69,6 +93,10 @@ def _build_use_case(
     technical_interpreter: FakeTechnicalInterpreter | None = None,
     fundamental_provider: FakeFundamentalDataProvider | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
+    agent_concurrency: AgentConcurrency | None = None,
+    backtest_params: BacktestParameters | None = None,
+    notifier: Notifier | None = None,
+    notify_without_candidates: bool = False,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -95,6 +123,10 @@ def _build_use_case(
         _PARAMS,
         _EARNINGS_PARAMS,
         technical_params or _TECHNICAL_PARAMS,
+        backtest_params or _BACKTEST_PARAMS,
+        agent_concurrency=agent_concurrency,
+        notifier=notifier,
+        notify_without_candidates=notify_without_candidates,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -787,7 +819,7 @@ class TestResearch:
 
     def test_mehrere_kandidaten_werden_nebenlaeufig_recherchiert_ohne_verwechslung(self) -> None:
         """Die Research-Aufrufe je Aktie laufen nebenlaeufig (siehe
-        ``RunAnalysisUseCase._run_research_concurrently``) -- trotzdem muss
+        ``RunAnalysisUseCase._run_agents_concurrently``) -- trotzdem muss
         jede Aktie exakt ihren eigenen Bericht bekommen, und die
         Ausgabereihenfolge bleibt die urspruengliche Aktienreihenfolge."""
         stocks = tuple(make_stock(symbol) for symbol in ("AAA", "BBB", "CCC", "DDD"))
@@ -810,6 +842,370 @@ class TestResearch:
         for outcome in summary.outcomes:
             assert outcome.research is not None
             assert outcome.research.summary == f"Fake-Recherche fuer {outcome.stock.symbol}"
+
+
+class TestBacktestImTageslauf:
+    """ADR 0038: Die historische Signalstatistik entsteht je Kandidat im Lauf,
+    auf derselben schon geladenen Kerzenserie."""
+
+    def test_ein_kandidat_bekommt_eine_signalstatistik(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        summary = use_case.execute()
+
+        (outcome,) = summary.outcomes
+        assert outcome.backtest, "Der Kandidat hat keine Signalstatistik bekommen"
+        assert all(r.stock_id == stock.id for r in outcome.backtest)
+        assert all(r.signal_rule_version == outcome.signal_rule_version for r in outcome.backtest)
+
+    def test_wer_kein_kandidat_ist_bekommt_keine(self) -> None:
+        """Wie Chartauswertung und Fundamentaldaten: nur fuer Kandidaten. Ueber
+        die volle Watchliste zu rechnen waere ein Vielfaches an Arbeit fuer
+        Aktien, ueber die kein Bericht entsteht."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("NIX"),),
+            series_by_symbol={"NIX": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        (outcome,) = use_case.execute().outcomes
+
+        assert outcome.result.status == ScreeningStatus.NOT_CANDIDATE
+        assert outcome.backtest == ()
+
+    def test_die_statistik_wird_mit_der_lauf_id_gespeichert(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        backtests = FakeBacktestResultRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo, bars_repo, runs_repo, results_repo, errors_repo, backtests
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+        ).execute()
+
+        assert backtests.added, "Nichts gespeichert"
+        assert {lauf for _, lauf in backtests.added} == {summary.run.id}
+
+    def test_ohne_historie_im_fenster_bleibt_die_statistik_leer_und_der_lauf_heil(self) -> None:
+        """Der eine dokumentierte Ausfall: Im Betrachtungsfenster liegt keine
+        Kerze. Er darf das Screening-Ergebnis nicht kosten -- der Bericht
+        weist Punkt 5 dann als Luecke aus (ADR 0038, Entscheidung 2)."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("ALT"),),
+            series_by_symbol={"ALT": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        # Nullstunden-Fenster: Die Kerzen von 2024 liegen ausserhalb, obwohl
+        # sie da sind. Genau der Fall, den compute_backtest_results meldet.
+        use_case, *_ = _build_use_case(
+            provider,
+            backtest_params=BacktestParameters(
+                horizons=(2,),
+                cooldown_candles=5,
+                minimum_sample_size=1,
+                normal_confidence_sample_size=2,
+                history_years=0,
+            ),
+        )
+
+        summary = use_case.execute()
+
+        assert not summary.errors, "Der fehlende Backtest hat die Aktie gekostet"
+        (outcome,) = summary.outcomes
+        assert outcome.result.status == ScreeningStatus.CANDIDATE
+        assert outcome.backtest == ()
+        assert outcome.technical is not None, "Die uebrigen Module liefen nicht weiter"
+
+
+class TestBerichtImTageslauf:
+    """ADR 0039: Je Kandidat ein Bericht, im selben Lauf und derselben
+    Transaktion wie das Screening-Ergebnis."""
+
+    def _lauf(self, *, kandidat: bool) -> tuple[FakeStockReportRepository, object]:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=kandidat)},
+        )
+        berichte = FakeStockReportRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo,
+                bars_repo,
+                runs_repo,
+                results_repo,
+                errors_repo,
+                stock_reports=berichte,
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+            app_version="9.9.9",
+        ).execute()
+        return berichte, summary
+
+    def test_ein_kandidat_bekommt_einen_bericht(self) -> None:
+        berichte, summary = self._lauf(kandidat=True)
+
+        (bericht,) = berichte.added
+        assert bericht.symbol == "SYM"
+        assert bericht.analysis_run_id == summary.run.id  # type: ignore[attr-defined]
+        assert bericht.app_version == "9.9.9"
+        assert bericht.report_schema_version == REPORT_SCHEMA_VERSION
+
+    def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
+        """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die
+        das Screening nicht bestanden hat, waere ein Dokument ohne Anlass."""
+        berichte, _ = self._lauf(kandidat=False)
+
+        assert berichte.added == []
+
+    def test_der_bericht_fuehrt_die_teilergebnisse_des_laufs(self) -> None:
+        berichte, _ = self._lauf(kandidat=True)
+
+        (bericht,) = berichte.added
+        assert bericht.signals, "die Signalereignisse fehlen im Bericht"
+        assert bericht.technical is not None
+        assert bericht.backtest, "die Signalstatistik fehlt im Bericht"
+        assert bericht.gaps, "ein Bericht ohne jede Luecke ist hier unmoeglich"
+
+
+class TestBerichtBleibtAbgeleitet:
+    """Der Bericht fuehrt zusammen, was schon gerechnet ist. Scheitert das
+    Zusammenfuehren, darf es das deterministische Ergebnis nicht kosten
+    (CLAUDE.md: Analysemodule sind entkoppelt)."""
+
+    def test_ein_unerzeugbarer_bericht_kostet_das_screening_ergebnis_nicht(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def kaputt(*args: object, **kwargs: object) -> None:
+            raise TypeError("Kein Weg, Decimal als Bericht zu schreiben")
+
+        monkeypatch.setattr(run_analysis, "build_report", kaputt)
+
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        berichte = FakeStockReportRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo, bars_repo, runs_repo, results_repo, errors_repo,
+                stock_reports=berichte,
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+        ).execute()
+
+        assert not summary.errors, "der Bericht hat die Aktie in einen Fehler verwandelt"
+        (outcome,) = summary.outcomes
+        assert outcome.result.status == ScreeningStatus.CANDIDATE
+        assert outcome.technical is not None
+        assert outcome.backtest, "die Signalstatistik ist mit verschwunden"
+        assert berichte.added == [], "es sollte gar kein Bericht entstanden sein"
+
+
+class TestErgebnismeldung:
+    """ADR 0040: Die Kurzfassung geht nur raus, wenn ein Kanal hineingereicht
+    wurde -- und ein unerreichbarer Kanal kostet den Lauf nicht."""
+
+    class _Kanal:
+        def __init__(self, fehler: Exception | None = None) -> None:
+            self.gesendet: list[tuple[str, str]] = []
+            self._fehler = fehler
+
+        def send(self, subject: str, body: str) -> None:
+            if self._fehler is not None:
+                raise self._fehler
+            self.gesendet.append((subject, body))
+
+    def _lauf(
+        self,
+        *,
+        kandidat: bool,
+        kanal: _Kanal | None,
+        ohne_kandidaten_melden: bool = False,
+    ) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=kandidat)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=kanal,
+            notify_without_candidates=ohne_kandidaten_melden,
+        )
+        use_case.execute()
+
+    def test_ohne_kanal_passiert_nichts(self) -> None:
+        """Ein manuelles 'cli screen' soll keine Push-Nachricht ausloesen."""
+        self._lauf(kandidat=True, kanal=None)
+
+    def test_mit_kandidat_geht_die_meldung_raus(self) -> None:
+        kanal = self._Kanal()
+        self._lauf(kandidat=True, kanal=kanal)
+
+        (betreff, text) = kanal.gesendet[0]
+        assert "1 Kandidat(en)" in betreff
+        assert "SYM" in text
+
+    def test_ohne_kandidat_schweigt_der_kanal(self) -> None:
+        """Doc 10, Paragraph 6.13: ob ein leerer Lauf gemeldet wird, ist
+        konfigurierbar -- und der Standard ist Schweigen."""
+        kanal = self._Kanal()
+        self._lauf(kandidat=False, kanal=kanal)
+
+        assert kanal.gesendet == []
+
+    def test_mit_schalter_wird_auch_ein_leerer_lauf_gemeldet(self) -> None:
+        kanal = self._Kanal()
+        self._lauf(kandidat=False, kanal=kanal, ohne_kandidaten_melden=True)
+
+        (betreff, _) = kanal.gesendet[0]
+        assert "0 Kandidat(en)" in betreff
+
+    def test_ein_unerreichbarer_kanal_kostet_den_lauf_nicht(self) -> None:
+        """Der Kanal ist eine Systemgrenze (ADR 0024). Das Ergebnis steht zu
+        diesem Zeitpunkt bereits in der Datenbank."""
+        kanal = self._Kanal(fehler=NotifierError("Telegram nicht erreichbar"))
+
+        self._lauf(kandidat=True, kanal=kanal)  # darf nicht werfen
+
+
+class TestGetrennteAgentenPools:
+    """R9: Eine haengende Recherche darf keine Einordnung aufhalten.
+
+    Vor ADR 0037 teilten sich beide Agenten vier Plaetze. Ein realer
+    Recherche-Aufruf dauert rund 15 Minuten (Messung 2026-08-24) und darf bis
+    zu 900 Sekunden laufen -- solange belegte er einen der vier Plaetze,
+    waehrend die Einordnungen warteten, die Sekunden brauchen.
+    """
+
+    _EARNINGS_CLEAR = NextEarningsDate(
+        date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
+    )
+
+    def test_haengende_recherche_haelt_die_einordnungen_nicht_auf(self) -> None:
+        symbole = ("AAA", "BBB", "CCC", "DDD", "EEE")
+        stocks = tuple(make_stock(symbol) for symbol in symbole)
+        freigabe = threading.Event()
+        alle_eingeordnet = threading.Event()
+
+        class BlockierenderResearchProvider(FakeResearchProvider):
+            def research(self, stock: Stock) -> ResearchReport:
+                # Haelt so lange, bis der Test die Einordnungen gesehen hat.
+                # Reichlich laenger als dessen eigene Wartezeit, damit bei
+                # einem Fehlschlag die Zusicherung des Tests meldet und nicht
+                # dieses Doppel.
+                freigabe.wait(timeout=60.0)
+                return super().research(stock)
+
+        class ZaehlenderInterpreter(FakeTechnicalInterpreter):
+            def interpret(self, stock: Stock, snapshot: TechnicalSnapshot) -> TechnicalAssessment:
+                ergebnis = super().interpret(stock, snapshot)
+                if len(self.calls) == len(symbole):
+                    alle_eingeordnet.set()
+                return ergebnis
+
+        provider = FakeMarketDataProvider(
+            stocks=stocks,
+            series_by_symbol={
+                s.symbol: make_series(_SERIES_LENGTH, candidate=True) for s in stocks
+            },
+        )
+        interpreter = ZaehlenderInterpreter()
+        use_case, *_ = _build_use_case(
+            provider,
+            FakeEarningsProvider(next_by_symbol={s.symbol: self._EARNINGS_CLEAR for s in stocks}),
+            BlockierenderResearchProvider(),
+            interpreter,
+            # Ein Recherche-Platz, zwei Einordnungsplaetze.
+            #
+            # Fuenf Symbole, nicht drei: Der alte gemeinsame Pool hatte vier
+            # Plaetze, und die Auftraege wechseln sich je Aktie ab
+            # (Recherche, Einordnung, Recherche, ...). Drei blockierende
+            # Recherchen lassen dort immer einen Platz frei, ueber den alle
+            # Einordnungen doch noch durchkommen -- der Test waere gruen
+            # geblieben. Erst ab fuenf sind alle vier Plaetze belegt.
+            agent_concurrency=AgentConcurrency(research=1, technical=2),
+        )
+
+        lauf = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = lauf.submit(use_case.execute)
+            fertig = alle_eingeordnet.wait(timeout=10.0)
+            # Zum Messzeitpunkt festhalten: Nach der Freigabe laufen die
+            # Einordnungen ohnehin durch, und die Meldung waere irrefuehrend.
+            eingeordnet = len(interpreter.calls)
+            noch_blockiert = not future.done()
+            freigabe.set()
+            summary = future.result(timeout=30.0)
+        finally:
+            freigabe.set()
+            lauf.shutdown(wait=True)
+
+        assert fertig, (
+            "Die Einordnungen liefen nicht durch, waehrend die Recherche haengt "
+            f"-- nur {eingeordnet} von {len(symbole)}"
+        )
+        assert noch_blockiert, "Der Lauf war schon fertig; die Recherche hat gar nicht blockiert"
+        assert sorted(interpreter.calls) == list(symbole)
+        assert all(o.research is not None for o in summary.outcomes)
 
 
 class TestVollstaendigesScheiternAllerAktien:
@@ -861,6 +1257,7 @@ class TestVeralteteDaten:
             _PARAMS,
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
             expected_last_candle=erwartet,
         ).execute()
 

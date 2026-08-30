@@ -13,6 +13,9 @@ einem Zweig steht, der zur Laufzeit selten erreicht wird.
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -130,6 +133,40 @@ class TestLayerBoundaries:
     def test_the_check_actually_sees_source_files(self) -> None:
         """Ein leerer Import-Graph wuerde jeden Verstoss uebersehen."""
         assert sum(1 for _ in iter_modules()) >= 8
+
+
+class TestImportreihenfolge:
+    """``domain.report`` und ``domain.analysis`` verweisen aufeinander.
+
+    Der Bericht liest ein ``StockScreeningOutcome``, und die Unit of Work
+    speichert einen ``StockReport``. Aufgeloest ist das allein dadurch, dass
+    ``domain.analysis.ports`` aus dem **Wertemodul** importiert und nicht aus
+    dem Paket. Ein spaeteres ``from ai_trading_analyst.domain.report import
+    ...`` an derselben Stelle bricht den Import zur Laufzeit -- mypy und ruff
+    sehen davon nichts, und wer zufaellig ``domain.analysis`` zuerst
+    importiert, merkt es auch im Test nicht.
+
+    Deshalb hier beide Reihenfolgen, jede in einem frischen Interpreter.
+    """
+
+    @pytest.mark.parametrize(
+        "modul",
+        ["ai_trading_analyst.domain.report", "ai_trading_analyst.domain.analysis"],
+    )
+    def test_beide_pakete_lassen_sich_zuerst_importieren(self, modul: str) -> None:
+        # ``pythonpath = ["src"]`` aus pyproject wirkt nur fuer pytest selbst;
+        # der Unterprozess braucht ihn ausdruecklich.
+        umgebung = {**os.environ, "PYTHONPATH": str(PACKAGE_ROOT.parent)}
+        ergebnis = subprocess.run(
+            [sys.executable, "-c", f"import {modul}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=umgebung,
+        )
+        assert ergebnis.returncode == 0, (
+            f"'import {modul}' als erstes scheitert:\n{ergebnis.stderr}"
+        )
 
 
 class TestDetectionItself:

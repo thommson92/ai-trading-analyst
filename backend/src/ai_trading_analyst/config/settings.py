@@ -487,6 +487,15 @@ class ResearchConfig(_Section):
     Aufruf ohne ``thinking``-Feld mit adaptivem Denken, und beides teilt sich
     dasselbe Budget. Zu knapp bemessen schneidet es den Werkzeugaufruf ab,
     statt Kosten zu sparen."""
+    max_concurrent_calls: PositiveInt = 2
+    """Gleichzeitige Recherche-Aufrufe. **Eigener Pool**, getrennt vom
+    Technical Agent (ADR 0037, Risiko R9).
+
+    Bewusst klein: Ein realer Aufruf dauert rund 15 Minuten und kostet
+    ~0,58 USD; mehr Nebenlaeufigkeit verkuerzt nicht die Wartezeit je Aufruf,
+    sondern erhoeht nur, wie viele teure Gespraeche gleichzeitig offen sind.
+    Jeder Aufruf ist unabhaengig -- kein gemeinsamer veraenderlicher Zustand
+    ausser dem laut Anthropic-SDK threadsicheren HTTP-Client."""
     request_timeout_seconds: PositiveInt = 900
     """Lesezeit je Anfrage. Gilt **nicht** fuer den Verbindungsaufbau, der
     steht bei ``VERBINDUNGSAUFBAU_SEKUNDEN``.
@@ -568,6 +577,14 @@ class TechnicalAgentConfig(_Section):
     """Ein Werkzeugaufruf mit sechs Einstufungen und einem kurzen Text. Zu
     knapp bemessen schneidet es den Aufruf ab -- und ein abgeschnittener
     Aufruf wird verworfen, nicht halb verwertet."""
+    max_concurrent_calls: PositiveInt = 4
+    """Gleichzeitige Einordnungen. **Eigener Pool**, getrennt von ``research``
+    (ADR 0037, Risiko R9).
+
+    Groesser als dort, weil eine Einordnung Sekunden dauert und Bruchteile
+    eines Cents kostet. Vor ADR 0037 teilten sich beide Agenten vier Plaetze;
+    eine haengende Recherche belegte bis zu 900 s einen davon, waehrend die
+    kurzen Einordnungen warteten."""
     request_timeout_seconds: PositiveInt = 60
     """Deutlich kuerzer als bei ``research`` (900 s): Dort laufen
     serverseitige Werkzeuge, hier ist es eine einzelne Anfrage ohne sie."""
