@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalAssessmentStatus
@@ -61,6 +62,23 @@ def einordnung_ohne_recherche() -> dict:  # type: ignore[type-arg]
     return dokument(technical_assessment=einordnung_mit_risiken())
 
 
+def empfehlungen_ausgefallen() -> dict:  # type: ignore[type-arg]
+    """Vollstaendig bis auf Punkt 9, dessen Anbieter ausfiel.
+
+    Ein eigener Fall in ``_FAELLE``, damit die beiden Invarianten ihn
+    mitpruefen: Ein ausgefallener Abschnitt muss ``verfuegbar: false`` **und**
+    ``inhalt: null`` haben. Genau hier entstuende sonst ein Abschnitt, der
+    als fehlend gilt und trotzdem eine leere Verteilung traegt."""
+    return dokument(
+        earnings=make_earnings(EarningsFilterStatus.EARNINGS_CLEAR),
+        technical=make_technical(),
+        research=make_research(),
+        analysts=make_analysts(
+            status=AnalystRecommendationStatus.UNAVAILABLE, reason="provider_error"
+        ),
+    )
+
+
 def ohne_zonen() -> dict:  # type: ignore[type-arg]
     return dokument(technical=make_technical(mit_zonen=False), research=make_research())
 
@@ -71,6 +89,7 @@ _FAELLE: dict[str, Callable[[], dict]] = {  # type: ignore[type-arg]
     "nur_einordnung": nur_einordnung,
     "einordnung_ohne_recherche": einordnung_ohne_recherche,
     "ohne_zonen": ohne_zonen,
+    "empfehlungen_ausgefallen": empfehlungen_ausgefallen,
 }
 
 
