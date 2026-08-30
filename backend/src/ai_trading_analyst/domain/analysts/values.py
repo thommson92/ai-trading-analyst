@@ -90,6 +90,30 @@ class AnalystRecommendations:
     ``"invalid_data"`` (Antwort war nicht plausibel auswertbar)."""
     analysis_version: str = ANALYST_ANALYSIS_VERSION
 
+    def __post_init__(self) -> None:
+        """``COMPLETED`` ohne Monatsstaende gibt es nicht.
+
+        Es waere genau die Aussage, die ADR 0043 ausschliesst: ein Abschnitt,
+        der im Bericht als verfuegbar gilt und eine leere Verteilung traegt --
+        also "keine Meinung" behauptet, wo "keine Abdeckung" gemeint ist.
+        Dafuer gibt es ``UNKNOWN``.
+
+        Geprueft im Wertobjekt und nicht im Anbieter, weil es sonst jeder
+        kuenftige Anbieter erneut richtig machen muesste. Ein Datensatz, der
+        diese Bedingung verletzt, ist beschaedigt und soll auffallen, statt
+        gelesen zu werden.
+        """
+        if self.status is AnalystRecommendationStatus.COMPLETED and not self.periods:
+            raise ValueError(
+                "AnalystRecommendations mit Status COMPLETED braucht mindestens einen "
+                "Monatsstand -- ohne Abdeckung ist der Status UNKNOWN."
+            )
+        if self.status is not AnalystRecommendationStatus.COMPLETED and self.periods:
+            raise ValueError(
+                f"AnalystRecommendations mit Status {self.status.value} darf keine "
+                "Monatsstaende tragen -- sie waeren ein Ergebnis ohne Ergebnis."
+            )
+
     @property
     def latest(self) -> RecommendationPeriod | None:
         """Der juengste Monatsstand, oder ``None`` ohne Empfehlungen."""
