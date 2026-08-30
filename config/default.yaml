@@ -151,15 +151,30 @@ llm:
   # Modell-Identifier vor dem ersten produktiven Lauf gegen den dann
   # aktuellen Anthropic-Katalog und dessen Preise pruefen -- sie aendern
   # sich unabhaengig von diesem Projekt.
+  #
+  # fallback_model greift NUR bei technischem Versagen -- Timeout,
+  # Verbindungsabbruch, Ratenlimit, 5xx (ADR 0037). Ein 400 oder 404 schlaegt
+  # sofort durch: Ein vertippter Modellname soll auffallen und nicht still
+  # ein anderes Modell verwenden.
+  #
+  # Ausgewichen wird jeweils auf die ANDERE Stufe, auch nach oben. Der
+  # haeufigste technische Ausfall ist das Ratenlimit, und das zaehlt je
+  # Modell getrennt -- ein Ausweichmodell derselben Stufe brachte nichts. Die
+  # verwendete Modellversion steht an jedem Ergebnis, die Abweichung ist also
+  # sichtbar und keine stille Qualitaetsaenderung (ADR 0021).
   provider: anthropic
   research:
     model: claude-sonnet-5
+    fallback_model: claude-haiku-4-5-20251001
   technical:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
   fundamental:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
   report:
     model: claude-haiku-4-5-20251001
+    fallback_model: claude-sonnet-5
 
 research:
   # Recherchequellen des Research Agent

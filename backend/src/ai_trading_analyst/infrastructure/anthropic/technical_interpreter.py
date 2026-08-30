@@ -50,7 +50,7 @@ from ai_trading_analyst.domain.technical import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
-from .client import build_client
+from .client import build_client, ist_technisches_versagen
 
 _logger = get_logger(__name__)
 
@@ -509,14 +509,14 @@ class AnthropicTechnicalInterpreter(TechnicalInterpreter):
         try:
             return self._attempt(stock, snapshot, self._model, evaluated_at)
         except anthropic.APIError as error:
-            if self._fallback_model is None:
+            if self._fallback_model is None or not ist_technisches_versagen(error):
                 raise TechnicalInterpreterError(
                     f"'{stock.symbol}': Einordnung konnte ueber '{self._model}' nicht "
                     f"abgerufen werden: {error}"
                 ) from error
             _logger.warning(
-                "Einordnung fuer %s ueber '%s' gescheitert (%s) -- "
-                "Versuch mit Ausweichmodell %s (ModelProfile.fallback_model)",
+                "Einordnung fuer %s ueber '%s' technisch gescheitert (%s) -- "
+                "Versuch mit Ausweichmodell %s (ModelProfile.fallback_model, ADR 0037)",
                 stock.symbol,
                 self._model,
                 error,

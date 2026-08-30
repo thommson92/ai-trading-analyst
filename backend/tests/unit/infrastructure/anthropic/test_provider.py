@@ -784,24 +784,28 @@ class TestBerichtOhneBelege:
 
 
 class TestAusweichmodell:
-    def test_bei_anbieterfehler_wird_das_ausweichmodell_versucht(self) -> None:
+    def test_bei_technischem_versagen_wird_das_ausweichmodell_versucht(self) -> None:
+        """Das Ratenlimit zaehlt je Modell getrennt -- genau deshalb weicht
+        ``fallback_model`` auf die andere Stufe aus. Hier ist das Hauptmodell
+        limitiert und das Ausweichmodell nicht."""
         calls: list[str] = []
+        zweiphasig = _zweiphasig()
 
         def handler(request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content)
-            calls.append(str(body["model"]))
-            if len(calls) == 1:
+            modell = str(json.loads(request.content)["model"])
+            calls.append(modell)
+            if modell == "claude-sonnet-5":
                 return httpx.Response(
-                    401,
+                    429,
                     json={
                         "type": "error",
-                        "error": {"type": "authentication_error", "message": "invalid x-api-key"},
+                        "error": {"type": "rate_limit_error", "message": "rate limited"},
                     },
                 )
-            return _zweiphasig()(request)
+            return zweiphasig(request)
 
         provider = AnthropicResearchProvider(
-            _settings(fallback_model="claude-haiku-4-5-20251001"),
+            _settings(fallback_model="claude-haiku-4-5-20251001", max_retries=0),
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         )
 
@@ -832,6 +836,59 @@ class TestAusweichmodell:
     def test_scheitert_auch_das_ausweichmodell_wird_ein_fehler_geworfen(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
+                429,
+                json={
+                    "type": "error",
+                    "error": {"type": "rate_limit_error", "message": "rate limited"},
+                },
+            )
+
+        provider = AnthropicResearchProvider(
+            _settings(fallback_model="claude-haiku-4-5-20251001"),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        with pytest.raises(ResearchProviderError, match="Ausweichmodell"):
+            provider.research(AAPL)
+
+
+    def test_ein_vertippter_modellname_weicht_nicht_aus(self) -> None:
+        """Der Kern von ADR 0037: Ein 400 sagt „die Anfrage ist falsch" -- sie
+        wird mit einem anderen Modell nicht richtiger. Vorher fing der
+        Fallback ``anthropic.APIError`` und damit auch diesen Fall; ein
+        Tippfehler im Modellprofil lief dann still ueber das Ausweichmodell
+        durch, und niemand bemerkte, dass das konfigurierte nie erreicht
+        wurde (ADR 0026, offener Punkt)."""
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(str(json.loads(request.content)["model"]))
+            return httpx.Response(
+                404,
+                json={
+                    "type": "error",
+                    "error": {"type": "not_found_error", "message": "model: claude-sonnet-4"},
+                },
+            )
+
+        provider = AnthropicResearchProvider(
+            _settings(fallback_model="claude-haiku-4-5-20251001"),
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+        with pytest.raises(ResearchProviderError, match="AAPL"):
+            provider.research(AAPL)
+
+        assert calls == ["claude-sonnet-5"], "Das Ausweichmodell wurde entgegen ADR 0037 versucht"
+
+    def test_ein_falscher_api_schluessel_weicht_nicht_aus(self) -> None:
+        """Ein 401 ist kein technisches Versagen der Gegenstelle, sondern ein
+        Konfigurationsfehler bei uns. Ein anderes Modell hat denselben
+        Schluessel."""
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(str(json.loads(request.content)["model"]))
+            return httpx.Response(
                 401,
                 json={
                     "type": "error",
@@ -843,8 +900,11 @@ class TestAusweichmodell:
             _settings(fallback_model="claude-haiku-4-5-20251001"),
             http_client=httpx.Client(transport=httpx.MockTransport(handler)),
         )
-        with pytest.raises(ResearchProviderError, match="Ausweichmodell"):
+
+        with pytest.raises(ResearchProviderError, match="AAPL"):
             provider.research(AAPL)
+
+        assert calls == ["claude-sonnet-5"]
 
 
 class TestDokumentTitelKollision:
