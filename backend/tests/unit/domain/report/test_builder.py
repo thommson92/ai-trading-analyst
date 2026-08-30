@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.report import (
@@ -24,6 +25,7 @@ from ai_trading_analyst.domain.report import (
 from ai_trading_analyst.domain.research import ResearchStatus
 from tests.unit.domain.report.conftest import (
     JETZT,
+    make_analysts,
     make_backtest,
     make_earnings,
     make_fundamentals,
@@ -171,17 +173,69 @@ class TestResearch:
         )
         assert "Anbieter down" in luecken_zu(report, ReportSection.NACHRICHTEN)[0].reason
 
-    def test_kursziele_bleiben_ein_ausdruecklicher_vorbehalt(self) -> None:
-        """Punkt 9 verlangt Kursziele. Der Anbieter fuehrt sie nur
-        kostenpflichtig (ADR 0017), also wird das gesagt statt weggelassen."""
-        report = bericht(research=make_research())
+    def test_ohne_recherche_haengt_punkt_neun_nicht_mehr_daran(self) -> None:
+        """Bis ADR 0043 galt Punkt 9 als fehlend, sobald die Recherche
+        ausfiel -- obwohl die gezaehlte Votenverteilung damit nichts zu tun
+        hat. Genau der Fehler, den die letzte Review bei den Risiken fand."""
+        report = bericht(
+            research=make_research(status=ResearchStatus.UNAVAILABLE, reason="Anbieter down"),
+            analysts=make_analysts(),
+        )
         (luecke,) = luecken_zu(report, ReportSection.ANALYSTENMEINUNGEN)
         assert luecke.kind is GapKind.EINGESCHRAENKT
-        assert "Kursziele" in luecke.reason
+        assert ReportSection.ANALYSTENMEINUNGEN not in report.missing_sections
 
     def test_eine_recherche_ohne_risiken_laesst_punkt_zwoelf_fehlen(self) -> None:
         report = bericht(research=make_research(risiken=()))
         assert luecken_zu(report, ReportSection.RISIKEN)[0].kind is GapKind.FEHLT
+
+
+class TestAnalystenmeinungen:
+    """Punkt 9 (ADR 0043)."""
+
+    def test_kursziele_bleiben_ein_ausdruecklicher_vorbehalt(self) -> None:
+        """Doc 10 verlangt sie, es wird sie nicht geben. Das gehoert gesagt."""
+        (luecke,) = luecken_zu(bericht(analysts=make_analysts()), ReportSection.ANALYSTENMEINUNGEN)
+        assert luecke.kind is GapKind.EINGESCHRAENKT
+        assert "Kursziele" in luecke.reason
+
+    def test_ohne_abruf_fehlt_der_punkt(self) -> None:
+        (luecke,) = luecken_zu(bericht(), ReportSection.ANALYSTENMEINUNGEN)
+        assert luecke.kind is GapKind.FEHLT
+
+    def test_ein_ausfall_des_anbieters_wird_begruendet(self) -> None:
+        report = bericht(
+            analysts=make_analysts(
+                status=AnalystRecommendationStatus.UNAVAILABLE, reason="provider_error"
+            )
+        )
+        (luecke,) = luecken_zu(report, ReportSection.ANALYSTENMEINUNGEN)
+        assert luecke.kind is GapKind.FEHLT
+        assert "provider_error" in luecke.reason
+
+    def test_fehlende_abdeckung_ist_nicht_keine_meinung(self) -> None:
+        """Ein Anbieter, der das Symbol nicht fuehrt, hat nichts gesagt --
+        der Punkt fehlt, statt eine leere Verteilung auszugeben (ADR 0043)."""
+        report = bericht(
+            analysts=make_analysts(
+                status=AnalystRecommendationStatus.UNKNOWN, reason="no_coverage"
+            )
+        )
+        (luecke,) = luecken_zu(report, ReportSection.ANALYSTENMEINUNGEN)
+        assert luecke.kind is GapKind.FEHLT
+        assert "keine Empfehlungen" in luecke.reason
+
+    def test_die_empfehlungen_stehen_als_eigene_quellenart_in_punkt_achtzehn(self) -> None:
+        quellen = bericht(analysts=make_analysts()).sources
+        arten = {quelle.kind for quelle in quellen}
+        assert SourceKind.ANALYSTS in arten
+
+    def test_ohne_abdeckung_gibt_es_auch_keine_quelle(self) -> None:
+        """Ein Beleg fuer eine Angabe, die es nicht gibt, waere keiner."""
+        quellen = bericht(
+            analysts=make_analysts(status=AnalystRecommendationStatus.UNKNOWN)
+        ).sources
+        assert all(quelle.kind is not SourceKind.ANALYSTS for quelle in quellen)
 
 
 class TestFundamentaldaten:

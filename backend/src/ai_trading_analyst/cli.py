@@ -70,6 +70,7 @@ from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBa
 from ai_trading_analyst.bootstrap import (
     app_version,
     build_agent_concurrency,
+    build_analyst_recommendations_provider,
     build_backtest_params,
     build_earnings_filter_params,
     build_earnings_provider,
@@ -2233,6 +2234,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
         # halbstuendigen Backfill. Dort bemerkt, waere es genau der Fall, den
         # der Kommentar oben beschreibt.
         fundamental_provider = build_fundamental_data_provider(config, secrets)
+        # Aus demselben Grund: 'finnhub' verlangt den Zugangsschluessel, und
+        # der fehlt entweder von Anfang an oder gar nicht.
+        ratings_provider = build_analyst_recommendations_provider(config, secrets)
     except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -2294,6 +2298,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             research_provider,
             technical_interpreter,
             fundamental_provider,
+            ratings_provider,
             uow_factory,
             rule,
             build_earnings_filter_params(config),

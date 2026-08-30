@@ -10,6 +10,11 @@ import uuid
 from datetime import UTC, date, datetime
 
 from ai_trading_analyst.domain.analysis import Stock, StockScreeningOutcome
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+    RecommendationPeriod,
+)
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
@@ -68,6 +73,35 @@ def make_outcome(**overrides: object) -> StockScreeningOutcome:
     }
     felder.update(overrides)
     return StockScreeningOutcome(**felder)  # type: ignore[arg-type]
+
+
+def make_analysts(
+    status: AnalystRecommendationStatus = AnalystRecommendationStatus.COMPLETED,
+    reason: str | None = None,
+) -> AnalystRecommendations:
+    """Zwei Monatsstaende mit **verschiedenen** Verteilungen.
+
+    Verschieden, damit eine Vertauschung der Reihenfolge auffaellt: Bei zwei
+    gleichen Zeilen bliebe jede Mutation an der Sortierung gruen.
+    """
+    if status is not AnalystRecommendationStatus.COMPLETED:
+        return AnalystRecommendations(
+            status=status, evaluated_at=JETZT, source="fake", reason=reason
+        )
+    return AnalystRecommendations(
+        status=status,
+        evaluated_at=JETZT,
+        periods=(
+            RecommendationPeriod(
+                period=date(2026, 8, 1), strong_buy=9, buy=7, hold=3, sell=1, strong_sell=0
+            ),
+            RecommendationPeriod(
+                period=date(2026, 7, 1), strong_buy=4, buy=6, hold=8, sell=2, strong_sell=1
+            ),
+        ),
+        source="fake",
+        retrieved_at=JETZT,
+    )
 
 
 def make_earnings(status: EarningsFilterStatus, reason: str | None = None) -> EarningsFilterResult:

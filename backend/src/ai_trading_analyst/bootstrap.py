@@ -407,6 +407,7 @@ def build_app() -> FastAPI:
         research_provider,
         technical_interpreter,
         build_fundamental_data_provider(loaded.config, secrets),
+        build_analyst_recommendations_provider(loaded.config, secrets),
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,

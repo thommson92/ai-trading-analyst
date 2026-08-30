@@ -14,6 +14,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
@@ -106,6 +107,14 @@ class ReportGap:
 class SourceKind(StrEnum):
     RESEARCH = "RESEARCH"
     FUNDAMENTALS = "FUNDAMENTALS"
+    ANALYSTS = "ANALYSTS"
+    """Die Analystenempfehlungen (ADR 0043).
+
+    Eine eigene Art und nicht ``RESEARCH``: Die Verteilung ist **gezaehlt,
+    nicht recherchiert**. Wer die Herkunft einer Berichtsaussage prueft, muss
+    sehen, dass hier kein Sprachmodell beteiligt war. Als Adresse steht der
+    Endpunkt selbst -- er ist die tatsaechliche Herkunft, auch wenn er ohne
+    Zugangsschluessel nicht abrufbar ist."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +188,7 @@ class StockReport:
     technical_assessment: TechnicalAssessment | None = None
     research: ResearchReport | None = None
     fundamentals: FundamentalSnapshot | None = None
+    analysts: AnalystRecommendations | None = None
 
     swing_score: float | None = None
     investment_score: float | None = None

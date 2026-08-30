@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.report import ReportSection, as_document, build_r
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalAssessmentStatus
 from tests.unit.domain.report.conftest import (
     JETZT,
+    make_analysts,
     make_backtest,
     make_earnings,
     make_fundamentals,
@@ -43,6 +44,7 @@ def vollstaendig() -> dict:  # type: ignore[type-arg]
         technical=make_technical(),
         research=make_research(),
         fundamentals=make_fundamentals(vollstaendig=True),
+        analysts=make_analysts(),
     )
 
 
@@ -166,10 +168,26 @@ class TestInhalte:
         assert abschnitt["inhalt"]["luecken"]
 
     def test_die_analystenmeinungen_fuehren_kursziele_als_leer(self) -> None:
-        """Punkt 9 verlangt sie ausdruecklich. Sie fehlen -- und der Schluessel
-        steht trotzdem da, damit niemand sie uebersieht (ADR 0017)."""
+        """Punkt 9 verlangt sie ausdruecklich. Es wird sie nicht geben -- und
+        der Schluessel steht trotzdem da, damit niemand ihn fuer vergessen
+        haelt (ADR 0043)."""
         inhalt = vollstaendig()["abschnitte"][ReportSection.ANALYSTENMEINUNGEN.value]["inhalt"]
         assert inhalt["kursziele"] is None
+
+    def test_die_votenverteilung_steht_vollstaendig_und_neuester_stand_zuerst(self) -> None:
+        inhalt = vollstaendig()["abschnitte"][ReportSection.ANALYSTENMEINUNGEN.value]["inhalt"]
+        staende = inhalt["empfehlungen"]["periods"]
+        assert [stand["period"] for stand in staende] == ["2026-08-01", "2026-07-01"]
+        assert staende[0]["strong_buy"] == 9
+        assert staende[1]["hold"] == 8
+
+    def test_punkt_neun_steht_auch_ohne_recherche(self) -> None:
+        """ADR 0043: Die Verteilung ist gezaehlt, nicht recherchiert."""
+        abschnitt = dokument(analysts=make_analysts())["abschnitte"][
+            ReportSection.ANALYSTENMEINUNGEN.value
+        ]
+        assert abschnitt["verfuegbar"]
+        assert abschnitt["inhalt"]["empfehlungen"]["periods"]
 
     def test_risiken_kommen_aus_beiden_modulen(self) -> None:
         inhalt = vollstaendig()["abschnitte"][ReportSection.RISIKEN.value]["inhalt"]

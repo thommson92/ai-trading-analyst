@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
@@ -112,6 +113,15 @@ class StockScreeningOutcome:
     bleibt das Feld leer und alles Uebrige vollstaendig; es gibt keinen
     Ersatzwert (CLAUDE.md: Analysemodule sind entkoppelt, fehlende Werte
     bleiben fehlend)."""
+    analysts: AnalystRecommendations | None = None
+    """Die Votenverteilung der Analysten (Doc 10, Paragraph 6.12 Punkt 9;
+    ADR 0043) -- nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.
+
+    Haengt wie ``fundamentals`` an keinem anderen Modul. Insbesondere **nicht**
+    am Research Agent: Berichtspunkt 9 steht damit auch dann, wenn die
+    Recherche ausgefallen ist. Faellt umgekehrt der Anbieter aus, ist der
+    Status ``UNAVAILABLE`` und nicht etwa ``None`` -- der Unterschied zwischen
+    "nicht abgefragt" und "abgefragt, keine Antwort" bleibt erhalten."""
     backtest: tuple[BacktestResult, ...] = ()
     """Die historische Signalstatistik je Signalkombination (Doc 10,
     Paragraph 7; ADR 0038) -- nur bei ``ScreeningStatus.CANDIDATE`` gefuellt.
