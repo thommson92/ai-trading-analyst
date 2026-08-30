@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -41,6 +41,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
     ContractSpec,
     EarningsProvider,
+    FundamentalDataProvider,
     FundamentalDataProviderError,
     MarketDataProviderError,
     ResearchProvider,
@@ -48,6 +49,7 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
     StockProcessingError,
     StockScreeningOutcome,
+    TechnicalInterpreter,
 )
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import (
@@ -1203,6 +1205,141 @@ class TestDispatchAnbieterUebersteuerung:
 
         with pytest.raises(SystemExit) as abbruch:
             main(["--config", str(config), "dispatch", "--research-provider", "openai"])
+
+        assert abbruch.value.code == 2
+
+    @staticmethod
+    def _spione_alle_vier(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Wie ``_spione``, aber der Abbruch liegt am **letzten** der vier
+        Anbieter.
+
+        Nur so werden alle vier sichtbar: ``command_dispatch`` baut sie in
+        fester Reihenfolge, und ``_spione`` steigt bereits beim Research Agent
+        aus -- Fundamentaldaten und Technical Agent kaemen dort nie an.
+        """
+        gesehen: dict[str, str] = {}
+
+        class _StummerNotifier:
+            def send(self, subject: str, body: str) -> None:
+                pass
+
+        class _StummerEarningsProvider:
+            def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+                return None
+
+        def earnings(config: AppConfig, secrets: Secrets) -> EarningsProvider:
+            gesehen["earnings"] = config.earnings_filter.provider
+            return _StummerEarningsProvider()
+
+        def research(config: AppConfig, secrets: Secrets) -> ResearchProvider:
+            gesehen["research"] = config.research.provider
+            return cast(ResearchProvider, object())
+
+        def technical(config: AppConfig, secrets: Secrets) -> TechnicalInterpreter:
+            gesehen["technical_agent"] = config.technical_agent.provider
+            return cast(TechnicalInterpreter, object())
+
+        def fundamental(config: AppConfig, secrets: Secrets) -> FundamentalDataProvider:
+            gesehen["fundamentals"] = config.fundamentals.provider
+            raise MissingSecretError("Abbruch fuer den Test")
+
+        monkeypatch.setattr(
+            cli, "build_notifier", lambda _config, _secrets: _StummerNotifier()
+        )
+        monkeypatch.setattr(cli, "build_earnings_provider", earnings)
+        monkeypatch.setattr(cli, "build_research_provider", research)
+        monkeypatch.setattr(cli, "build_technical_interpreter", technical)
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", fundamental)
+        return gesehen
+
+    def test_ohne_argumente_bleiben_alle_vier_auf_fixture(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der ausgelieferte Zustand: kein Zugangsdatum noetig, nichts kostet
+        Geld -- und nichts davon ist ein Ergebnis."""
+        gesehen = self._spione_alle_vier(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+
+        assert gesehen == {
+            "earnings": "fixture",
+            "research": "fixture",
+            "technical_agent": "fixture",
+            "fundamentals": "fixture",
+        }
+
+    def test_die_argumente_uebersteuern_alle_vier_anbieter(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ohne einen Schalter je Anbieter bliebe sein Abschnitt im Bericht auf
+        den Fixture-Werten stehen -- und die sehen dort wie ein Ergebnis aus,
+        nicht wie eine Luecke. Der Ausweg waere, config/default.yaml auf dem
+        Server zu editieren; genau das schliesst Doc 14 aus."""
+        gesehen = self._spione_alle_vier(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(
+                [
+                    "--config",
+                    str(config),
+                    "dispatch",
+                    "--earnings-provider",
+                    "finnhub",
+                    "--research-provider",
+                    "anthropic",
+                    "--fundamentals-provider",
+                    "edgar",
+                    "--technical-agent-provider",
+                    "anthropic",
+                ]
+            )
+            == 2
+        )
+
+        assert gesehen == {
+            "earnings": "finnhub",
+            "research": "anthropic",
+            "technical_agent": "anthropic",
+            "fundamentals": "edgar",
+        }
+
+    def test_jeder_der_beiden_neuen_schalter_wirkt_fuer_sich(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein Schalter darf die uebrigen Abschnitte nicht mitverstellen --
+        ``model_copy`` je Abschnitt, nicht ein gemeinsames Update."""
+        gesehen = self._spione_alle_vier(monkeypatch)
+        config = write_config(projekt, provider="ibkr")
+
+        assert (
+            main(["--config", str(config), "dispatch", "--fundamentals-provider", "edgar"]) == 2
+        )
+
+        assert gesehen == {
+            "earnings": "fixture",
+            "research": "fixture",
+            "technical_agent": "fixture",
+            "fundamentals": "edgar",
+        }
+
+    @pytest.mark.parametrize(
+        ("schalter", "wert"),
+        [
+            ("--fundamentals-provider", "anthropic"),
+            ("--technical-agent-provider", "edgar"),
+        ],
+    )
+    def test_ein_anbieter_aus_dem_falschen_abschnitt_wird_abgewiesen(
+        self, projekt: Path, schalter: str, wert: str
+    ) -> None:
+        """Die beiden Schalter sehen sich aehnlich genug, dass ein Vertauschen
+        naheliegt. Es faellt beim Argument auf, nicht erst am Anbieter."""
+        config = write_config(projekt, provider="ibkr")
+
+        with pytest.raises(SystemExit) as abbruch:
+            main(["--config", str(config), "dispatch", schalter, wert])
 
         assert abbruch.value.code == 2
 

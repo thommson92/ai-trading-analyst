@@ -2180,20 +2180,30 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
-    # Earnings-Filter und Research Agent stehen ausgeliefert auf 'fixture',
-    # damit Start und Tests ohne Zugangsdaten auskommen. Der produktive
-    # Schalter gehoert deshalb hierher und nicht in config/default.yaml: Die
-    # Aufgabenplanung traegt ihn in ihren Argumenten, und ein 'git pull' auf
-    # dem Server findet keinen lokalen Diff vor -- dieselbe Begruendung wie
-    # bei '--provider ibkr'.
-    if args.earnings_provider is not None:
-        earnings_filter = config.earnings_filter.model_copy(
-            update={"provider": args.earnings_provider}
+    # Alle vier Analyseanbieter stehen ausgeliefert auf 'fixture', damit Start
+    # und Tests ohne Zugangsdaten auskommen. Der produktive Schalter gehoert
+    # deshalb hierher und nicht in config/default.yaml: Die Aufgabenplanung
+    # traegt ihn in ihren Argumenten, und ein 'git pull' auf dem Server findet
+    # keinen lokalen Diff vor -- dieselbe Begruendung wie bei '--provider
+    # ibkr'.
+    #
+    # Es muessen **alle vier** sein. Fehlte auch nur einer, bliebe sein
+    # Abschnitt im Bericht bei den Fixture-Werten stehen -- und die sehen dort
+    # wie ein Ergebnis aus, nicht wie eine Luecke. Der Ausweg waere dann, die
+    # ausgelieferte Konfiguration auf dem Server zu editieren; genau das
+    # schliesst Doc 14 aus.
+    for argument, abschnitt in (
+        (args.earnings_provider, "earnings_filter"),
+        (args.research_provider, "research"),
+        (args.fundamentals_provider, "fundamentals"),
+        (args.technical_agent_provider, "technical_agent"),
+    ):
+        if argument is None:
+            continue
+        aktuell = getattr(config, abschnitt)
+        config = config.model_copy(
+            update={abschnitt: aktuell.model_copy(update={"provider": argument})}
         )
-        config = config.model_copy(update={"earnings_filter": earnings_filter})
-    if args.research_provider is not None:
-        research = config.research.model_copy(update={"provider": args.research_provider})
-        config = config.model_copy(update={"research": research})
     if args.notification_channel is not None or args.telegram_chat_id is not None:
         aenderung: dict[str, object] = {}
         if args.notification_channel is not None:
@@ -2671,6 +2681,28 @@ def build_parser() -> argparse.ArgumentParser:
             "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' braucht "
             "ATA_LLM_API_KEY und loest je Kandidat einen echten, kostenpflichtigen "
             "API-Aufruf aus."
+        ),
+    )
+    dispatch.add_argument(
+        "--fundamentals-provider",
+        choices=("fixture", "edgar"),
+        default=None,
+        help=(
+            "Uebersteuert fundamentals.provider nur fuer diesen Lauf. 'edgar' braucht "
+            "ATA_EDGAR_CONTACT und liest die SEC-Einreichungen; ohne diese Angabe "
+            "traegt Berichtspunkt 10 fuer jedes Symbol dieselben Fixture-Zahlen."
+        ),
+    )
+    dispatch.add_argument(
+        "--technical-agent-provider",
+        choices=("fixture", "anthropic"),
+        default=None,
+        help=(
+            "Uebersteuert technical_agent.provider nur fuer diesen Lauf. 'anthropic' "
+            "braucht ATA_LLM_API_KEY und loest je Kandidat einen kostenpflichtigen "
+            "Modellaufruf aus (rund 0,005 USD). Bewusst getrennt von "
+            "'--research-provider': Beide Agenten sind entkoppelt und haben eigene "
+            "Pools (ADR 0037)."
         ),
     )
     dispatch.add_argument(

@@ -560,10 +560,29 @@ Aufgabenplanung meldet damit nur, was wirklich schiefging.
 
 # Stufe G — Produktive Anbieter
 
-Erst wenn Stufe F über mindestens einen Handelstag trägt. Beide Anbieter stehen
-in `config/default.yaml` auf `fixture` und werden **nicht dort** umgestellt: Der
-produktive Schalter gehört in die Argumente der Aufgabenplanung, damit ein
-`git pull` auf dem Server keinen lokalen Diff vorfindet.
+Erst wenn Stufe F über mindestens einen Handelstag trägt. **Alle vier**
+Analyseanbieter stehen in `config/default.yaml` auf `fixture` und werden **nicht
+dort** umgestellt: Der produktive Schalter gehört in die Argumente der
+Aufgabenplanung, damit ein `git pull` auf dem Server keinen lokalen Diff
+vorfindet.
+
+| Anbieter | Schalter | Braucht | Kosten je Kandidat |
+|---|---|---|---|
+| Earnings-Termine | `--earnings-provider finnhub` | `ATA_FINNHUB_API_KEY` | keine |
+| Fundamentaldaten | `--fundamentals-provider edgar` | `ATA_EDGAR_CONTACT` | keine |
+| Technical Agent | `--technical-agent-provider anthropic` | `ATA_LLM_API_KEY` | ~0,005 USD |
+| Research Agent | `--research-provider anthropic` | `ATA_LLM_API_KEY` | ~0,52–0,58 USD |
+
+**Jeder weggelassene Schalter lässt seinen Berichtsabschnitt auf den
+Fixture-Werten stehen** — und die sehen dort wie ein Ergebnis aus, nicht wie
+eine Lücke. Die Fixture-Fundamentaldaten liefern für jedes Symbol dieselben
+erfundenen Zahlen; erkennbar sind sie nur an der offensichtlich unechten
+Vorgangsnummer `0000000000-00-000000`.
+
+Die beiden kostenlosen Schalter — Earnings und Fundamentaldaten — können
+zusammen eingeschaltet werden. Die beiden Modellaufrufe lohnen einzeln:
+Der Technical Agent kostet rund einen halben Cent je Kandidat, der Research
+Agent das Hundertfache.
 
 ## Schritt 1 — Earnings-Termine über Finnhub
 
@@ -613,7 +632,7 @@ begründet; die Notbremse zwischen zwei Anfragen ist
 Erst danach in die Aufgabenplanung übernehmen:
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --research-provider anthropic
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar
 ```
 
 ---
@@ -662,7 +681,7 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 ### In die Aufgabenplanung übernehmen
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
 
 Zwei Arten von Meldungen kommen künftig an:
