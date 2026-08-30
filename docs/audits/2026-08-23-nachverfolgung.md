@@ -4,8 +4,9 @@
 > ändert — im Gegensatz zum [Audit selbst](2026-08-23-repository-audit.md),
 > das als eingefrorene Momentaufnahme unverändert bleibt.
 
-**Stand:** 2026-08-24 (nach PR #38 bis #42, den Serverlaeufen vom 2026-08-24
-und der Aktivierung des Merge-Schutzes)
+**Stand:** 2026-08-30 (nach PR #43 bis #46 und dem Sprint-4-Abschluss:
+Fundamentalanalyse, Report Generator, Backtest im Tageslauf, getrennte
+Agenten-Pools, Ausweichmodelle, Deployment-ADR)
 
 ## Wozu dieses Dokument
 
@@ -53,17 +54,17 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M1 | Doc 14 Stufe B: Head-Prüfung, F10-Zeile auf ADR 0024 | **erledigt** | PR #37, `eabcaca` |
 | M2 | Projekt-`CLAUDE.md`: Gate-Abschnitt auf den Ist-Stand | **erledigt** | PR #37, `eabcaca` |
 | M3 | E2 entscheiden, Tiefe messen, ggf. Backfill-Batch | **erledigt** | ADR 0027, ADR 0028; PR #37 (`9ce7391`, `2b8021d`); Serverlauf über die volle Watchlist am 2026-08-24 — siehe unten |
-| M4 | E1 entscheiden, Ergebnis in den Sprint-5-Zuschnitt | **offen** | durch ADR 0028 entblockt, aber unentschieden |
+| M4 | E1 entscheiden, Ergebnis in den Sprint-5-Zuschnitt | **erledigt** | [ADR 0038](../adr/0038-backtest-im-tageslauf.md): Backtest je Kandidat im Tageslauf |
 | M5 | Golden-Master für Screener und Backtest | **erledigt**, mit Abweichung | PR #37, `813c539`, `backend/tests/golden/`. Abweichung siehe unten |
 | M6 | Prompt-Injection-Test für den Research-Adapter | **erledigt** | `backend/tests/unit/.../test_provider.py::TestPromptInjection`, fünf gegengeprobte Sonden. Dabei eine echte Lücke gefunden und geschlossen, siehe unten |
 | M7 | E4 umsetzen: ADR zur Wochentagsnäherung | **erledigt** | [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md), gestützt auf die Kalendermessung vom 2026-08-24 |
 | M8 | E5-Paket Research-Qualität | **erledigt** | [ADR 0029](../adr/0029-research-qualitaet.md) samt Nachträgen; Vergleichslauf 2026-08-24 gemessen — siehe unten |
 | M9 | README- und Roadmap-Status nachziehen | **erledigt** | `README.md`, `docs/03 - Roadmap.md` |
 | M10 | Kopfvermerke Doc 01/02/04/05/06/07, `signal-specification.md` | **erledigt** | Kopfvermerk je Dokument; G1-Status auf „freigegeben" (ADR 0010) |
-| M11 | Deployment-ADR (E6) und Doc 13 neu | **offen** | braucht E6 |
+| M11 | Deployment-ADR (E6) und Doc 13 neu | **erledigt** | [ADR 0036](../adr/0036-nativer-windows-betrieb.md); Doc 13 neu, Doc 10 Paragraph 14 und Paragraph 3 nachgezogen |
 | M12 | ADR-Nachträge zu 0006, 0009, 0011 | **erledigt** | je ein `### Nachtrag`-Abschnitt; Entscheidungstexte unberührt |
 | M13 | Python-Version des Servers klären, Doku vereinheitlichen | **erledigt** | Server läuft auf 3.13 (Auskunft 2026-08-23); Doc 14 und README benennen den Unterschied zum Entwicklungsrechner |
-| M14 | Sammelposten P4 | **offen** | teils E12 |
+| M14 | Sammelposten P4 | **teilweise** | R9 geschlossen ([ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md)), E12 Punkt 1 und 2 erledigt; R8 und R10 offen |
 
 ### M3 — womit die Definition of Done erfüllt ist
 
@@ -125,18 +126,18 @@ als ADR.
 
 | # | Gegenstand | Status | Beleg / Bemerkung |
 |---|---|---|---|
-| E1 | Backtesting in den Tageslauf? | **offen** | durch ADR 0028 entblockt |
+| E1 | Backtesting in den Tageslauf? | **entschieden** | [ADR 0038](../adr/0038-backtest-im-tageslauf.md): je Kandidat, auf der schon geladenen Kerzenserie |
 | E2 | Historientiefe: Backfill oder Anspruch senken | **entschieden** | [ADR 0027](../adr/0027-historientiefe-messen-vor-anspruch.md) (Weg a), [ADR 0028](../adr/0028-historientiefe-gemessen.md) (Messergebnis) |
 | E3 | Historische Earnings-Termine über SEC EDGAR | **offen** | durch ADR 0028 entblockt |
 | E4 | Wochentagsnäherung ablösen? | **entschieden** | [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md): nein, der TWS-Kalender reicht nicht. Entkräftet L3 aus ADR 0020 — siehe unten |
 | E5 | Research-Qualitätspaket | **entschieden** | [ADR 0029](../adr/0029-research-qualitaet.md) — ersetzt Teile von ADR 0023 |
-| E6 | Deployment-Zielbild festschreiben | **offen** | — |
-| E7 | Inhalt der Ergebnis-Benachrichtigung | **offen** | ADR 0024 gegen Doc 02 §2.12 |
+| E6 | Deployment-Zielbild festschreiben | **entschieden** | [ADR 0036](../adr/0036-nativer-windows-betrieb.md): nativer Windows-Betrieb, Container zum Dashboard-Sprint neu bewerten |
+| E7 | Inhalt der Ergebnis-Benachrichtigung | **entschieden** | [ADR 0040](../adr/0040-inhalt-der-ergebnismeldung.md): Symbole und Signaltypen ja, Zahlen nein. Scores neu zu entscheiden, sobald es sie gibt |
 | E8 | F12: externer Dashboard-Zugriff und Auth | **offen** | blockierend für Sprint 6 |
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | ADR 0025; Bedingung: weitere Läufe an echten Kursen |
 | E10 | Required Checks: Pro, public oder Status quo | **entschieden** | Repository auf öffentlich gestellt, Schutz aktiv — [ADR 0031](../adr/0031-merge-schutz-aktiv.md), löst ADR 0009 ab |
 | E11 | Kursziele nachrüsten | **offen** | ADR 0017; erst mit dem Scoring-Design |
-| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **teilweise** | ③ beantwortet: Server auf 3.13 (→ M13). ① `fallback_model` und ② der `temperature=0`-Doppellauf sind offen |
+| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **teilweise** | ③ beantwortet: Server auf 3.13 (→ M13). ① entschieden und gebaut: [ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md), `fallback_model` gesetzt und die Ausloeserbedingung auf technisches Versagen verengt. ② steht als Serverschritt aus (Doc 14) |
 | E13 | US-007 „relevante Chartmuster": bauen oder streichen | **offen** | ADR 0026 |
 
 ### E5 — was sich gegenüber dem Audit geändert hat
@@ -252,10 +253,10 @@ Fehlerrichtung steht jetzt im Kopfkommentar von
 | R3 | Projekt-`CLAUDE.md` mit veralteten Gates | **geschlossen** | PR #37, `eabcaca` |
 | R4 | Doc 14 Stufe B bricht am falschen Head ab | **geschlossen** | PR #37, `eabcaca` |
 | R5 | Research: Kostenstreuung und schwache Belegqualität | **eingegrenzt** | Belegqualität behoben und zweimal am echten Lauf bestätigt (ADR 0029). Kosten stabil bei 0,52–0,58 USD; der Hebel ist gemessen und **nicht vorhanden** (ADR 0023, Nachtrag Prompt-Caching) — siehe unten |
-| R6 | Backtest ohne historischen Earnings-Filter | **offen** | ADR 0017 L9; Entscheidung E3 |
+| R6 | Backtest ohne historischen Earnings-Filter | **eingegrenzt** | Besteht fort, ist aber seit [ADR 0038](../adr/0038-backtest-im-tageslauf.md) am Ergebnis gekennzeichnet (`earnings_exclusion_applied`) und steht im Bericht als Vorbehalt. Entscheidung E3 bleibt offen |
 | R7 | Kein Merge-Schutz, CI-Grün nicht erzwungen | **geschlossen** | [ADR 0031](../adr/0031-merge-schutz-aktiv.md): `main` und `dev` geschützt, fünf CI-Jobs erforderlich, PR Pflicht, Force-Push und Löschen gesperrt |
 | R8 | Manuell gepflegte Preislisten veralten still | **offen** | M14 |
-| R9 | Ein Thread-Pool für Research und Technical Agent | **offen** | M14 |
+| R9 | Ein Thread-Pool für Research und Technical Agent | **geschlossen** | [ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md): je Agent ein eigener, konfigurierbarer Pool; eine haengende Recherche haelt die Einordnungen nicht mehr auf |
 | R10 | `pushover` im Schema ungebaut | **offen** | M14; als bewusster Zustand getestet (`test_pushover_ist_weiterhin_nicht_gebaut`) |
 
 ---

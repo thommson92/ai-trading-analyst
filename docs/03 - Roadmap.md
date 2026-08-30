@@ -113,7 +113,30 @@ KI-Analyse
   entstehen für jeden Kandidaten, der Kurs ist der Schluss der letzten
   abgeschlossenen Kerze, und jeder Lauf speichert seinen eigenen,
   unveränderlichen Satz
-- Report Generator
+- Report Generator -- **deterministische Haelfte umgesetzt**
+  ([ADR 0039](adr/0039-report-generator.md)): Er fuehrt alle achtzehn
+  Pflichtpunkte aus Doc 10, Paragraph 6.12 -- auch die vier, die auf
+  Optionsanalyse und Scoring stehen und damit zu Sprint 5 gehoeren. Sie
+  erscheinen als Abschnitt mit Begruendung, nicht als fehlender Schluessel.
+  Unterschieden wird dabei, ob ein Punkt fehlt oder nur unter Vorbehalt gilt.
+  Das JSON-Dokument ist die verbindliche, unveraenderlich gespeicherte
+  Fassung; daraus entstehen die lesbare Ausgabe ueber `cli report` und die
+  Kurzfassung fuer den Benachrichtigungskanal
+  ([ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md): Symbole und
+  Signaltypen ja, Kurse und Kennzahlen nein). Die KI-Formulierung folgt
+  getrennt, nach dem Muster von ADR 0026
+- Backtest im Tageslauf -- **umgesetzt**
+  ([ADR 0038](adr/0038-backtest-im-tageslauf.md)): Die historische
+  Signalstatistik entsteht je Kandidat auf der ohnehin geladenen
+  Kerzenserie, ohne zusaetzlichen Abruf. Sie fuellt Berichtspunkt 5 und ist
+  die Grundlage, die das Scoring in Sprint 5 braucht. Dass der Replay keine
+  Ereignisse nahe Berichtsterminen ausschliesst (ADR 0017, L9), steht am
+  Ergebnis und im Bericht
+
+**Getrennt folgend, beide nach dem Muster von ADR 0026** (deterministische
+Haelfte zuerst, KI-Einordnung getrennt gespeichert und gegen ein Schema
+validiert): die KI-Haelfte der Fundamentalanalyse und die des Report
+Generators. Beide Modellprofile stehen konfiguriert bereit.
 
 ---
 

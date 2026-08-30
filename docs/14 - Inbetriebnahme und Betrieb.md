@@ -464,6 +464,29 @@ Worauf beim Vergleich zu achten ist:
 - Es dürfen **keine Zahlen im Fazit** auftauchen, die nicht in der
   Modelleingabe stehen.
 
+### Zwischenschritt: `temperature=0` verifizieren (optional, einmalig)
+
+Offener Punkt E12 ② aus dem Audit vom 2026-08-23. ADR 0026 hält fest, dass
+zwei Läufe auf identischer Eingabe für AAPL einmal `MEDIUM` und einmal `HIGH`
+als Fehlsignalrisiko ergaben, bei Konfidenz 0,55 und 0,65 — **aber mit drei
+verschiedenen Prompt-Fassungen.** Sie waren damit nicht vergleichbar.
+
+Zwei aufeinanderfolgende Läufe mit derselben Fassung zeigen es:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli technical --provider ibkr `
+    --symbols AAPL --interpret --agent-provider anthropic
+.venv\Scripts\python.exe -m ai_trading_analyst.cli technical --provider ibkr `
+    --symbols AAPL --interpret --agent-provider anthropic
+```
+
+Zu vergleichen sind die sechs Einstufungen und die Konfidenz. Die API sagt
+keine bitgleiche Ausgabe zu — „reproduzierbar genug" trifft es, nicht
+„deterministisch". Das Ergebnis gehört als `### Nachtrag` in ADR 0026, so oder
+so: Auch „stabil" ist ein Messergebnis.
+
+Kosten: zwei Aufrufe des günstigen Modells, zusammen rund einen Cent.
+
 ---
 
 # Stufe F — Erster Tageslauf und Aufgabenplanung
@@ -628,9 +651,60 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 -m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
 
-Der Kanal wird nur im Fehlerfall angefasst — im Regelfall sendet er nichts.
-Die Meldung enthält bewusst nur Handelstag, Kerzenzeitpunkt und Ursache, keine
-Kurse oder Analyseergebnisse (ADR 0024).
+Zwei Arten von Meldungen kommen künftig an:
+
+- **Ausgefallener Lauf** — Handelstag, Kerzenzeitpunkt, Ursache. Keine Kurse,
+  keine Analyseergebnisse (ADR 0024).
+- **Erfolgreicher Lauf** — Anzahl der Kandidaten, je Kandidat Symbol und
+  Signaltypen, das Fehlsignalrisiko als Stufe und der Hinweis auf einen
+  unbekannten Berichtstermin. **Keine Kurse, keine Kennzahlen, kein Link**
+  ([ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md)).
+
+Ein Lauf ohne Kandidaten meldet sich nicht, solange
+`notifications.send_when_no_candidates` auf `false` steht.
+
+---
+
+# Stufe I — Der Analysebericht
+
+Voraussetzung: Stufe F ist durch, es gab mindestens einen Lauf mit
+Kandidaten.
+
+Zuerst die Migration, sonst bricht der erste Lauf beim Speichern ab:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+Dann die Lauf-ID heraussuchen und den Bericht ansehen:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli report --run <lauf-id>
+```
+
+Die Lauf-ID steht in der Ausgabe des Tageslaufs („Analyse-Lauf <id>: …") und
+in der Tabelle `analysis_runs`.
+
+`--symbol AAPL` zeigt nur einen Kandidaten, `--format json` das gespeicherte
+Dokument unverändert, `--output <datei>` schreibt statt zu drucken. Der volle
+Text eines Kandidaten umfasst mehrere hundert Zeilen — das ist der
+vollständige Bericht aus Doc 10, Paragraph 6.12, kein Auszug.
+
+Worauf beim ersten Mal zu achten ist:
+
+- **Alle achtzehn Punkte müssen erscheinen**, durchnummeriert. Vier davon
+  stehen als `NICHT VERFUEGBAR` da (Put-Strategien, beide Scores, Empfehlung)
+  — das ist richtig so, sie gehören zu Sprint 5.
+- **Punkt 5 muss eine Signalstatistik tragen.** Ist er leer, reichte die
+  Historie im Betrachtungsfenster nicht — dann fehlt ein Backfill.
+- **Punkt 1 sollte den Unternehmensnamen nennen.** Fehlt er, führt das
+  SEC-Symbolverzeichnis das Symbol nicht; bei Nicht-US-Titeln ist das
+  erwartbar.
+- **Kein Punkt darf leer sein, ohne dass darunter eine Begründung steht.**
+
+**Abbruch, wenn:** der Befehl „Kein Lauf mit der ID …" meldet — dann ist die
+ID falsch. „Keine Berichte zu Lauf … — 0 Kandidaten" ist dagegen kein Fehler,
+sondern ein Lauf ohne Treffer.
 
 ---
 
