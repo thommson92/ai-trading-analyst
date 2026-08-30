@@ -19,6 +19,8 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
     EarningsProvider,
     EarningsProviderError,
+    FundamentalDataProvider,
+    FundamentalDataProviderError,
     MarketDataProvider,
     MarketDataProviderError,
     ResearchProvider,
@@ -37,6 +39,7 @@ from ai_trading_analyst.domain.earnings import (
     EarningsFilterStatus,
     evaluate_earnings_filter,
 )
+from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -84,6 +87,7 @@ class _PreparedOutcome:
     decision_index: int
     evaluated_at: datetime
     technical: TechnicalSnapshot | None
+    fundamentals: FundamentalSnapshot | None
     earnings: EarningsFilterResult | None
     needs_research: bool
     research: ResearchReport | None = None
@@ -147,6 +151,7 @@ class RunAnalysisUseCase:
         earnings_provider: EarningsProvider,
         research_provider: ResearchProvider,
         technical_interpreter: TechnicalInterpreter,
+        fundamental_data_provider: FundamentalDataProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
@@ -157,6 +162,7 @@ class RunAnalysisUseCase:
         self._earnings_provider = earnings_provider
         self._research_provider = research_provider
         self._technical_interpreter = technical_interpreter
+        self._fundamental_data_provider = fundamental_data_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
@@ -263,6 +269,7 @@ class RunAnalysisUseCase:
             evaluated_at = datetime.now(UTC)
 
             technical: TechnicalSnapshot | None = None
+            fundamentals: FundamentalSnapshot | None = None
             earnings: EarningsFilterResult | None = None
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
@@ -275,6 +282,13 @@ class RunAnalysisUseCase:
                 technical = compute_technical_snapshot(
                     series, decision_index, self._technical_params, evaluated_at
                 )
+                # Der Kurs der letzten **abgeschlossenen** Kerze, genau der,
+                # auf dem Screening und Chartauswertung stehen (ADR 0035,
+                # Entscheidung 2). Das Fundamentalmodul beschafft keinen
+                # eigenen und leitet keinen ab.
+                fundamentals = self._evaluate_fundamentals(
+                    stock, series.candles[decision_index].close
+                )
                 earnings = self._evaluate_earnings(
                     stock, series.candles[decision_index].timestamp.date(), evaluated_at
                 )
@@ -286,6 +300,7 @@ class RunAnalysisUseCase:
                 decision_index=decision_index,
                 evaluated_at=evaluated_at,
                 technical=technical,
+                fundamentals=fundamentals,
                 earnings=earnings,
                 needs_research=needs_research,
             )
@@ -391,6 +406,7 @@ class RunAnalysisUseCase:
             evaluated_at=item.evaluated_at,
             signal_rule_version=SIGNAL_RULE_VERSION,
             technical=item.technical,
+            fundamentals=item.fundamentals,
             technical_assessment=item.technical_assessment,
             earnings=item.earnings,
             research=item.research,
@@ -414,6 +430,26 @@ class RunAnalysisUseCase:
             uow.processing_errors.add(error)
             uow.commit()
         return error
+
+    def _evaluate_fundamentals(self, stock: Stock, price: float) -> FundamentalSnapshot | None:
+        """Die Fundamentalkennzahlen einer bereits qualifizierten Aktie.
+
+        Der Ausfall wird **hier** gefangen und nicht im umgebenden
+        Fehlerisolations-Block. Der Unterschied ist der ganze Zweck der
+        Methode: Dort wuerde eine Ausnahme die Aktie als Ganzes in einen
+        ``StockProcessingError`` verschieben und Screening, Chartauswertung
+        und Earnings-Filter gleich mit wegwerfen. Ein nicht erreichbares
+        EDGAR ist aber ein normaler Betriebszustand (ADR 0035, Entscheidung
+        3; Muster ``_evaluate_earnings``).
+
+        Es entsteht dann kein Ersatzwert und kein Platzhalter -- das Feld
+        bleibt leer.
+        """
+        try:
+            return self._fundamental_data_provider.fundamentals(stock, price=price)
+        except FundamentalDataProviderError as error:
+            _logger.warning("Fundamentaldaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
+            return None
 
     def _evaluate_earnings(
         self, stock: Stock, as_of: date, evaluated_at: datetime

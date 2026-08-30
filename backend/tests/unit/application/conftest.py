@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunRepository,
     BacktestResultRepository,
     EarningsProviderError,
+    FundamentalDataProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
     ProcessingErrorRepository,
@@ -31,6 +32,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     Candle,
@@ -44,6 +46,9 @@ from ai_trading_analyst.domain.technical import (
     TechnicalSnapshot,
     TechnicalStatus,
     TrendStrength,
+)
+from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
+    FixtureFundamentalDataProvider,
 )
 
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
@@ -138,6 +143,32 @@ class FakeEarningsProvider:
         if stock.symbol in self._error_symbols:
             raise EarningsProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
         return self._next_by_symbol.get(stock.symbol)
+
+
+class FakeFundamentalDataProvider:
+    """Testdoppel der Fundamentaldatenquelle (Muster ``FakeEarningsProvider``).
+
+    ``error_symbols`` wirft die Vertragsausnahme, ``crash_symbols`` eine rohe
+    ``RuntimeError`` -- also einen Vertragsbruch. Das erste darf nur die
+    Kennzahlen kosten, das zweite die Aktie (ADR 0035, Entscheidung 3).
+    """
+
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._error_symbols = error_symbols
+        self._crash_symbols = crash_symbols
+        self.calls: list[tuple[str, float | None]] = []
+
+    def fundamentals(self, stock: Stock, price: float | None = None) -> FundamentalSnapshot:
+        self.calls.append((stock.symbol, price))
+        if stock.symbol in self._error_symbols:
+            raise FundamentalDataProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        if stock.symbol in self._crash_symbols:
+            raise RuntimeError(f"Vertragsbruch fuer {stock.symbol}")
+        return FixtureFundamentalDataProvider().fundamentals(stock, price=price)
 
 
 class FakeTechnicalInterpreter:

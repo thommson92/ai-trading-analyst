@@ -108,7 +108,11 @@ KI-Analyse
   aktuell galt; sie sind in
   [ADR 0034](adr/0034-fundamentaldaten-nach-dem-watchlist-lauf.md) entschieden
   und heben das Verfahren auf `fundamental-v3`. Die KI-Einordnung folgt
-  getrennt
+  getrennt. **Im Tageslauf angeschlossen**
+  ([ADR 0035](adr/0035-fundamentaldaten-im-tageslauf.md)): Kennzahlen
+  entstehen für jeden Kandidaten, der Kurs ist der Schluss der letzten
+  abgeschlossenen Kerze, und jeder Lauf speichert seinen eigenen,
+  unveränderlichen Satz
 - Report Generator
 
 ---

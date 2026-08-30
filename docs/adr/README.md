@@ -69,6 +69,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen; Entscheidung 3 durch [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) abgelöst |
 | [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) | Niveauzahlen und Bewertung auf die letzten zwölf Monate statt auf den Jahresabschluss | Angenommen (löst Entscheidung 3 aus ADR 0032 ab) |
 | [0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) | Aktualitätsschranke, Umsatz ohne Vetorecht, drei zugelassene Abweichler | Angenommen (ergänzt ADR 0032 und 0033; Nachtrag 2026-08-27 löst L1 aus ADR 0032, L3 aus ADR 0033 und L4 ein) |
+| [0035](0035-fundamentaldaten-im-tageslauf.md) | Fundamentaldaten im Tageslauf — nur für Kandidaten, Kurs aus der letzten abgeschlossenen Kerze, je Lauf gespeichert | Angenommen |
 
 ## Offene Entscheidungen
 
