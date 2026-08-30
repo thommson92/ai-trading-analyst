@@ -253,13 +253,22 @@ falsche Zahl.
 
 ### Damit ist ADR 0033 L3 beantwortet
 
-18 Aktien ohne einen einzigen Zwoelfmonatswert. Sie zerfallen in vier
+19 Aktien ohne einen einzigen Zwoelfmonatswert. Sie zerfallen in vier
 Gruppen, und keine davon ist ein Mangel des Verfahrens:
 
-- **Zehn** Emittenten mit Geschaeftsjahresende im Mai oder Juni, deren
+- **Elf** Emittenten mit Geschaeftsjahresende im Mai oder Juni, deren
   Abschluss gerade erst geschlossen hat und fuer die es noch kein Teilstueck
-  gibt (ADP, CAH, FDX, KLAC, LRCX, MSFT, NKE, ORCL, PG, STX). Der Rueckfall
-  auf das Geschaeftsjahr ist dort der **aktuellere** Wert, nicht der aeltere.
+  gibt (ADP, CAH, CTAS, FDX, KLAC, LRCX, MSFT, NKE, ORCL, PG, STX). Der
+  Rueckfall auf das Geschaeftsjahr ist dort der **aktuellere** Wert, nicht
+  der aeltere.
+
+  Cintas ist der Fall, an dem sich das im Lauf beobachten liess: Zwischen
+  zwei Laeufen im Abstand eines Tages wechselten alle neun Kennzahlen von
+  ``12M`` auf ``GJ``, bei unveraenderter Abdeckung. Der Zwoelfmonatswert
+  endete auf demselben Datum wie das neu in ``companyfacts`` erschienene
+  Geschaeftsjahr -- alle drei Jahresperioden tragen das Einreichungsdatum
+  2026-07-29. Ein Fenster, das keine zusaetzliche Aktualitaet bringt, weicht
+  dem geprueften Abschluss (ADR 0033, Entscheidung 6).
 - **Vier** ohne US-GAAP-Daten (CHKP, DOX, MGA, SPCX) -- ADR 0032 L3.
 - **Drei** Kalenderjahr-Bilanzierer, deren Umsatz- oder Gewinn-Tag im
   Teilstueck nicht gefuehrt wird (C, KO, XOM).
@@ -278,6 +287,11 @@ Kennzahlen per 2026-03-31.
 Dieselbe Schranke, dieselbe Folge: Der Wert fehlt. Die Abdeckung von Exxon
 faellt dadurch von 67 auf 61 Prozent -- sechs Punkte, die vorher eine Zahl
 aus einem anderen Jahrzehnt waren.
+
+Im Bestaetigungslauf ueber die volle Watchliste steigt die Zahl der Aktien
+ohne Verwaesserungsrate von 9 auf 11. Zwei sind neu (Hershey und Lennar),
+und beide hatten vorher eine Rate aus einer Einreichung, die der Rest des
+Berichts um mehr als ein halbes Jahr ueberholt hatte.
 
 ### Ein Ticker kann auf einen Nachfolger ohne Historie zeigen
 
