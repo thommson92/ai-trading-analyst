@@ -376,7 +376,12 @@ class FundamentalMetricOrm(Base):
     __tablename__ = "fundamental_metrics"
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
+    screening_result_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("screening_results.id")
+    )
+    """``index=True`` gehoert hierher und nicht nur in die Migration: Ohne ihn
+    am Modell erzeugte das naechste ``alembic revision --autogenerate`` ein
+    ``drop_index``, weil ``env.py`` gegen ``Base.metadata`` vergleicht."""
     position: Mapped[int]
     """Reihenfolge der Ausgabe. Muster ``TechnicalZoneOrm.position``: Eine
     Relationship ohne ``order_by`` liefert die Kinder in einer Reihenfolge,

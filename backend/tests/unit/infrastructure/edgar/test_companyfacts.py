@@ -453,6 +453,53 @@ class TestUnbrauchbareEintraege:
 
 
 class TestAktienzahl:
+    def test_mehrere_gattungen_desselben_stands_liefern_keine_zahl(self) -> None:
+        """Das Deckblatt eines Emittenten mit mehreren Aktiengattungen nennt
+        je Gattung eine Zahl. Welche zum gehandelten Papier gehoert, steht
+        dort nicht -- ``max`` entschiede nach der Reihenfolge im JSON.
+
+        Bei Berkshire Hathaway liegen die Gattungen um den Faktor 1.500
+        auseinander; die Marktkapitalisierung traegt das unveraendert weiter.
+        """
+        antwort = _antwort(
+            {"Revenues": self._umsatz()},
+            dei={
+                "EntityCommonStockSharesOutstanding": {
+                    "units": {
+                        "shares": [
+                            _fakt(1_500_000.0, start=None, end="2026-07-01", form="10-Q",
+                                  filed="2026-08-01"),
+                            _fakt(1_000.0, start=None, end="2026-07-01", form="10-Q",
+                                  filed="2026-08-01"),
+                        ]
+                    }
+                }
+            },
+        )
+        assert resolve_company_facts(antwort).shares_outstanding is None
+
+    def test_eine_einzige_gattung_liefert_sie(self) -> None:
+        antwort = _antwort(
+            {"Revenues": self._umsatz()},
+            dei={
+                "EntityCommonStockSharesOutstanding": {
+                    "units": {
+                        "shares": [
+                            _fakt(1_500_000.0, start=None, end="2026-07-01", form="10-Q",
+                                  filed="2026-08-01")
+                        ]
+                    }
+                }
+            },
+        )
+        aktien = resolve_company_facts(antwort).shares_outstanding
+        assert aktien is not None
+        assert aktien.value == pytest.approx(1_500_000.0)
+
+    @staticmethod
+    def _umsatz() -> dict[str, Any]:
+        return _usd(_fakt(1000.0, start="2025-01-01", end="2025-12-31"))
+
     def test_der_spaeteste_stichtag_gewinnt(self) -> None:
         """Nicht die spaeteste Einreichung: Ein Aenderungsbericht kann heute
         eingereicht werden und einen alten Stichtag tragen."""

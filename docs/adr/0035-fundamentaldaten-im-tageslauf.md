@@ -143,3 +143,57 @@ Groesse in dieser Rechnung ist.
   taggenau, sein Nenner bis zu drei Monate alt. Das ist die Natur der
   Kennzahl und kein Mangel der Umsetzung -- die Basis am Ergebnis sagt, auf
   welchen Zeitraum sich der Nenner bezieht.
+
+## Nachtrag 2026-08-30: die Bewertung braucht eine zweite Schranke
+
+Die unabhaengige Review hat eine Luecke gefunden, die erst durch diesen Zweig
+entsteht -- vorher gab es keinen Kurs, also auch keine Bewertung im Lauf.
+
+**Die Aktualitaetsschranke aus ADR 0034 misst berichtsintern.** Sie
+vergleicht eine Rohgroesse mit dem juengsten Zeitraumwert **desselben**
+Berichts. Ein Emittent, der seit Jahren nichts mehr einreicht, ist darin
+vollkommen stimmig: Alle seine Zahlen enden 2016, keine liegt hinter einer
+anderen zurueck.
+
+Gegen einen heutigen Kurs gerechnet ergab das:
+
+```
+ALT  COMPLETED  33%
+  MARKET_CAPITALIZATION  200.000.000,00  Stg bis 2026-07-01
+  PRICE_EARNINGS_RATIO       769.230,77  GJ  bis 2016-12-31
+```
+
+Die Marktkapitalisierung von heute, geteilt durch den Gewinn von 2016, mit
+Status ``COMPLETED``. Die vorhandene Pruefung in ``_bewertung`` faengt den
+umgekehrten Fall -- eine Aktienzahl, die **aelter** ist als der Stichtag
+(der Berkshire-Fehler aus ADR 0033) --, nicht diesen.
+
+**Entscheidung 7: Der Kurs wird nur gegen Zahlen der letzten 455 Tage
+gerechnet.** Ein Geschaeftsjahr plus die laengste regulaere 10-K-Frist der
+SEC. Wer fristgerecht einreicht, unterschreitet das immer; spaetestens dann
+liegt der naechste Abschluss vor.
+
+Ist die Spanne ueberschritten, entstehen die vier kursabhaengigen Kennzahlen
+nicht. Die uebrigen bleiben: Sie mischen nichts, tragen ihren Zeitraum an
+sich und sind alt, aber nicht falsch.
+
+## Nachtrag 2026-08-30: eine Aktienzahl je Gattung ist keine Aktienzahl
+
+Aus derselben Review. ``_resolve_shares_outstanding`` waehlte bei gleichem
+Stichtag **und** gleichem Einreichungsdatum nach der Reihenfolge im JSON --
+also nach nichts. Das Deckblatt eines Emittenten mit mehreren
+Aktiengattungen nennt je Gattung eine Zahl, und welche zum gehandelten
+Papier gehoert, steht dort nicht.
+
+Die Folge waere keine kleine Abweichung: Bei Berkshire Hathaway liegen die
+Gattungen um den Faktor 1.500 auseinander, und die Marktkapitalisierung
+traegt das unveraendert in alle vier Bewertungskennzahlen weiter.
+
+**Entscheidung 8: Sind mehrere Aktienzahlen desselben Stands verschieden
+gross, fehlt die Aktienzahl** -- und mit ihr die Bewertung. Fehlend statt
+falsch (CLAUDE.md).
+
+Gemessen am 2026-08-30 ueber alle 192 Symbole der Watchliste: **kein
+einziger** Emittent faellt darunter (177 eindeutig, 15 ohne Angabe). Die
+Schranke kostet heute nichts und schuetzt gegen den Tag, an dem ein
+Mehrklassen-Papier in die Watchliste kommt.

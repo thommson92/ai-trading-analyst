@@ -36,6 +36,10 @@ from ai_trading_analyst.domain.fundamentals import (
 )
 
 ANNUAL_FORMS = frozenset({"10-K", "10-K/A"})
+"""Nur Jahresabschluesse und ihre Aenderungsberichte (ADR 0032,
+Entscheidung 3). ``10-K/A`` gehoert ausdruecklich dazu: In Apples Daten
+traegt ein Aenderungsbericht die berichtigte Zahl, und ohne ihn stuende der
+zurueckgenommene Wert in der Kennzahl."""
 
 PERIODIC_FORMS = ANNUAL_FORMS | {"10-Q", "10-Q/A"}
 """Regelmaessige Finanzberichte -- die einzigen Quellen fuer Bausteine der
@@ -50,10 +54,6 @@ Bei NVIDIA stimmt der Wert der Vollmachtserklaerung auf den Cent mit dem
 Rechnungslegung, und ein dort neu gefasster Wert liefe ungeprueft in die
 Kennzahl. Dasselbe gilt fuer Bilanzpositionen aus 8-K-Anlagen, die
 typischerweise Pro-forma-Rechnungen sind."""
-"""Nur Jahresabschluesse und ihre Aenderungsberichte (ADR 0032,
-Entscheidung 3). ``10-K/A`` gehoert ausdruecklich dazu: In Apples Daten
-traegt ein Aenderungsbericht die berichtigte Zahl, und ohne ihn stuende der
-zurueckgenommene Wert in der Kennzahl."""
 
 MIN_ANNUAL_DAYS = 300
 MAX_ANNUAL_DAYS = 400
@@ -636,6 +636,29 @@ def _resolve_shares_outstanding(cik: int, dei: Any) -> ReportedFigure | None:
     if not kandidaten:
         return None
     juengster = max(kandidaten, key=lambda fakt: (fakt.end, fakt.filed))
+    gleichrangig = {
+        fakt.value
+        for fakt in kandidaten
+        if (fakt.end, fakt.filed) == (juengster.end, juengster.filed)
+    }
+    if len(gleichrangig) > 1:
+        # Mehrere Aktienzahlen desselben Stands, verschieden gross: Das
+        # Deckblatt eines Emittenten mit mehreren Aktiengattungen nennt je
+        # Gattung eine. Welche zum gehandelten Papier gehoert, steht hier
+        # nicht -- ``max`` entschiede nach der Reihenfolge im JSON, also nach
+        # nichts. Genau die Abhaengigkeit, gegen die ``_ist_juenger``
+        # geschrieben ist.
+        #
+        # Die Folge ist keine kleine Abweichung: Bei Berkshire Hathaway
+        # liegen die Gattungen um den Faktor 1.500 auseinander, und die
+        # Marktkapitalisierung traegt den Fehler unveraendert weiter.
+        # Deshalb fehlt die Aktienzahl lieber (CLAUDE.md).
+        #
+        # Gemessen am 2026-08-30 ueber die 192 Symbole der Watchliste: kein
+        # einziger Emittent faellt darunter (177 eindeutig, 15 ohne Angabe).
+        # Die Schranke kostet heute nichts und schuetzt gegen den Tag, an dem
+        # ein Mehrklassen-Papier in die Watchliste kommt.
+        return None
     return ReportedFigure(
         value=juengster.value,
         period_start=None,
