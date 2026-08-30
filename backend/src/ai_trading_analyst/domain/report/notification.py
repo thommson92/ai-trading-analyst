@@ -9,13 +9,18 @@ keine Kurse, keine Kennzahlen, kein Modell-Freitext.
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from ai_trading_analyst.domain.analysis.models import AnalysisRunSummary, StockScreeningOutcome
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.screening import ScreeningStatus
 
 
-def render_notification(summary: AnalysisRunSummary) -> tuple[str, str]:
+def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[str, str]:
     """Die kompakte Zusammenfassung fuer den Benachrichtigungskanal (ADR 0040).
+
+    ``timezone`` ist die Boersenzeitzone; sie bestimmt, welchen Handelstag der
+    Betreff nennt.
 
     Betreff und Text. Enthaelt Symbole, Signaltypen, das Fehlsignalrisiko als
     Stufe und den Hinweis auf einen unbekannten Berichtstermin -- **keine
@@ -28,7 +33,11 @@ def render_notification(summary: AnalysisRunSummary) -> tuple[str, str]:
         for outcome in summary.outcomes
         if outcome.result.status is ScreeningStatus.CANDIDATE
     ]
-    tag = summary.run.started_at.date().isoformat()
+    # Der Handelstag ist der an der Boerse, nicht der in UTC (CLAUDE.md: der
+    # Scheduler rechnet in America/New_York). Ein Lauf nach 20:00 New Yorker
+    # Zeit -- etwa ein verspaeteter innerhalb der Nachholfrist -- liegt in UTC
+    # bereits am Folgetag und truege sonst das falsche Datum im Betreff.
+    tag = summary.run.started_at.astimezone(ZoneInfo(timezone)).date().isoformat()
     betreff = f"Analyse-Lauf {tag}: {len(kandidaten)} Kandidat(en)"
     if not kandidaten:
         return betreff, (

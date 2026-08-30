@@ -8,11 +8,16 @@ Begruendung -- nie ein weggelassener Schluessel. Genau das unterscheidet
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
+
+import pytest
 
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
+from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalAssessmentStatus
 from tests.unit.domain.report.conftest import (
+    JETZT,
     make_backtest,
     make_earnings,
     make_fundamentals,
@@ -41,6 +46,45 @@ def vollstaendig() -> dict:  # type: ignore[type-arg]
     )
 
 
+def nur_einordnung() -> dict:  # type: ignore[type-arg]
+    """Recherche ohne Risiken, aber eine Einordnung mit Fehlsignalgruenden --
+    genau der Fall, in dem Punkt 12 als fehlend galt und trotzdem Inhalt trug."""
+    return dokument(
+        research=make_research(risiken=()),
+        technical_assessment=einordnung_mit_risiken(),
+    )
+
+
+def einordnung_ohne_recherche() -> dict:  # type: ignore[type-arg]
+    return dokument(technical_assessment=einordnung_mit_risiken())
+
+
+def ohne_zonen() -> dict:  # type: ignore[type-arg]
+    return dokument(technical=make_technical(mit_zonen=False), research=make_research())
+
+
+_FAELLE: dict[str, Callable[[], dict]] = {  # type: ignore[type-arg]
+    "karg": dokument,
+    "vollstaendig": vollstaendig,
+    "nur_einordnung": nur_einordnung,
+    "einordnung_ohne_recherche": einordnung_ohne_recherche,
+    "ohne_zonen": ohne_zonen,
+}
+
+
+def einordnung_mit_risiken() -> TechnicalAssessment:
+    return TechnicalAssessment(
+        status=TechnicalAssessmentStatus.COMPLETED,
+        evaluated_at=JETZT,
+        model="fake",
+        prompt_version="fake-v1",
+        interpreted_analysis_version="technical-v3",
+        summary="Einordnung",
+        false_signal_risks=("Volumen duenn",),
+        confidence=0.6,
+    )
+
+
 class TestAchtzehnAbschnitte:
     def test_der_karge_fall_fuehrt_trotzdem_alle_achtzehn(self) -> None:
         abschnitte = dokument()["abschnitte"]
@@ -57,11 +101,27 @@ class TestAchtzehnAbschnitte:
         assert abschnitte[ReportSection.QUELLEN.value]["nummer"] == 18
         assert sorted(a["nummer"] for a in abschnitte.values()) == list(range(1, 19))
 
-    def test_jeder_nicht_verfuegbare_abschnitt_nennt_einen_grund(self) -> None:
-        for name, abschnitt in dokument()["abschnitte"].items():
+    @pytest.mark.parametrize("fall", sorted(_FAELLE))
+    def test_jeder_nicht_verfuegbare_abschnitt_nennt_einen_grund(self, fall: str) -> None:
+        """Die zentrale Invariante -- und sie braucht **mehr als den kargen
+        Fall**.
+
+        In der ersten Fassung lief dieser Test nur auf einem Bericht ohne jedes
+        Zusatzmodul. Er hat deshalb nicht bemerkt, dass Punkt 12 als fehlend
+        gefuehrt wurde, waehrend die KI-Einordnung Fehlsignalgruende
+        beisteuerte: Regel und Inhalt standen auf verschiedenen Quellen.
+        """
+        for name, abschnitt in _FAELLE[fall]()["abschnitte"].items():
             if not abschnitt["verfuegbar"]:
                 assert abschnitt["vorbehalte"], f"{name} ohne Begruendung"
                 assert abschnitt["inhalt"] is None, f"{name} hat Inhalt trotz Luecke"
+
+    @pytest.mark.parametrize("fall", sorted(_FAELLE))
+    def test_ein_verfuegbarer_abschnitt_hat_immer_inhalt(self, fall: str) -> None:
+        """Die Gegenrichtung: ``verfuegbar`` ohne Inhalt waere genauso falsch."""
+        for name, abschnitt in _FAELLE[fall]()["abschnitte"].items():
+            if abschnitt["verfuegbar"]:
+                assert abschnitt["inhalt"] is not None, f"{name} verfuegbar, aber leer"
 
 
 class TestSerialisierbarkeit:

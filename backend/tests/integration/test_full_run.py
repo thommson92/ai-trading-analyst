@@ -56,6 +56,10 @@ _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, can
 _FIXTURE_DECISION_DATE = date(2024, 2, 6)
 
 _TECHNICAL_PARAMS = TechnicalAnalysisParameters()
+"""Bewusst die Voreinstellungen aus ADR 0025 und keine verkleinerten
+Fenster: Die Fixture-Serie ist lang genug, und damit prueft dieser Lauf
+zugleich, dass die ausgelieferten Werte in sich stimmig sind."""
+
 _BACKTEST_PARAMS = BacktestParameters(
     horizons=(5, 10, 20),
     cooldown_candles=5,
@@ -63,9 +67,7 @@ _BACKTEST_PARAMS = BacktestParameters(
     normal_confidence_sample_size=30,
     history_years=5,
 )
-"""Bewusst die Voreinstellungen aus ADR 0025 und keine verkleinerten
-Fenster: Die Fixture-Serie ist lang genug, und damit prueft dieser Lauf
-zugleich, dass die ausgelieferten Werte in sich stimmig sind."""
+"""Aus demselben Grund die ausgelieferten Werte aus ``config/default.yaml``."""
 
 
 class _AlwaysFailingMarketDataProvider:

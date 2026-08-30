@@ -132,7 +132,16 @@ Verdopplung ist die Zusicherung.
 - **Die Umwandlung in reine Daten läuft generisch** über die
   Dataclass-Felder, nicht über handgeschriebene Feldlisten. Ein neues Feld an
   einem Teilergebnis erscheint damit automatisch im Bericht — gewollt, aber
-  es heißt auch, dass niemand es ausdrücklich freigibt.
+  es heißt auch, dass niemand es ausdrücklich freigibt. Trägt ein Feld einen
+  Typ, den die Umwandlung nicht kennt, bricht sie ab. Deshalb entsteht der
+  Bericht **außerhalb** der Transaktion und mit eigener Fehlerisolation: Ein
+  abgeleitetes Artefakt darf das deterministische Screening-Ergebnis nicht
+  kosten, das daneben steht.
+- **Ein Abschnitt darf nie als fehlend gelten und trotzdem Inhalt tragen.**
+  Das ist eine zugesicherte Invariante, und sie hat sich beim Bauen dreimal
+  als verletzt erwiesen — zuletzt bei Punkt 12, dessen Regel an der Recherche
+  hing, während sein Inhalt zusätzlich aus der KI-Einordnung kam. Wer einen
+  Abschnitt ergänzt, muss Regel und Inhalt auf dieselbe Quelle stellen.
 - **Der Unternehmensname fehlt für jeden Nicht-SEC-Registranten**, und die
   Watchliste enthält solche Titel. Punkt 1 bleibt dort eine Lücke.
 - **Berichte entstehen nur für Kandidaten.** Ein Lauf ohne Kandidaten

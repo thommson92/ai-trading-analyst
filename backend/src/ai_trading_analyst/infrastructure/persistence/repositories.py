@@ -1065,14 +1065,3 @@ class SqlAlchemyBacktestResultRepository:
         )
         return _group_rows_into_results(rows)
 
-    def list_for_run(self, analysis_run_id: uuid.UUID) -> Sequence[BacktestResult]:
-        rows = (
-            self._session.execute(
-                select(BacktestResultOrm).where(
-                    BacktestResultOrm.analysis_run_id == analysis_run_id
-                )
-            )
-            .scalars()
-            .all()
-        )
-        return _group_rows_into_results(rows)

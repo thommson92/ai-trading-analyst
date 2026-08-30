@@ -13,6 +13,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
+
+from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -908,7 +911,6 @@ class TestBacktestImTageslauf:
 
         assert backtests.added, "Nichts gespeichert"
         assert {lauf for _, lauf in backtests.added} == {summary.run.id}
-        assert backtests.list_for_run(summary.run.id)
 
     def test_ohne_historie_im_fenster_bleibt_die_statistik_leer_und_der_lauf_heil(self) -> None:
         """Der eine dokumentierte Ausfall: Im Betrachtungsfenster liegt keine
@@ -1007,6 +1009,57 @@ class TestBerichtImTageslauf:
         assert bericht.gaps, "ein Bericht ohne jede Luecke ist hier unmoeglich"
 
 
+class TestBerichtBleibtAbgeleitet:
+    """Der Bericht fuehrt zusammen, was schon gerechnet ist. Scheitert das
+    Zusammenfuehren, darf es das deterministische Ergebnis nicht kosten
+    (CLAUDE.md: Analysemodule sind entkoppelt)."""
+
+    def test_ein_unerzeugbarer_bericht_kostet_das_screening_ergebnis_nicht(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def kaputt(*args: object, **kwargs: object) -> None:
+            raise TypeError("Kein Weg, Decimal als Bericht zu schreiben")
+
+        monkeypatch.setattr(run_analysis, "build_report", kaputt)
+
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        berichte = FakeStockReportRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo, bars_repo, runs_repo, results_repo, errors_repo,
+                stock_reports=berichte,
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+        ).execute()
+
+        assert not summary.errors, "der Bericht hat die Aktie in einen Fehler verwandelt"
+        (outcome,) = summary.outcomes
+        assert outcome.result.status == ScreeningStatus.CANDIDATE
+        assert outcome.technical is not None
+        assert outcome.backtest, "die Signalstatistik ist mit verschwunden"
+        assert berichte.added == [], "es sollte gar kein Bericht entstanden sein"
+
+
 class TestErgebnismeldung:
     """ADR 0040: Die Kurzfassung geht nur raus, wenn ein Kanal hineingereicht
     wurde -- und ein unerreichbarer Kanal kostet den Lauf nicht."""
@@ -1077,7 +1130,7 @@ class TestErgebnismeldung:
 class TestGetrennteAgentenPools:
     """R9: Eine haengende Recherche darf keine Einordnung aufhalten.
 
-    Vor ADR 0040 teilten sich beide Agenten vier Plaetze. Ein realer
+    Vor ADR 0037 teilten sich beide Agenten vier Plaetze. Ein realer
     Recherche-Aufruf dauert rund 15 Minuten (Messung 2026-08-24) und darf bis
     zu 900 Sekunden laufen -- solange belegte er einen der vier Plaetze,
     waehrend die Einordnungen warteten, die Sekunden brauchen.

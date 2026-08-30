@@ -375,6 +375,7 @@ def build_app() -> FastAPI:
         build_backtest_params(loaded.config),
         agent_concurrency=build_agent_concurrency(loaded.config),
         app_version=app_version(),
+        market_timezone=loaded.config.market.timezone,
     )
 
     def check_database_ready() -> bool:

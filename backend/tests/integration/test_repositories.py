@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -884,7 +885,7 @@ class TestBacktestResultRepository:
             assert uow.backtest_results.list_for_stock(stock_b.id) == ()
 
     def test_die_lauf_bindung_und_die_earnings_kennzeichnung_ueberleben(
-        self, uow_factory: UowFactory
+        self, uow_factory: UowFactory, engine: Engine
     ) -> None:
         """ADR 0038: Der Backtest aus dem Tageslauf traegt die Lauf-ID, der aus
         ``cli backtest`` nicht. Und beide sagen, ob nahe Berichtstermine
@@ -926,12 +927,27 @@ class TestBacktestResultRepository:
             uow.commit()
 
         with uow_factory() as uow:
-            aus_dem_lauf = uow.backtest_results.list_for_run(run.id)
             alle = uow.backtest_results.list_for_stock(stock.id)
 
         assert len(alle) == 2
-        assert [r.evaluated_at for r in aus_dem_lauf] == [im_lauf.evaluated_at]
         assert all(not r.earnings_exclusion_applied for r in alle)
+
+        # Die Lauf-Bindung steht in einer Spalte, die kein Port zurueckliest --
+        # der Bericht holt die Statistik aus dem Screening-Ergebnis, nicht aus
+        # der Tabelle. Geprueft wird sie deshalb direkt.
+        with engine.connect() as verbindung:
+            zeilen = verbindung.execute(
+                text(
+                    "SELECT evaluated_at, analysis_run_id FROM backtest_results "
+                    "WHERE stock_id = :stock_id"
+                ),
+                {"stock_id": stock.id},
+            ).all()
+        zuordnung: dict[datetime, uuid.UUID | None] = {
+            zeile[0]: zeile[1] for zeile in zeilen
+        }
+        assert zuordnung[im_lauf.evaluated_at] == run.id
+        assert zuordnung[auf_zuruf.evaluated_at] is None
 
 
 class TestStockReportRepository:

@@ -1996,13 +1996,27 @@ def command_report(args: argparse.Namespace) -> int:
     # Vor dem ersten Datenbankzugriff: Ein nicht beschreibbares Ziel soll
     # sofort auffallen und nicht erst, wenn alles gelesen ist.
     ziel = Path(args.output) if args.output is not None else None
+    neu_angelegt = False
     if ziel is not None:
         try:
             ziel.parent.mkdir(parents=True, exist_ok=True)
+            neu_angelegt = not ziel.exists()
             ziel.touch()
         except OSError as error:
             print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
             return 2
+
+    def ohne_ergebnis(code: int) -> int:
+        """Bricht ab, ohne eine leere Datei zurueckzulassen.
+
+        Die Probe oben legt das Ziel an, damit ein nicht beschreibbarer Pfad
+        vor dem ersten Datenbankzugriff auffaellt. Bleibt sie liegen, sieht
+        ein leerer Bericht aus wie ein Bericht ohne Inhalt -- und ueberschriebe
+        beim zweiten Versuch stillschweigend nichts.
+        """
+        if ziel is not None and neu_angelegt:
+            ziel.unlink(missing_ok=True)
+        return code
 
     engine = _open_database()
     if engine is None:
@@ -2019,21 +2033,21 @@ def command_report(args: argparse.Namespace) -> int:
 
     if lauf is None:
         print(f"Kein Lauf mit der ID {lauf_id}", file=sys.stderr)
-        return 1
+        return ohne_ergebnis(1)
 
     if args.symbol is not None:
         gesucht = args.symbol.strip().upper()
         berichte = [bericht for bericht in berichte if bericht.symbol == gesucht]
         if not berichte:
             print(f"Kein Bericht zu '{gesucht}' in Lauf {lauf_id}", file=sys.stderr)
-            return 1
+            return ohne_ergebnis(1)
 
     if not berichte:
         print(
             f"Keine Berichte zu Lauf {lauf_id} ({lauf.status.value}) -- "
             f"{lauf.candidates_found} Kandidaten."
         )
-        return 0
+        return ohne_ergebnis(0)
 
     if args.format == "json":
         ausgabe = json.dumps(
@@ -2277,6 +2291,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Push-Nachricht auf Zuruf waere ueberraschend (ADR 0040).
             notifier=notifier,
             notify_without_candidates=config.notifications.send_when_no_candidates,
+            market_timezone=config.market.timezone,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol

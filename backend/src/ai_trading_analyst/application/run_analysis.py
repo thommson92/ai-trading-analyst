@@ -46,7 +46,12 @@ from ai_trading_analyst.domain.earnings import (
     evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
-from ai_trading_analyst.domain.report import build_report, render_notification
+from ai_trading_analyst.domain.report import (
+    StockReport,
+    as_document,
+    build_report,
+    render_notification,
+)
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.screening import (
@@ -186,6 +191,7 @@ class RunAnalysisUseCase:
         app_version: str = "",
         notifier: Notifier | None = None,
         notify_without_candidates: bool = False,
+        market_timezone: str = "America/New_York",
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -202,6 +208,7 @@ class RunAnalysisUseCase:
         self._app_version = app_version
         self._notifier = notifier
         self._notify_without_candidates = notify_without_candidates
+        self._market_timezone = market_timezone
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -306,11 +313,16 @@ class RunAnalysisUseCase:
             return
         if not summary.run.candidates_found and not self._notify_without_candidates:
             return
-        betreff, text = render_notification(summary)
         try:
+            # Auch das Rendern gehoert hinein: Der Docstring sagt, dass der
+            # Kanal den Lauf nicht nachtraeglich scheitern laesst, und das
+            # Ergebnis steht zu diesem Zeitpunkt bereits in der Datenbank.
+            betreff, text = render_notification(summary, timezone=self._market_timezone)
             self._notifier.send(betreff, text)
         except NotifierError as error:
             _logger.error("Ergebnismeldung ging nicht raus: %s", error)
+        except Exception:
+            _logger.exception("Ergebnismeldung liess sich nicht erzeugen")
 
     def _prepare_stock(self, stock: Stock) -> _PreparedItem:
         """Screening und Earnings-Filter fuer eine Aktie -- ohne Research
@@ -487,6 +499,7 @@ class RunAnalysisUseCase:
             research=item.research,
             backtest=item.backtest,
         )
+        bericht = self._build_report(outcome)
         with self._uow_factory() as uow:
             uow.stocks.add(item.stock)
             uow.screening_results.add(outcome)
@@ -495,20 +508,45 @@ class RunAnalysisUseCase:
             # andere waere ein halber Datensatz (ADR 0038).
             for backtest_result in item.backtest:
                 uow.backtest_results.add(backtest_result, run.id)
-            if outcome.result.status == ScreeningStatus.CANDIDATE:
-                # Berichte entstehen nur fuer Kandidaten (ADR 0039): Ueber sie
-                # wird berichtet, ueber die uebrigen nicht. Ein Lauf ohne
-                # Kandidaten hinterlaesst keine Berichte -- gespeichert wird er
-                # trotzdem, in ``analysis_runs``.
-                uow.stock_reports.add(
-                    build_report(
-                        outcome,
-                        created_at=datetime.now(UTC),
-                        app_version=self._app_version,
-                    )
-                )
+            if bericht is not None:
+                uow.stock_reports.add(bericht)
             uow.commit()
         return outcome
+
+    def _build_report(self, outcome: StockScreeningOutcome) -> StockReport | None:
+        """Der Bericht zu einem Kandidaten -- oder ``None``.
+
+        Nur fuer Kandidaten (ADR 0039): Ueber sie wird berichtet, ueber die
+        uebrigen nicht. Ein Lauf ohne Kandidaten hinterlaesst keine Berichte;
+        gespeichert wird er trotzdem, in ``analysis_runs``.
+
+        **Ausserhalb der Transaktion und mit eigener Fehlerisolation.** Der
+        Bericht ist ein abgeleitetes Artefakt: Er fuehrt zusammen, was schon
+        gerechnet ist. Scheitert das Zusammenfuehren -- etwa weil ein
+        Teilergebnis ein Feld traegt, das die Dokumenterzeugung nicht kennt --,
+        darf das nicht das deterministische Screening-Ergebnis kosten, das
+        daneben steht. Es waere genau die Kopplung, die CLAUDE.md ausschliesst.
+        """
+        if outcome.result.status != ScreeningStatus.CANDIDATE:
+            return None
+        try:
+            bericht = build_report(
+                outcome, created_at=datetime.now(UTC), app_version=self._app_version
+            )
+            # Eine Vorprobe, deren Ergebnis verworfen wird: Das Repository
+            # bildet das Dokument selbst, aber erst **innerhalb** der
+            # Transaktion -- ein Fehler dabei risse das Screening-Ergebnis mit.
+            # Hier faellt er vorher auf und kostet nur den Bericht. Der Preis
+            # ist ein zweiter Durchlauf je Kandidat.
+            as_document(bericht)
+        except Exception:
+            _logger.exception(
+                "Bericht fuer %s liess sich nicht erzeugen -- das Screening-Ergebnis "
+                "bleibt davon unberuehrt",
+                outcome.stock.symbol,
+            )
+            return None
+        return bericht
 
     def _persist_error(
         self, run: AnalysisRun, stock: Stock, exc: Exception

@@ -120,11 +120,16 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
         }
         if research.positive_factors:
             inhalte[ReportSection.CHANCEN] = list(research.positive_factors)
-        risiken = list(research.risks)
-        if einordnung is not None and einordnung.false_signal_risks:
-            risiken += list(einordnung.false_signal_risks)
-        if risiken:
-            inhalte[ReportSection.RISIKEN] = risiken
+    # Punkt 12 aus beiden Quellen und **ausserhalb** des Research-Zweiges: Die
+    # Einordnung nennt Fehlsignalgruende auch dann, wenn die Recherche gar
+    # nicht lief. Stuende das hier drinnen, gaebe es Risiken, die der Bericht
+    # kennt und nicht zeigt (Muster: ``_pruefe_risiken`` im Builder).
+    risiken = list(research.risks) if research is not None else []
+    if einordnung is not None:
+        risiken += list(einordnung.false_signal_risks)
+    if risiken:
+        inhalte[ReportSection.RISIKEN] = risiken
+
     if fundamentals is not None:
         inhalte[ReportSection.FUNDAMENTALE_BEWERTUNG] = _rein(fundamentals)
 

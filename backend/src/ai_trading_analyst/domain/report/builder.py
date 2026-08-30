@@ -79,6 +79,7 @@ def build_report(
     _pruefe_signalstatistik(outcome, luecken)
     _pruefe_technik(outcome, luecken)
     _pruefe_research(outcome, luecken)
+    _pruefe_risiken(outcome, luecken)
     _pruefe_fundamentaldaten(outcome, luecken)
 
     luecken.fehlt(ReportSection.PUT_STRATEGIEN, _SPRINT_5)
@@ -171,24 +172,34 @@ def _pruefe_technik(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
         )
 
 
-def _pruefe_research(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+def _research_grund(outcome: StockScreeningOutcome) -> str | None:
+    """Warum die Recherche nichts beitraegt -- oder ``None``, wenn sie es tut."""
     research = outcome.research
-    betroffen = (
-        ReportSection.NACHRICHTEN,
-        ReportSection.ANALYSTENMEINUNGEN,
-        ReportSection.CHANCEN,
-        ReportSection.RISIKEN,
-    )
-    if research is None or research.status is not ResearchStatus.COMPLETED:
-        grund = (
-            (research.reason or research.status.value)
-            if research is not None
-            else "die Recherche lief nicht -- der Earnings-Filter liess sie nicht zu"
-        )
-        for abschnitt in betroffen:
+    if research is None:
+        return "die Recherche lief nicht -- der Earnings-Filter liess sie nicht zu"
+    if research.status is not ResearchStatus.COMPLETED:
+        return research.reason or research.status.value
+    return None
+
+
+def _pruefe_research(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+    """Die Punkte, die **allein** an der Recherche haengen.
+
+    Die Risiken stehen bewusst nicht dabei: Sie speisen sich zusaetzlich aus
+    der KI-Einordnung und werden deshalb getrennt geprueft.
+    """
+    grund = _research_grund(outcome)
+    if grund is not None:
+        for abschnitt in (
+            ReportSection.NACHRICHTEN,
+            ReportSection.ANALYSTENMEINUNGEN,
+            ReportSection.CHANCEN,
+        ):
             luecken.fehlt(abschnitt, grund)
         return
 
+    research = outcome.research
+    assert research is not None  # ``_research_grund`` hat es bereits geprueft
     # Kursziele sind bewusst nicht gebaut (ADR 0017): Der Finnhub-Endpunkt ist
     # kostenpflichtig. Punkt 9 verlangt sie ausdruecklich -- das gehoert
     # gesagt, nicht weggelassen.
@@ -198,8 +209,32 @@ def _pruefe_research(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
     )
     if not research.positive_factors:
         luecken.fehlt(ReportSection.CHANCEN, "die Recherche nennt keine positiven Faktoren")
-    if not research.risks:
-        luecken.fehlt(ReportSection.RISIKEN, "die Recherche nennt keine Risiken")
+
+
+def _pruefe_risiken(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+    """Punkt 12 speist sich aus **zwei** Quellen (Doc 10, Paragraph 6.12).
+
+    Die Recherche nennt fachliche Risiken, die KI-Einordnung die Gruende fuer
+    ein moegliches Fehlsignal. Der Punkt fehlt nur, wenn beide schweigen --
+    ihn an der Recherche allein festzumachen ergab einen Abschnitt, der als
+    fehlend galt und trotzdem Inhalt trug.
+    """
+    aus_research = tuple(outcome.research.risks) if outcome.research is not None else ()
+    einordnung = outcome.technical_assessment
+    aus_einordnung = tuple(einordnung.false_signal_risks) if einordnung is not None else ()
+
+    if not aus_research and not aus_einordnung:
+        luecken.fehlt(
+            ReportSection.RISIKEN,
+            _research_grund(outcome) or "weder Recherche noch Einordnung nennen ein Risiko",
+        )
+        return
+    if not aus_research:
+        luecken.eingeschraenkt(
+            ReportSection.RISIKEN,
+            "nur Fehlsignalgruende aus der Einordnung -- "
+            + (_research_grund(outcome) or "die Recherche nennt keine Risiken"),
+        )
 
 
 def _pruefe_fundamentaldaten(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:

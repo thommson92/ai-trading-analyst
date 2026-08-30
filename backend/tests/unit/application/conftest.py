@@ -302,8 +302,6 @@ class FakeBacktestResultRepository:
     def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
 
-    def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[BacktestResult, ...]:
-        return tuple(r for r, lauf in self.added if lauf == analysis_run_id)
 
 
 class FakeStockReportRepository:

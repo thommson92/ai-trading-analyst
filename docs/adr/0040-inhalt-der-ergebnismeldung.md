@@ -35,7 +35,10 @@ Enthalten:
 - je Kandidat das Symbol und die Signaltypen, die gefeuert haben,
 - je Kandidat, sofern vorhanden, das **Fehlsignalrisiko** der KI-Einordnung
   als Stufe,
-- je Kandidat der Hinweis, wenn der Earnings-Termin unbekannt ist.
+- je Kandidat der Hinweis, wenn der Earnings-Termin unbekannt ist,
+- der Befehl, mit dem sich der vollständige Bericht ansehen lässt, samt
+  Lauf-ID. Das ist **kein Link**: Er verweist auf die Kommandozeile des
+  Servers, nicht auf eine erreichbare Adresse.
 
 Ausdrücklich **nicht** enthalten:
 
@@ -43,6 +46,14 @@ Ausdrücklich **nicht** enthalten:
   Bewertung ablesen ließe,
 - Freitext aus der Recherche oder der KI-Einordnung,
 - ein Link (es gibt kein Dashboard).
+
+**Zu lange Meldungen werden gekürzt, nicht verworfen.** Telegrams
+`sendMessage` lehnt Texte über 4096 Zeichen mit einem 400 ab; daraus würde ein
+`NotifierError`, der Aufrufer protokolliert und schweigt. Aus „viele
+Kandidaten" würde damit „keine Nachricht" — der schlechteste Ausgang,
+ausgerechnet am Tag mit dem meisten zu melden. Der Adapter kürzt deshalb
+selbst und kennzeichnet die Kürzung; eine stillschweigend abgeschnittene Liste
+sähe aus wie eine vollständige.
 
 Ohne Kandidaten wird nichts gemeldet, es sei denn
 `notifications.send_when_no_candidates` steht auf `true`. Der Schalter
@@ -97,8 +108,11 @@ Punktzahl ist näher an einer Bewertung als ein Signaltyp.
 - **Doc 10 §6.13 wird nur teilweise erfüllt.** Scores und Link fehlen, das
   eine mangels Modul, das andere mangels Dashboard. Der Punkt ist damit nicht
   abgeschlossen, sondern auf den Stand gebracht, den das System hergibt.
-- **Die Meldung wächst mit den Kandidaten.** Bei einem Lauf mit zwanzig
-  Kandidaten ist sie lang. Eine Obergrenze wird bewusst nicht eingeführt,
-  bevor gemessen ist, wie viele es an einem gewöhnlichen Tag sind.
+- **Die Meldung wächst mit den Kandidaten.** Eine fachliche Obergrenze wird
+  bewusst nicht eingeführt, bevor gemessen ist, wie viele es an einem
+  gewöhnlichen Tag sind. Ab etwa 65 Kandidaten greift stattdessen die
+  technische Kürzung — dann steht der Rest nur noch im vollen Bericht.
+- **Der Handelstag im Betreff steht in Börsenzeit**, nicht in UTC. Ein
+  verspäteter Lauf innerhalb der Nachholfrist läge sonst schon am Folgetag.
 - **Zu entscheiden, sobald es Scores gibt:** ob eine Punktzahl in die Meldung
   gehört. Dieses ADR sagt Nein zu Zahlen; ein Score ist eine.

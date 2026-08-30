@@ -54,16 +54,48 @@ class TelegramSettings:
     request_timeout_seconds: float
 
 
+MAX_TEXT_ZEICHEN = 4096
+"""Harte Grenze von ``sendMessage``. Darueber antwortet Telegram mit 400."""
+
+_KUERZUNGSHINWEIS = "\n[... gekuerzt, vollstaendig im Bericht]"
+
+
+def _gekuerzt(text: str) -> str:
+    """Kuerzt auf die Laenge, die Telegram annimmt -- und sagt es.
+
+    Ohne das faellt eine lange Meldung **ganz** aus: Der 400 wird zu einem
+    ``NotifierError``, der Aufrufer protokolliert und schweigt. Aus "viele
+    Kandidaten" wuerde damit "keine Nachricht" -- der schlechteste Ausgang,
+    und ausgerechnet an dem Tag, an dem am meisten zu melden ist.
+
+    Die Kuerzung wird gekennzeichnet, weil eine stillschweigend abgeschnittene
+    Liste aussaehe wie eine vollstaendige.
+    """
+    if len(text) <= MAX_TEXT_ZEICHEN:
+        return text
+    return text[: MAX_TEXT_ZEICHEN - len(_KUERZUNGSHINWEIS)] + _KUERZUNGSHINWEIS
+
+
 class TelegramNotifier:
     """Stellt Meldungen ueber die Telegram Bot API zu (ADR 0024).
 
-    Ein einzelner POST auf ``sendMessage``, kein Verbindungsmanagement: Der
-    Kanal wird nur im Fehlerfall angefasst, und das hoechstens ein paar Mal
-    im Jahr.
+    Ein einzelner POST auf ``sendMessage``, kein Verbindungsmanagement.
 
-    **Der Meldungstext bleibt bewusst duenn.** Er verlaesst das eigene Netz,
-    deshalb enthaelt er nur Handelstag, Kerzenzeitpunkt und Ursache -- keine
-    Kurse, keine Kandidaten, keine Analyseergebnisse.
+    **Der Meldungstext bleibt bewusst duenn**, weil er das eigene Netz
+    verlaesst. Wie duenn, entscheidet der Absender, nicht dieser Adapter:
+
+    - Ein ausgefallener Lauf meldet Handelstag, Kerzenzeitpunkt und Ursache
+      (ADR 0024).
+    - Ein erfolgreicher Lauf meldet Symbole, Signaltypen, das
+      Fehlsignalrisiko als Stufe und einen unbekannten Berichtstermin --
+      **keine Kurse, keine Kennzahlen, keinen Modell-Freitext**
+      (ADR 0040, das ADR 0024 an dieser Stelle bewusst lockert).
+
+    ``sendMessage`` lehnt Texte ueber ``MAX_TEXT_ZEICHEN`` mit einem 400 ab.
+    Der Adapter kuerzt deshalb selbst und kennzeichnet die Kuerzung: Eine zu
+    lange Meldung soll ankommen und nicht ausfallen -- der Kanal ist gebaut,
+    um stille Ausfaelle sichtbar zu machen, und duerfte nicht selbst einer
+    werden.
     """
 
     def __init__(
@@ -81,7 +113,10 @@ class TelegramNotifier:
             ) as client:
                 response = client.post(
                     f"{self._settings.base_url}/bot{self._settings.token}/sendMessage",
-                    json={"chat_id": self._settings.chat_id, "text": f"{subject}\n\n{body}"},
+                    json={
+                        "chat_id": self._settings.chat_id,
+                        "text": _gekuerzt(f"{subject}\n\n{body}"),
+                    },
                 )
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
