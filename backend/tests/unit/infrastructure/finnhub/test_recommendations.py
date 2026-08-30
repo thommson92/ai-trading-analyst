@@ -207,3 +207,36 @@ class TestAnfrage:
         assert url.path.endswith("/stock/recommendation")
         assert url.params["symbol"] == "AAPL"
         assert url.params["token"] == "test-key"
+
+
+class TestSchluesselLandetNichtImFehlertext:
+    """Der Schluessel steht als Query-Parameter in der URL, und ``httpx``
+    schreibt die vollstaendige URL in seine Ausnahmetexte.
+
+    Ohne Schwaerzung stuende das Geheimnis auf ``stderr`` und in jedem
+    Protokoll, das den Fehler festhaelt -- und in jedem Ticket, in das jemand
+    die Meldung kopiert.
+    """
+
+    def test_ein_http_fehler_verraet_den_schluessel_nicht(self) -> None:
+        provider = _provider(_json_transport({"error": "boom"}, status_code=500))
+
+        with pytest.raises(FinnhubAnalystRecommendationsProviderError) as fehler:
+            provider.recommendations(AAPL)
+
+        assert "test-key" not in str(fehler.value)
+        # Die Meldung bleibt brauchbar: Symbol und Statuscode stehen drin.
+        assert "AAPL" in str(fehler.value)
+        assert "500" in str(fehler.value)
+
+    def test_auch_die_verkettete_ursache_wird_nicht_ausgegeben(self) -> None:
+        """``raise ... from error`` haengt die Originalausnahme an. Sie
+        enthaelt den Schluessel weiterhin -- das ist hingenommen, weil ein
+        Traceback nur im Fehlerfall und nur lokal entsteht. Geprueft wird,
+        dass die **Meldung**, die der Aufrufer ausgibt, sauber ist."""
+        provider = _provider(_json_transport({"error": "boom"}, status_code=403))
+
+        with pytest.raises(FinnhubAnalystRecommendationsProviderError) as fehler:
+            provider.recommendations(AAPL)
+
+        assert "test-key" not in fehler.value.args[0]

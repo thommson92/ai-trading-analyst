@@ -31,6 +31,8 @@ from ai_trading_analyst.domain.analysts import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 
+from .redaction import redact
+
 _logger = get_logger(__name__)
 
 _SOURCE_NAME = "finnhub"
@@ -89,8 +91,11 @@ class FinnhubAnalystRecommendationsProvider:
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as error:
+            # Der Fehlertext von ``httpx`` enthaelt die vollstaendige URL --
+            # samt Zugangsschluessel. Ohne Schwaerzung stuende er auf stderr.
             raise FinnhubAnalystRecommendationsProviderError(
-                f"Analystenempfehlungen fuer '{symbol}' konnten nicht abgerufen werden: {error}"
+                f"Analystenempfehlungen fuer '{symbol}' konnten nicht abgerufen werden: "
+                f"{redact(str(error), self._settings.api_key)}"
             ) from error
 
         periods = self._parse(symbol, payload)

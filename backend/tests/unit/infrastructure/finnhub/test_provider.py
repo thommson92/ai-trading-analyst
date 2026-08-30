@@ -132,3 +132,21 @@ class TestEchterNetzwerkfehler:
         provider = FinnhubEarningsProvider(settings, now=lambda: TODAY)
         with pytest.raises(FinnhubEarningsProviderError, match="AAPL"):
             provider.next_earnings_date(AAPL)
+
+
+class TestSchluesselLandetNichtImFehlertext:
+    """Derselbe Mangel bestand hier seit dem ersten Tag.
+
+    ``httpx`` schreibt die vollstaendige URL in seine Ausnahmetexte, und der
+    Schluessel steht darin als Query-Parameter. Die Meldung ging bis hierher
+    ungefiltert auf ``stderr``.
+    """
+
+    def test_ein_http_fehler_verraet_den_schluessel_nicht(self) -> None:
+        provider = _provider(_json_transport({"error": "boom"}, status_code=500))
+
+        with pytest.raises(FinnhubEarningsProviderError) as fehler:
+            provider.next_earnings_date(AAPL)
+
+        assert "test-key" not in str(fehler.value)
+        assert "AAPL" in str(fehler.value)
