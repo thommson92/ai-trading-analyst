@@ -18,6 +18,7 @@ import pytest
 from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
@@ -38,9 +39,9 @@ from ai_trading_analyst.domain.technical import (
 )
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
+    FakeAnalystRecommendationsProvider,
     FakeBacktestResultRepository,
     FakeEarningsProvider,
-    FakeAnalystRecommendationsProvider,
     FakeFundamentalDataProvider,
     FakeMarketDataProvider,
     FakeProcessingErrorRepository,
@@ -426,6 +427,98 @@ class TestFundamentaldatenImTageslauf:
 
         assert summary.outcomes == ()
         assert len(summary.errors) == 1
+
+
+class TestAnalystenempfehlungenImTageslauf:
+    """ADR 0043 -- Umfang, Entkopplung und Fehlerisolation."""
+
+    def _kandidat(self) -> FakeMarketDataProvider:
+        stock = make_stock("FIXCAND")
+        return FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"FIXCAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+
+    def test_laufen_fuer_kandidaten(self) -> None:
+        ratings = FakeAnalystRecommendationsProvider()
+        use_case, _, _, _, _ = _build_use_case(self._kandidat(), ratings_provider=ratings)
+
+        summary = use_case.execute()
+
+        assert ratings.calls == ["FIXCAND"]
+        empfehlungen = summary.outcomes[0].analysts
+        assert empfehlungen is not None
+        assert empfehlungen.status is AnalystRecommendationStatus.COMPLETED
+        assert empfehlungen.periods
+
+    def test_wer_kein_kandidat_ist_wird_nicht_abgefragt(self) -> None:
+        """Ein Abruf je Watchlist-Titel statt je Kandidat waere bei 190 Aktien
+        ein Vielfaches der Anfragen -- fuer eine Angabe, die nur Kandidaten
+        betrifft."""
+        stock = make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        ratings = FakeAnalystRecommendationsProvider()
+        use_case, *_ = _build_use_case(provider, ratings_provider=ratings)
+
+        summary = use_case.execute()
+
+        assert ratings.calls == []
+        assert summary.outcomes[0].analysts is None
+
+    def test_ein_ausfall_kostet_nur_punkt_neun(self) -> None:
+        """Muster ``_evaluate_fundamentals``: Der Ausfall darf nicht die
+        ganze Aktie in einen StockProcessingError verschieben."""
+        ratings = FakeAnalystRecommendationsProvider(error_symbols=frozenset({"FIXCAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), ratings_provider=ratings
+        )
+
+        summary = use_case.execute()
+
+        assert summary.errors == ()
+        assert errors_repo.added == []
+        ergebnis = summary.outcomes[0]
+        assert ergebnis.technical is not None
+        assert ergebnis.earnings is not None
+        empfehlungen = ergebnis.analysts
+        # **Nicht** None: "nicht abgefragt" und "abgefragt, keine Antwort"
+        # sind verschiedene Aussagen (ADR 0043).
+        assert empfehlungen is not None
+        assert empfehlungen.status is AnalystRecommendationStatus.UNAVAILABLE
+        assert empfehlungen.reason == "provider_error"
+
+    def test_ein_vertragsbruch_bleibt_ein_fehler(self) -> None:
+        """Nur die Vertragsausnahme wird abgefangen. Eine rohe RuntimeError
+        ist ein Programmfehler und soll sichtbar werden."""
+        ratings = FakeAnalystRecommendationsProvider(crash_symbols=frozenset({"FIXCAND"}))
+        use_case, *_ = _build_use_case(self._kandidat(), ratings_provider=ratings)
+
+        summary = use_case.execute()
+
+        assert summary.outcomes == ()
+        assert len(summary.errors) == 1
+
+    def test_sie_haengen_nicht_am_earnings_filter(self) -> None:
+        """Anders als die Recherche laufen sie auch bei einem Kandidaten mit
+        nahem oder unbekanntem Berichtstermin (CLAUDE.md: Analysemodule sind
+        entkoppelt)."""
+        earnings = FakeEarningsProvider(error_symbols=frozenset({"FIXCAND"}))
+        ratings = FakeAnalystRecommendationsProvider()
+        use_case, *_ = _build_use_case(
+            self._kandidat(), earnings_provider=earnings, ratings_provider=ratings
+        )
+
+        summary = use_case.execute()
+
+        assert ratings.calls == ["FIXCAND"]
+        ergebnis = summary.outcomes[0]
+        assert ergebnis.earnings is not None
+        assert ergebnis.earnings.status is EarningsFilterStatus.UNKNOWN
+        assert ergebnis.analysts is not None
+        assert ergebnis.analysts.status is AnalystRecommendationStatus.COMPLETED
 
 
 class TestTechnischeChartauswertung:

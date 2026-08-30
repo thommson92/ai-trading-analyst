@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trading_analyst.config import (
+    AnalystRatingsConfig,
     AppConfig,
     BacktestingConfig,
     DataAvailabilityConfig,
@@ -128,6 +129,51 @@ class TestDataAvailabilityConfig:
     def test_rejects_wait_budget_that_allows_no_poll(self) -> None:
         with pytest.raises(ValidationError, match="Pollversuch"):
             DataAvailabilityConfig(grace_period_seconds=600, max_wait_seconds=600)
+
+
+class TestAnalystRatingsConfig:
+    """ADR 0043."""
+
+    def test_fixture_bleibt_der_standard(self) -> None:
+        """Wie beim Earnings-Filter: Start und Tests ohne Finnhub-Zugang."""
+        assert AnalystRatingsConfig().provider == "fixture"
+
+    def test_vier_monatsstaende_als_voreinstellung(self) -> None:
+        assert AnalystRatingsConfig().months == 4
+
+    def test_ein_unbekannter_anbieter_wird_abgelehnt(self) -> None:
+        with pytest.raises(ValidationError):
+            AnalystRatingsConfig(provider="alphavantage")
+
+    def test_null_monatsstaende_werden_abgelehnt(self) -> None:
+        """Ein Abruf, der nichts uebernimmt, waere ein Abruf ohne Zweck."""
+        with pytest.raises(ValidationError):
+            AnalystRatingsConfig(months=0)
+
+
+class TestFinnhubAbschnittUmgezogen:
+    """ADR 0043: ein Konto, ein Schluessel, ein Host -- zwei Endpunkte."""
+
+    def test_host_und_zeitgrenze_stehen_jetzt_oben(self) -> None:
+        config = AppConfig.model_validate(
+            {"finnhub": {"base_url": "https://example.test/v1", "request_timeout_seconds": 3}}
+        )
+        assert config.finnhub.base_url == "https://example.test/v1"
+        assert config.finnhub.request_timeout_seconds == 3
+
+    def test_das_kalenderfenster_bleibt_beim_earnings_filter(self) -> None:
+        """Es beschreibt den Endpunkt, nicht den Zugang."""
+        config = AppConfig.model_validate({"earnings_filter": {"lookahead_calendar_days": 45}})
+        assert config.earnings_filter.lookahead_calendar_days == 45
+
+    def test_der_alte_schluesselort_bricht_den_start_ab(self) -> None:
+        """Eine still uebergangene Umbenennung waere schlimmer als ein
+        Abbruch: Der Lauf liefe mit Voreinstellungen weiter, waehrend die
+        Datei etwas anderes sagt."""
+        with pytest.raises(ValidationError):
+            AppConfig.model_validate(
+                {"earnings_filter": {"finnhub": {"base_url": "https://example.test/v1"}}}
+            )
 
 
 class TestUnknownKeys:

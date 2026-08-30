@@ -30,10 +30,10 @@ from ai_trading_analyst.domain.technical import (
     TechnicalAssessmentStatus,
     TechnicalStatus,
 )
-from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider import (
     FixtureAnalystRecommendationsProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
     FixtureFundamentalDataProvider,
 )

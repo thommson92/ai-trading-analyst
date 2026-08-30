@@ -94,6 +94,7 @@ from ai_trading_analyst.config.settings import (
 )
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
+    AnalystRecommendationsProviderError,
     FundamentalDataProviderError,
     MarketDataProvider,
     MarketDataProviderError,
@@ -103,6 +104,7 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
@@ -2110,6 +2112,68 @@ def command_research(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_ratings(args: argparse.Namespace) -> int:
+    """Manuelle Einzelprobe der Analystenempfehlungen (ADR 0043).
+
+    Braucht weder Datenbank noch Marktdatenanbieter -- der Endpunkt kennt nur
+    das Symbol. Anders als 'research' kostet ein echter Aufruf **nichts**: Er
+    liegt in Finnhubs Gratis-Stufe. 'fixture' bleibt trotzdem Standard,
+    damit der Befehl ohne Zugangsschluessel laeuft.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        section = config.analyst_ratings.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"analyst_ratings": section})
+
+    try:
+        provider = build_analyst_recommendations_provider(config, Secrets())
+    except MissingSecretError as error:
+        print(f"Analystenempfehlungen: {error}", file=sys.stderr)
+        return 2
+
+    stock = Stock(id=uuid4(), symbol=args.symbol.upper(), exchange=args.exchange)
+
+    try:
+        empfehlungen = provider.recommendations(stock)
+    except AnalystRecommendationsProviderError as error:
+        print(f"Analystenempfehlungen fuer '{stock.symbol}': {error}", file=sys.stderr)
+        return 2
+
+    _print_analyst_recommendations(stock.symbol, empfehlungen)
+    # Fehlende Abdeckung ist kein Fehler des Befehls -- er hat sauber
+    # geantwortet, dass es nichts gibt (ADR 0043).
+    return 0
+
+
+def _print_analyst_recommendations(symbol: str, empfehlungen: AnalystRecommendations) -> None:
+    print(f"\n{symbol} -- Analystenempfehlungen ({empfehlungen.analysis_version})")
+    print(f"  Status:  {empfehlungen.status.value}")
+    print(f"  Quelle:  {empfehlungen.source or '--'}")
+    if empfehlungen.retrieved_at is not None:
+        print(f"  Abruf:   {empfehlungen.retrieved_at.isoformat()}")
+    if empfehlungen.reason is not None:
+        print(f"  Grund:   {empfehlungen.reason}")
+
+    if not empfehlungen.periods:
+        print("\n  Keine Monatsstaende.")
+        return
+
+    print(f"\n  {'Monat':<12}{'S-Buy':>7}{'Buy':>7}{'Hold':>7}{'Sell':>7}{'S-Sell':>8}{'Summe':>8}")
+    for stand in empfehlungen.periods:
+        print(
+            f"  {stand.period.isoformat():<12}"
+            f"{stand.strong_buy:>7}{stand.buy:>7}{stand.hold:>7}"
+            f"{stand.sell:>7}{stand.strong_sell:>8}{stand.total:>8}"
+        )
+    # Ausdruecklich keine Konsenszahl: Wie aus der Verteilung ein Teilwert
+    # wird, entscheidet das Scoring (ADR 0043). Eine hier gebildete Kennzahl
+    # waere eine zweite, abweichende Rechnung.
+    print("\n  Kursziele: dauerhaft zurueckgestellt (ADR 0043).")
+
+
 def require_complete_enough(zusammenfassung: AnalysisRunSummary, minimum: float) -> None:
     """Hat der Lauf genug Aktien gerechnet, um als erledigt zu gelten?
 
@@ -2197,6 +2261,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         (args.earnings_provider, "earnings_filter"),
         (args.research_provider, "research"),
         (args.fundamentals_provider, "fundamentals"),
+        (args.ratings_provider, "analyst_ratings"),
         (args.technical_agent_provider, "technical_agent"),
     ):
         if argument is None:
@@ -2689,6 +2754,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     dispatch.add_argument(
+        "--ratings-provider",
+        choices=("fixture", "finnhub"),
+        default=None,
+        help=(
+            "Uebersteuert analyst_ratings.provider nur fuer diesen Lauf. "
+            "'finnhub' fuellt Berichtspunkt 9 mit gezaehlten Analystenvoten; "
+            "ohne den Schalter bleibt er auf den Fixture-Werten stehen. "
+            "Kostenlos, braucht aber ATA_FINNHUB_API_KEY."
+        ),
+    )
+    dispatch.add_argument(
         "--fundamentals-provider",
         choices=("fixture", "edgar"),
         default=None,
@@ -2901,6 +2977,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Uebersteuert research.max_fetches nur fuer diesen Lauf.",
     )
     research.set_defaults(handler=command_research)
+
+    ratings = subparsers.add_parser(
+        "ratings",
+        help="Analystenempfehlungen eines Symbols (ADR 0043).",
+    )
+    ratings.add_argument("--config", default=None, help="Pfad zur Konfigurationsdatei.")
+    ratings.add_argument("--symbol", required=True, help="Ein Symbol, z. B. 'AAPL'.")
+    ratings.add_argument(
+        "--exchange",
+        default="NASDAQ",
+        help="Nur fuer die Bildung des Symbols relevant; Finnhub kennt keine Boerse.",
+    )
+    ratings.add_argument(
+        "--provider",
+        choices=("fixture", "finnhub"),
+        default=None,
+        help=(
+            "Uebersteuert analyst_ratings.provider nur fuer diesen Aufruf. "
+            "'finnhub' ist kostenlos, braucht aber den Zugangsschluessel."
+        ),
+    )
+    ratings.set_defaults(handler=command_ratings)
 
     report = subparsers.add_parser(
         "report",

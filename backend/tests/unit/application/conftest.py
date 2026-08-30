@@ -14,9 +14,9 @@ from types import TracebackType
 from typing import Self
 
 from ai_trading_analyst.domain.analysis import (
-    AnalystRecommendationsProviderError,
     AnalysisRun,
     AnalysisRunRepository,
+    AnalystRecommendationsProviderError,
     BacktestResultRepository,
     EarningsProviderError,
     FundamentalDataProviderError,

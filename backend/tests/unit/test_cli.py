@@ -39,6 +39,7 @@ from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    AnalystRecommendationsProvider,
     ContractSpec,
     EarningsProvider,
     FundamentalDataProvider,
@@ -1209,13 +1210,15 @@ class TestDispatchAnbieterUebersteuerung:
         assert abbruch.value.code == 2
 
     @staticmethod
-    def _spione_alle_vier(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-        """Wie ``_spione``, aber der Abbruch liegt am **letzten** der vier
+    def _spione_alle_fuenf(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Wie ``_spione``, aber der Abbruch liegt am **letzten** der fuenf
         Anbieter.
 
-        Nur so werden alle vier sichtbar: ``command_dispatch`` baut sie in
+        Nur so werden alle fuenf sichtbar: ``command_dispatch`` baut sie in
         fester Reihenfolge, und ``_spione`` steigt bereits beim Research Agent
-        aus -- Fundamentaldaten und Technical Agent kaemen dort nie an.
+        aus -- die drei danach kaemen dort nie an. Kommt ein sechster Anbieter
+        hinzu, muss der Abbruch mitwandern, sonst prueft dieser Helfer den
+        neuen stillschweigend nicht mit.
         """
         gesehen: dict[str, str] = {}
 
@@ -1241,6 +1244,10 @@ class TestDispatchAnbieterUebersteuerung:
 
         def fundamental(config: AppConfig, secrets: Secrets) -> FundamentalDataProvider:
             gesehen["fundamentals"] = config.fundamentals.provider
+            return cast(FundamentalDataProvider, object())
+
+        def ratings(config: AppConfig, secrets: Secrets) -> AnalystRecommendationsProvider:
+            gesehen["analyst_ratings"] = config.analyst_ratings.provider
             raise MissingSecretError("Abbruch fuer den Test")
 
         monkeypatch.setattr(
@@ -1250,14 +1257,15 @@ class TestDispatchAnbieterUebersteuerung:
         monkeypatch.setattr(cli, "build_research_provider", research)
         monkeypatch.setattr(cli, "build_technical_interpreter", technical)
         monkeypatch.setattr(cli, "build_fundamental_data_provider", fundamental)
+        monkeypatch.setattr(cli, "build_analyst_recommendations_provider", ratings)
         return gesehen
 
-    def test_ohne_argumente_bleiben_alle_vier_auf_fixture(
+    def test_ohne_argumente_bleiben_alle_fuenf_auf_fixture(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Der ausgelieferte Zustand: kein Zugangsdatum noetig, nichts kostet
         Geld -- und nichts davon ist ein Ergebnis."""
-        gesehen = self._spione_alle_vier(monkeypatch)
+        gesehen = self._spione_alle_fuenf(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert main(["--config", str(config), "dispatch"]) == 2
@@ -1267,16 +1275,17 @@ class TestDispatchAnbieterUebersteuerung:
             "research": "fixture",
             "technical_agent": "fixture",
             "fundamentals": "fixture",
+            "analyst_ratings": "fixture",
         }
 
-    def test_die_argumente_uebersteuern_alle_vier_anbieter(
+    def test_die_argumente_uebersteuern_alle_fuenf_anbieter(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Ohne einen Schalter je Anbieter bliebe sein Abschnitt im Bericht auf
         den Fixture-Werten stehen -- und die sehen dort wie ein Ergebnis aus,
         nicht wie eine Luecke. Der Ausweg waere, config/default.yaml auf dem
         Server zu editieren; genau das schliesst Doc 14 aus."""
-        gesehen = self._spione_alle_vier(monkeypatch)
+        gesehen = self._spione_alle_fuenf(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert (
@@ -1293,6 +1302,8 @@ class TestDispatchAnbieterUebersteuerung:
                     "edgar",
                     "--technical-agent-provider",
                     "anthropic",
+                    "--ratings-provider",
+                    "finnhub",
                 ]
             )
             == 2
@@ -1303,39 +1314,56 @@ class TestDispatchAnbieterUebersteuerung:
             "research": "anthropic",
             "technical_agent": "anthropic",
             "fundamentals": "edgar",
+            "analyst_ratings": "finnhub",
         }
 
-    def test_jeder_der_beiden_neuen_schalter_wirkt_fuer_sich(
-        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("schalter", "wert", "abschnitt"),
+        [
+            ("--earnings-provider", "finnhub", "earnings"),
+            ("--research-provider", "anthropic", "research"),
+            ("--technical-agent-provider", "anthropic", "technical_agent"),
+            ("--fundamentals-provider", "edgar", "fundamentals"),
+            ("--ratings-provider", "finnhub", "analyst_ratings"),
+        ],
+    )
+    def test_jeder_schalter_wirkt_fuer_sich(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        schalter: str,
+        wert: str,
+        abschnitt: str,
     ) -> None:
         """Ein Schalter darf die uebrigen Abschnitte nicht mitverstellen --
         ``model_copy`` je Abschnitt, nicht ein gemeinsames Update."""
-        gesehen = self._spione_alle_vier(monkeypatch)
+        gesehen = self._spione_alle_fuenf(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
-        assert (
-            main(["--config", str(config), "dispatch", "--fundamentals-provider", "edgar"]) == 2
-        )
+        assert main(["--config", str(config), "dispatch", schalter, wert]) == 2
 
-        assert gesehen == {
-            "earnings": "fixture",
-            "research": "fixture",
-            "technical_agent": "fixture",
-            "fundamentals": "edgar",
-        }
+        erwartet = dict.fromkeys(
+            ("earnings", "research", "technical_agent", "fundamentals", "analyst_ratings"),
+            "fixture",
+        )
+        erwartet[abschnitt] = wert
+        assert gesehen == erwartet
 
     @pytest.mark.parametrize(
         ("schalter", "wert"),
         [
             ("--fundamentals-provider", "anthropic"),
             ("--technical-agent-provider", "edgar"),
+            ("--ratings-provider", "edgar"),
+            ("--earnings-provider", "anthropic"),
         ],
     )
     def test_ein_anbieter_aus_dem_falschen_abschnitt_wird_abgewiesen(
         self, projekt: Path, schalter: str, wert: str
     ) -> None:
-        """Die beiden Schalter sehen sich aehnlich genug, dass ein Vertauschen
-        naheliegt. Es faellt beim Argument auf, nicht erst am Anbieter."""
+        """Fuenf Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
+        zweien, 'anthropic' zu zweien. Ein Vertauschen faellt beim Argument
+        auf, nicht erst am Anbieter."""
         config = write_config(projekt, provider="ibkr")
 
         with pytest.raises(SystemExit) as abbruch:
