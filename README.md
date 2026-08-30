@@ -447,6 +447,14 @@ cd backend && .venv/bin/python -m pytest
 
 In der CI übernimmt das ein Postgres-Service-Container (`.github/workflows/ci.yml`).
 
+**Nur ein Lauf gleichzeitig.** Die Integrationstests teilen sich eine
+Datenbank und räumen sie zwischen den Fällen auf. Zwei parallele
+`pytest`-Läufe gegen denselben Container ziehen einander die Zeilen weg;
+das Ergebnis sind sporadische Fehler in `test_repositories.py`,
+`test_cli_backfill.py` oder `test_api.py`, die einzeln wiederholt sofort
+grün sind. Wer nebenher prüfen will, startet einen zweiten Container auf
+einem anderen Port und setzt `TEST_DATABASE_URL` entsprechend.
+
 ### Backend lokal starten
 
 ```bash
