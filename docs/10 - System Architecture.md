@@ -103,11 +103,11 @@ Eine verteilte Queue-Infrastruktur darf nicht ohne konkreten technischen Nutzen 
 
 ### Deployment
 
-- Docker Compose
-- Windows Server als Host
-- persistente Volumes
-- Reverse Proxy für den Webzugriff
-- TLS für externe Zugriffe
+- Windows Server als Host, nativer Betrieb ohne Container
+  ([ADR 0036](adr/0036-nativer-windows-betrieb.md))
+- lokal installiertes PostgreSQL
+- Auslösung über die Windows-Aufgabenplanung
+- Reverse Proxy und TLS erst mit dem externen Webzugriff (F12, unentschieden)
 
 ---
 
@@ -1350,66 +1350,78 @@ Externe Inhalte dürfen keine Systemregeln, Tool-Berechtigungen oder Bewertungsl
 
 ## 14. Deployment auf Windows Server
 
+Beschlossen in [ADR 0036](adr/0036-nativer-windows-betrieb.md). Die
+ausführliche Anleitung steht in Doc 13 und Doc 14.
+
 ### Zielstruktur
+
+Ein Windows-Server trägt alles: die Interactive-Brokers-TWS, PostgreSQL und
+den Analyzer.
 
 ```mermaid
 flowchart TD
-    CLIENT[Browser oder Smartphone]
-    PROXY[Reverse Proxy]
-    FRONTEND[Frontend Container]
-    BACKEND[Backend Container]
-    WORKER[Worker Container]
-    POSTGRES[(PostgreSQL Volume)]
-    REDIS[(Redis, optional)]
-    STORAGE[(Artifact Volume)]
+    SCHEDULER[Windows-Aufgabenplanung]
+    CLI[cli dispatch, Einzelstart]
+    TWS[TWS, angemeldete Desktop-Sitzung]
+    POSTGRES[(PostgreSQL, lokal)]
+    EXTERN[Finnhub, Anthropic, SEC EDGAR, Telegram]
 
-    CLIENT --> PROXY
-    PROXY --> FRONTEND
-    PROXY --> BACKEND
-    FRONTEND --> BACKEND
-    BACKEND --> POSTGRES
-    WORKER --> POSTGRES
-    BACKEND --> STORAGE
-    WORKER --> STORAGE
-    BACKEND -. optional .-> REDIS
-    WORKER -. optional .-> REDIS
+    SCHEDULER --> CLI
+    CLI --> TWS
+    CLI --> POSTGRES
+    CLI --> EXTERN
 ```
 
-### Docker-Compose-Services
+**Keine Container.** Die TWS ist eine Desktop-Anwendung und braucht eine
+angemeldete Windows-Sitzung (ADR 0014 E2, [ADR 0018](adr/0018-kein-windows-autologon.md));
+sie ist zugleich die Quelle aller Kursdaten. Ein Compose-Verbund müsste sie
+außerhalb lassen. Die vollständige Begründung steht in ADR 0036.
 
-Für das MVP sind vorgesehen:
+Containerisierung ist vertagt, nicht verworfen: Sie wird zum Dashboard-Sprint
+neu bewertet, wenn mit dem Frontend erstmals etwas entsteht, das ausgeliefert
+werden muss und für das ein Reverse Proxy einen Zweck hat.
 
-- `frontend`
-- `backend`
-- `worker`
-- `postgres`
-- `reverse-proxy`
+### Bestandteile
 
-Optional:
+- Backend in einer virtuellen Python-Umgebung, installiert aus der Lock-Datei
+  mit Hash-Verifikation ([ADR 0008](adr/0008-reproduzierbare-installation.md)),
+- lokal installiertes PostgreSQL,
+- ein Eintrag in der Windows-Aufgabenplanung als einziger Auslöser.
 
-- `redis`
+Nicht Bestandteil des MVP: Frontend-Auslieferung (Sprint 6), Worker-Dienst
+(der Dispatcher ist ein idempotenter Einzelstart,
+[ADR 0019](adr/0019-trading-day-dispatcher.md)), Reverse Proxy (setzt den
+unentschiedenen externen Zugriff F12 voraus) und Redis
+([ADR 0006](adr/0006-kein-redis-im-mvp.md)).
 
 ### Persistente Daten
 
 Persistiert werden:
 
 - PostgreSQL-Daten,
-- Analyseartefakte,
 - Anwendungslogs, sofern nicht extern gesammelt,
-- Konfigurationen ohne Secrets,
-- Backups.
+- Konfigurationen ohne Secrets.
+
+Geheimnisse liegen ausschließlich in Umgebungsvariablen mit Präfix `ATA_`
+([ADR 0005](adr/0005-konfiguration-und-secrets.md)) und werden nicht
+mitgesichert. Ein Sicherungsverfahren ist noch nicht beschlossen — siehe §15.
 
 ### Neustartverhalten
 
-Container müssen nach einem Serverneustart automatisch starten.
+Nach einem Serverneustart sind Anmeldung und TWS-Start manuell; das ist die
+akzeptierte Einschränkung aus ADR 0018. Ein automatischer Start der
+Anwendung ist damit ausgeschlossen.
 
-Ein unterbrochener Analyse-Lauf muss als unterbrochen erkannt und kontrolliert behandelt werden.
+Ein unterbrochener Analyse-Lauf muss als unterbrochen erkannt und
+kontrolliert behandelt werden. Der Dispatcher erfüllt das: Er rechnet
+höchstens einmal je Handelstag und meldet einen ausgefallenen Lauf über den
+Benachrichtigungskanal, sobald die Nachholfrist abgelaufen ist.
 
 ### Migrationen
 
-Datenbankmigrationen werden über Alembic verwaltet.
-
-Migrationen dürfen nicht unkontrolliert parallel von mehreren Containern ausgeführt werden.
+Datenbankmigrationen werden über Alembic verwaltet und beim Aktualisieren von
+Hand ausgeführt. Ein zweiter Prozess, der sie parallel anstoßen könnte,
+existiert nicht.
 
 ---
 

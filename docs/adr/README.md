@@ -70,6 +70,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) | Niveauzahlen und Bewertung auf die letzten zwölf Monate statt auf den Jahresabschluss | Angenommen (löst Entscheidung 3 aus ADR 0032 ab) |
 | [0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) | Aktualitätsschranke, Umsatz ohne Vetorecht, drei zugelassene Abweichler | Angenommen (ergänzt ADR 0032 und 0033; Nachtrag 2026-08-27 löst L1 aus ADR 0032, L3 aus ADR 0033 und L4 ein) |
 | [0035](0035-fundamentaldaten-im-tageslauf.md) | Fundamentaldaten im Tageslauf — nur für Kandidaten, Kurs aus der letzten abgeschlossenen Kerze, je Lauf gespeichert | Angenommen |
+| [0036](0036-nativer-windows-betrieb.md) | Nativer Windows-Betrieb ist das Deployment des MVP -- keine Container | Angenommen |
 
 ## Offene Entscheidungen
 
@@ -136,4 +137,9 @@ ADR, sobald die nötigen Informationen vorliegen:
   Bei Kalenderjahr-Bilanzierern fällt der Liquiditätsgrad dadurch aus
   (gemessen an Coca-Cola). Siehe [ADR 0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md),
   Einschränkung L3.
+- Deployment-Zielbild -- **entschieden.** Der native Betrieb auf dem
+  Windows-Server ist das Deployment des MVP; Containerisierung wird zum
+  Dashboard-Sprint neu bewertet. Siehe
+  [ADR 0036](0036-nativer-windows-betrieb.md), das Doc 13 und Doc 10
+  Paragraph 14 abloest.
 - Externer Zugriff auf das Dashboard (F12)
