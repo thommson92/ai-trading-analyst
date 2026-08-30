@@ -128,7 +128,7 @@ als ADR.
 |---|---|---|---|
 | E1 | Backtesting in den Tageslauf? | **entschieden** | [ADR 0038](../adr/0038-backtest-im-tageslauf.md): je Kandidat, auf der schon geladenen Kerzenserie |
 | E2 | Historientiefe: Backfill oder Anspruch senken | **entschieden** | [ADR 0027](../adr/0027-historientiefe-messen-vor-anspruch.md) (Weg a), [ADR 0028](../adr/0028-historientiefe-gemessen.md) (Messergebnis) |
-| E3 | Historische Earnings-Termine über SEC EDGAR | **offen** | durch ADR 0028 entblockt |
+| E3 | Historische Earnings-Termine über SEC EDGAR | **entschieden** | [ADR 0042](../adr/0042-kein-historischer-earnings-filter.md): verworfen mit Begründung. Ein 8-K-Einreichungsdatum ist der realisierte Termin, nicht der zum Signalzeitpunkt bekannte. R6 bleibt eingegrenzt |
 | E4 | Wochentagsnäherung ablösen? | **entschieden** | [ADR 0030](../adr/0030-wochentagsnaeherung-bleibt.md): nein, der TWS-Kalender reicht nicht. Entkräftet L3 aus ADR 0020 — siehe unten |
 | E5 | Research-Qualitätspaket | **entschieden** | [ADR 0029](../adr/0029-research-qualitaet.md) — ersetzt Teile von ADR 0023 |
 | E6 | Deployment-Zielbild festschreiben | **entschieden** | [ADR 0036](../adr/0036-nativer-windows-betrieb.md): nativer Windows-Betrieb, Container zum Dashboard-Sprint neu bewerten |
@@ -136,7 +136,7 @@ als ADR.
 | E8 | F12: externer Dashboard-Zugriff und Auth | **offen** | blockierend für Sprint 6 |
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | ADR 0025; Bedingung: weitere Läufe an echten Kursen |
 | E10 | Required Checks: Pro, public oder Status quo | **entschieden** | Repository auf öffentlich gestellt, Schutz aktiv — [ADR 0031](../adr/0031-merge-schutz-aktiv.md), löst ADR 0009 ab |
-| E11 | Kursziele nachrüsten | **offen** | ADR 0017; erst mit dem Scoring-Design |
+| E11 | Kursziele nachrüsten | **entschieden** | [ADR 0043](../adr/0043-analystenempfehlungen-statt-kurszielen.md): dauerhaft zurückgestellt — keine Score-Komponente braucht sie. Stattdessen sind die Analystenempfehlungen nachgebaut |
 | E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **erledigt** | ③ beantwortet: Server auf 3.13 (→ M13). ① entschieden und gebaut: [ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md), `fallback_model` gesetzt und die Ausloeserbedingung auf technisches Versagen verengt. ② am 2026-08-30 auf dem Server gemessen: [ADR 0026](../adr/0026-technical-agent-ki-einordnung.md), Nachtrag |
 | E13 | US-007 „relevante Chartmuster": bauen oder streichen | **offen** | ADR 0026 |
 
@@ -282,4 +282,7 @@ Feststellung des Audits — sie stehen daneben.
 | 2026-08-24 | **Prompt-Caching hat keinen Angriffspunkt.** 94 % der Eingabe-Token entstehen in der serverseitigen Werkzeugschleife einer einzigen Anfrage. Nicht gebaut (ADR 0023, Nachtrag). |
 | 2026-08-30 | **`temperature=0` ist gemessen.** Zwei identische Läufe liefern dieselben sechs Einstufungen, aber unterschiedliche Konfidenz (0,62 / 0,65) und unterschiedlich viele Fehlsignalgründe. Die Vergröberung der Konfidenz ist nach Sprint 5 verschoben (ADR 0026, Nachtrag). |
 | 2026-08-30 | Die EDGAR-Kontaktadresse stand bis PR #48 in `config/default.yaml` und war auf dem Server ein dauerhafter lokaler Diff, der jedes `git checkout` blockierte. Seit dem Repository öffentlich ist, war der Platz dort auch inhaltlich falsch. Jetzt `ATA_EDGAR_CONTACT`. |
+| 2026-08-30 | **Der Scoring-Widerspruch ist größer, als das Audit ihn führt.** Nicht nur der Swing-Score weicht ab (Doc 09 fünf, Doc 10 sechs Komponenten), sondern auch der Investment-Score (fünf gegen acht). Und Doc 09 legt 35 % des Investment-Scores auf Wettbewerbsvorteile und Management — beides ohne Datengrundlage (ADR 0032 L5). Entschieden mit [ADR 0041](../adr/0041-score-komponenten-und-gewichte.md). |
+| 2026-08-30 | **ADR 0017 wurde nur zur Hälfte umgesetzt.** Das ADR entschied Finnhub für Earnings-Termine *und* Analystenempfehlungen; gebaut war seit dem 2026-08-13 nur der Kalender. Der kostenlose Endpunkt `/stock/recommendation` war die ganze Zeit verfügbar. Nachgebaut mit [ADR 0043](../adr/0043-analystenempfehlungen-statt-kurszielen.md). |
+| 2026-08-30 | **Berichtspunkt 9 hing am Research Agent.** Fiel die Recherche aus, galt er als fehlend — derselbe Fehler, den die Review zuvor bei Punkt 12 gefunden hatte. Seit ADR 0043 steht er unabhängig davon. |
 | 2026-08-24 | Das Repository ist **öffentlich**. Damit entfällt die Plan-Schranke aus ADR 0009, und Secret Scanning samt Push Protection sind zusätzlich aktiviert. Das Audit bewertete R7 unter der Annahme eines privaten Repositories im Free-Plan. |

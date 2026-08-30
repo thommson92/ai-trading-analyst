@@ -144,9 +144,27 @@ Generators. Beide Modellprofile stehen konfiguriert bereit.
 
 Optionen & Scoring
 
-- Optionsanalyse
-- Swing Score
-- Investment Score
+- **Scoring Engine** — Komponenten und Gewichte sind entschieden
+  ([ADR 0041](adr/0041-score-komponenten-und-gewichte.md)): sechs Komponenten
+  für den Swing-Score, vier für den Investment-Score. Fehlende Komponenten
+  werden umgewichtet; unterhalb von 60 % Abdeckung entsteht kein Score,
+  sondern `INSUFFICIENT_DATA`.
+  **Voraussetzung, kein Restposten:** Die Schwellen (Kennzahl → Teilwert 0–10)
+  werden zuerst an einem Lauf über die volle Watchliste kalibriert. Ein
+  geratener Teilwert ist eine erfundene Zahl
+- **Empfehlung** (Berichtspunkt 16) — die Ableitung aus beiden Scores und die
+  Regel für begrenzende Risiken. Damit kann auch die Ergebnismeldung erstmals
+  ein Ergebnis nennen
+- **Optionsanalyse** — Cash Secured Puts über die IBKR-Optionskette. Die
+  Machbarkeit ist gemessen (Spike vom 2026-08-11: Greeks nach Aktivierung des
+  Optionsmarktdaten-Abos). Neu ist die Laufzeitabhängigkeit von der TWS: Der
+  Tageslauf liest heute aus dem eigenen Bestand, Optionsquotes gibt es nur
+  live. Zum Analysezeitpunkt (12:50 New Yorker Zeit) ist der Markt offen
+- **Optionsattraktivität in den Swing-Score** — die letzte der sechs
+  Komponenten, hebt `swing_version`
+
+Vorbereitet in Stufe 0: ADR 0041 bis 0043, Doc 09 neu geschrieben, und die
+Analystenempfehlungen, die ADR 0017 mitentschied und die nie gebaut wurden.
 
 ---
 

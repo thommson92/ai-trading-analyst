@@ -91,6 +91,13 @@ trotzdem hier und nicht in `config/default.yaml`: Dieses Repository ist
 antwortet die SEC mit 403; der Tageslauf bricht deshalb ab, **bevor** der
 halbstündige Backfill beginnt, statt danach.
 
+**Seit ADR 0043 hat sich der Finnhub-Abschnitt verschoben.** Host und
+Zeitgrenze stehen jetzt unter `finnhub:` statt unter `earnings_filter.finnhub`,
+weil sie zwei Endpunkten gehören. Wer eine eigene Konfigurationsdatei über
+`ATA_CONFIG_FILE` einsetzt, muss sie nachziehen — der alte Schlüsselort lässt
+den Start mit einem Fehler über einen unbekannten Konfigurationsschlüssel
+abbrechen, statt still auf Voreinstellungen zurückzufallen.
+
 Stand bis zum 2026-08-30 war die Adresse von Hand in `config/default.yaml`
 eingetragen. Wer diesen Zustand auf dem Server noch vorfindet, verwirft die
 lokale Änderung und setzt stattdessen die Variable — eine wieder eingefügte
@@ -560,7 +567,7 @@ Aufgabenplanung meldet damit nur, was wirklich schiefging.
 
 # Stufe G — Produktive Anbieter
 
-Erst wenn Stufe F über mindestens einen Handelstag trägt. **Alle vier**
+Erst wenn Stufe F über mindestens einen Handelstag trägt. **Alle fünf**
 Analyseanbieter stehen in `config/default.yaml` auf `fixture` und werden **nicht
 dort** umgestellt: Der produktive Schalter gehört in die Argumente der
 Aufgabenplanung, damit ein `git pull` auf dem Server keinen lokalen Diff
@@ -570,6 +577,7 @@ vorfindet.
 |---|---|---|---|
 | Earnings-Termine | `--earnings-provider finnhub` | `ATA_FINNHUB_API_KEY` | keine |
 | Fundamentaldaten | `--fundamentals-provider edgar` | `ATA_EDGAR_CONTACT` | keine |
+| Analystenempfehlungen | `--ratings-provider finnhub` | `ATA_FINNHUB_API_KEY` | keine |
 | Technical Agent | `--technical-agent-provider anthropic` | `ATA_LLM_API_KEY` | ~0,005 USD |
 | Research Agent | `--research-provider anthropic` | `ATA_LLM_API_KEY` | ~0,52–0,58 USD |
 
@@ -577,12 +585,14 @@ vorfindet.
 Fixture-Werten stehen** — und die sehen dort wie ein Ergebnis aus, nicht wie
 eine Lücke. Die Fixture-Fundamentaldaten liefern für jedes Symbol dieselben
 erfundenen Zahlen; erkennbar sind sie nur an der offensichtlich unechten
-Vorgangsnummer `0000000000-00-000000`.
+Vorgangsnummer `0000000000-00-000000`. Die Fixture-Analystenempfehlungen
+verraten sich an der Quelle `fixture` am Ergebnis.
 
-Die beiden kostenlosen Schalter — Earnings und Fundamentaldaten — können
-zusammen eingeschaltet werden. Die beiden Modellaufrufe lohnen einzeln:
-Der Technical Agent kostet rund einen halben Cent je Kandidat, der Research
-Agent das Hundertfache.
+Die drei kostenlosen Schalter — Earnings, Fundamentaldaten und
+Analystenempfehlungen — können zusammen eingeschaltet werden; die beiden
+ersten teilen sich sogar den Finnhub-Schlüssel. Die beiden Modellaufrufe
+lohnen einzeln: Der Technical Agent kostet rund einen halben Cent je
+Kandidat, der Research Agent das Hundertfache.
 
 ## Schritt 1 — Earnings-Termine über Finnhub
 
@@ -614,6 +624,30 @@ Ein fehlender oder leerer Schlüssel bricht den Lauf **vor** dem Backfill ab
 Stunde lang Daten geholt und dann einen Abend voller degradierter Kandidaten
 erzeugt.
 
+## Schritt 1b — Analystenempfehlungen über Finnhub
+
+Derselbe Schlüssel, derselbe Host, ein zweiter Endpunkt
+([ADR 0043](adr/0043-analystenempfehlungen-statt-kurszielen.md)). Kostenlos,
+kein Modellaufruf — deshalb zuerst die Einzelprobe, die **keine**
+Aufgabenplanung anzuhalten braucht:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli ratings --symbol AAPL `
+    --provider finnhub
+```
+
+Erwartet werden bis zu vier Monatsstände mit der Verteilung `S-Buy` bis
+`S-Sell`. Kommt `UNKNOWN` mit Grund `no_coverage`, führt Finnhub das Symbol
+nicht — das ist **kein Fehler** und wird auch nicht als „keine Meinung"
+gewertet; der Berichtspunkt fehlt dann begründet.
+
+**Kursziele erscheinen nicht und werden nicht kommen.** Der Endpunkt dafür ist
+kostenpflichtig, und keine Score-Komponente braucht sie (ADR 0043).
+Berichtspunkt 9 bleibt deshalb dauerhaft „eingeschränkt".
+
+Danach in die Argumente der Aufgabenplanung übernehmen:
+`--ratings-provider finnhub`.
+
 ## Schritt 2 — Research Agent über Anthropic
 
 Zuerst eine **Einzelprobe** mit sichtbarer Kostenschätzung, nicht gleich der
@@ -632,7 +666,7 @@ begründet; die Notbremse zwischen zwei Anfragen ist
 Erst danach in die Aufgabenplanung übernehmen:
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub
 ```
 
 ---
@@ -681,7 +715,7 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 ### In die Aufgabenplanung übernehmen
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
 
 Zwei Arten von Meldungen kommen künftig an:
