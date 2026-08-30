@@ -247,8 +247,25 @@ class _Rechner:
         Der Umsatz, wo er vorliegt; sonst der Jahresueberschuss. Ohne diesen
         Rueckfall stuende bei einem Emittenten ohne Umsatzzeile eine leere
         Jahresliste neben lauter gerechneten Kennzahlen.
+
+        Auch hier gilt die Aktualitaetsschranke aus ADR 0034. Sie ist an
+        dieser Stelle nicht kosmetisch: Ohne sie meldete ein Emittent mit
+        aufgegebenem Umsatz-Tag die Geschaeftsjahre 2009 bis 2012, waehrend
+        jede einzelne Kennzahl daneben auf 2025 steht -- die Ausgabe zeigt
+        beides nebeneinander.
         """
-        return self.stichtage(FigureName.REVENUE) or self.stichtage(FigureName.NET_INCOME)
+        for name in (FigureName.REVENUE, FigureName.NET_INCOME):
+            jahre = self.stichtage(name)
+            if not jahre:
+                continue
+            # Geprueft wird der **juengste** Stichtag, nicht jeder einzelne:
+            # Die Liste soll die Historie zeigen, auf der die Wachstumsraten
+            # stehen. Jedes zurueckliegende Jahr einzeln zu verwerfen liesse
+            # genau ein Jahr uebrig und machte aus einer Reihe eine Zahl.
+            if self.ist_ueberholt(self._jahre[name][jahre[-1]]):
+                continue
+            return jahre
+        return []
 
     def add(
         self,
@@ -538,6 +555,7 @@ def compute_fundamental_snapshot(
             # Cashflow nur zustande kommt, wenn er an demselben Stichtag
             # endet -- eine Vermischung ist damit ausgeschlossen.
             basis=freier_cashflow.basis,
+            period_start=freier_cashflow.period_start,
             period_end=stichtag,
             quellen=[*freier_cashflow.quellen, umsatz],
         )
@@ -590,6 +608,21 @@ def compute_fundamental_snapshot(
         umsatz=umsatz,
         freier_cashflow=freier_cashflow,
     )
+
+    if not rechner.metrics:
+        # Ein Stichtag allein ist keine Auswertung. Ohne diese Pruefung
+        # meldete eine Einreichung, aus der sich nichts rechnen laesst --
+        # etwa nur ein operativer Cashflow ohne Gegenstueck -- ``COMPLETED``
+        # mit null Kennzahlen und null Abdeckung, und die Sammelausgabe
+        # zaehlte sie als Erfolg.
+        return FundamentalSnapshot(
+            symbol=symbol,
+            status=FundamentalStatus.INSUFFICIENT_DATA,
+            evaluated_at=evaluated_at,
+            analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
+            reason="keine Kennzahl liess sich aus den Einreichungen rechnen",
+            tag_conflicts=tuple(tag_conflicts),
+        )
 
     return FundamentalSnapshot(
         symbol=symbol,

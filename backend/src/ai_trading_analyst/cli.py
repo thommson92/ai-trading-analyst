@@ -1874,7 +1874,7 @@ def _write_fundamental_csv(pfad: Path, ergebnisse: Sequence[FundamentalSnapshot]
         schreiber = csv.writer(datei)
         schreiber.writerow(
             ["symbol", "status", "abdeckung", "kennzahl", "wert", "einheit", "basis",
-             "zeitraum_ende", "quelle_tag", "quelle_formular", "quelle_eingereicht"]
+             "zeitraum_ende", "quelle_tags", "quelle_formulare", "quelle_eingereicht"]
         )
         for snapshot in ergebnisse:
             if not snapshot.metrics:
@@ -1883,12 +1883,18 @@ def _write_fundamental_csv(pfad: Path, ergebnisse: Sequence[FundamentalSnapshot]
                      "", "", "", "", "", "", "", ""]
                 )
             for name, metric in snapshot.metrics.items():
-                quelle = metric.sources[0]
+                # **Alle** Quellen, nicht nur die erste: Eine Marge steht auf
+                # zwei Tags, der freie Cashflow ebenfalls. Die Datei entsteht,
+                # um die Tag-Abdeckung auszuwerten -- mit nur einer Quelle je
+                # Kennzahl fehlte darin jeder Nenner und jeder
+                # Investitionstag, also genau das, was gemessen werden soll.
                 schreiber.writerow(
                     [snapshot.symbol, snapshot.status.value, f"{snapshot.coverage:.4f}",
                      name.value, f"{metric.value:.6f}", metric.unit.value, metric.basis.value,
-                     metric.period_end.isoformat(), quelle.tag, quelle.form,
-                     quelle.filed.isoformat()]
+                     metric.period_end.isoformat(),
+                     " ".join(quelle.tag for quelle in metric.sources),
+                     " ".join(sorted({quelle.form for quelle in metric.sources})),
+                     max(quelle.filed for quelle in metric.sources).isoformat()]
                 )
 
 

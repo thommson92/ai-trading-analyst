@@ -11,6 +11,7 @@ und nicht in der Aufrufstelle, damit es nicht vergessen werden kann.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -40,6 +41,17 @@ endlose Antwort den Arbeitsspeicher fuellt (ADR 0032 L6)."""
 
 TICKER_INDEX_PATH = "/files/company_tickers.json"
 COMPANY_FACTS_PATH = "/api/xbrl/companyfacts/CIK{cik:010d}.json"
+
+
+class _AntwortZuGrossError(Exception):
+    """Der Abbruch beim Lesen -- eigene Klasse, damit die Fangzeile darunter
+    ihn nicht mit einem gewoehnlichen Uebertragungsfehler verwechselt."""
+
+    def __init__(self, beschreibung: str, gelesen: int) -> None:
+        super().__init__(
+            f"{beschreibung}: Antwort ueberschreitet {MAX_ANTWORT_BYTES / 1e6:.0f} MB "
+            f"(bereits {gelesen / 1e6:.1f} MB gelesen) und ist damit unplausibel."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,14 +242,22 @@ class EdgarFundamentalDataProvider:
                 # festen, konfigurierten Adresse kein normaler Zustand,
                 # sondern ein Hinweis -- ihr blind zu folgen hiesse, eine
                 # fremde Antwort als die der SEC zu verarbeiten.
-                antwort = client.get(f"{base_url}{pfad}")
-            antwort.raise_for_status()
-            if len(antwort.content) > MAX_ANTWORT_BYTES:
-                raise FundamentalDataProviderError(
-                    f"{beschreibung}: Antwort ist {len(antwort.content) / 1e6:.1f} MB gross "
-                    f"und damit unplausibel -- Obergrenze {MAX_ANTWORT_BYTES / 1e6:.0f} MB."
-                )
-            return antwort.json()
+                # Stueckweise gelesen, nicht als Ganzes: Eine Grenze, die
+                # erst am fertig gepufferten Rumpf prueft, kommt zu spaet --
+                # der Speicher ist dann schon belegt. Abgebrochen wird beim
+                # ersten Stueck, das darueber hinausgeht.
+                with client.stream("GET", f"{base_url}{pfad}") as antwort:
+                    antwort.raise_for_status()
+                    stuecke: list[bytes] = []
+                    gelesen = 0
+                    for stueck in antwort.iter_bytes():
+                        gelesen += len(stueck)
+                        if gelesen > MAX_ANTWORT_BYTES:
+                            raise _AntwortZuGrossError(beschreibung, gelesen)
+                        stuecke.append(stueck)
+            return json.loads(b"".join(stuecke))
+        except _AntwortZuGrossError as error:
+            raise FundamentalDataProviderError(str(error)) from error
         except (httpx.HTTPError, ValueError) as error:
             raise FundamentalDataProviderError(
                 f"{beschreibung} konnte nicht abgerufen werden: {error}"

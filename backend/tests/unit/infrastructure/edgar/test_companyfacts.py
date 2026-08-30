@@ -213,6 +213,33 @@ class TestZwoelfmonatswert:
         assert zwoelf.value == pytest.approx(1100.0)
         assert zwoelf.period_end == date(2026, 6, 30)
 
+    def test_ein_10_q_nimmt_dem_jahresbaustein_nicht_den_platz_weg(self) -> None:
+        """Erst filtern, dann zusammenfassen -- auch hier.
+
+        Traegt ein 10-Q das abgelaufene Geschaeftsjahr als Vergleichszahl
+        nach, ist es fuer diesen Zeitraum die zuletzt eingereichte Angabe.
+        Ueber alle Formulare zusammengefasst und danach auf Jahresabschluesse
+        gefiltert, verschwaende es den Jahresbaustein **ganz** -- und damit
+        den Zwoelfmonatswert, obwohl der gepruefte Wert danebenliegt.
+        """
+        antwort = _antwort(
+            {
+                "Revenues": _usd(
+                    _fakt(1000.0, start="2025-01-01", end="2025-12-31"),
+                    # Dieselbe Jahresperiode, spaeter eingereicht, aus einem
+                    # Quartalsbericht.
+                    _fakt(1000.0, start="2025-01-01", end="2025-12-31",
+                          accn="0000000000-26-000009", form="10-Q", filed="2026-08-01"),
+                    _fakt(500.0, start="2025-01-01", end="2025-06-30"),
+                    _fakt(600.0, start="2026-01-01", end="2026-06-30",
+                          accn="0000000000-26-000001", form="10-Q", filed="2026-08-01"),
+                )
+            }
+        )
+        zwoelf = resolve_company_facts(antwort).trailing[FigureName.REVENUE]
+        assert zwoelf.value == pytest.approx(1100.0)
+        assert zwoelf.period_end == date(2026, 6, 30)
+
     def test_ohne_vorjahresstueck_gibt_es_keinen_zwoelfmonatswert(self) -> None:
         antwort = _antwort(
             {

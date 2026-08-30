@@ -209,6 +209,38 @@ class TestOhneUmsatz:
         snapshot = _snapshot({FigureName.NET_INCOME: _reihe({2024: 90.0, 2025: 100.0})})
         assert snapshot.fiscal_years == (2024, 2025)
 
+    def test_ein_stichtag_allein_ist_keine_auswertung(self) -> None:
+        """Aus einem operativen Cashflow ohne Gegenstueck laesst sich keine
+        einzige Kennzahl rechnen. Der Stichtag liesse sich trotzdem setzen --
+        und der Lauf meldete COMPLETED mit null Kennzahlen, was die
+        Sammelausgabe als Erfolg zaehlt."""
+        snapshot = _snapshot({FigureName.OPERATING_CASH_FLOW: _reihe({2025: 500.0})})
+        assert snapshot.status is FundamentalStatus.INSUFFICIENT_DATA
+        assert snapshot.reason is not None
+        assert not snapshot.metrics
+
+    def test_ueberholte_geschaeftsjahre_stehen_nicht_neben_aktuellen_zahlen(self) -> None:
+        """Die Jahresliste steht in der Ausgabe direkt neben den Kennzahlen.
+
+        Ohne Pruefung meldete ein Emittent mit aufgegebenem Umsatz-Tag die
+        Jahre 2009 bis 2012, waehrend jede Kennzahl daneben auf 2025 steht.
+        """
+        snapshot = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2009: 700.0, 2010: 800.0, 2011: 900.0}),
+                FigureName.NET_INCOME: _reihe({2024: 90.0, 2025: 100.0}),
+            }
+        )
+        assert snapshot.fiscal_years == (2024, 2025)
+
+    def test_eine_aktuelle_reihe_bleibt_vollstaendig(self) -> None:
+        """Geprueft wird der juengste Stichtag, nicht jeder einzelne: Die
+        Liste zeigt die Historie, auf der die Wachstumsraten stehen."""
+        snapshot = _snapshot(
+            {FigureName.REVENUE: _reihe({2022: 800.0, 2023: 900.0, 2024: 950.0, 2025: 1000.0})}
+        )
+        assert snapshot.fiscal_years == (2022, 2023, 2024, 2025)
+
     def test_ohne_jeden_zeitraumwert_bleibt_es_bei_insufficient_data(self) -> None:
         """Nur Bilanzstichtage sind keine Auswertung: Es gibt keinen
         Zeitraum, auf den sich eine Kennzahl beziehen koennte."""
@@ -219,6 +251,19 @@ class TestOhneUmsatz:
 
 
 class TestFehlendeGroessen:
+
+    def test_auch_die_cashflow_marge_traegt_ihren_bezugszeitraum(self) -> None:
+        """Dieselbe Zusicherung wie fuer die Nettomarge: Ohne Anfangsdatum
+        laesst sich nicht sagen, ueber welchen Zeitraum die Marge gilt."""
+        snapshot = _snapshot(
+            {
+                FigureName.REVENUE: _reihe({2025: 1000.0}),
+                FigureName.OPERATING_CASH_FLOW: _reihe({2025: 300.0}),
+                FigureName.CAPITAL_EXPENDITURE: _reihe({2025: 100.0}),
+            }
+        )
+        marge = snapshot.metrics[MetricName.FREE_CASH_FLOW_MARGIN]
+        assert marge.period_start == date(2025, 1, 1)
 
     def test_eine_fehlende_rohgroesse_laesst_die_kennzahl_fehlen(self) -> None:
         """Kein Ersatzwert und keine Null -- die Kennzahl taucht in

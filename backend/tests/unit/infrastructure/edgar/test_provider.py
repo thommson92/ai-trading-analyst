@@ -7,6 +7,7 @@ uebrigen Adapter-Tests auch tun.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -172,6 +173,32 @@ class TestAntwortgroesse:
             with pytest.MonkeyPatch.context() as patch:
                 patch.setattr(modul, "MAX_ANTWORT_BYTES", 1024)
                 anbieter.fundamentals(AKTIE)
+
+    def test_abgebrochen_wird_beim_lesen_nicht_danach(self) -> None:
+        """Eine Grenze, die erst den fertig gepufferten Rumpf misst, kommt zu
+        spaet -- der Speicher ist dann schon belegt, und genau davor soll sie
+        schuetzen. Geprueft wird deshalb, dass der Rest gar nicht mehr vom
+        Netz gelesen wird."""
+        from ai_trading_analyst.infrastructure.edgar import provider as modul
+
+        gelesen: list[int] = []
+
+        def stuecke() -> Iterator[bytes]:
+            for nummer in range(100):
+                gelesen.append(nummer)
+                yield b"y" * 512
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("company_tickers.json"):
+                return httpx.Response(200, json=VERZEICHNIS)
+            return httpx.Response(200, content=stuecke())
+
+        anbieter = _provider(httpx.MockTransport(handler))
+        with pytest.raises(FundamentalDataProviderError, match="unplausibel"):
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(modul, "MAX_ANTWORT_BYTES", 1024)
+                anbieter.fundamentals(AKTIE)
+        assert len(gelesen) < 100
 
     def test_einer_umleitung_wird_nicht_gefolgt(self) -> None:
         """Bei einer festen, konfigurierten Adresse ist eine Umleitung kein

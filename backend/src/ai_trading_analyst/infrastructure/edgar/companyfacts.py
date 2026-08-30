@@ -502,12 +502,20 @@ def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
     umgeht die Verwechslung von kumulierten und diskreten Quartalen, die in
     ``companyfacts`` nebeneinander stehen.
     """
+    # Zwei Zusammenfassungen, nicht eine gefilterte: Der Jahresbaustein darf
+    # nur aus einem Jahresabschluss stammen, die Teilstuecke aus jedem
+    # regelmaessigen Bericht. Wuerde erst ueber alle Formulare zusammengefasst
+    # und danach auf ``ANNUAL_FORMS`` gefiltert, verschwaende ein 10-Q, das
+    # das Geschaeftsjahr als Vergleichszahl nachtraegt, den Jahresbaustein
+    # **ganz** -- und mit ihm den Zwoelfmonatswert. Genau der Fehler, gegen
+    # den ``_annual_facts`` und ``_facts_by_period`` beide anschreiben.
+    jahres_fakten = _facts_by_period(tag_inhalt, einheit, ANNUAL_FORMS)
     fakten = _facts_by_period(tag_inhalt, einheit, PERIODIC_FORMS)
     jahre = sorted(
         (
             schluessel
-            for schluessel, fakt in fakten.items()
-            if fakt.is_annual_duration and fakt.form in ANNUAL_FORMS
+            for schluessel, fakt in jahres_fakten.items()
+            if fakt.is_annual_duration
         ),
         key=lambda schluessel: schluessel[1],
     )
@@ -542,7 +550,7 @@ def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
     # Stelle ausschliesst.
     naechstes = min(vorjahr, key=lambda k: abs((k[1] - jahr_start).days - tage))
 
-    jahr = fakten[(jahr_start, jahr_ende)]
+    jahr = jahres_fakten[(jahr_start, jahr_ende)]
     teil = fakten[(teil_start, teil_ende)]
     vor = fakten[naechstes]
     # Die Herkunft ist die juengste der drei Einreichungen: Sie bestimmt,

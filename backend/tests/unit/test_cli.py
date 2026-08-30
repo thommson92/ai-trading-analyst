@@ -1911,6 +1911,35 @@ class TestFundamentalKommando:
         assert "TRAILING_TWELVE_MONTHS" in zeilen[1]
         assert "2024-12-31" in zeilen[1]
 
+    def test_die_csv_nennt_alle_quellen_einer_kennzahl(self, tmp_path: Path) -> None:
+        """Eine Marge steht auf zwei Tags, der freie Cashflow ebenfalls.
+
+        Die Datei entsteht, um die Tag-Abdeckung auszuwerten -- mit nur der
+        ersten Quelle je Kennzahl fehlte darin jeder Nenner und jeder
+        Investitionstag, also genau das, was gemessen werden soll.
+        """
+        zweite = SourceRef(
+            cik=42, accession="0000000042-25-000002", form="10-Q",
+            filed=date(2025, 5, 1), tag="NetIncomeLoss",
+        )
+        metric = Metric(
+            name=MetricName.NET_MARGIN, value=0.25, unit=MetricUnit.FRACTION,
+            basis=MetricBasis.TRAILING_TWELVE_MONTHS, period_end=date(2024, 12, 31),
+            sources=(
+                SourceRef(cik=42, accession="0000000042-25-000001", form="10-K",
+                          filed=date(2025, 2, 1), tag="Revenues"),
+                zweite,
+            ),
+            retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
+        )
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(ziel, [self._snapshot(metrics={MetricName.NET_MARGIN: metric})])
+        zeile = ziel.read_text(encoding="utf-8").splitlines()[1]
+        assert "Revenues NetIncomeLoss" in zeile
+        # Das juengste Einreichungsdatum, weil es die Aktualitaet des Werts
+        # bestimmt -- nicht das der zufaellig ersten Quelle.
+        assert "2025-05-01" in zeile
+
     def test_eine_aktie_ohne_kennzahlen_verschwindet_nicht_aus_der_csv(
         self, tmp_path: Path
     ) -> None:
