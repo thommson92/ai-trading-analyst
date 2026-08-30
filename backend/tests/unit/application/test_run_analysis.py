@@ -490,6 +490,25 @@ class TestAnalystenempfehlungenImTageslauf:
         assert empfehlungen.status is AnalystRecommendationStatus.UNAVAILABLE
         assert empfehlungen.reason == "provider_error"
 
+    def test_eine_unlesbare_antwort_bekommt_einen_eigenen_grund(self) -> None:
+        """"Nicht erreicht" und "erreicht, aber unlesbar" sind verschiedene
+        Aussagen ueber die Datenlage. Der Earnings-Filter unterscheidet sie
+        seit ADR 0017; ohne diese Unterscheidung entstuende der dokumentierte
+        Grund ``invalid_data`` nie."""
+        ratings = FakeAnalystRecommendationsProvider(format_symbols=frozenset({"FIXCAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), ratings_provider=ratings
+        )
+
+        summary = use_case.execute()
+
+        assert summary.errors == ()
+        assert errors_repo.added == []
+        empfehlungen = summary.outcomes[0].analysts
+        assert empfehlungen is not None
+        assert empfehlungen.status is AnalystRecommendationStatus.UNAVAILABLE
+        assert empfehlungen.reason == "invalid_data"
+
     def test_ein_vertragsbruch_bleibt_ein_fehler(self) -> None:
         """Nur die Vertragsausnahme wird abgefangen. Eine rohe RuntimeError
         ist ein Programmfehler und soll sichtbar werden."""

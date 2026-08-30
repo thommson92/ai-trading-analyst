@@ -397,6 +397,7 @@ _ANALYST_FIELDS = (
     "analysis_version",
     "evaluated_at",
     "source",
+    "source_url",
     "retrieved_at",
     "reason",
     "periods",
@@ -415,6 +416,7 @@ def _analyst_columns(recommendations: AnalystRecommendations | None) -> dict[str
         "analyst_analysis_version": recommendations.analysis_version,
         "analyst_evaluated_at": recommendations.evaluated_at,
         "analyst_source": recommendations.source,
+        "analyst_source_url": recommendations.source_url,
         "analyst_retrieved_at": recommendations.retrieved_at,
         "analyst_reason": recommendations.reason,
         "analyst_periods": [
@@ -449,6 +451,7 @@ def _analyst_from_row(row: ScreeningResultOrm) -> AnalystRecommendations | None:
             for eintrag in row.analyst_periods or ()
         ),
         source=row.analyst_source,
+        source_url=row.analyst_source_url,
         retrieved_at=row.analyst_retrieved_at,
         reason=row.analyst_reason,
         analysis_version=row.analyst_analysis_version or "",

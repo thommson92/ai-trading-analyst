@@ -169,7 +169,7 @@ class TestSerialisierbarkeit:
 class TestInhalte:
     def test_die_versionen_stehen_im_kopf(self) -> None:
         dok = dokument()
-        assert dok["berichtsschema_version"] == "report-v1"
+        assert dok["berichtsschema_version"] == "report-v2"
         assert dok["anwendungsversion"] == "0.1.0"
         assert dok["scoring_version"] is None
 

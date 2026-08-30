@@ -98,3 +98,24 @@ class TestFehlerfall:
         -- und der Fehlerpfad waere ungetestet."""
         with pytest.raises(AnalystRecommendationsProviderError):
             _provider().recommendations(_stock("RATINGERROR"))
+
+
+class TestQuellenadresse:
+    """Ein Fixture-Lauf darf im Bericht nicht die Adresse des echten Dienstes
+    als Herkunft ausweisen (ADR 0043; Muster ``FixtureResearchProvider``).
+
+    Ausgeliefert steht ``analyst_ratings.provider`` auf ``fixture`` -- das ist
+    also der **Normalfall**, nicht der Ausnahmefall.
+    """
+
+    def test_die_adresse_verweist_nicht_auf_finnhub(self) -> None:
+        ergebnis = _provider().recommendations(_stock("FIXCAND"))
+
+        assert ergebnis.source_url is not None
+        assert "finnhub" not in ergebnis.source_url
+
+    def test_auch_ohne_abdeckung_bleibt_die_adresse_die_des_fixtures(self) -> None:
+        ergebnis = _provider().recommendations(_stock("NIEGEHOERT"))
+
+        assert ergebnis.source_url is not None
+        assert "finnhub" not in ergebnis.source_url

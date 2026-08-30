@@ -11,6 +11,7 @@ from .models import (
 )
 from .ports import (
     AnalysisRunRepository,
+    AnalystRecommendationsFormatError,
     AnalystRecommendationsProvider,
     AnalystRecommendationsProviderError,
     BacktestResultRepository,
@@ -38,6 +39,7 @@ __all__ = [
     "AnalysisRun",
     "AnalysisRunRepository",
     "AnalysisRunSummary",
+    "AnalystRecommendationsFormatError",
     "AnalystRecommendationsProvider",
     "AnalystRecommendationsProviderError",
     "BacktestResultRepository",

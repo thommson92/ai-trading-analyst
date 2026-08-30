@@ -2182,6 +2182,118 @@ class TestFundamentalKommando:
         assert args.price is None
 
 
+class TestRatingsKommando:
+    """Die Einzelprobe der Analystenempfehlungen (ADR 0043).
+
+    Muster ``TestResearchAusgabe`` -- mit einem Unterschied, der ausdruecklich
+    geprueft wird: Fehlende Abdeckung ist **kein Fehler**. Doc 14, Schritt 1b
+    sagt das dem Betreiber zu; ein Rueckgabewert 1 machte daraus eine
+    Stoerungsmeldung.
+    """
+
+    def test_der_fixture_anbieter_laeuft_ohne_zugangsschluessel_durch(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings", "--symbol", "fixcand"])
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        # Kleinschreibung im Argument, Grossschreibung in der Ausgabe.
+        assert "FIXCAND" in ausgabe
+        assert "COMPLETED" in ausgabe
+
+    def test_die_vier_monatsstaende_stehen_in_der_ausgabe(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        main(["--config", str(config), "ratings", "--symbol", "FIXCAND"])
+
+        ausgabe = capsys.readouterr().out
+        assert ausgabe.count("2026-") >= 4 or ausgabe.count("-01") >= 4
+        assert "S-Sell" in ausgabe
+
+    def test_kursziele_werden_ausdruecklich_als_zurueckgestellt_genannt(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst sucht jemand nach ihnen und haelt ihr Fehlen fuer einen Fehler."""
+        config = write_config(projekt, provider="fixture")
+
+        main(["--config", str(config), "ratings", "--symbol", "FIXCAND"])
+
+        assert "Kursziele" in capsys.readouterr().out
+
+    def test_fehlende_abdeckung_ist_kein_fehler(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Anbieter hat sauber geantwortet, dass es nichts gibt."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings", "--symbol", "NIEGEHOERT"])
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        assert "UNKNOWN" in ausgabe
+        assert "no_coverage" in ausgabe
+
+    def test_ein_anbieterfehler_ergibt_rueckgabewert_zwei(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings", "--symbol", "RATINGERROR"])
+
+        assert exit_code == 2
+        assert "RATINGERROR" in capsys.readouterr().err
+
+    def test_ein_fehlendes_geheimnis_ergibt_rueckgabewert_zwei(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """'finnhub' braucht den Zugangsschluessel. Ohne ihn ist das ein
+        Konfigurationsfehler, kein voruebergehender Ausfall."""
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "")
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "ratings", "--symbol", "AAPL", "--provider", "finnhub"]
+        )
+
+        assert exit_code == 2
+        assert "Analystenempfehlungen" in capsys.readouterr().err
+
+    def test_der_schalter_uebersteuert_nur_diesen_aufruf(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Derselbe ``model_copy``-Pfad wie beim Dispatch-Schalter -- dort
+        eigens getestet, hier bis zur Review ungeprueft."""
+        gesehen: dict[str, str] = {}
+
+        def bauen(config: AppConfig, secrets: Secrets) -> AnalystRecommendationsProvider:
+            gesehen["provider"] = config.analyst_ratings.provider
+            raise MissingSecretError("Abbruch fuer den Test")
+
+        monkeypatch.setattr(cli, "build_analyst_recommendations_provider", bauen)
+        config = write_config(projekt, provider="fixture")
+
+        main(["--config", str(config), "ratings", "--symbol", "AAPL", "--provider", "finnhub"])
+
+        assert gesehen == {"provider": "finnhub"}
+
+    def test_ohne_schalter_bleibt_die_konfiguration_massgeblich(self) -> None:
+        args = build_parser().parse_args(["ratings", "--symbol", "AAPL"])
+        assert args.provider is None
+
+    def test_ein_unbekannter_anbieter_wird_abgewiesen(self, projekt: Path) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        with pytest.raises(SystemExit) as abbruch:
+            main(["--config", str(config), "ratings", "--symbol", "AAPL", "--provider", "edgar"])
+
+        assert abbruch.value.code == 2
+
+
 class TestReportKommando:
     """``cli report`` liest nur (ADR 0039). Geprueft werden die Wege, die ohne
     Datenbank erreichbar sind -- Argumentpruefung und Ausgabeform."""

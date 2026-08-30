@@ -82,6 +82,16 @@ class AnalystRecommendations:
     bekommen.
     """
     source: str | None = None
+    source_url: str | None = None
+    """Die Adresse, unter der die Verteilung tatsaechlich herkam.
+
+    Vom jeweiligen Anbieter gesetzt und **nicht** im Bericht fest verdrahtet:
+    Ausgeliefert steht ``analyst_ratings.provider`` auf ``fixture``, und ein
+    Bericht, der Fixture-Zahlen mit der echten Finnhub-Adresse belegte, waere
+    eine falsche Quellenangabe im Normalfall -- genau das, was die
+    Quellenbindung verhindern soll. Dieselbe Konvention wie beim
+    Fixture-Research-Anbieter, der ``example.com`` vergibt.
+    """
     retrieved_at: datetime | None = None
     reason: str | None = None
     """Nur gesetzt, wenn ``status`` nicht ``COMPLETED`` ist:

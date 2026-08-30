@@ -86,7 +86,11 @@ def make_analysts(
     """
     if status is not AnalystRecommendationStatus.COMPLETED:
         return AnalystRecommendations(
-            status=status, evaluated_at=JETZT, source="fake", reason=reason
+            status=status,
+            evaluated_at=JETZT,
+            source="fake",
+            source_url="https://example.com/fixture/analysts",
+            reason=reason,
         )
     return AnalystRecommendations(
         status=status,
@@ -100,6 +104,7 @@ def make_analysts(
             ),
         ),
         source="fake",
+        source_url="https://example.com/fixture/analysts",
         retrieved_at=JETZT,
     )
 

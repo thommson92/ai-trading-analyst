@@ -53,7 +53,7 @@ class TestVollstaendigkeit:
 class TestInhalt:
     def test_der_kopf_nennt_die_versionen(self) -> None:
         text = render_report(dokument(), symbol="AAPL")
-        assert "Bericht report-v1" in text
+        assert "Bericht report-v2" in text
         assert "Anwendung 0.1.0" in text
 
     def test_vorbehalte_sind_von_luecken_unterscheidbar(self) -> None:

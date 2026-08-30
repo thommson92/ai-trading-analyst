@@ -38,6 +38,10 @@ from ai_trading_analyst.domain.analysts import (
 _FIXTURE_PACKAGE = "ai_trading_analyst.infrastructure.fixtures.data.v1"
 _FIXTURE_FILE = "analyst_recommendations.json"
 _SOURCE_NAME = "fixture"
+_SOURCE_URL = "https://example.com/fixture/analyst-recommendations"
+"""Keine echte Adresse -- dieselbe Konvention wie beim
+Fixture-Research-Anbieter. Der Bericht darf Fixture-Zahlen nicht mit der
+Adresse des echten Dienstes belegen."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +98,7 @@ class FixtureAnalystRecommendationsProvider(AnalystRecommendationsProvider):
                 status=AnalystRecommendationStatus.UNKNOWN,
                 evaluated_at=evaluated_at,
                 source=_SOURCE_NAME,
+                source_url=_SOURCE_URL,
                 retrieved_at=evaluated_at,
                 reason="no_coverage",
             )
@@ -115,5 +120,6 @@ class FixtureAnalystRecommendationsProvider(AnalystRecommendationsProvider):
             evaluated_at=evaluated_at,
             periods=periods,
             source=_SOURCE_NAME,
+            source_url=_SOURCE_URL,
             retrieved_at=evaluated_at,
         )

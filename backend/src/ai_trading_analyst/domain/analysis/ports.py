@@ -161,6 +161,17 @@ class AnalystRecommendationsProviderError(Exception):
     """
 
 
+class AnalystRecommendationsFormatError(AnalystRecommendationsProviderError):
+    """Der Anbieter war erreichbar, seine Antwort aber nicht auswertbar.
+
+    Getrennt von der Basisklasse, weil der Unterschied im Bericht steht:
+    "nicht erreicht" und "erreicht, aber unlesbar" sind verschiedene
+    Aussagen ueber die Datenlage. Der Earnings-Filter macht dieselbe
+    Unterscheidung (ADR 0017, Gruende ``provider_error`` und
+    ``invalid_data``).
+    """
+
+
 class AnalystRecommendationsProvider(Protocol):
     """Liefert die Votenverteilung der Analysten je Monatsstand."""
 

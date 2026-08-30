@@ -23,7 +23,11 @@ from typing import Any
 
 import httpx
 
-from ai_trading_analyst.domain.analysis import AnalystRecommendationsProviderError, Stock
+from ai_trading_analyst.domain.analysis import (
+    AnalystRecommendationsFormatError,
+    AnalystRecommendationsProviderError,
+    Stock,
+)
 from ai_trading_analyst.domain.analysts import (
     AnalystRecommendations,
     AnalystRecommendationStatus,
@@ -36,6 +40,7 @@ from .redaction import redact
 _logger = get_logger(__name__)
 
 _SOURCE_NAME = "finnhub"
+_SOURCE_URL = "https://finnhub.io/api/v1/stock/recommendation"
 
 _SUSPICIOUS_PERIOD_COUNT = 120
 """Finnhub liefert Monatsstaende. Mehr als zehn Jahre davon fuer ein einzelnes
@@ -47,7 +52,20 @@ _VOTE_FIELDS = ("strongBuy", "buy", "hold", "sell", "strongSell")
 
 
 class FinnhubAnalystRecommendationsProviderError(AnalystRecommendationsProviderError):
-    """Finnhub war nicht erreichbar oder hat keine verwertbare Antwort geliefert."""
+    """Finnhub war nicht erreichbar."""
+
+
+class FinnhubAnalystRecommendationsFormatError(
+    FinnhubAnalystRecommendationsProviderError, AnalystRecommendationsFormatError
+):
+    """Finnhub war erreichbar, seine Antwort aber nicht auswertbar.
+
+    Eine eigene Klasse, weil der Unterschied im Bericht steht: ``UNAVAILABLE``
+    mit Grund ``provider_error`` heisst "nicht erreicht", mit Grund
+    ``invalid_data`` heisst "erreicht, aber unlesbar". Der Earnings-Filter
+    macht dieselbe Unterscheidung (ADR 0017); ohne eigene Klasse ginge sie
+    hier verloren, und der dokumentierte Grund entstuende nie.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +125,7 @@ class FinnhubAnalystRecommendationsProvider:
                 status=AnalystRecommendationStatus.UNKNOWN,
                 evaluated_at=evaluated_at,
                 source=_SOURCE_NAME,
+                source_url=_SOURCE_URL,
                 retrieved_at=evaluated_at,
                 reason="no_coverage",
             )
@@ -116,18 +135,19 @@ class FinnhubAnalystRecommendationsProvider:
             evaluated_at=evaluated_at,
             periods=periods,
             source=_SOURCE_NAME,
+            source_url=_SOURCE_URL,
             retrieved_at=evaluated_at,
         )
 
     def _parse(self, symbol: str, payload: Any) -> tuple[RecommendationPeriod, ...]:
         if not isinstance(payload, list):
-            raise FinnhubAnalystRecommendationsProviderError(
+            raise FinnhubAnalystRecommendationsFormatError(
                 f"Unerwartetes Antwortformat der Analystenempfehlungen fuer '{symbol}': "
                 f"erwartet wurde eine Liste, geliefert {type(payload).__name__}."
             )
 
         if len(payload) > _SUSPICIOUS_PERIOD_COUNT:
-            raise FinnhubAnalystRecommendationsProviderError(
+            raise FinnhubAnalystRecommendationsFormatError(
                 f"Analystenempfehlungen fuer '{symbol}' lieferten {len(payload)} Monatsstaende "
                 "-- unplausibel viele fuer ein einzelnes Symbol, moeglicher Hinweis auf ein "
                 "geaendertes Antwortformat."
@@ -142,7 +162,7 @@ class FinnhubAnalystRecommendationsProvider:
 
     def _parse_entry(self, symbol: str, entry: Any) -> RecommendationPeriod:
         if not isinstance(entry, dict):
-            raise FinnhubAnalystRecommendationsProviderError(
+            raise FinnhubAnalystRecommendationsFormatError(
                 f"Unerwartetes Antwortformat der Analystenempfehlungen fuer '{symbol}': "
                 f"Eintrag ist kein Objekt, sondern {type(entry).__name__}."
             )
@@ -150,7 +170,7 @@ class FinnhubAnalystRecommendationsProvider:
             period = date.fromisoformat(entry["period"])
             votes = [_as_count(entry[field]) for field in _VOTE_FIELDS]
         except (KeyError, TypeError, ValueError) as error:
-            raise FinnhubAnalystRecommendationsProviderError(
+            raise FinnhubAnalystRecommendationsFormatError(
                 f"Unerwartetes Antwortformat der Analystenempfehlungen fuer '{symbol}': {error}"
             ) from error
 

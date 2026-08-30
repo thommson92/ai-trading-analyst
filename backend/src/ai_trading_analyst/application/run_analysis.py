@@ -18,6 +18,7 @@ from uuid import uuid4
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    AnalystRecommendationsFormatError,
     AnalystRecommendationsProvider,
     AnalystRecommendationsProviderError,
     EarningsProvider,
@@ -646,6 +647,19 @@ class RunAnalysisUseCase:
         """
         try:
             return self._analyst_recommendations_provider.recommendations(stock)
+        except AnalystRecommendationsFormatError as error:
+            # Der Anbieter war erreichbar, seine Antwort aber nicht lesbar.
+            # Ein eigener Grund, weil das etwas anderes ueber die Datenlage
+            # sagt als ein Ausfall -- dieselbe Unterscheidung wie beim
+            # Earnings-Filter.
+            _logger.warning(
+                "Analystenempfehlungen fuer %s nicht auswertbar: %s", stock.symbol, error
+            )
+            return AnalystRecommendations(
+                status=AnalystRecommendationStatus.UNAVAILABLE,
+                evaluated_at=evaluated_at,
+                reason="invalid_data",
+            )
         except AnalystRecommendationsProviderError as error:
             _logger.warning(
                 "Analystenempfehlungen fuer %s nicht verfuegbar: %s", stock.symbol, error

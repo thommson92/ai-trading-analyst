@@ -39,3 +39,26 @@ class TestKurzeGeheimnisse:
     def test_acht_zeichen_werden_noch_geschwaerzt(self) -> None:
         """Die Grenze selbst -- sonst bliebe unklar, auf welcher Seite sie liegt."""
         assert redact("...12345678...", "12345678") == "...***..."
+
+
+class TestProzentkodierung:
+    def test_auch_die_kodierte_form_verschwindet(self) -> None:
+        """``httpx`` kodiert Query-Werte. Ein Schluessel mit Sonderzeichen
+        stuende sonst in veraenderter Schreibweise unverdeckt im Text."""
+        schluessel = "abc/def+ghi=jkl"
+        text = f"for url 'https://finnhub.io/x?token=abc%2Fdef%2Bghi%3Djkl' ({schluessel})"
+
+        geschwaerzt = redact(text, schluessel)
+
+        assert schluessel not in geschwaerzt
+        assert "abc%2Fdef%2Bghi%3Djkl" not in geschwaerzt
+
+
+class TestKurzerSchluesselMeldetSich:
+    def test_die_uebergehung_wird_protokolliert(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Stillschweigend uebergangen stuende das Geheimnis unbemerkt im
+        Protokoll -- der Fall, der am schwersten auffaellt."""
+        with caplog.at_level("WARNING"):
+            redact("irgendein Text", "kurz")
+
+        assert any("geschwaerzt" in eintrag.message for eintrag in caplog.records)

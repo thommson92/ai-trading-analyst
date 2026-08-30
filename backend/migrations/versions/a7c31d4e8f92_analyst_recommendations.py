@@ -3,7 +3,7 @@
 Die Votenverteilung der Analysten je Monatsstand (Doc 10, Paragraph 6.12
 Punkt 9; ADR 0043).
 
-Sieben Spalten an ``screening_results``, nach dem Muster des
+Acht Spalten an ``screening_results``, nach dem Muster des
 ``fundamentals_``-Blocks. ``analyst_periods`` ist JSONB und keine
 Kindtabelle: Die Verteilung wird im Ganzen geschrieben und im Ganzen gelesen,
 nie gefiltert oder sortiert, und es sind hoechstens vier Eintraege je Aktie
@@ -44,6 +44,7 @@ _COLUMNS = (
     "analyst_analysis_version",
     "analyst_evaluated_at",
     "analyst_source",
+    "analyst_source_url",
     "analyst_retrieved_at",
     "analyst_reason",
     "analyst_periods",
@@ -66,6 +67,9 @@ def upgrade() -> None:
         sa.Column("analyst_evaluated_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.add_column("screening_results", sa.Column("analyst_source", sa.String(), nullable=True))
+    op.add_column(
+        "screening_results", sa.Column("analyst_source_url", sa.String(), nullable=True)
+    )
     op.add_column(
         "screening_results",
         sa.Column("analyst_retrieved_at", sa.DateTime(timezone=True), nullable=True),

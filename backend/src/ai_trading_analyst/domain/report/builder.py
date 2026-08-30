@@ -27,13 +27,6 @@ from .values import (
 
 _SPRINT_5 = "Optionsanalyse und Scoring gehoeren zu Sprint 5 und sind nicht gebaut"
 
-_ANALYSTS_ENDPOINT = "https://finnhub.io/api/v1/stock/recommendation"
-"""Die Herkunft der Votenverteilung fuer Punkt 18.
-
-Fest verdrahtet und nicht aus der Konfiguration: Der Bericht soll sagen, wo
-die Zahlen herkommen, nicht welchen Host eine Einstellung gerade nennt. Woher
-ein einzelner Lauf sie tatsaechlich hat, steht ohnehin im Feld ``source``."""
-
 
 class _Luecken:
     """Sammelt die Befunde zu Punkt 17 waehrend des Zusammenstellens."""
@@ -329,12 +322,20 @@ def _quellen(outcome: StockScreeningOutcome) -> tuple[ReportSource, ...]:
                 )
         quellen.extend(gesehen.values())
     analysts = outcome.analysts
-    if analysts is not None and analysts.status is AnalystRecommendationStatus.COMPLETED:
+    if (
+        analysts is not None
+        and analysts.status is AnalystRecommendationStatus.COMPLETED
+        and analysts.source_url is not None
+    ):
+        # Die Adresse kommt vom Anbieter, nicht aus dieser Datei: Ein Bericht
+        # aus Fixture-Zahlen darf nicht die Adresse des echten Dienstes
+        # nennen. Ohne Adresse gibt es keinen Beleg -- und damit auch keine
+        # Quellenzeile, statt einer mit erfundener Herkunft.
         quellen.append(
             ReportSource(
                 kind=SourceKind.ANALYSTS,
                 label=f"Analystenempfehlungen ({analysts.source or 'ohne Angabe'})",
-                url=_ANALYSTS_ENDPOINT,
+                url=analysts.source_url,
                 retrieved_at=analysts.retrieved_at,
             )
         )

@@ -16,6 +16,7 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    AnalystRecommendationsFormatError,
     AnalystRecommendationsProviderError,
     BacktestResultRepository,
     EarningsProviderError,
@@ -190,13 +191,21 @@ class FakeAnalystRecommendationsProvider:
         self,
         error_symbols: frozenset[str] = frozenset(),
         crash_symbols: frozenset[str] = frozenset(),
+        format_symbols: frozenset[str] = frozenset(),
     ) -> None:
         self._error_symbols = error_symbols
         self._crash_symbols = crash_symbols
+        self._format_symbols = format_symbols
+        """Der Anbieter war erreichbar, seine Antwort aber unlesbar -- ein
+        eigener Grund im Bericht (ADR 0043)."""
         self.calls: list[str] = []
 
     def recommendations(self, stock: Stock) -> AnalystRecommendations:
         self.calls.append(stock.symbol)
+        if stock.symbol in self._format_symbols:
+            raise AnalystRecommendationsFormatError(
+                f"Simulierte unlesbare Antwort fuer {stock.symbol}"
+            )
         if stock.symbol in self._error_symbols:
             raise AnalystRecommendationsProviderError(
                 f"Simulierter Providerfehler fuer {stock.symbol}"

@@ -318,6 +318,10 @@ class ScreeningResultOrm(Base):
         DateTime(timezone=True), nullable=True
     )
     analyst_source: Mapped[str | None] = mapped_column(nullable=True)
+    analyst_source_url: Mapped[str | None] = mapped_column(nullable=True)
+    """Die Adresse, unter der die Verteilung herkam -- vom Anbieter
+    gesetzt, damit ein Fixture-Lauf nicht die Adresse des echten
+    Dienstes traegt (ADR 0043)."""
     analyst_retrieved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

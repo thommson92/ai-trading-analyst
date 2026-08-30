@@ -22,17 +22,28 @@ from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalEvent
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
-REPORT_SCHEMA_VERSION = "report-v1"
+REPORT_SCHEMA_VERSION = "report-v2"
 """Fassung des Berichtsschemas (Doc 10, Paragraph 8).
 
 Sie steigt, wenn sich Zuschnitt oder Bedeutung der Abschnitte aendert -- nicht,
 wenn ein Zulieferer neue Zahlen liefert. Dessen eigene Version steht ohnehin
 am jeweiligen Teilergebnis.
 
-``report-v1`` fuehrt alle achtzehn Punkte, vier davon zwangslaeufig als
-Luecke: Optionsanalyse und Scoring gehoeren zu Sprint 5. Wenn sie kommen,
-aendert sich der Zuschnitt nicht -- die Luecken fuellen sich. Die Version
-steigt deshalb dann nicht.
+``report-v1`` fuehrte alle achtzehn Punkte, vier davon zwangslaeufig als
+Luecke: Optionsanalyse und Scoring gehoerten zu Sprint 5. **Fuer diese vier
+gilt die Regel weiter** -- wenn sie kommen, fuellen sich Luecken, und die
+Version steigt davon nicht.
+
+``report-v2`` (ADR 0043) ist ein anderer Fall: Punkt 9 hat seine Nutzlast
+nicht gefuellt, sondern **ausgetauscht**. Er trug
+``{positive_faktoren, negative_faktoren, kursziele}`` aus der Recherche und
+traegt jetzt ``{empfehlungen, kursziele}`` aus einer gezaehlten
+Votenverteilung. Dazu kommt in Punkt 18 die Quellenart ``ANALYSTS``.
+
+Das Dokument wird unveraenderlich gespeichert. Bliebe die Nummer stehen,
+laegen unter **einer** Version zwei nicht vereinbare Nutzlasten desselben
+Abschnitts, und wer die Berichte spaeter auswertet, koennte sie nicht
+auseinanderhalten. Genau dafuer gibt es das Feld.
 """
 
 
