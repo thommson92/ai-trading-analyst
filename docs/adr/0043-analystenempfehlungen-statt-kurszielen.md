@@ -129,6 +129,12 @@ hinzu, kein Anbieter.
 - **Punkt 9 bleibt dauerhaft eingeschränkt.** Doc 10 verlangt Kursziele, und
   es wird sie nicht geben. Das steht im Bericht, aber es bleibt eine
   unerfüllte Anforderung.
+- **Das Berichtsschema steigt auf `report-v2`.** Punkt 9 hat seine Nutzlast
+  nicht gefüllt, sondern ausgetauscht: Er trug die positiven und negativen
+  Faktoren der Recherche und trägt jetzt die gezählte Votenverteilung.
+  Berichte aus früheren Läufen bleiben unter `report-v1` gespeichert und
+  sind an dieser Nummer zu erkennen — sie werden **nicht** umgeschrieben
+  (Doc 10, Paragraph 8).
 - **Ein Abruf mehr je Kandidat.** Bei 10 bis 20 Kandidaten unkritisch, aber
   der Tageslauf hängt an einer weiteren Antwort von Finnhub.
 - **Die Abdeckung ist nicht gemessen.** Für die Termine liegt sie bei 97 %
