@@ -60,8 +60,14 @@ class EdgarConnectionSettings:
 
     ``contact`` ist die Kontaktadresse im ``User-Agent``. Sie ist **kein
     Geheimnis** -- die SEC verlangt sie, damit sie bei auffaelligem
-    Abrufverhalten jemanden erreichen kann. Sie gehoert deshalb in die
-    Konfiguration und nicht zu den ``ATA_``-Umgebungsvariablen.
+    Abrufverhalten jemanden erreichen kann.
+
+    Sie kommt trotzdem aus ``ATA_EDGAR_CONTACT`` und nicht aus
+    ``config/default.yaml``. Dieser Docstring sagte frueher das Gegenteil,
+    und die Begruendung war damals richtig: Das Repository war privat. Seit
+    es oeffentlich ist, hiesse "in die Konfiguration", eine private
+    Mailadresse fuer jeden Besucher und jeden Crawler sichtbar zu machen.
+    **Kein Zugangsdatum heisst nicht, dass es veroeffentlicht werden darf.**
     """
 
     base_url: str

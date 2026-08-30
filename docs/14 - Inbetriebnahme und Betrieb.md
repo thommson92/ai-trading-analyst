@@ -77,11 +77,25 @@ Für den Betrieb ist genau eine Variable zwingend:
 |---|---|
 | `ATA_DATABASE_URL` | **immer** |
 | `ATA_FINNHUB_API_KEY` | erst ab Stufe G, Schritt 1 |
+| `ATA_EDGAR_CONTACT` | sobald `fundamentals.provider` auf `edgar` steht |
 | `ATA_LLM_API_KEY` | erst ab Stufe G, Schritt 2 |
 | `ATA_SESSION_SECRET` | erst mit dem Dashboard — heute ohne Wirkung |
 | `ATA_NOTIFICATION_TOKEN` | erst ab Stufe H (Telegram, [ADR 0024](adr/0024-benachrichtigungskanal-telegram.md)) |
 
 Die `.env` ist von `.gitignore` ausgeschlossen und darf nie committet werden.
+
+`ATA_EDGAR_CONTACT` ist die Kontaktadresse, die die SEC im `User-Agent`
+verlangt — **kein Zugangsdatum**, EDGAR kennt keinen Schlüssel. Sie steht
+trotzdem hier und nicht in `config/default.yaml`: Dieses Repository ist
+öffentlich, und eine private Mailadresse gehört nicht hinein. Ohne sie
+antwortet die SEC mit 403; der Tageslauf bricht deshalb ab, **bevor** der
+halbstündige Backfill beginnt, statt danach.
+
+Stand bis zum 2026-08-30 war die Adresse von Hand in `config/default.yaml`
+eingetragen. Wer diesen Zustand auf dem Server noch vorfindet, verwirft die
+lokale Änderung und setzt stattdessen die Variable — eine wieder eingefügte
+`contact`-Zeile lässt den Start jetzt mit einem Fehler über einen unbekannten
+Konfigurationsschlüssel abbrechen.
 
 Dann das Schema:
 

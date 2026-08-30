@@ -1207,6 +1207,63 @@ class TestDispatchAnbieterUebersteuerung:
         assert abbruch.value.code == 2
 
 
+class TestDispatchFruehabbruch:
+    """Ein fehlendes Geheimnis muss **vor** dem Backfill auffallen.
+
+    Der Backfill laeuft rund eine halbe Stunde ueber die volle Watchliste.
+    Dahinter bemerkt, haette der Abbruch all das weggeworfen -- und der Lauf
+    saehe nach "die TWS laeuft nicht" aus statt nach einem
+    Konfigurationsfehler. ``command_dispatch`` baut die Anbieter deshalb
+    vorher; diese Klasse haelt fest, dass der Fundamentalanbieter dazugehoert.
+    """
+
+    @staticmethod
+    def _anbieter_ohne_abbruch(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Alle Anbieter ausser dem fundamentalen kommen durch."""
+
+        class _StummerEarningsProvider:
+            def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
+                return None
+
+        class _StummerNotifier:
+            def send(self, subject: str, body: str) -> None:
+                pass
+
+        monkeypatch.setattr(
+            cli, "build_notifier", lambda _config, _secrets: _StummerNotifier()
+        )
+        monkeypatch.setattr(
+            cli, "build_earnings_provider", lambda _config, _secrets: _StummerEarningsProvider()
+        )
+        monkeypatch.setattr(cli, "build_research_provider", lambda _config, _secrets: object())
+        monkeypatch.setattr(cli, "build_technical_interpreter", lambda _config, _secrets: object())
+
+    def test_die_fehlende_edgar_kontaktadresse_faellt_vor_dem_backfill_auf(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        self._anbieter_ohne_abbruch(monkeypatch)
+        # Leer zaehlt als nicht gesetzt -- und uebersteuert zugleich eine
+        # etwaige .env des Entwicklungsrechners.
+        monkeypatch.setenv("ATA_EDGAR_CONTACT", "")
+
+        def nie() -> None:
+            raise AssertionError("Der Lauf ist zu weit gekommen: Datenbank geoeffnet")
+
+        monkeypatch.setattr(cli, "_open_database", nie)
+
+        config = write_config(projekt, provider="ibkr")
+        config.write_text(
+            config.read_text(encoding="utf-8") + "\nfundamentals:\n  provider: edgar\n",
+            encoding="utf-8",
+        )
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert "ATA_EDGAR_CONTACT" in capsys.readouterr().err
+
+
 class TestHistoryDepthKommando:
     """Die Tiefenmessung fuer E2 ([ADR 0027]).
 
@@ -1707,7 +1764,7 @@ class _KeinAbrufProvider:
         raise FundamentalDataProviderError(f"kein Netz im Test ({stock!r}, {price!r})")
 
 
-def _kein_provider(_config: object) -> _KeinAbrufProvider:
+def _kein_provider(_config: object, _secrets: object) -> _KeinAbrufProvider:
     return _KeinAbrufProvider()
 
 
@@ -1834,7 +1891,9 @@ class TestFundamentalKommando:
                 raise AssertionError(f"Es darf kein Abruf beginnen ({stock!r}, {price!r})")
 
         monkeypatch.setattr(
-            cli, "build_fundamental_data_provider", lambda _config: _VerbotenerProvider()
+            cli,
+            "build_fundamental_data_provider",
+            lambda _config, _secrets: _VerbotenerProvider(),
         )
         datei = tmp_path / "nicht" / "vorhanden"
         args = build_parser().parse_args(

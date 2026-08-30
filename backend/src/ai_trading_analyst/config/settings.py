@@ -270,17 +270,15 @@ class FinnhubConfig(_Section):
 class EdgarConfig(_Section):
     """Zugang zu den SEC-Einreichungen (ADR 0022, ADR 0032).
 
-    Kein Geheimnis: EDGAR verlangt keinen Schluessel. ``contact`` ist die
-    Kontaktadresse, die die SEC im ``User-Agent`` erwartet, damit sie bei
-    auffaelligem Abrufverhalten jemanden erreichen kann -- eine Pflichtangabe,
-    kein Zugangsdatum.
+    EDGAR verlangt keinen Schluessel. Die von der SEC im ``User-Agent``
+    geforderte Kontaktadresse steht trotzdem **nicht hier**, sondern als
+    ``ATA_EDGAR_CONTACT`` bei den Geheimnissen -- siehe ``Secrets``.
     """
 
     base_url: str = "https://data.sec.gov"
     index_base_url: str = "https://www.sec.gov"
     """Getrennt vom Datenendpunkt, weil das Symbolverzeichnis unter
     ``www.sec.gov`` liegt und die Fakten unter ``data.sec.gov``."""
-    contact: str = ""
     request_timeout_seconds: PositiveInt = 60
     """Grosszuegig: ``companyfacts`` ist je Aktie mehrere Megabyte gross
     (ADR 0032 L6)."""
@@ -801,6 +799,20 @@ class Secrets(BaseSettings):
     market_data_api_key: SecretStr | None = None
     notification_token: SecretStr | None = None
     finnhub_api_key: SecretStr | None = None
+    edgar_contact: SecretStr | None = None
+    """Die Kontaktadresse, die die SEC im ``User-Agent`` verlangt, damit sie
+    bei auffaelligem Abrufverhalten jemanden erreichen kann.
+
+    **Kein Geheimnis im Wortsinn** -- und trotzdem hier und nicht in
+    ``config/default.yaml``: Das Repository ist oeffentlich. Eine
+    Kontaktadresse ist typischerweise eine private Mailadresse, und
+    committet stuende sie fuer jeden Besucher und jeden Crawler da. "Kein
+    Zugangsdatum" heisst nicht "darf veroeffentlicht werden".
+
+    Der Unterschied zur Telegram-``chat_id``, die in der Konfiguration
+    bleiben darf: Ohne den Bot-Token kann mit ihr niemand etwas anfangen.
+    Bei einer Mailadresse gibt es kein solches zweites Schloss.
+    """
 
     @field_validator("*", mode="before")
     @classmethod

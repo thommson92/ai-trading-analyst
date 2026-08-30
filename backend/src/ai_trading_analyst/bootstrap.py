@@ -18,8 +18,13 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
-from ai_trading_analyst.config.loader import ConfigError, load_config, load_secrets
-from ai_trading_analyst.config.settings import AppConfig, IndicatorConfig, Secrets
+from ai_trading_analyst.config.loader import load_config, load_secrets
+from ai_trading_analyst.config.settings import (
+    AppConfig,
+    IndicatorConfig,
+    MissingSecretError,
+    Secrets,
+)
 from ai_trading_analyst.domain.analysis import (
     EarningsProvider,
     FundamentalDataProvider,
@@ -244,27 +249,34 @@ def build_technical_analysis_params(config: AppConfig) -> TechnicalAnalysisParam
     )
 
 
-def build_fundamental_data_provider(config: AppConfig) -> FundamentalDataProvider:
+def build_fundamental_data_provider(
+    config: AppConfig, secrets: Secrets
+) -> FundamentalDataProvider:
     """Waehlt den Fundamentaldaten-Anbieter anhand der Konfiguration (ADR 0032).
 
-    Ohne ``secrets``-Parameter, anders als die uebrigen Builder: EDGAR
-    verlangt keinen Schluessel. Die von der SEC geforderte Kontaktadresse ist
-    eine Pflichtangabe im ``User-Agent``, kein Zugangsdatum -- sie steht in
-    der Konfiguration.
+    Das ``secrets`` ist hier **kein Zugangsdatum**: EDGAR verlangt keinen
+    Schluessel. Es traegt allein die Kontaktadresse fuer den ``User-Agent``,
+    die aus ``config/default.yaml`` heraus ist, weil das Repository
+    oeffentlich ist -- Begruendung am Feld ``Secrets.edgar_contact``.
     """
     section = config.fundamentals
     if section.provider == "fixture":
         return FixtureFundamentalDataProvider()
-    if not section.edgar.contact.strip():
-        raise ConfigError(
-            "fundamentals.edgar.contact ist leer. Die SEC verlangt im User-Agent "
-            "eine Kontaktadresse und antwortet ohne sie mit 403."
+    if secrets.edgar_contact is None:
+        # Eigene Meldung statt ``secrets.require``: Der Grund ist hier
+        # ungewoehnlich genug, dass "Secret nicht gesetzt" allein in die Irre
+        # fuehrte -- man suchte einen Schluessel, den es nicht gibt.
+        raise MissingSecretError(
+            "ATA_EDGAR_CONTACT ist nicht gesetzt. Die SEC verlangt im User-Agent "
+            "eine Kontaktadresse und antwortet ohne sie mit 403. Sie ist kein "
+            "Zugangsdatum, steht aber trotzdem in der Umgebung und nicht in "
+            "config/default.yaml: Das Repository ist oeffentlich."
         )
     return EdgarFundamentalDataProvider(
         EdgarConnectionSettings(
             base_url=section.edgar.base_url,
             index_base_url=section.edgar.index_base_url,
-            contact=section.edgar.contact,
+            contact=secrets.edgar_contact.get_secret_value(),
             request_timeout_seconds=section.edgar.request_timeout_seconds,
             max_requests_per_second=section.edgar.max_requests_per_second,
         ),
@@ -367,7 +379,7 @@ def build_app() -> FastAPI:
         earnings_provider,
         research_provider,
         technical_interpreter,
-        build_fundamental_data_provider(loaded.config),
+        build_fundamental_data_provider(loaded.config, secrets),
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,
