@@ -1703,8 +1703,8 @@ def command_fundamental(args: argparse.Namespace) -> int:
         config = config.model_copy(update={"fundamentals": section})
 
     try:
-        provider = build_fundamental_data_provider(config)
-    except ConfigError as error:
+        provider = build_fundamental_data_provider(config, Secrets())
+    except (ConfigError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
 
@@ -2218,6 +2218,11 @@ def command_dispatch(args: argparse.Namespace) -> int:
         earnings_provider = build_earnings_provider(config, secrets)
         research_provider = build_research_provider(config, secrets)
         technical_interpreter = build_technical_interpreter(config, secrets)
+        # Ebenfalls hier und nicht erst in 'analyse': Der Bau braucht seit
+        # ATA_EDGAR_CONTACT ein Geheimnis, und 'analyse' laeuft hinter dem
+        # halbstuendigen Backfill. Dort bemerkt, waere es genau der Fall, den
+        # der Kommentar oben beschreibt.
+        fundamental_provider = build_fundamental_data_provider(config, secrets)
     except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -2278,7 +2283,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             earnings_provider,
             research_provider,
             technical_interpreter,
-            build_fundamental_data_provider(config),
+            fundamental_provider,
             uow_factory,
             rule,
             build_earnings_filter_params(config),

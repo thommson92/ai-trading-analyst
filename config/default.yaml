@@ -330,11 +330,11 @@ fundamentals:
     # Getrennt, weil das Symbolverzeichnis unter www.sec.gov liegt und die
     # Fakten unter data.sec.gov.
     index_base_url: https://www.sec.gov
-    # PFLICHTANGABE DER SEC, kein Geheimnis: Sie verlangt im User-Agent eine
-    # Kontaktadresse, um bei auffälligem Abrufverhalten jemanden zu
-    # erreichen. Leer lassen heißt, den Abruf ohne sie zu versuchen -- die
-    # SEC antwortet dann mit 403.
-    contact: ""
+    # Die von der SEC im User-Agent geforderte Kontaktadresse steht NICHT
+    # hier, sondern als ATA_EDGAR_CONTACT in der Umgebung. Kein Geheimnis im
+    # Wortsinn -- aber dieses Repository ist öffentlich, und eine private
+    # Mailadresse gehört nicht hinein. Ohne sie antwortet die SEC mit 403;
+    # der Start bricht deshalb vorher ab statt mitten im Lauf.
     # Großzügig: companyfacts ist je Aktie mehrere Megabyte groß (ADR 0032 L6).
     request_timeout_seconds: 60
     # Unter der von der SEC genannten Obergrenze von zehn. Der Abstand ist

@@ -27,7 +27,6 @@ from ai_trading_analyst.bootstrap import (
     build_technical_interpreter,
     project_root,
 )
-from ai_trading_analyst.config.loader import ConfigError
 from ai_trading_analyst.config.settings import (
     AppConfig,
     EarningsFilterConfig,
@@ -183,7 +182,8 @@ class TestFundamentalAnbieterauswahl:
         config = AppConfig(indicators=INDICATORS)
         assert config.fundamentals.provider == "fixture"
         assert isinstance(
-            build_fundamental_data_provider(config), FixtureFundamentalDataProvider
+            build_fundamental_data_provider(config, Secrets(_env_file=None)),
+            FixtureFundamentalDataProvider,
         )
 
     def test_edgar_ohne_kontaktadresse_scheitert_verstaendlich(self) -> None:
@@ -192,26 +192,40 @@ class TestFundamentalAnbieterauswahl:
         config = AppConfig(
             indicators=INDICATORS, fundamentals=FundamentalsConfig(provider="edgar")
         )
-        with pytest.raises(ConfigError, match="contact"):
-            build_fundamental_data_provider(config)
+        with pytest.raises(MissingSecretError, match="ATA_EDGAR_CONTACT"):
+            build_fundamental_data_provider(config, Secrets(_env_file=None))
 
-    def test_edgar_mit_kontaktadresse_wird_ohne_netzwerkzugriff_gebaut(self) -> None:
+    def test_eine_leere_kontaktadresse_zaehlt_als_nicht_gesetzt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``ATA_EDGAR_CONTACT=`` aus der ``.env.example`` darf nicht als
+        gesetzt durchgehen -- sonst faende der Fehler erst als 403 statt."""
+        monkeypatch.setenv("ATA_EDGAR_CONTACT", "   ")
         config = AppConfig(
-            indicators=INDICATORS,
-            fundamentals=FundamentalsConfig(
-                provider="edgar", edgar=EdgarConfig(contact="pruefer@example.org")
-            ),
+            indicators=INDICATORS, fundamentals=FundamentalsConfig(provider="edgar")
+        )
+        with pytest.raises(MissingSecretError, match="ATA_EDGAR_CONTACT"):
+            build_fundamental_data_provider(config, Secrets(_env_file=None))
+
+    def test_edgar_mit_kontaktadresse_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_EDGAR_CONTACT", "pruefer@example.org")
+        config = AppConfig(
+            indicators=INDICATORS, fundamentals=FundamentalsConfig(provider="edgar")
         )
         assert isinstance(
-            build_fundamental_data_provider(config), EdgarFundamentalDataProvider
+            build_fundamental_data_provider(config, Secrets(_env_file=None)),
+            EdgarFundamentalDataProvider,
         )
 
-    def test_kein_secret_noetig(self) -> None:
-        """Anders als bei allen uebrigen Anbietern: EDGAR verlangt keinen
-        Schluessel. Der Builder nimmt deshalb gar kein ``secrets``."""
-        import inspect
-
-        assert "secrets" not in inspect.signature(build_fundamental_data_provider).parameters
+    def test_die_kontaktadresse_steht_nicht_in_der_konfiguration(self) -> None:
+        """Das Repository ist oeffentlich. Eine wieder eingefuegte
+        ``contact``-Zeile in ``config/default.yaml`` soll den Start brechen und
+        nicht still eine private Mailadresse veroeffentlichen."""
+        assert "contact" not in EdgarConfig.model_fields
+        with pytest.raises(ValidationError):
+            EdgarConfig(contact="wer@example.org")  # type: ignore[call-arg]
 
 
 class TestResearchAnbieterauswahl:
