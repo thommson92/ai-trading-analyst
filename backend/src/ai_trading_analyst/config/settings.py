@@ -252,7 +252,17 @@ class BacktestingConfig(_Section):
 
 
 class FinnhubConfig(_Section):
-    """Zugang zum Earnings-Kalender (ADR 0017, ADR 0020).
+    """Zugang zum Finnhub-Konto (ADR 0017, ADR 0043).
+
+    **Ein eigener Abschnitt und nicht mehr unter ``earnings_filter``:** Seit
+    ADR 0043 werden zwei Endpunkte desselben Kontos genutzt -- der
+    Earnings-Kalender und die Analystenempfehlungen. Host und Zeitgrenze
+    gehoeren beiden; sie unter einem der beiden Nutzer zu fuehren hiesse, den
+    anderen dort mitlesen zu lassen.
+
+    Was **nicht** hierher gehoert, ist alles Endpunktspezifische: Das
+    Kalenderfenster steht bei ``earnings_filter``, die Zahl der Monatsstaende
+    bei ``analyst_ratings``.
 
     Kein Geheimnis hier -- der Schluessel kommt ausschliesslich aus
     ``Secrets.finnhub_api_key``.
@@ -260,11 +270,6 @@ class FinnhubConfig(_Section):
 
     base_url: str = "https://finnhub.io/api/v1"
     request_timeout_seconds: PositiveInt = 10
-    lookahead_calendar_days: PositiveInt = 30
-    """Kalendertage je Anfrage -- grosszuegig ueber dem groessten
-    konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
-    um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
-    aus ADR 0017 L4, da je Symbol angefragt wird."""
 
 
 class EdgarConfig(_Section):
@@ -318,7 +323,15 @@ class EarningsFilterConfig(_Section):
     provider: Literal["fixture", "finnhub"] = "fixture"
     """Wie ``market_data.provider``: ``fixture`` bleibt Standard, damit Start
     und Tests ohne ``ATA_FINNHUB_API_KEY`` funktionieren."""
-    finnhub: FinnhubConfig = FinnhubConfig()
+    lookahead_calendar_days: PositiveInt = 30
+    """Kalendertage je Anfrage -- grosszuegig ueber dem groessten
+    konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
+    um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
+    aus ADR 0017 L4, da je Symbol angefragt wird.
+
+    Stand bis ADR 0043 unter ``earnings_filter.finnhub``. Der Wert beschreibt
+    den Kalenderendpunkt, nicht den Zugang -- er bleibt deshalb hier, waehrend
+    Host und Zeitgrenze in den Abschnitt ``finnhub`` gewandert sind."""
 
     @model_validator(mode="after")
     def _configured_value_must_be_within_range(self) -> EarningsFilterConfig:
@@ -333,6 +346,22 @@ class EarningsFilterConfig(_Section):
                 f"maximum_exclusion_candles ({self.maximum_exclusion_candles}) liegen"
             )
         return self
+
+
+class AnalystRatingsConfig(_Section):
+    """Analystenempfehlungen (Doc 10, Paragraph 6.12 Punkt 9; ADR 0043)."""
+
+    provider: Literal["fixture", "finnhub"] = "fixture"
+    """Wie ``earnings_filter.provider``: ``fixture`` bleibt Standard, damit
+    Start und Tests ohne ``ATA_FINNHUB_API_KEY`` funktionieren."""
+    months: PositiveInt = 4
+    """Wie viele Monatsstaende hoechstens uebernommen werden.
+
+    Vier, weil der Endpunkt sie ohne Zusatzkosten mitliefert und die
+    **Veraenderung** der Analystenmeinung ein eigenstaendiges Signal ist
+    (ADR 0043) -- ein einzelner Momentanstand sagt weniger als eine
+    Verschiebung von ``hold`` nach ``buy``. Der Endpunkt selbst kennt keinen
+    Zeitraumparameter; begrenzt wird im Adapter."""
 
 
 class TechnicalAnalysisConfig(_Section):
@@ -708,6 +737,8 @@ class AppConfig(_Section):
     screening: ScreeningConfig = ScreeningConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
+    analyst_ratings: AnalystRatingsConfig = AnalystRatingsConfig()
+    finnhub: FinnhubConfig = FinnhubConfig()
     technical_analysis: TechnicalAnalysisConfig = TechnicalAnalysisConfig()
     llm: LlmConfig = LlmConfig()
     research: ResearchConfig = ResearchConfig()

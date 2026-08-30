@@ -100,10 +100,31 @@ earnings_filter:
   configured_exclusion_candles: 20
   # "fixture" bleibt Standard -- Start und Tests laufen ohne Finnhub-Zugang.
   provider: fixture
-  finnhub:
-    base_url: https://finnhub.io/api/v1
-    request_timeout_seconds: 10
-    lookahead_calendar_days: 30
+  # Kalendertage je Anfrage. Stand bis ADR 0043 unter
+  # 'earnings_filter.finnhub'; Host und Zeitgrenze sind in den eigenen
+  # Abschnitt 'finnhub' gewandert, weil sie seither zwei Endpunkten gehoeren.
+  # Der alte Schluesselort fuehrt zum Startfehler, nicht zu einem Default --
+  # eine still uebergangene Umbenennung waere schlimmer als ein Abbruch.
+  lookahead_calendar_days: 30
+
+# Analystenempfehlungen (Doc 10, Paragraph 6.12 Punkt 9; ADR 0043).
+# Kursziele gibt es hier bewusst nicht: Der Endpunkt ist kostenpflichtig,
+# und keine der zehn Score-Komponenten braucht sie (ADR 0043).
+analyst_ratings:
+  # Wie beim Earnings-Filter: "fixture" ist Standard, "finnhub" wird im
+  # Tageslauf ueber --ratings-provider ausdruecklich eingeschaltet.
+  provider: fixture
+  # Monatsstaende. Vier, weil die Veraenderung der Analystenmeinung mehr
+  # aussagt als der Momentanstand -- und weil sie nichts kosten.
+  months: 4
+
+# Zugang zum Finnhub-Konto. Ein Konto, ein Schluessel, ein Host -- und seit
+# ADR 0043 zwei Endpunkte (Earnings-Kalender und Analystenempfehlungen).
+# Der Zugangsschluessel steht nicht hier, sondern ausschliesslich in einer
+# ATA_-Umgebungsvariablen -- welche, sagt .env.example (ADR 0005).
+finnhub:
+  base_url: https://finnhub.io/api/v1
+  request_timeout_seconds: 10
 
 technical_analysis:
   # Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025).

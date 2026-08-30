@@ -1024,7 +1024,7 @@ def command_calendar_reach(args: argparse.Namespace) -> int:
         symbol=referenz.symbol,
         fenster_kerzen=config.earnings_filter.configured_exclusion_candles,
         kerzen_je_tag=build_session_parameters(config).candles_per_day,
-        vorlauf_kalendertage=config.earnings_filter.finnhub.lookahead_calendar_days,
+        vorlauf_kalendertage=config.earnings_filter.lookahead_calendar_days,
         heute=boersentag(datetime.now(UTC), config.market.timezone),
     )
 
@@ -1092,7 +1092,7 @@ def _print_calendar_reach(
             f"\n  ABER: Das Feld 'candles_until_earnings' wird auch fuer nicht "
             f"ausgeschlossene Titel gespeichert, und Termine werden bis "
             f"{vorlauf_kalendertage} Kalendertage voraus geholt "
-            "(earnings_filter.finnhub.lookahead_calendar_days). So weit reicht der "
+            "(earnings_filter.lookahead_calendar_days). So weit reicht der "
             "Kalender nicht. Fuer die gespeicherte Zahl bliebe die Naeherung -- das "
             "gehoert in das ADR, nicht in dieses Kommando."
         )

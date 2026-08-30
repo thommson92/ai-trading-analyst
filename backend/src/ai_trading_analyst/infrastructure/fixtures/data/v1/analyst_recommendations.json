@@ -1,0 +1,30 @@
+{
+  "stocks": [
+    {
+      "symbol": "FIXCAND",
+      "periods": [
+        {"months_ago": 0, "strong_buy": 12, "buy": 9, "hold": 4, "sell": 1, "strong_sell": 0},
+        {"months_ago": 1, "strong_buy": 10, "buy": 9, "hold": 6, "sell": 1, "strong_sell": 0},
+        {"months_ago": 2, "strong_buy": 7, "buy": 8, "hold": 9, "sell": 2, "strong_sell": 1},
+        {"months_ago": 3, "strong_buy": 5, "buy": 7, "hold": 11, "sell": 3, "strong_sell": 1}
+      ]
+    },
+    {
+      "symbol": "EARNCLEAR",
+      "periods": [
+        {"months_ago": 0, "strong_buy": 1, "buy": 2, "hold": 8, "sell": 5, "strong_sell": 3},
+        {"months_ago": 1, "strong_buy": 2, "buy": 3, "hold": 9, "sell": 4, "strong_sell": 1}
+      ]
+    },
+    {
+      "symbol": "EARNEXCLUDED",
+      "periods": [
+        {"months_ago": 0, "strong_buy": 0, "buy": 0, "hold": 3, "sell": 0, "strong_sell": 0}
+      ]
+    },
+    {
+      "symbol": "RATINGERROR",
+      "error_message": "Simulierter Providerfehler."
+    }
+  ]
+}
