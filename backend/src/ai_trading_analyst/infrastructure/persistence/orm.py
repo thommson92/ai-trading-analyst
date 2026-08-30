@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import ARRAY, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
@@ -22,6 +23,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from ai_trading_analyst.domain.analysis import RunStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
+from ai_trading_analyst.domain.fundamentals import (
+    FundamentalStatus,
+    MetricBasis,
+    MetricName,
+    MetricUnit,
+)
 from ai_trading_analyst.domain.research import (
     ResearchCoverage,
     ResearchStatus,
@@ -263,6 +270,38 @@ class ScreeningResultOrm(Base):
     research_rejected_tool_calls: Mapped[int | None] = mapped_column(nullable=True)
     research_dropped_citations: Mapped[int | None] = mapped_column(nullable=True)
 
+    # Deterministische Fundamentalanalyse (Doc 10, Paragraph 6.9; ADR 0035)
+    # -- wie die technical_*-Spalten nur bei CANDIDATE gesetzt. Die
+    # Kennzahlen selbst stehen in ``fundamental_metrics``: Ihre Zahl ist
+    # nicht fest, weil fehlende gar nicht erst entstehen, und jede traegt
+    # ihren eigenen Zeitbezug (ADR 0033 L2).
+    fundamentals_status: Mapped[FundamentalStatus | None] = mapped_column(
+        _enum_column(FundamentalStatus), nullable=True
+    )
+    fundamentals_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    fundamentals_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    fundamentals_reason: Mapped[str | None] = mapped_column(nullable=True)
+    fundamentals_price_used: Mapped[float | None] = mapped_column(nullable=True)
+    """Der Kurs, mit dem die vier bewertungsabhaengigen Kennzahlen gerechnet
+    wurden -- der Schluss der letzten abgeschlossenen Kerze (ADR 0035,
+    Entscheidung 2). Ohne ihn liesse sich ein Kurs-Gewinn-Verhaeltnis spaeter
+    nicht nachrechnen, und die Kennzahl waere eine Behauptung statt eines
+    Belegs."""
+    fundamentals_fiscal_years: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    fundamentals_tag_conflicts: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    """Die gemeldeten Tag-Widersprueche (ADR 0032, Entscheidung 2).
+
+    JSONB und keine Kindtabelle: Sie werden geschrieben und im Ganzen
+    gelesen, nie gefiltert oder sortiert -- dasselbe Argument wie bei
+    ``technical_parameters``. Dazu ein zweites: Es sind im Mittel zehn je
+    Aktie und bei einzelnen ueber vierzig; als Zeilen waeren das mehr als
+    fuer alle uebrigen Analysemodule zusammen, fuer eine rein diagnostische
+    Angabe (ADR 0035, Entscheidung 6)."""
+
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(
         back_populates="screening_result", cascade="all, delete-orphan"
@@ -276,6 +315,11 @@ class ScreeningResultOrm(Base):
         back_populates="screening_result",
         cascade="all, delete-orphan",
         order_by="TechnicalZoneOrm.position",
+    )
+    fundamental_metrics: Mapped[list[FundamentalMetricOrm]] = relationship(
+        back_populates="screening_result",
+        cascade="all, delete-orphan",
+        order_by="FundamentalMetricOrm.position",
     )
 
 
@@ -317,6 +361,50 @@ class TechnicalZoneOrm(Base):
     pivot_count: Mapped[int]
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="technical_zones")
+
+
+class FundamentalMetricOrm(Base):
+    """Eine gerechnete Fundamentalkennzahl (ADR 0035, Entscheidung 5).
+
+    Eigene Tabelle statt achtzehn mal sechs Spalten: Die Zahl der Kennzahlen
+    ist nicht fest -- was sich nicht rechnen liess, entsteht gar nicht --,
+    und jede traegt Einheit, Basis und Zeitraum einzeln. Zwei Kennzahlen
+    desselben Berichts koennen verschiedene Zeitbezuege haben (ADR 0033 L2),
+    weshalb Basis und Zeitraum an der Kennzahl stehen und nicht am Ergebnis.
+    """
+
+    __tablename__ = "fundamental_metrics"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    screening_result_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("screening_results.id")
+    )
+    """``index=True`` gehoert hierher und nicht nur in die Migration: Ohne ihn
+    am Modell erzeugte das naechste ``alembic revision --autogenerate`` ein
+    ``drop_index``, weil ``env.py`` gegen ``Base.metadata`` vergleicht."""
+    position: Mapped[int]
+    """Reihenfolge der Ausgabe. Muster ``TechnicalZoneOrm.position``: Eine
+    Relationship ohne ``order_by`` liefert die Kinder in einer Reihenfolge,
+    die die Datenbank bestimmt."""
+    name: Mapped[MetricName] = mapped_column(_enum_column(MetricName))
+    value: Mapped[float]
+    unit: Mapped[MetricUnit] = mapped_column(_enum_column(MetricUnit))
+    currency: Mapped[str | None] = mapped_column(nullable=True)
+    basis: Mapped[MetricBasis] = mapped_column(_enum_column(MetricBasis))
+    period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    period_end: Mapped[date] = mapped_column(Date)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    """Herkunft je Kennzahl -- bis zu drei Eintraege, weil eine Marge auf
+    zwei Tags und der freie Cashflow auf zwei weiteren steht. JSONB aus
+    demselben Grund wie ``technical_parameters``: geschrieben und im Ganzen
+    gelesen, nie gefiltert. Die Quellenbindung aus CLAUDE.md verlangt CIK,
+    Einreichung, Formular, Tag und Einreichungsdatum -- alle fuenf stehen
+    darin."""
+
+    screening_result: Mapped[ScreeningResultOrm] = relationship(
+        back_populates="fundamental_metrics"
+    )
 
 
 class ResearchCitationOrm(Base):

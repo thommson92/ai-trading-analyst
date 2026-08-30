@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -25,6 +25,17 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.fundamentals import (
+    FigureName,
+    FundamentalSnapshot,
+    FundamentalStatus,
+    Metric,
+    MetricBasis,
+    MetricName,
+    MetricUnit,
+    SourceRef,
+    TagConflict,
+)
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -61,6 +72,7 @@ from ai_trading_analyst.domain.technical import (
 from .orm import (
     AnalysisRunOrm,
     BacktestResultOrm,
+    FundamentalMetricOrm,
     IntradayBarOrm,
     ProcessingErrorOrm,
     ResearchCitationOrm,
@@ -305,6 +317,111 @@ def _research_evidence(row: ScreeningResultOrm) -> ResearchEvidence | None:
     )
 
 
+_FUNDAMENTALS_FIELDS = (
+    "status",
+    "analysis_version",
+    "evaluated_at",
+    "reason",
+    "price_used",
+    "fiscal_years",
+    "tag_conflicts",
+)
+
+
+def _quelle_als_json(quelle: SourceRef) -> dict[str, Any]:
+    """Die Quellenbindung aus CLAUDE.md, vollstaendig und flach.
+
+    Alle fuenf Angaben, die ein Leser braucht, um den Wert in EDGAR
+    wiederzufinden -- die URL laesst sich aus CIK und Einreichung jederzeit
+    bilden und wird deshalb nicht mitgeschrieben.
+    """
+    return {
+        "cik": quelle.cik,
+        "accession": quelle.accession,
+        "form": quelle.form,
+        "filed": quelle.filed.isoformat(),
+        "tag": quelle.tag,
+    }
+
+
+def _quelle_aus_json(eintrag: dict[str, Any]) -> SourceRef:
+    return SourceRef(
+        cik=int(eintrag["cik"]),
+        accession=str(eintrag["accession"]),
+        form=str(eintrag["form"]),
+        filed=date.fromisoformat(str(eintrag["filed"])),
+        tag=str(eintrag["tag"]),
+    )
+
+
+def _fundamentals_columns(snapshot: FundamentalSnapshot | None) -> dict[str, Any]:
+    """Kopfspalten der Fundamentalanalyse, ``fundamentals_``-praefigiert.
+
+    Wie bei ``_technical_columns`` werden ohne Auswertung alle Spalten
+    ausdruecklich auf ``None`` gesetzt.
+    """
+    if snapshot is None:
+        return {f"fundamentals_{name}": None for name in _FUNDAMENTALS_FIELDS}
+    return {
+        "fundamentals_status": snapshot.status,
+        "fundamentals_analysis_version": snapshot.analysis_version,
+        "fundamentals_evaluated_at": snapshot.evaluated_at,
+        "fundamentals_reason": snapshot.reason,
+        "fundamentals_price_used": snapshot.price_used,
+        "fundamentals_fiscal_years": list(snapshot.fiscal_years),
+        "fundamentals_tag_conflicts": [
+            {
+                "figure": konflikt.figure.value,
+                "period_end": konflikt.period_end.isoformat(),
+                "chosen_tag": konflikt.chosen_tag,
+                "chosen_value": konflikt.chosen_value,
+                "other_tag": konflikt.other_tag,
+                "other_value": konflikt.other_value,
+            }
+            for konflikt in snapshot.tag_conflicts
+        ],
+    }
+
+
+def _fundamentals_from_row(row: ScreeningResultOrm) -> FundamentalSnapshot | None:
+    if row.fundamentals_status is None or row.fundamentals_evaluated_at is None:
+        return None
+    return FundamentalSnapshot(
+        symbol=row.stock.symbol,
+        status=FundamentalStatus(row.fundamentals_status),
+        evaluated_at=row.fundamentals_evaluated_at,
+        analysis_version=row.fundamentals_analysis_version or "",
+        metrics={
+            MetricName(metrik.name): Metric(
+                name=MetricName(metrik.name),
+                value=metrik.value,
+                unit=MetricUnit(metrik.unit),
+                basis=MetricBasis(metrik.basis),
+                period_start=metrik.period_start,
+                period_end=metrik.period_end,
+                currency=metrik.currency,
+                sources=tuple(_quelle_aus_json(eintrag) for eintrag in metrik.sources),
+                retrieved_at=metrik.retrieved_at,
+            )
+            for metrik in row.fundamental_metrics
+        },
+        fiscal_years=tuple(row.fundamentals_fiscal_years or ()),
+        price_used=row.fundamentals_price_used,
+        tag_conflicts=tuple(
+            TagConflict(
+                figure=FigureName(eintrag["figure"]),
+                period_end=date.fromisoformat(str(eintrag["period_end"])),
+                chosen_tag=str(eintrag["chosen_tag"]),
+                chosen_value=float(eintrag["chosen_value"]),
+                other_tag=str(eintrag["other_tag"]),
+                other_value=float(eintrag["other_value"]),
+            )
+            for eintrag in row.fundamentals_tag_conflicts or ()
+        ),
+        reason=row.fundamentals_reason,
+    )
+
+
 def _technical_columns(technical: TechnicalSnapshot | None) -> dict[str, Any]:
     """Spaltenwerte der Chartauswertung, ``technical_``-praefigiert.
 
@@ -525,6 +642,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         technical_assessment=_technical_ai_from_row(row),
         earnings=earnings,
         research=research,
+        fundamentals=_fundamentals_from_row(row),
     )
 
 
@@ -574,6 +692,7 @@ class SqlAlchemyScreeningResultRepository:
             **_research_evidence_columns(research.evidence if research is not None else None),
             **_technical_columns(outcome.technical),
             **_technical_ai_columns(outcome.technical_assessment),
+            **_fundamentals_columns(outcome.fundamentals),
         )
         row.signal_events = [
             SignalEventOrm(
@@ -613,6 +732,25 @@ class SqlAlchemyScreeningResultRepository:
                 pivot_count=zone.pivot_count,
             )
             for position, zone in enumerate(technical.zones if technical is not None else ())
+        ]
+        fundamentals = outcome.fundamentals
+        row.fundamental_metrics = [
+            FundamentalMetricOrm(
+                id=uuid.uuid4(),
+                position=position,
+                name=metric.name,
+                value=metric.value,
+                unit=metric.unit,
+                currency=metric.currency,
+                basis=metric.basis,
+                period_start=metric.period_start,
+                period_end=metric.period_end,
+                retrieved_at=metric.retrieved_at,
+                sources=[_quelle_als_json(quelle) for quelle in metric.sources],
+            )
+            for position, metric in enumerate(
+                fundamentals.metrics.values() if fundamentals is not None else ()
+            )
         ]
         self._session.add(row)
 

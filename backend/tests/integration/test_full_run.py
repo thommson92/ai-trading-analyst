@@ -30,6 +30,9 @@ from ai_trading_analyst.domain.technical import (
     TechnicalStatus,
 )
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
+from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
+    FixtureFundamentalDataProvider,
+)
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
@@ -74,6 +77,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         earnings_provider,
         FixtureResearchProvider(),
         FixtureTechnicalInterpreter(),
+        FixtureFundamentalDataProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -156,6 +160,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         FixtureEarningsProvider(),
         FixtureResearchProvider(),
         FixtureTechnicalInterpreter(),
+        FixtureFundamentalDataProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,

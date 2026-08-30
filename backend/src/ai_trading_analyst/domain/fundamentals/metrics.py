@@ -42,6 +42,26 @@ from .values import (
     TagConflict,
 )
 
+MAX_BEWERTUNGSALTER_TAGE = 455
+"""Wie alt die Kennzahl sein darf, die gegen einen heutigen Kurs laeuft.
+
+Ein Geschaeftsjahr (365 Tage) plus die laengste regulaere Frist der SEC fuer
+ein 10-K (90 Tage). Wer fristgerecht einreicht, unterschreitet das immer:
+Spaetestens wenn diese Spanne abgelaufen ist, liegt der naechste Abschluss
+vor.
+
+Die Schranke wird gebraucht, weil die uebrige Aktualitaetspruefung (ADR 0034,
+``MAX_RUECKSTAND_TAGE``) **berichtsintern** misst -- sie vergleicht eine
+Rohgroesse mit dem Rest desselben Berichts. Ein Emittent, der seit Jahren
+nichts mehr einreicht, ist in sich vollkommen stimmig. Gegen einen heutigen
+Kurs gerechnet ergab das ein Kurs-Gewinn-Verhaeltnis von 769.230 -- die
+Marktkapitalisierung von heute geteilt durch den Gewinn von 2016, mit Status
+COMPLETED und ohne Hinweis.
+
+Betroffen sind ausschliesslich die vier kursabhaengigen Kennzahlen. Die
+uebrigen bleiben: Sie mischen nichts, tragen ihren Zeitraum an sich und sind
+alt, aber nicht falsch."""
+
 MAX_RUECKSTAND_TAGE = 180
 """Ab welchem Rueckstand ein Zeitraumwert als ueberholt gilt (ADR 0034).
 
@@ -603,6 +623,7 @@ def compute_fundamental_snapshot(
     _bewertung(
         rechner,
         stichtag=stichtag,
+        retrieved_at=retrieved_at,
         price=price,
         shares_outstanding=shares_outstanding,
         umsatz=umsatz,
@@ -640,6 +661,7 @@ def _bewertung(
     rechner: _Rechner,
     *,
     stichtag: date,
+    retrieved_at: datetime,
     price: float | None,
     shares_outstanding: ReportedFigure | None,
     umsatz: ReportedFigure | None,
@@ -651,6 +673,12 @@ def _bewertung(
     Ersatzwert und ohne dass die uebrigen Kennzahlen davon beruehrt waeren.
     """
     if price is None or shares_outstanding is None or price <= 0:
+        return
+    if (retrieved_at.date() - stichtag).days > MAX_BEWERTUNGSALTER_TAGE:
+        # Der Kurs ist von heute, die Kennzahl aus einem Bericht, auf den
+        # kein neuerer gefolgt ist. Die berichtsinterne Schranke aus ADR 0034
+        # kann das nicht sehen: Ein Emittent, der seit Jahren nichts mehr
+        # einreicht, ist in sich stimmig.
         return
     if shares_outstanding.period_end < stichtag:
         # Der Deckblattwert ist aelter als der Zeitraum, zu dem er ins

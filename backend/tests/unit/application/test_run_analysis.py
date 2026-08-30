@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.earnings import (
     EarningsFilterStatus,
     NextEarningsDate,
 )
+from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
@@ -28,6 +29,7 @@ from ai_trading_analyst.domain.technical import (
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeEarningsProvider,
+    FakeFundamentalDataProvider,
     FakeMarketDataProvider,
     FakeProcessingErrorRepository,
     FakeResearchProvider,
@@ -65,6 +67,7 @@ def _build_use_case(
     earnings_provider: FakeEarningsProvider | None = None,
     research_provider: FakeResearchProvider | None = None,
     technical_interpreter: FakeTechnicalInterpreter | None = None,
+    fundamental_provider: FakeFundamentalDataProvider | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
@@ -87,6 +90,7 @@ def _build_use_case(
         earnings_provider or FakeEarningsProvider(),
         research_provider or FakeResearchProvider(),
         technical_interpreter or FakeTechnicalInterpreter(),
+        fundamental_provider or FakeFundamentalDataProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -291,6 +295,102 @@ class TestEarningsFilter:
         assert earnings is not None
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "invalid_data"
+
+
+class TestFundamentaldatenImTageslauf:
+    """ADR 0035 -- Umfang, Kurs und Entkopplung."""
+
+    def _kandidat(self) -> FakeMarketDataProvider:
+        stock = make_stock("CAND")
+        return FakeMarketDataProvider(
+            stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
+        )
+
+    def test_laufen_fuer_kandidaten(self) -> None:
+        use_case, *_ = _build_use_case(self._kandidat())
+
+        summary = use_case.execute()
+
+        fundamentals = summary.outcomes[0].fundamentals
+        assert fundamentals is not None
+        assert fundamentals.status is FundamentalStatus.COMPLETED
+
+    def test_laufen_nicht_fuer_nicht_kandidaten(self) -> None:
+        """Ein Abruf sind rund 4 MB. Ueber die volle Watchliste taeglich
+        waeren das 800 MB fuer Zahlen, die sich vierteljaehrlich aendern
+        (ADR 0035, Entscheidung 1)."""
+        stock = make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        fundamental_provider = FakeFundamentalDataProvider()
+        use_case, *_ = _build_use_case(provider, fundamental_provider=fundamental_provider)
+
+        summary = use_case.execute()
+
+        assert summary.outcomes[0].fundamentals is None
+        assert fundamental_provider.calls == []
+
+    def test_der_kurs_ist_der_schluss_der_letzten_abgeschlossenen_kerze(self) -> None:
+        """Genau der Kurs, auf dem Screening und Chartauswertung stehen --
+        keine laufende Kerze und keine zweite Quelle (ADR 0035,
+        Entscheidung 2)."""
+        provider = self._kandidat()
+        reihe = provider.get_candle_series(make_stock("CAND"))
+        erwartet = reihe.candle(len(reihe) - 1).close
+        fundamental_provider = FakeFundamentalDataProvider()
+        use_case, *_ = _build_use_case(provider, fundamental_provider=fundamental_provider)
+
+        use_case.execute()
+
+        assert fundamental_provider.calls == [("CAND", erwartet)]
+
+    def test_der_verwendete_kurs_steht_am_ergebnis(self) -> None:
+        """Ohne ihn liesse sich ein Kurs-Gewinn-Verhaeltnis spaeter nicht
+        nachrechnen, und die Kennzahl waere eine Behauptung."""
+        use_case, *_ = _build_use_case(self._kandidat())
+
+        summary = use_case.execute()
+
+        fundamentals = summary.outcomes[0].fundamentals
+        assert fundamentals is not None
+        assert fundamentals.price_used is not None
+
+    def test_ein_ausfall_kostet_nur_die_kennzahlen(self) -> None:
+        """Ein nicht erreichbares EDGAR ist ein normaler Betriebszustand.
+
+        Wuerde die Ausnahme in den umgebenden Fehlerisolations-Block laufen,
+        verloere die Aktie ihr ganzes Ergebnis -- Screening, Chartauswertung
+        und Earnings-Filter inklusive (ADR 0035, Entscheidung 3).
+        """
+        fundamental_provider = FakeFundamentalDataProvider(error_symbols=frozenset({"CAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), fundamental_provider=fundamental_provider
+        )
+
+        summary = use_case.execute()
+
+        assert summary.errors == ()
+        assert errors_repo.added == []
+        ergebnis = summary.outcomes[0]
+        assert ergebnis.fundamentals is None
+        assert ergebnis.technical is not None
+        assert ergebnis.earnings is not None
+
+    def test_ein_vertragsbruch_bleibt_ein_fehler(self) -> None:
+        """Nur die Vertragsausnahme wird abgefangen. Eine rohe RuntimeError
+        ist ein Programmfehler und soll als solcher sichtbar werden, statt
+        als stille Luecke in den Kennzahlen zu enden."""
+        fundamental_provider = FakeFundamentalDataProvider(crash_symbols=frozenset({"CAND"}))
+        use_case, *_ = _build_use_case(
+            self._kandidat(), fundamental_provider=fundamental_provider
+        )
+
+        summary = use_case.execute()
+
+        assert summary.outcomes == ()
+        assert len(summary.errors) == 1
 
 
 class TestTechnischeChartauswertung:
@@ -756,6 +856,7 @@ class TestVeralteteDaten:
             FakeEarningsProvider(),
             FakeResearchProvider(),
             FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,

@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "analysis_run_errors",
     "technical_zones",
     "research_citations",
+    "fundamental_metrics",
 }
 
 
@@ -64,6 +65,52 @@ def test_die_spalten_des_technical_agent_entstehen_durch_die_migration(engine: E
         "technical_ai_confidence",
         "technical_ai_reason",
     } <= spalten
+
+
+def test_die_spalten_der_fundamentalanalyse_entstehen_durch_die_migration(
+    engine: Engine,
+) -> None:
+    """ADR 0035. Wie bei den technical_ai_*-Spalten: Ein ``op.add_column``
+    mit einem Enum-Typ legt den Typ nicht mit an."""
+    spalten = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
+
+    assert {
+        "fundamentals_status",
+        "fundamentals_analysis_version",
+        "fundamentals_evaluated_at",
+        "fundamentals_reason",
+        "fundamentals_price_used",
+        "fundamentals_fiscal_years",
+        "fundamentals_tag_conflicts",
+    } <= spalten
+
+
+def test_die_kennzahlentabelle_traegt_ihre_spalten_und_ihren_index(engine: Engine) -> None:
+    """Der Index auf dem Fremdschluessel gehoert in **beide** Beschreibungen.
+
+    Steht er nur in der Migration und nicht am ORM-Modell, erzeugt das
+    naechste ``alembic revision --autogenerate`` ein ``drop_index`` -- der
+    Index verschwaende bei der naechsten Gelegenheit unbemerkt wieder.
+    """
+    inspector = inspect(engine)
+    spalten = {spalte["name"] for spalte in inspector.get_columns("fundamental_metrics")}
+
+    assert {
+        "id",
+        "screening_result_id",
+        "position",
+        "name",
+        "value",
+        "unit",
+        "currency",
+        "basis",
+        "period_start",
+        "period_end",
+        "retrieved_at",
+        "sources",
+    } <= spalten
+    indizes = {index["name"] for index in inspector.get_indexes("fundamental_metrics")}
+    assert "ix_fundamental_metrics_screening_result_id" in indizes
 
 
 def test_die_chance_risiko_spalten_entstehen_durch_die_migration(engine: Engine) -> None:

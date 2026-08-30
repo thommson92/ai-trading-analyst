@@ -183,6 +183,60 @@ class TestUeberholteWerte:
         assert MetricName.CURRENT_RATIO in veraltet.missing_metrics
 
 
+class TestBewertungBrauchtAktuelleZahlen:
+    """Die Schranke, die die berichtsinterne Pruefung nicht leisten kann.
+
+    ``MAX_RUECKSTAND_TAGE`` vergleicht eine Rohgroesse mit dem Rest
+    desselben Berichts. Ein Emittent, der seit Jahren nichts mehr einreicht,
+    ist darin vollkommen stimmig -- und liefert gegen einen heutigen Kurs
+    ein Kurs-Gewinn-Verhaeltnis von 769.230.
+    """
+
+    def _aktien(self) -> ReportedFigure:
+        return ReportedFigure(
+            value=1_000_000.0,
+            period_start=None,
+            period_end=date(2026, 7, 1),
+            unit="shares",
+            source=SourceRef(
+                cik=1,
+                accession="0000000000-26-000001",
+                form="10-Q",
+                filed=date(2026, 8, 1),
+                tag="EntityCommonStockSharesOutstanding",
+            ),
+        )
+
+    def _mit_jahren(self, jahre: dict[int, float]) -> FundamentalSnapshot:
+        return compute_fundamental_snapshot(
+            symbol="TEST",
+            figures={
+                FigureName.REVENUE: _reihe(jahre),
+                FigureName.NET_INCOME: _reihe({jahr: wert / 4 for jahr, wert in jahre.items()}),
+            },
+            retrieved_at=datetime(2026, 8, 30, tzinfo=UTC),
+            evaluated_at=datetime(2026, 8, 30, tzinfo=UTC),
+            shares_outstanding=self._aktien(),
+            price=200.0,
+        )
+
+    def test_ein_kurs_von_heute_geht_nicht_gegen_zahlen_von_vorgestern(self) -> None:
+        snapshot = self._mit_jahren({2014: 800.0, 2015: 900.0, 2016: 1000.0})
+
+        assert MetricName.PRICE_EARNINGS_RATIO in snapshot.missing_metrics
+        assert MetricName.MARKET_CAPITALIZATION in snapshot.missing_metrics
+        # Die uebrigen bleiben: Sie mischen nichts, tragen ihren Zeitraum an
+        # sich und sind alt, aber nicht falsch.
+        assert snapshot.metrics[MetricName.NET_MARGIN].period_end == date(2016, 12, 31)
+
+    def test_ein_gewoehnlicher_abschluss_passiert_die_schranke(self) -> None:
+        """Wer fristgerecht einreicht, unterschreitet die Spanne immer --
+        ein Geschaeftsjahr plus die laengste 10-K-Frist der SEC."""
+        snapshot = self._mit_jahren({2023: 800.0, 2024: 900.0, 2025: 1000.0})
+
+        assert MetricName.PRICE_EARNINGS_RATIO in snapshot.metrics
+
+
 class TestOhneUmsatz:
     """ADR 0034 -- der Umsatz gibt den Stichtag vor, ist aber keine Bedingung.
 

@@ -14,6 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
+from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
@@ -102,6 +103,14 @@ class StockScreeningOutcome:
     EarningsFilterStatus.EARNINGS_CLEAR`` war -- der Research Agent laeuft
     nur fuer Kandidaten, die Screener **und** Earnings-Filter bestanden
     haben (Doc 10, Paragraph 6.7)."""
+    fundamentals: FundamentalSnapshot | None = None
+    """Die deterministischen Fundamentalkennzahlen (Doc 10, Paragraph 6.9;
+    ADR 0035) -- nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.
+
+    Haengt wie ``technical`` an keinem anderen Modul. Faellt EDGAR aus,
+    bleibt das Feld leer und alles Uebrige vollstaendig; es gibt keinen
+    Ersatzwert (CLAUDE.md: Analysemodule sind entkoppelt, fehlende Werte
+    bleiben fehlend)."""
 
 
 @dataclass(frozen=True, slots=True)

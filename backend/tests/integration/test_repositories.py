@@ -58,6 +58,9 @@ from ai_trading_analyst.domain.technical import (
     ZoneKind,
     ZoneStrength,
 )
+from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
+    FixtureFundamentalDataProvider,
+)
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from tests.integration.conftest import make_outcome, make_run, make_stock
 
@@ -275,6 +278,78 @@ class TestScreeningResultRepository:
         assert persisted.result.fired_signal_types == frozenset(
             {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
         )
+
+    def test_fundamentalkennzahlen_ueberleben_die_datenbank(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """ADR 0035 -- jede Kennzahl mit Einheit, Basis, Zeitraum und Herkunft.
+
+        Zwei Kennzahlen desselben Berichts koennen verschiedene Zeitbezuege
+        haben (ADR 0033 L2), weshalb Basis und Zeitraum an der Kennzahl
+        stehen und nicht am Ergebnis.
+        """
+        stock = make_stock("WITHFUNDAMENTALS")
+        run = make_run()
+        fundamentals = FixtureFundamentalDataProvider().fundamentals(stock, price=232.14)
+        assert fundamentals.metrics, "Die Vorlage muss Kennzahlen liefern"
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            fundamentals=fundamentals,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.fundamentals == fundamentals
+        gelesen = persisted.fundamentals
+        assert gelesen is not None
+        # Der Kurs gehoert zum Ergebnis, nicht zum Aufruf: Ohne ihn liesse
+        # sich ein Kurs-Gewinn-Verhaeltnis nicht nachrechnen.
+        assert gelesen.price_used == 232.14
+        # Die Quellenbindung aus CLAUDE.md -- vollstaendig, nicht nur der Tag.
+        # Geprueft wird jedes Feld einzeln: Ein stillschweigend verlorenes
+        # Einreichungsdatum faellt beim Vergleich der Objekte zwar auf, aber
+        # erst, wenn jemand die Meldung liest.
+        original = next(iter(fundamentals.metrics.values())).sources[0]
+        quelle = next(iter(gelesen.metrics.values())).sources[0]
+        assert (quelle.cik, quelle.accession, quelle.form, quelle.tag, quelle.filed) == (
+            original.cik,
+            original.accession,
+            original.form,
+            original.tag,
+            original.filed,
+        )
+
+    def test_ein_ergebnis_ohne_fundamentaldaten_bleibt_ohne(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Faellt EDGAR aus, bleibt das Feld leer -- kein Platzhalter, keine
+        Nullwerte in achtzehn Zeilen."""
+        stock = make_stock("NOFUNDAMENTALS")
+        run = make_run()
+        outcome = make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.fundamentals is None
 
     def test_chartauswertung_mit_zonen_wird_mitgespeichert(self, uow_factory: UowFactory) -> None:
         stock = make_stock("WITHTECHNICAL")

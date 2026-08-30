@@ -2187,6 +2187,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             earnings_provider,
             research_provider,
             technical_interpreter,
+            build_fundamental_data_provider(config),
             uow_factory,
             rule,
             build_earnings_filter_params(config),
