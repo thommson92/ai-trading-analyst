@@ -66,7 +66,9 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0029](0029-research-qualitaet.md) | Research-Qualität — Quellenrang neben der Lizenzklasse, deterministische Abdeckung, Zitatgrenze, Quellenalter roh | Angenommen (ersetzt Teile von ADR 0023) |
 | [0030](0030-wochentagsnaeherung-bleibt.md) | Wochentagsnäherung im Earnings-Filter bleibt — der TWS-Kalender reicht nicht | Angenommen (entkräftet L3 aus ADR 0020) |
 | [0031](0031-merge-schutz-aktiv.md) | Merge-Schutz auf `main` und `dev` — grüne CI erzwungen, Notausgang für den Inhaber | Angenommen (löst ADR 0009 ab) |
-| [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen (Nachtrag 2026-08-24: vier Umsetzungsfehler am echten Lauf korrigiert) |
+| [0032](0032-fundamentalanalyse-deterministisch.md) | Deterministische Fundamentalanalyse — Kennzahlen aus XBRL, Kurs als optionale Eingabe | Angenommen; Entscheidung 3 durch [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) abgelöst |
+| [0033](0033-zwoelfmonatswerte-statt-jahresabschluss.md) | Niveauzahlen und Bewertung auf die letzten zwölf Monate statt auf den Jahresabschluss | Angenommen (löst Entscheidung 3 aus ADR 0032 ab) |
+| [0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) | Aktualitätsschranke, Umsatz ohne Vetorecht, drei zugelassene Abweichler | Angenommen (ergänzt ADR 0032 und 0033; Nachtrag 2026-08-27 löst L1 aus ADR 0032, L3 aus ADR 0033 und L4 ein) |
 
 ## Offene Entscheidungen
 
@@ -127,4 +129,10 @@ ADR, sobald die nötigen Informationen vorliegen:
   Wettbewerbern", Doc 10 Paragraph 6.9) — **offen.** Nicht aus XBRL ableitbar;
   [ADR 0032](0032-fundamentalanalyse-deterministisch.md) weist den Bereich als
   fehlend aus, statt ihn zu schätzen.
+- Stichtagsbindung von Kennzahlen aus zwei Bilanzstichtagen — **offen.**
+  Verschuldungsgrad und Liquiditätsgrad stehen auf zwei Werten desselben
+  Bilanzstichtags, müssen aber mit dem Stichtag des Umsatzes zusammenfallen.
+  Bei Kalenderjahr-Bilanzierern fällt der Liquiditätsgrad dadurch aus
+  (gemessen an Coca-Cola). Siehe [ADR 0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md),
+  Einschränkung L3.
 - Externer Zugriff auf das Dashboard (F12)

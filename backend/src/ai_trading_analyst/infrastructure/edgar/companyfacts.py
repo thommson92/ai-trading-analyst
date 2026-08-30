@@ -22,9 +22,10 @@ Drei gemessene Befunde aus ADR 0032 bestimmen den Aufbau:
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import date
+import math
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any
 
 from ai_trading_analyst.domain.fundamentals import (
@@ -35,6 +36,20 @@ from ai_trading_analyst.domain.fundamentals import (
 )
 
 ANNUAL_FORMS = frozenset({"10-K", "10-K/A"})
+
+PERIODIC_FORMS = ANNUAL_FORMS | {"10-Q", "10-Q/A"}
+"""Regelmaessige Finanzberichte -- die einzigen Quellen fuer Bausteine der
+Zwoelfmonatsrechnung und fuer Bilanzstichtage.
+
+Ohne diesen Filter gewinnt ueber "zuletzt eingereicht" gelegentlich ein
+anderes Formular. Gemessen am 2026-08-25: Der Jahresbaustein des
+Zwoelfmonatsgewinns kam bei NVIDIA, Netflix und Uber aus einer
+**DEF 14A**-Vollmachtserklaerung, Apples Investitionen aus einem **8-K**.
+Bei NVIDIA stimmt der Wert der Vollmachtserklaerung auf den Cent mit dem
+10-K ueberein -- aber eine Tabelle zur Vorstandsverguetung ist keine
+Rechnungslegung, und ein dort neu gefasster Wert liefe ungeprueft in die
+Kennzahl. Dasselbe gilt fuer Bilanzpositionen aus 8-K-Anlagen, die
+typischerweise Pro-forma-Rechnungen sind."""
 """Nur Jahresabschluesse und ihre Aenderungsberichte (ADR 0032,
 Entscheidung 3). ``10-K/A`` gehoert ausdruecklich dazu: In Apples Daten
 traegt ein Aenderungsbericht die berichtigte Zahl, und ohne ihn stuende der
@@ -58,8 +73,13 @@ FIGURE_TAGS: Mapping[FigureName, tuple[str, ...]] = {
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "SalesRevenueNet",
+        "RevenuesNetOfInterestExpense",
     ),
-    FigureName.NET_INCOME: ("NetIncomeLoss",),
+    FigureName.NET_INCOME: (
+        "NetIncomeLoss",
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "ProfitLoss",
+    ),
     FigureName.GROSS_PROFIT: ("GrossProfit",),
     FigureName.OPERATING_INCOME: ("OperatingIncomeLoss",),
     FigureName.ASSETS: ("Assets",),
@@ -103,11 +123,8 @@ herausgeflogen**, weil sie eben nicht dasselbe bedeuten -- gemessen, nicht
 vermutet:
 
 ===============================================  ===================================
-``ProfitLoss``                                   schliesst Minderheitenanteile ein,
-                                                 ``NetIncomeLoss`` nicht. Bei
-                                                 Honeywell 14 Jahre lang
-                                                 abweichend, bis 2,8 Prozent.
-``StockholdersEquity...NoncontrollingInterest``  dasselbe auf der Bilanzseite. Bei
+``StockholdersEquity...NoncontrollingInterest``  schliesst Minderheitenanteile ein,
+                                                 ``StockholdersEquity`` nicht. Bei
                                                  Honeywell 2025 8,1 Prozent
                                                  Unterschied.
 ``NetCash...ContinuingOperations``               laesst aufgegebene
@@ -123,9 +140,26 @@ keinen einzigen Zeitraum, in dem beide Capex-Tags verschiedene Werte tragen
 lang ausschliesslich das zweite. Es ist eine Bezeichnungsvariante, kein
 anderer Umfang -- gemessen, nicht vermutet.
 
-Der Preis der Strenge ist Abdeckung: Ein Emittent, der nur ``ProfitLoss``
-fuehrt, liefert kein Nettoergebnis. Das ist die richtige Richtung -- fehlend
-statt falsch (ADR 0032 L1).
+**Drei Tags stehen bewusst als nachrangige Alternativen darin, obwohl sie
+nicht dasselbe bedeuten** (ADR 0034). Der Watchlist-Lauf ueber 192 Aktien hat
+gezeigt, was die reine Strenge kostet: Illinois Tool Works taggt seinen
+Jahresueberschuss ausschliesslich als ``ProfitLoss``, Monster Beverage
+ausschliesslich als ``NetIncomeLossAvailableToCommonStockholdersBasic``, und
+Goldman Sachs fuehrt seine Ertraege nur als ``RevenuesNetOfInterestExpense``.
+Alle drei lieferten dadurch **gar keinen** Wert -- kein Nettoergebnis, keine
+Nettomarge, keine Rendite; bei Goldman Sachs fiel die ganze Auswertung aus.
+
+Sie greifen nur, wenn kein Tag hoeherer Ordnung etwas hergibt, und die
+Abweichung bleibt sichtbar: Der verwendete Tag steht an jedem Wert, und wo
+zwei Tags nebeneinander liegen und sich unterscheiden, wird das weiterhin als
+Widerspruch gemeldet. Was sie genau anders zaehlen -- Minderheitenanteile,
+Vorzugsdividenden, Zinsaufwand -- steht in ADR 0034.
+
+Der Preis der Strenge ist Abdeckung; der Preis der Milde ist
+Vergleichbarkeit. Die Grenze verlaeuft hier zwischen "anderer Umfang
+derselben Groesse", das nachrangig zugelassen wird, und "andere Groesse",
+das nicht -- ``SalesRevenueGoodsNet`` und der abgeleitete Rohertrag bleiben
+draussen.
 
 **Nicht abgeleitet wird der Rohertrag.** Honeywell und Netflix weisen fuer ihr
 juengstes Geschaeftsjahr kein ``GrossProfit`` aus, und aus Umsatz minus
@@ -161,6 +195,14 @@ Nicht ``WeightedAverageNumberOfDilutedSharesOutstanding``: Fuer die
 Marktkapitalisierung zaehlt die Zahl der heute ausstehenden Aktien, nicht
 der Jahresdurchschnitt."""
 
+TEILSTUECK_TOLERANZ_TAGE = 5
+"""Wie weit das Vorjahresteilstueck vom laufenden abweichen darf.
+
+Ein Geschaeftsjahr mit 52 oder 53 Wochen verschiebt die Quartalsenden um
+einige Tage. Ohne Toleranz faende die Formel das Gegenstueck bei jedem
+Emittenten mit Wochenkalender nicht -- mit einer grossen verrechnete sie
+Zeitraeume verschiedener Laenge."""
+
 CONFLICT_TOLERANCE = 0.005
 """Ab welcher relativen Abweichung zwei Tags als widerspruechlich gelten.
 
@@ -190,15 +232,28 @@ class _RawFact:
         return MIN_ANNUAL_DAYS <= dauer <= MAX_ANNUAL_DAYS
 
 
+TRAILING_FIGURES = frozenset(FigureName) - INSTANT_FIGURES - {FigureName.DILUTED_SHARES}
+"""Rohgroessen, fuer die ein Zwoelfmonatswert gebildet wird.
+
+Bestandsgroessen nicht -- sie gelten zu einem Stichtag und werden ohnehin
+aus der juengsten Einreichung genommen. Die Aktienzahl ebenfalls nicht: Der
+gewichtete Jahresdurchschnitt laesst sich nicht sinnvoll ueber drei
+Einreichungen verrechnen, und die Verwaesserung wird ohnehin nur innerhalb
+einer Einreichung gemessen (ADR 0032, Korrektur 3)."""
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedFacts:
-    """Das Ergebnis der Aufloesung: Jahreswerte je Rohgroesse."""
+    """Das Ergebnis der Aufloesung."""
 
     cik: int
     entity_name: str
     figures: Mapping[FigureName, tuple[ReportedFigure, ...]]
+    """Jahresreihe je Rohgroesse -- Grundlage der Wachstumsraten."""
     shares_outstanding: ReportedFigure | None
     conflicts: tuple[TagConflict, ...]
+    trailing: Mapping[FigureName, ReportedFigure] = field(default_factory=dict)
+    """Zwoelfmonatswerte, wo sie sich bilden liessen (ADR 0033)."""
 
 
 def resolve_company_facts(payload: Any) -> ResolvedFacts:
@@ -224,12 +279,18 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
         raise CompanyFactsError("Taxonomie 'us-gaap' fehlt -- kein US-GAAP-Bericht (ADR 0032 L3)")
 
     figures: dict[FigureName, tuple[ReportedFigure, ...]] = {}
+    trailing: dict[FigureName, ReportedFigure] = {}
     conflicts: list[TagConflict] = []
     for name, tags in FIGURE_TAGS.items():
         aufgeloest, widersprueche = _resolve_figure(cik, us_gaap, name, tags)
         if aufgeloest:
             figures[name] = aufgeloest
         conflicts.extend(widersprueche)
+        if name in TRAILING_FIGURES:
+            zwoelfmonate, zwoelf_widersprueche = _resolve_trailing(cik, us_gaap, name, tags)
+            if zwoelfmonate is not None:
+                trailing[name] = zwoelfmonate
+            conflicts.extend(zwoelf_widersprueche)
 
     return ResolvedFacts(
         cik=cik,
@@ -237,6 +298,74 @@ def resolve_company_facts(payload: Any) -> ResolvedFacts:
         figures=figures,
         shares_outstanding=_resolve_shares_outstanding(cik, facts.get("dei")),
         conflicts=tuple(conflicts),
+        trailing=trailing,
+    )
+
+
+def _resolve_trailing(
+    cik: int, us_gaap: Mapping[str, Any], name: FigureName, tags: Sequence[str]
+) -> tuple[ReportedFigure | None, list[TagConflict]]:
+    """Der Zwoelfmonatswert, gebildet **innerhalb eines Tags**.
+
+    Erst je Tag gerechnet (ADR 0033, Entscheidung 2). Andernfalls koennte die
+    Subtraktion einen Vertragsumsatz von einem Gesamtumsatz abziehen -- der
+    Berkshire-Fehler aus ADR 0032, nur als Differenz und damit mit groesserem
+    Hebel.
+
+    Ausgewaehlt wird dann **der juengste** Zwoelfmonatswert, nicht der des
+    erstbesten Tags der Liste. Der Unterschied ist nicht theoretisch: Bei
+    Honeywell endet ``Revenues`` im Jahr 2011, und die Tag-Reihenfolge allein
+    lieferte einen Zwoelfmonatsumsatz per 2012-06-30 -- vierzehn Jahre alt,
+    aus einem laengst aufgegebenen Tag, und damit das genaue Gegenteil
+    dessen, wozu dieses ADR angetreten ist.
+
+    Enden zwei Tags am selben Tag, entscheidet weiterhin die Reihenfolge der
+    Liste: Dann geht es wieder um die Bedeutung, nicht um die Aktualitaet.
+    Dieser Teil des Schluessels ist ausdruecklich hingeschrieben, obwohl
+    ``max`` bei Gleichstand ohnehin den ersten Treffer liefert -- er haengt
+    damit nicht an einem Implementierungsdetail. Eine Mutation dieser Stelle
+    bleibt deshalb gruen; das ist bekannt und kein fehlender Test.
+    """
+    einheit = FIGURE_UNITS[name]
+    kandidaten = [
+        (fakt, rang, tag)
+        for rang, tag in enumerate(tags)
+        if (fakt := _trailing_fact(us_gaap.get(tag), einheit)) is not None
+    ]
+    if not kandidaten:
+        return None, []
+    fakt, _, tag = max(kandidaten, key=lambda eintrag: (eintrag[0].end, -eintrag[1]))
+
+    # Derselbe Widerspruch wie in der Jahresreihe kann auch hier auftreten --
+    # und wurde zunaechst nicht gemeldet. Gemessen an Berkshire Hathaway:
+    # Fuer das Fenster bis 2026-06-30 liefert ``Revenues`` 384,7 Milliarden
+    # und der Vertragsumsatz 259,7 -- 32 Prozent Unterschied, denselben
+    # Zeitraum. Heute gewinnt der richtige; sobald der andere einmal
+    # juenger endet, gewinnt er, und niemand erfuehre davon.
+    conflicts = [
+        TagConflict(
+            figure=name,
+            period_end=fakt.end,
+            chosen_tag=tag,
+            chosen_value=fakt.value,
+            other_tag=anderer_tag,
+            other_value=anderer.value,
+        )
+        for anderer, _, anderer_tag in kandidaten
+        if anderer_tag != tag and anderer.end == fakt.end and _weicht_ab(fakt.value, anderer.value)
+    ]
+
+    return (
+        ReportedFigure(
+            value=fakt.value,
+            period_start=fakt.start,
+            period_end=fakt.end,
+            unit=einheit,
+            source=SourceRef(
+                cik=cik, accession=fakt.accession, form=fakt.form, filed=fakt.filed, tag=tag
+            ),
+        ),
+        conflicts,
     )
 
 
@@ -293,27 +422,154 @@ def _weicht_ab(gewaehlt: float, anderer: float) -> bool:
     return abs(anderer - gewaehlt) / abs(gewaehlt) > CONFLICT_TOLERANCE
 
 
-def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _RawFact]:
-    """Jahresfakten eines Tags, je Stichtag der zuletzt eingereichte Wert."""
+def _parse_facts(tag_inhalt: Any, einheit: str) -> list[_RawFact]:
+    """Alle lesbaren Fakten eines Tags in einer Einheit, ungefiltert."""
     if not isinstance(tag_inhalt, dict):
-        return {}
+        return []
     units = tag_inhalt.get("units")
     if not isinstance(units, dict):
-        return {}
-    je_stichtag: dict[date, _RawFact] = {}
-    for eintrag in units.get(einheit, ()):
-        fakt = _parse_fact(eintrag)
-        if fakt is None or fakt.form not in ANNUAL_FORMS:
-            continue
-        if instant:
-            if fakt.start is not None:
-                continue
-        elif not fakt.is_annual_duration:
-            continue
-        vorheriger = je_stichtag.get(fakt.end)
+        return []
+    return [fakt for eintrag in units.get(einheit, ()) if (fakt := _parse_fact(eintrag))]
+
+
+def _juengste_je[S](
+    fakten: Iterable[_RawFact], schluessel: Callable[[_RawFact], S]
+) -> dict[S, _RawFact]:
+    """Je Schluessel der zuletzt eingereichte Fakt."""
+    je_schluessel: dict[S, _RawFact] = {}
+    for fakt in fakten:
+        k = schluessel(fakt)
+        vorheriger = je_schluessel.get(k)
         if vorheriger is None or _ist_juenger(fakt, vorheriger):
-            je_stichtag[fakt.end] = fakt
-    return je_stichtag
+            je_schluessel[k] = fakt
+    return je_schluessel
+
+
+def _facts_by_period(
+    tag_inhalt: Any, einheit: str, formulare: frozenset[str]
+) -> dict[tuple[date | None, date], _RawFact]:
+    """Fakten nach Zeitraum, beschraenkt auf die genannten Formulare.
+
+    Grundlage der Zwoelfmonatsrechnung. Der Schluessel ist der ganze
+    Zeitraum und nicht nur sein Ende, weil ein 10-Q zu demselben Enddatum
+    ein Quartal *und* ein kumuliertes Neunmonatsstueck fuehren kann.
+
+    Der Formularfilter gehoert **vor** das Zusammenfassen, aus demselben
+    Grund wie in ``_annual_facts``: Bei NVIDIA, Netflix und Uber ist die
+    juengste Einreichung zum letzten Geschaeftsjahresergebnis eine
+    Vollmachtserklaerung. Nachtraeglich gefiltert verschwindet der ganze
+    Zeitraum, und mit ihm der Jahresbaustein der Zwoelfmonatsrechnung.
+    """
+    passend = [fakt for fakt in _parse_facts(tag_inhalt, einheit) if fakt.form in formulare]
+    return _juengste_je(passend, lambda fakt: (fakt.start, fakt.end))
+
+
+def _annual_facts(tag_inhalt: Any, einheit: str, instant: bool) -> dict[date, _RawFact]:
+    """Die Reihe, auf der die Wachstumsraten rechnen -- Jahresabschluesse.
+
+    Bestandsgroessen kommen dagegen aus jedem **regelmaessigen** Bericht:
+    Eine Bilanz aus dem juengsten 10-Q ist der aus dem letzten 10-K ohne
+    Einschraenkung vorzuziehen (ADR 0033, Entscheidung 3).
+
+    **Erst filtern, dann zusammenfassen** -- die Reihenfolge hier ist nicht
+    beliebig. Wird zuerst ueber alle Formulare zusammengefasst und danach auf
+    Jahresabschluesse gefiltert, verschwindet ein Geschaeftsjahr **ganz**,
+    sobald ein 10-Q es zuletzt als Vergleichszahl nachgetragen hat -- statt
+    dass der Jahreswert bliebe. Beim Umbau auf ADR 0033 sind Apple auf diese
+    Weise zwei Geschaeftsjahre abhandengekommen.
+    """
+    if instant:
+        passend = [
+            fakt
+            for fakt in _parse_facts(tag_inhalt, einheit)
+            if fakt.start is None and fakt.form in PERIODIC_FORMS
+        ]
+    else:
+        passend = [
+            fakt
+            for fakt in _parse_facts(tag_inhalt, einheit)
+            if fakt.is_annual_duration and fakt.form in ANNUAL_FORMS
+        ]
+    return _juengste_je(passend, lambda fakt: fakt.end)
+
+
+def _trailing_fact(tag_inhalt: Any, einheit: str) -> _RawFact | None:
+    """Der Zwoelfmonatswert eines Tags (ADR 0033, Entscheidung 1).
+
+    ``Geschaeftsjahr + laufendes Teilstueck - Vorjahresteilstueck gleicher
+    Laenge``. Es werden nur Zeitraeume verrechnet, die der Emittent selbst so
+    ausgewiesen hat -- nie zwei zu einem laengeren zusammengefasst. Das
+    umgeht die Verwechslung von kumulierten und diskreten Quartalen, die in
+    ``companyfacts`` nebeneinander stehen.
+    """
+    # Zwei Zusammenfassungen, nicht eine gefilterte: Der Jahresbaustein darf
+    # nur aus einem Jahresabschluss stammen, die Teilstuecke aus jedem
+    # regelmaessigen Bericht. Wuerde erst ueber alle Formulare zusammengefasst
+    # und danach auf ``ANNUAL_FORMS`` gefiltert, verschwaende ein 10-Q, das
+    # das Geschaeftsjahr als Vergleichszahl nachtraegt, den Jahresbaustein
+    # **ganz** -- und mit ihm den Zwoelfmonatswert. Genau der Fehler, gegen
+    # den ``_annual_facts`` und ``_facts_by_period`` beide anschreiben.
+    jahres_fakten = _facts_by_period(tag_inhalt, einheit, ANNUAL_FORMS)
+    fakten = _facts_by_period(tag_inhalt, einheit, PERIODIC_FORMS)
+    jahre = sorted(
+        (
+            schluessel
+            for schluessel, fakt in jahres_fakten.items()
+            if fakt.is_annual_duration
+        ),
+        key=lambda schluessel: schluessel[1],
+    )
+    if not jahre:
+        return None
+    jahr_start, jahr_ende = jahre[-1]
+    if jahr_start is None:
+        return None
+
+    laufend = sorted(
+        (schluessel for schluessel in fakten if schluessel[0] == jahr_ende + timedelta(days=1)),
+        key=lambda schluessel: schluessel[1],
+    )
+    if not laufend:
+        return None
+    teil_start, teil_ende = laufend[-1]
+    if teil_start is None:
+        return None
+    tage = (teil_ende - teil_start).days
+
+    vorjahr = [
+        schluessel
+        for schluessel in fakten
+        if schluessel[0] == jahr_start
+        and abs((schluessel[1] - jahr_start).days - tage) <= TEILSTUECK_TOLERANZ_TAGE
+    ]
+    if not vorjahr:
+        return None
+    # Das laengengleichste Gegenstueck, nicht das erste der Liste: Sonst
+    # entschiede bei zwei Kandidaten innerhalb der Toleranz die Reihenfolge
+    # im JSON -- genau die Abhaengigkeit, die ``_ist_juenger`` an anderer
+    # Stelle ausschliesst.
+    naechstes = min(vorjahr, key=lambda k: abs((k[1] - jahr_start).days - tage))
+
+    jahr = jahres_fakten[(jahr_start, jahr_ende)]
+    teil = fakten[(teil_start, teil_ende)]
+    vor = fakten[naechstes]
+    # Die Herkunft ist die juengste der drei Einreichungen: Sie bestimmt,
+    # wie aktuell der Wert ist, und ist die einzige, die ein Leser braucht,
+    # um ihn wiederzufinden.
+    quelle = max((jahr, teil, vor), key=lambda fakt: (fakt.filed, fakt.accession))
+    return _RawFact(
+        value=jahr.value + teil.value - vor.value,
+        # Der Fensteranfang ist der Tag nach dem Ende des Vorjahresstuecks --
+        # eine Grenze, die in den Einreichungen tatsaechlich vorkommt. Aus
+        # der Jahreslaenge zurueckgerechnet wich sie ab, sobald die Toleranz
+        # einen Unterschied auffing (bei Honeywell um einen Tag), und waere
+        # damit ein Datum, das nirgends steht.
+        start=vor.end + timedelta(days=1),
+        end=teil_ende,
+        accession=quelle.accession,
+        form=quelle.form,
+        filed=quelle.filed,
+    )
 
 
 def _ist_juenger(fakt: _RawFact, vorheriger: _RawFact) -> bool:
@@ -341,8 +597,16 @@ def _parse_fact(eintrag: Any) -> _RawFact | None:
     if not isinstance(eintrag, dict):
         return None
     try:
+        wert = float(eintrag["val"])
+        if not math.isfinite(wert):
+            # ``float("NaN")`` ueberlebte jede Pruefung: Alle Vergleiche mit
+            # NaN sind falsch, also greift weder die Nullpruefung noch die
+            # Widerspruchsmeldung. Die SEC sendet so etwas nicht -- aber ein
+            # Wert, der still durch alle Schutzregeln laeuft, gehoert hier
+            # ausgesondert und nicht darauf verlassen, dass er nie kommt.
+            return None
         return _RawFact(
-            value=float(eintrag["val"]),
+            value=wert,
             start=date.fromisoformat(eintrag["start"]) if eintrag.get("start") else None,
             end=date.fromisoformat(eintrag["end"]),
             accession=str(eintrag["accn"]),

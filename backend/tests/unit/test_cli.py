@@ -40,6 +40,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
     ContractSpec,
     EarningsProvider,
+    FundamentalDataProviderError,
     MarketDataProviderError,
     ResearchProvider,
     RunStatus,
@@ -54,6 +55,7 @@ from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
+    MetricBasis,
     MetricName,
     MetricUnit,
     SourceRef,
@@ -1693,6 +1695,21 @@ class TestResearchAusgabe:
         assert "Verfahren unbekannt" in capsys.readouterr().out
 
 
+def _wirft_oserror(*_args: object, **_kwargs: object) -> None:
+    raise OSError(13, "Zugriff verweigert")
+
+
+class _KeinAbrufProvider:
+    """Meldet fuer jedes Symbol einen Ausfall -- ohne Netz."""
+
+    def fundamentals(self, stock: object, price: float | None = None) -> object:
+        raise FundamentalDataProviderError(f"kein Netz im Test ({stock!r}, {price!r})")
+
+
+def _kein_provider(_config: object) -> _KeinAbrufProvider:
+    return _KeinAbrufProvider()
+
+
 class TestFundamentalKommando:
     """Ausgabe der deterministischen Fundamentalanalyse (ADR 0032)."""
 
@@ -1703,6 +1720,7 @@ class TestFundamentalKommando:
         )
         metric = Metric(
             name=MetricName.NET_MARGIN, value=0.25, unit=MetricUnit.FRACTION,
+            basis=MetricBasis.TRAILING_TWELVE_MONTHS,
             period_end=date(2024, 12, 31), sources=(quelle,),
             retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
         )
@@ -1780,6 +1798,158 @@ class TestFundamentalKommando:
         )
         assert cli.command_fundamental(args) == 2
         assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
+
+    def test_symbole_und_watchlist_schliessen_sich_aus(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(["fundamental", "--symbols", "AAPL", "--watchlist"])
+        assert cli.command_fundamental(args) == 2
+        assert "nicht beides" in capsys.readouterr().err
+
+    def test_ohne_symbole_und_ohne_watchlist_passiert_nichts(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(["fundamental"])
+        assert cli.command_fundamental(args) == 2
+        assert "nicht keines" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("scheitert_an", ["mkdir", "touch"])
+    def test_ein_unbeschreibbares_ziel_faellt_vor_dem_ersten_abruf_auf(
+        self,
+        scheitert_an: str,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Der Lauf ueber die Watchliste laedt rund 800 MB und dauert Minuten.
+
+        Das fehlende Verzeichnis erst beim Schreiben zu bemerken, warf den
+        ganzen Lauf weg -- gemessen am 2026-08-26 an einem Lauf ueber 191
+        Aktien, dessen Einzelwerte danach verloren waren.
+        """
+
+        class _VerbotenerProvider:
+            def fundamentals(self, stock: object, price: float | None = None) -> object:
+                raise AssertionError(f"Es darf kein Abruf beginnen ({stock!r}, {price!r})")
+
+        monkeypatch.setattr(
+            cli, "build_fundamental_data_provider", lambda _config: _VerbotenerProvider()
+        )
+        datei = tmp_path / "nicht" / "vorhanden"
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--output", str(datei)]
+        )
+        # Beide Wege muessen greifen: ein fehlendes Verzeichnis faellt beim
+        # Anlegen auf, ein schreibgeschuetztes erst beim Anfassen der Datei.
+        monkeypatch.setattr(Path, scheitert_an, _wirft_oserror)
+        assert cli.command_fundamental(args) == 2
+        assert "--output nicht beschreibbar" in capsys.readouterr().err
+
+    def test_ein_fehlendes_verzeichnis_wird_angelegt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein Tippfehler im Pfad soll auffallen, ein noch nicht angelegtes
+        Ausgabeverzeichnis nicht stoeren."""
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", _kein_provider)
+        datei = tmp_path / "artifacts" / "abdeckung.csv"
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--output", str(datei)]
+        )
+        cli.command_fundamental(args)
+        assert datei.parent.is_dir()
+
+    def test_die_sammelzeile_nennt_abdeckung_und_fehlendes(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der volle Block laeuft bei hundert Titeln aus dem Terminalpuffer."""
+        cli._print_fundamental_summary_line(self._snapshot())
+        ausgabe = capsys.readouterr().out
+        assert "TEST" in ausgabe
+        assert "6%" in ausgabe
+        assert MetricName.REVENUE.value in ausgabe
+
+    def test_die_auswertung_zaehlt_je_kennzahl_wie_oft_sie_fehlt(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Frage des Watchlist-Laufs ist nicht, wie eine einzelne Aktie
+        aussieht, sondern wie oft eine Kennzahl fehlt (ADR 0032 L1)."""
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=False)
+        ausgabe = capsys.readouterr().out
+        assert "1 Aktien ausgewertet" in ausgabe
+        assert "Je Kennzahl, wie oft sie fehlt" in ausgabe
+        assert f"{MetricName.GROSS_MARGIN.value:28}   1 von 1" in ausgabe
+
+    def test_die_auswertung_weist_auf_den_fehlenden_kurs_hin(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst saehe eine um 22 Punkte gedrueckte Abdeckung wie ein Mangel
+        der Tag-Listen aus."""
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=False)
+        assert "Ohne --price" in capsys.readouterr().out
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
+        assert "Ohne --price" not in capsys.readouterr().out
+
+    def test_fehlschlaege_stehen_am_ende_noch_einmal(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei zweihundert Titeln ist die Fehlerzeile laengst
+        weggescrollt."""
+        cli._print_fundamental_aggregate(
+            [self._snapshot()], [("BRK B", "Kein SEC-Emittent")], mit_kurs=True
+        )
+        ausgabe = capsys.readouterr().out
+        assert "1 Fehlschlaege" in ausgabe
+        assert "BRK B" in ausgabe
+
+    def test_die_csv_traegt_basis_und_zeitraum_an_jedem_wert(self, tmp_path: Path) -> None:
+        """Nicht in der Kopfzeile: Zwei Kennzahlen desselben Berichts koennen
+        verschiedene Zeitbezuege haben (ADR 0033 L2)."""
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(ziel, [self._snapshot()])
+        zeilen = ziel.read_text(encoding="utf-8").splitlines()
+        assert zeilen[0].startswith("symbol,status,abdeckung,kennzahl")
+        assert "TRAILING_TWELVE_MONTHS" in zeilen[1]
+        assert "2024-12-31" in zeilen[1]
+
+    def test_die_csv_nennt_alle_quellen_einer_kennzahl(self, tmp_path: Path) -> None:
+        """Eine Marge steht auf zwei Tags, der freie Cashflow ebenfalls.
+
+        Die Datei entsteht, um die Tag-Abdeckung auszuwerten -- mit nur der
+        ersten Quelle je Kennzahl fehlte darin jeder Nenner und jeder
+        Investitionstag, also genau das, was gemessen werden soll.
+        """
+        zweite = SourceRef(
+            cik=42, accession="0000000042-25-000002", form="10-Q",
+            filed=date(2025, 5, 1), tag="NetIncomeLoss",
+        )
+        metric = Metric(
+            name=MetricName.NET_MARGIN, value=0.25, unit=MetricUnit.FRACTION,
+            basis=MetricBasis.TRAILING_TWELVE_MONTHS, period_end=date(2024, 12, 31),
+            sources=(
+                SourceRef(cik=42, accession="0000000042-25-000001", form="10-K",
+                          filed=date(2025, 2, 1), tag="Revenues"),
+                zweite,
+            ),
+            retrieved_at=datetime(2026, 8, 24, tzinfo=UTC),
+        )
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(ziel, [self._snapshot(metrics={MetricName.NET_MARGIN: metric})])
+        zeile = ziel.read_text(encoding="utf-8").splitlines()[1]
+        assert "Revenues NetIncomeLoss" in zeile
+        # Das juengste Einreichungsdatum, weil es die Aktualitaet des Werts
+        # bestimmt -- nicht das der zufaellig ersten Quelle.
+        assert "2025-05-01" in zeile
+
+    def test_eine_aktie_ohne_kennzahlen_verschwindet_nicht_aus_der_csv(
+        self, tmp_path: Path
+    ) -> None:
+        ziel = tmp_path / "kennzahlen.csv"
+        cli._write_fundamental_csv(
+            ziel, [self._snapshot(metrics={}, status=FundamentalStatus.INSUFFICIENT_DATA)]
+        )
+        zeilen = ziel.read_text(encoding="utf-8").splitlines()
+        assert len(zeilen) == 2
+        assert "INSUFFICIENT_DATA" in zeilen[1]
 
     def test_ohne_kurs_bleibt_das_argument_leer(self) -> None:
         """Nicht 0.0: Ein Kurs von null waere eine Angabe, keine fehlende."""

@@ -11,6 +11,7 @@ und nicht in der Aufrufstelle, damit es nicht vergessen werden kann.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -40,6 +41,17 @@ endlose Antwort den Arbeitsspeicher fuellt (ADR 0032 L6)."""
 
 TICKER_INDEX_PATH = "/files/company_tickers.json"
 COMPANY_FACTS_PATH = "/api/xbrl/companyfacts/CIK{cik:010d}.json"
+
+
+class _AntwortZuGrossError(Exception):
+    """Der Abbruch beim Lesen -- eigene Klasse, damit die Fangzeile darunter
+    ihn nicht mit einem gewoehnlichen Uebertragungsfehler verwechselt."""
+
+    def __init__(self, beschreibung: str, gelesen: int) -> None:
+        super().__init__(
+            f"{beschreibung}: Antwort ueberschreitet {MAX_ANTWORT_BYTES / 1e6:.0f} MB "
+            f"(bereits {gelesen / 1e6:.1f} MB gelesen) und ist damit unplausibel."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +102,24 @@ class _Drossel:
             self._zuletzt = jetzt
 
 
+def _schreibweisen(symbol: str) -> tuple[str, ...]:
+    """Das Symbol und seine Varianten fuer Aktiengattungen.
+
+    Klassenaktien schreibt jede Quelle anders: Die Watchlist fuehrt Berkshire
+    als ``BRK.B``, IBKR als ``BRK B``, die SEC als ``BRK-B``. Ohne diese
+    Uebersetzung meldete der Lauf einen fehlenden Emittenten, wo nur die
+    Schreibweise abweicht -- und eine Messung der Tag-Abdeckung zaehlte einen
+    Fehlschlag, der mit Tags nichts zu tun hat.
+
+    Bewusst keine Suche und keine Aehnlichkeit: nur die beiden Trennzeichen,
+    die tatsaechlich vorkommen. Ein Symbol, das die SEC nicht kennt, soll
+    weiterhin fehlschlagen und nicht auf ein aehnliches umgebogen werden.
+    """
+    gross = symbol.upper()
+    varianten = [gross, gross.replace(".", "-"), gross.replace(" ", "-")]
+    return tuple(dict.fromkeys(varianten))
+
+
 class EdgarFundamentalDataProvider:
     """Implementiert ``FundamentalDataProvider`` gegen die EDGAR-REST-API."""
 
@@ -125,6 +155,7 @@ class EdgarFundamentalDataProvider:
         return compute_fundamental_snapshot(
             symbol=stock.symbol,
             figures=facts.figures,
+            trailing=facts.trailing,
             shares_outstanding=facts.shares_outstanding,
             price=price,
             retrieved_at=abgerufen,
@@ -157,13 +188,14 @@ class EdgarFundamentalDataProvider:
 
     def _cik_fuer(self, symbol: str) -> int:
         index = self._ticker_index()
-        cik = index.get(symbol.upper())
-        if cik is None:
-            raise FundamentalDataProviderError(
-                f"Kein SEC-Emittent zum Symbol '{symbol}'. Die SEC fuehrt nur "
-                "US-berichtspflichtige Unternehmen (ADR 0032 L3)."
-            )
-        return cik
+        for schreibweise in _schreibweisen(symbol):
+            cik = index.get(schreibweise)
+            if cik is not None:
+                return cik
+        raise FundamentalDataProviderError(
+            f"Kein SEC-Emittent zum Symbol '{symbol}'. Die SEC fuehrt nur "
+            "US-berichtspflichtige Unternehmen (ADR 0032 L3)."
+        )
 
     def _ticker_index(self) -> Mapping[str, int]:
         """Die Zuordnung Symbol zu CIK, einmal je Prozess.
@@ -210,14 +242,22 @@ class EdgarFundamentalDataProvider:
                 # festen, konfigurierten Adresse kein normaler Zustand,
                 # sondern ein Hinweis -- ihr blind zu folgen hiesse, eine
                 # fremde Antwort als die der SEC zu verarbeiten.
-                antwort = client.get(f"{base_url}{pfad}")
-            antwort.raise_for_status()
-            if len(antwort.content) > MAX_ANTWORT_BYTES:
-                raise FundamentalDataProviderError(
-                    f"{beschreibung}: Antwort ist {len(antwort.content) / 1e6:.1f} MB gross "
-                    f"und damit unplausibel -- Obergrenze {MAX_ANTWORT_BYTES / 1e6:.0f} MB."
-                )
-            return antwort.json()
+                # Stueckweise gelesen, nicht als Ganzes: Eine Grenze, die
+                # erst am fertig gepufferten Rumpf prueft, kommt zu spaet --
+                # der Speicher ist dann schon belegt. Abgebrochen wird beim
+                # ersten Stueck, das darueber hinausgeht.
+                with client.stream("GET", f"{base_url}{pfad}") as antwort:
+                    antwort.raise_for_status()
+                    stuecke: list[bytes] = []
+                    gelesen = 0
+                    for stueck in antwort.iter_bytes():
+                        gelesen += len(stueck)
+                        if gelesen > MAX_ANTWORT_BYTES:
+                            raise _AntwortZuGrossError(beschreibung, gelesen)
+                        stuecke.append(stueck)
+            return json.loads(b"".join(stuecke))
+        except _AntwortZuGrossError as error:
+            raise FundamentalDataProviderError(str(error)) from error
         except (httpx.HTTPError, ValueError) as error:
             raise FundamentalDataProviderError(
                 f"{beschreibung} konnte nicht abgerufen werden: {error}"

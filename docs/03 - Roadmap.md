@@ -98,9 +98,17 @@ KI-Analyse
   fünfzehn Analysebereiche aus Doc 10, Paragraph 6.9 sind gerechnet, die
   Bewertung kommt hinzu, sobald ein Kurs hineingereicht wird -- als optionale,
   nicht blockierende Eingabe (CLAUDE.md, zweite gerichtete Kopplung).
+  Niveauzahlen und Bewertung stehen auf den **letzten zwölf Monaten**, die
+  Wachstumsraten auf Geschäftsjahren
+  ([ADR 0033](adr/0033-zwoelfmonatswerte-statt-jahresabschluss.md)).
   Nachprüfbar über `cli fundamental`, an sieben echten Emittenten verifiziert;
-  die dabei gefundenen vier Fehler stehen im Nachtrag zu ADR 0032. Die
-  KI-Einordnung folgt getrennt
+  die dabei gefundenen vier Fehler stehen im Nachtrag zu ADR 0032. Der erste
+  Lauf über die **volle Watchliste** (192 Aktien) hat drei weitere Befunde
+  ergeben — darunter ein fünfzehn Jahre alter Jahresüberschuss, der als
+  aktuell galt; sie sind in
+  [ADR 0034](adr/0034-fundamentaldaten-nach-dem-watchlist-lauf.md) entschieden
+  und heben das Verfahren auf `fundamental-v3`. Die KI-Einordnung folgt
+  getrennt
 - Report Generator
 
 ---

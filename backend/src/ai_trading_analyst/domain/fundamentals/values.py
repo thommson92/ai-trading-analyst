@@ -19,7 +19,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-FUNDAMENTAL_ANALYSIS_VERSION = "fundamental-v1"
+FUNDAMENTAL_ANALYSIS_VERSION = "fundamental-v3"
 """Version des Auswertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung).
 
@@ -27,7 +27,19 @@ Aendert sich eine Tag-Liste oder eine Aufloesungsregel, steigt diese Nummer.
 Eine Umsatzwachstumsrate nach geaenderter Tag-Liste ist eine **andere Zahl**,
 und man muss einem gespeicherten Ergebnis ansehen koennen, nach welcher Regel
 sie entstanden ist -- ADR 0032 zeigt an Honeywell, dass zwei vertretbare
-Tag-Listen um 22 Prozent auseinanderliegen koennen."""
+Tag-Listen um 22 Prozent auseinanderliegen koennen.
+
+``v2`` gegenueber ``v1``: Niveauzahlen und Bewertung stehen auf den letzten
+zwoelf Monaten statt auf dem letzten Geschaeftsjahr (ADR 0033). Bei Apple
+sind das 466,8 statt 416,2 Milliarden Umsatz -- dieselbe Kennzahl, ein
+anderer Zeitraum. Wachstumsraten bleiben auf Geschaeftsjahren.
+
+``v3`` gegenueber ``v2`` (ADR 0034, nach dem Lauf ueber die volle
+Watchliste): Ein Zeitraumwert, der ein halbes Jahr oder mehr hinter dem Rest
+des Berichts zurueckliegt, gilt als ueberholt und fehlt -- bei Cummins stand
+zuvor ein Jahresueberschuss von 2010 als aktuell im Ergebnis. Der Umsatz ist
+nicht mehr Bedingung der ganzen Auswertung. Und drei nachrangige Tags
+kommen hinzu, die nicht exakt dasselbe bedeuten wie ihre Vorgaenger."""
 
 
 class FundamentalStatus(StrEnum):
@@ -97,6 +109,25 @@ class MetricName(StrEnum):
     PRICE_EARNINGS_RATIO = "PRICE_EARNINGS_RATIO"
     PRICE_SALES_RATIO = "PRICE_SALES_RATIO"
     PRICE_FREE_CASH_FLOW_RATIO = "PRICE_FREE_CASH_FLOW_RATIO"
+
+
+class MetricBasis(StrEnum):
+    """Worauf sich eine Kennzahl zeitlich stuetzt (ADR 0033).
+
+    Ein eigenes Feld und keine Ableitung aus dem Zeitraum: Ein
+    Zwoelfmonatsfenster und ein Geschaeftsjahr sind **beide** rund 365 Tage
+    lang und am Zeitraum allein nicht zu unterscheiden. Ohne dieses Feld
+    liesse sich Einschraenkung L2 aus ADR 0033 im Bericht nicht aufloesen.
+    """
+
+    TRAILING_TWELVE_MONTHS = "TRAILING_TWELVE_MONTHS"
+    FISCAL_YEAR = "FISCAL_YEAR"
+    """Rueckfall, wenn sich kein Zwoelfmonatswert bilden liess -- oder der
+    Regelfall bei den Wachstumsraten, die bewusst auf Geschaeftsjahren
+    rechnen."""
+    POINT_IN_TIME = "POINT_IN_TIME"
+    """Bestandsgroessen und alles, was daraus folgt: Sie gelten zu einem
+    Stichtag, nicht ueber einen Zeitraum."""
 
 
 class MetricUnit(StrEnum):
@@ -183,6 +214,7 @@ class Metric:
     name: MetricName
     value: float
     unit: MetricUnit
+    basis: MetricBasis
     period_end: date
     sources: tuple[SourceRef, ...]
     retrieved_at: datetime
