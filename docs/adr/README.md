@@ -72,6 +72,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0035](0035-fundamentaldaten-im-tageslauf.md) | Fundamentaldaten im Tageslauf — nur für Kandidaten, Kurs aus der letzten abgeschlossenen Kerze, je Lauf gespeichert | Angenommen |
 | [0036](0036-nativer-windows-betrieb.md) | Nativer Windows-Betrieb ist das Deployment des MVP -- keine Container | Angenommen |
 | [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
+| [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
 
 ## Offene Entscheidungen
 
@@ -101,7 +102,10 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Historische Berichtstermine für das Backtesting — **zurückgestellt.**
   Vorgemerkter Weg ist SEC EDGAR (Einreichungsdatum des `8-K` mit Item
   2.02): amtlich, kostenlos und ohne Lizenzbeschränkung. Siehe ADR 0017,
-  Einschränkung L9.
+  Einschränkung L9. Die Abweichung ist seit
+  [ADR 0038](0038-backtest-im-tageslauf.md) am Ergebnis gekennzeichnet
+  (`BacktestResult.earnings_exclusion_applied`) statt unsichtbar; zu
+  entscheiden ist sie vor Sprint 5, wenn das Scoring die Zahl braucht.
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live

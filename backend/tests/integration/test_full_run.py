@@ -17,6 +17,7 @@ from datetime import date
 
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.screening import (
@@ -55,6 +56,13 @@ _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, can
 _FIXTURE_DECISION_DATE = date(2024, 2, 6)
 
 _TECHNICAL_PARAMS = TechnicalAnalysisParameters()
+_BACKTEST_PARAMS = BacktestParameters(
+    horizons=(5, 10, 20),
+    cooldown_candles=5,
+    minimum_sample_size=10,
+    normal_confidence_sample_size=30,
+    history_years=5,
+)
 """Bewusst die Voreinstellungen aus ADR 0025 und keine verkleinerten
 Fenster: Die Fixture-Serie ist lang genug, und damit prueft dieser Lauf
 zugleich, dass die ausgelieferten Werte in sich stimmig sind."""
@@ -82,6 +90,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         _PARAMS,
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
+        _BACKTEST_PARAMS,
     )
 
     summary = use_case.execute()
@@ -165,6 +174,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         _PARAMS,
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
+        _BACKTEST_PARAMS,
     )
 
     summary = use_case.execute()

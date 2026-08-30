@@ -34,6 +34,11 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
+from ai_trading_analyst.domain.backtesting import (
+    BacktestParameters,
+    BacktestResult,
+    compute_backtest_results,
+)
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
     EarningsFilterResult,
@@ -105,6 +110,7 @@ class _PreparedOutcome:
     technical: TechnicalSnapshot | None
     fundamentals: FundamentalSnapshot | None
     earnings: EarningsFilterResult | None
+    backtest: tuple[BacktestResult, ...]
     needs_research: bool
     research: ResearchReport | None = None
     technical_assessment: TechnicalAssessment | None = None
@@ -172,6 +178,7 @@ class RunAnalysisUseCase:
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
         technical_params: TechnicalAnalysisParameters,
+        backtest_params: BacktestParameters,
         expected_last_candle: datetime | None = None,
         agent_concurrency: AgentConcurrency | None = None,
     ) -> None:
@@ -184,6 +191,7 @@ class RunAnalysisUseCase:
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
         self._technical_params = technical_params
+        self._backtest_params = backtest_params
         self._expected_last_candle = expected_last_candle
         self._agent_concurrency = agent_concurrency or AgentConcurrency()
 
@@ -289,6 +297,7 @@ class RunAnalysisUseCase:
             technical: TechnicalSnapshot | None = None
             fundamentals: FundamentalSnapshot | None = None
             earnings: EarningsFilterResult | None = None
+            backtest: tuple[BacktestResult, ...] = ()
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
                 # Bewusst vor dem Earnings-Filter und unabhaengig von dessen
@@ -300,6 +309,9 @@ class RunAnalysisUseCase:
                 technical = compute_technical_snapshot(
                     series, decision_index, self._technical_params, evaluated_at
                 )
+                # Aus demselben Grund und auf derselben Kerzenserie: Der
+                # Backtest rechnet ohne Netz (ADR 0038).
+                backtest = self._evaluate_backtest(stock, series, evaluated_at)
                 # Der Kurs der letzten **abgeschlossenen** Kerze, genau der,
                 # auf dem Screening und Chartauswertung stehen (ADR 0035,
                 # Entscheidung 2). Das Fundamentalmodul beschafft keinen
@@ -320,6 +332,7 @@ class RunAnalysisUseCase:
                 technical=technical,
                 fundamentals=fundamentals,
                 earnings=earnings,
+                backtest=backtest,
                 needs_research=needs_research,
             )
         except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
@@ -443,10 +456,16 @@ class RunAnalysisUseCase:
             technical_assessment=item.technical_assessment,
             earnings=item.earnings,
             research=item.research,
+            backtest=item.backtest,
         )
         with self._uow_factory() as uow:
             uow.stocks.add(item.stock)
             uow.screening_results.add(outcome)
+            # In derselben Transaktion wie das Screening-Ergebnis: Beide
+            # gehoeren zu demselben Lauf und derselben Kerze, eines ohne das
+            # andere waere ein halber Datensatz (ADR 0038).
+            for backtest_result in item.backtest:
+                uow.backtest_results.add(backtest_result, run.id)
             uow.commit()
         return outcome
 
@@ -463,6 +482,36 @@ class RunAnalysisUseCase:
             uow.processing_errors.add(error)
             uow.commit()
         return error
+
+    def _evaluate_backtest(
+        self, stock: Stock, series: CandleSeries, evaluated_at: datetime
+    ) -> tuple[BacktestResult, ...]:
+        """Die historische Signalstatistik einer bereits qualifizierten Aktie
+        (Doc 10, Paragraph 7; ADR 0038).
+
+        Reine Domain-Rechnung auf der schon geladenen Kerzenserie -- kein
+        Netz, keine externe Quelle.
+
+        Gefangen wird ausschliesslich der eine dokumentierte Fall: Im
+        Betrachtungsfenster liegt keine Kerze, dann gibt es keine Statistik
+        und der Bericht weist Punkt 5 als Luecke aus. Jeder andere Fehler
+        waere ein Programmfehler und schlaegt bewusst in die Fehlerisolation
+        je Aktie durch, statt still zu verschwinden.
+        """
+        try:
+            return compute_backtest_results(
+                series,
+                stock_id=stock.id,
+                candidate_params=self._candidate_rule_params,
+                backtest_params=self._backtest_params,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+            )
+        except ValueError as error:
+            _logger.warning(
+                "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
+            )
+            return ()
 
     def _evaluate_fundamentals(self, stock: Stock, price: float) -> FundamentalSnapshot | None:
         """Die Fundamentalkennzahlen einer bereits qualifizierten Aktie.

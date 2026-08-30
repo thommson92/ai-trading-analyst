@@ -464,6 +464,11 @@ class BacktestResultOrm(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
+    analysis_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=True, index=True
+    )
+    """Der Lauf, in dem das Ergebnis entstand (ADR 0038). NULL bei Laeufen
+    ueber ``cli backtest``, die zu keinem Tageslauf gehoeren."""
     signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
     """Sortierte Werte von ``SignalType`` -- die Domain rekonstruiert daraus
     ein ``frozenset`` (Menge, nicht Liste, G1-Pruefvorlage Abschnitt 4.3)."""
@@ -481,6 +486,10 @@ class BacktestResultOrm(Base):
     drawdown: Mapped[float | None]
     held_above_entry_rate: Mapped[float | None]
     confidence: Mapped[BacktestConfidence] = mapped_column(_enum_column(BacktestConfidence))
+    earnings_exclusion_applied: Mapped[bool] = mapped_column(default=False)
+    """Heute durchgehend False -- historische Berichtstermine gibt es nicht
+    (ADR 0017 L9, ADR 0038 Entscheidung 3). Die Spalte steht mit, damit alte
+    Zeilen die Wahrheit ueber sich selbst sagen, sobald E3 entschieden ist."""
 
     stock: Mapped[StockOrm] = relationship()
 

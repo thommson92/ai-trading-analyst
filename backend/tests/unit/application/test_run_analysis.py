@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
     EarningsFilterStatus,
@@ -32,6 +33,7 @@ from ai_trading_analyst.domain.technical import (
 )
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
+    FakeBacktestResultRepository,
     FakeEarningsProvider,
     FakeFundamentalDataProvider,
     FakeMarketDataProvider,
@@ -52,6 +54,18 @@ _PARAMS = CandidateRuleParameters(
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11
+_BACKTEST_PARAMS = BacktestParameters(
+    horizons=(2,),
+    cooldown_candles=5,
+    minimum_sample_size=1,
+    normal_confidence_sample_size=2,
+    history_years=5,
+)
+"""Ein kurzer Horizont, damit die elf Kerzen der Testreihe ueberhaupt
+Ereignisse liefern. Was der Backtest inhaltlich rechnet, prueft
+``tests/unit/domain/backtesting``; hier zaehlt nur, dass der Use Case ihn
+aufruft und das Ergebnis richtig ablegt."""
+
 _TECHNICAL_PARAMS = TechnicalAnalysisParameters(
     pivot_reach=1,
     atr_length=2,
@@ -74,6 +88,7 @@ def _build_use_case(
     fundamental_provider: FakeFundamentalDataProvider | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
     agent_concurrency: AgentConcurrency | None = None,
+    backtest_params: BacktestParameters | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -100,6 +115,7 @@ def _build_use_case(
         _PARAMS,
         _EARNINGS_PARAMS,
         technical_params or _TECHNICAL_PARAMS,
+        backtest_params or _BACKTEST_PARAMS,
         agent_concurrency=agent_concurrency,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
@@ -818,6 +834,105 @@ class TestResearch:
             assert outcome.research.summary == f"Fake-Recherche fuer {outcome.stock.symbol}"
 
 
+class TestBacktestImTageslauf:
+    """ADR 0038: Die historische Signalstatistik entsteht je Kandidat im Lauf,
+    auf derselben schon geladenen Kerzenserie."""
+
+    def test_ein_kandidat_bekommt_eine_signalstatistik(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        summary = use_case.execute()
+
+        (outcome,) = summary.outcomes
+        assert outcome.backtest, "Der Kandidat hat keine Signalstatistik bekommen"
+        assert all(r.stock_id == stock.id for r in outcome.backtest)
+        assert all(r.signal_rule_version == outcome.signal_rule_version for r in outcome.backtest)
+
+    def test_wer_kein_kandidat_ist_bekommt_keine(self) -> None:
+        """Wie Chartauswertung und Fundamentaldaten: nur fuer Kandidaten. Ueber
+        die volle Watchliste zu rechnen waere ein Vielfaches an Arbeit fuer
+        Aktien, ueber die kein Bericht entsteht."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("NIX"),),
+            series_by_symbol={"NIX": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        (outcome,) = use_case.execute().outcomes
+
+        assert outcome.result.status == ScreeningStatus.NOT_CANDIDATE
+        assert outcome.backtest == ()
+
+    def test_die_statistik_wird_mit_der_lauf_id_gespeichert(self) -> None:
+        stock = make_stock("CAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        backtests = FakeBacktestResultRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo, bars_repo, runs_repo, results_repo, errors_repo, backtests
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+        ).execute()
+
+        assert backtests.added, "Nichts gespeichert"
+        assert {lauf for _, lauf in backtests.added} == {summary.run.id}
+        assert backtests.list_for_run(summary.run.id)
+
+    def test_ohne_historie_im_fenster_bleibt_die_statistik_leer_und_der_lauf_heil(self) -> None:
+        """Der eine dokumentierte Ausfall: Im Betrachtungsfenster liegt keine
+        Kerze. Er darf das Screening-Ergebnis nicht kosten -- der Bericht
+        weist Punkt 5 dann als Luecke aus (ADR 0038, Entscheidung 2)."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("ALT"),),
+            series_by_symbol={"ALT": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        # Nullstunden-Fenster: Die Kerzen von 2024 liegen ausserhalb, obwohl
+        # sie da sind. Genau der Fall, den compute_backtest_results meldet.
+        use_case, *_ = _build_use_case(
+            provider,
+            backtest_params=BacktestParameters(
+                horizons=(2,),
+                cooldown_candles=5,
+                minimum_sample_size=1,
+                normal_confidence_sample_size=2,
+                history_years=0,
+            ),
+        )
+
+        summary = use_case.execute()
+
+        assert not summary.errors, "Der fehlende Backtest hat die Aktie gekostet"
+        (outcome,) = summary.outcomes
+        assert outcome.result.status == ScreeningStatus.CANDIDATE
+        assert outcome.backtest == ()
+        assert outcome.technical is not None, "Die uebrigen Module liefen nicht weiter"
+
+
 class TestGetrennteAgentenPools:
     """R9: Eine haengende Recherche darf keine Einordnung aufhalten.
 
@@ -948,6 +1063,7 @@ class TestVeralteteDaten:
             _PARAMS,
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
             expected_last_candle=erwartet,
         ).execute()
 

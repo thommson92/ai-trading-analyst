@@ -961,6 +961,7 @@ def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[Backtes
                 history_start=first.history_start,
                 history_end=first.history_end,
                 horizons=horizons,
+                earnings_exclusion_applied=first.earnings_exclusion_applied,
             )
         )
     return tuple(results)
@@ -970,12 +971,13 @@ class SqlAlchemyBacktestResultRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def add(self, result: BacktestResult) -> None:
+    def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
         sorted_signal_types = sorted(signal_type.value for signal_type in result.signal_types)
         rows = [
             BacktestResultOrm(
                 id=uuid.uuid4(),
                 stock_id=result.stock_id,
+                analysis_run_id=analysis_run_id,
                 signal_types=sorted_signal_types,
                 signal_rule_version=result.signal_rule_version,
                 evaluated_at=result.evaluated_at,
@@ -991,6 +993,7 @@ class SqlAlchemyBacktestResultRepository:
                 drawdown=horizon.drawdown,
                 held_above_entry_rate=horizon.held_above_entry_rate,
                 confidence=horizon.confidence,
+                earnings_exclusion_applied=result.earnings_exclusion_applied,
             )
             for horizon in result.horizons
         ]
@@ -1000,6 +1003,18 @@ class SqlAlchemyBacktestResultRepository:
         rows = (
             self._session.execute(
                 select(BacktestResultOrm).where(BacktestResultOrm.stock_id == stock_id)
+            )
+            .scalars()
+            .all()
+        )
+        return _group_rows_into_results(rows)
+
+    def list_for_run(self, analysis_run_id: uuid.UUID) -> Sequence[BacktestResult]:
+        rows = (
+            self._session.execute(
+                select(BacktestResultOrm).where(
+                    BacktestResultOrm.analysis_run_id == analysis_run_id
+                )
             )
             .scalars()
             .all()

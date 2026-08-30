@@ -2193,6 +2193,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             rule,
             build_earnings_filter_params(config),
             build_technical_analysis_params(config),
+            build_backtest_params(config),
             expected_last_candle=erwartete_kerze,
             agent_concurrency=build_agent_concurrency(config),
         ).execute()

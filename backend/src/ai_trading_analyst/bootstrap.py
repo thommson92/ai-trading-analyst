@@ -359,6 +359,7 @@ def build_app() -> FastAPI:
         candidate_rule_params,
         earnings_filter_params,
         build_technical_analysis_params(loaded.config),
+        build_backtest_params(loaded.config),
         agent_concurrency=build_agent_concurrency(loaded.config),
     )
 

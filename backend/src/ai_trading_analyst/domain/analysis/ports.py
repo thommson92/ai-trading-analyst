@@ -227,8 +227,14 @@ class TechnicalInterpreter(Protocol):
 
 
 class BacktestResultRepository(Protocol):
-    def add(self, result: BacktestResult) -> None: ...
+    def add(self, result: BacktestResult, analysis_run_id: UUID | None = None) -> None:
+        """``analysis_run_id`` bindet das Ergebnis an den Tageslauf, in dem es
+        entstand (ADR 0038). Ohne Angabe -- so bei ``cli backtest`` -- bleibt
+        die Bindung leer; das Ergebnis gehoert dann zu keinem Lauf."""
+        ...
+
     def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
+    def list_for_run(self, analysis_run_id: UUID) -> Sequence[BacktestResult]: ...
 
 
 class IntradayBarRepository(Protocol):

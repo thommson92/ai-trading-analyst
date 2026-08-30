@@ -288,13 +288,20 @@ class FakeScreeningResultRepository:
 
 class FakeBacktestResultRepository:
     def __init__(self) -> None:
-        self.added: list[BacktestResult] = []
+        self.added: list[tuple[BacktestResult, uuid.UUID | None]] = []
 
-    def add(self, result: BacktestResult) -> None:
-        self.added.append(result)
+    def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
+        self.added.append((result, analysis_run_id))
+
+    @property
+    def results(self) -> tuple[BacktestResult, ...]:
+        return tuple(result for result, _ in self.added)
 
     def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
-        return tuple(r for r in self.added if r.stock_id == stock_id)
+        return tuple(r for r, _ in self.added if r.stock_id == stock_id)
+
+    def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[BacktestResult, ...]:
+        return tuple(r for r, lauf in self.added if lauf == analysis_run_id)
 
 
 class FakeProcessingErrorRepository:

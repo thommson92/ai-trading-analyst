@@ -876,6 +876,56 @@ class TestBacktestResultRepository:
         with uow_factory() as uow:
             assert uow.backtest_results.list_for_stock(stock_b.id) == ()
 
+    def test_die_lauf_bindung_und_die_earnings_kennzeichnung_ueberleben(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """ADR 0038: Der Backtest aus dem Tageslauf traegt die Lauf-ID, der aus
+        ``cli backtest`` nicht. Und beide sagen, ob nahe Berichtstermine
+        ausgeschlossen wurden -- heute nirgends."""
+        stock = make_stock("BTR")
+        run = make_run(status=RunStatus.RUNNING)
+        horizon = HorizonMetrics(
+            horizon=5,
+            raw_event_count=2,
+            deduplicated_event_count=2,
+            hit_rate=0.5,
+            mean_return=0.01,
+            median_return=0.01,
+            max_loss=-0.02,
+            drawdown=-0.03,
+            held_above_entry_rate=0.5,
+            confidence=BacktestConfidence.LOW_SAMPLE,
+        )
+
+        def ergebnis(evaluated_at: datetime) -> BacktestResult:
+            return BacktestResult(
+                stock_id=stock.id,
+                signal_types=frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS}),
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+                history_start=datetime(2020, 1, 2, tzinfo=UTC),
+                history_end=datetime(2025, 1, 2, tzinfo=UTC),
+                horizons=(horizon,),
+            )
+
+        im_lauf = ergebnis(datetime(2026, 8, 30, 12, 0, tzinfo=UTC))
+        auf_zuruf = ergebnis(datetime(2026, 8, 29, 12, 0, tzinfo=UTC))
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.backtest_results.add(im_lauf, run.id)
+            uow.backtest_results.add(auf_zuruf)
+            uow.commit()
+
+        with uow_factory() as uow:
+            aus_dem_lauf = uow.backtest_results.list_for_run(run.id)
+            alle = uow.backtest_results.list_for_stock(stock.id)
+
+        assert len(alle) == 2
+        assert [r.evaluated_at for r in aus_dem_lauf] == [im_lauf.evaluated_at]
+        assert all(not r.earnings_exclusion_applied for r in alle)
+
 
 class TestProcessingErrorRepository:
     def test_fehlerisolation_zwischen_zwei_aktien_bleibt_unabhaengig_nachvollziehbar(
