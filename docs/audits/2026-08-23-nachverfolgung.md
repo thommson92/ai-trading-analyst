@@ -64,7 +64,7 @@ Eintrag hier ist ein Zeiger, kein Nachweis.
 | M11 | Deployment-ADR (E6) und Doc 13 neu | **erledigt** | [ADR 0036](../adr/0036-nativer-windows-betrieb.md); Doc 13 neu, Doc 10 Paragraph 14 und Paragraph 3 nachgezogen |
 | M12 | ADR-Nachträge zu 0006, 0009, 0011 | **erledigt** | je ein `### Nachtrag`-Abschnitt; Entscheidungstexte unberührt |
 | M13 | Python-Version des Servers klären, Doku vereinheitlichen | **erledigt** | Server läuft auf 3.13 (Auskunft 2026-08-23); Doc 14 und README benennen den Unterschied zum Entwicklungsrechner |
-| M14 | Sammelposten P4 | **teilweise** | R9 geschlossen ([ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md)), E12 Punkt 1 und 2 erledigt; R8 und R10 offen |
+| M14 | Sammelposten P4 | **teilweise** | R9 geschlossen ([ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md)), E12 vollstaendig erledigt (Punkt 2 gemessen am 2026-08-30, [ADR 0026](../adr/0026-technical-agent-ki-einordnung.md), Nachtrag); R8 und R10 offen |
 
 ### M3 — womit die Definition of Done erfüllt ist
 
@@ -137,7 +137,7 @@ als ADR.
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | ADR 0025; Bedingung: weitere Läufe an echten Kursen |
 | E10 | Required Checks: Pro, public oder Status quo | **entschieden** | Repository auf öffentlich gestellt, Schutz aktiv — [ADR 0031](../adr/0031-merge-schutz-aktiv.md), löst ADR 0009 ab |
 | E11 | Kursziele nachrüsten | **offen** | ADR 0017; erst mit dem Scoring-Design |
-| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **teilweise** | ③ beantwortet: Server auf 3.13 (→ M13). ① entschieden und gebaut: [ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md), `fallback_model` gesetzt und die Ausloeserbedingung auf technisches Versagen verengt. ② steht als Serverschritt aus (Doc 14) |
+| E12 | Drei Kleinigkeiten mit Entscheidungscharakter | **erledigt** | ③ beantwortet: Server auf 3.13 (→ M13). ① entschieden und gebaut: [ADR 0037](../adr/0037-getrennte-agenten-pools-und-enges-ausweichmodell.md), `fallback_model` gesetzt und die Ausloeserbedingung auf technisches Versagen verengt. ② am 2026-08-30 auf dem Server gemessen: [ADR 0026](../adr/0026-technical-agent-ki-einordnung.md), Nachtrag |
 | E13 | US-007 „relevante Chartmuster": bauen oder streichen | **offen** | ADR 0026 |
 
 ### E5 — was sich gegenüber dem Audit geändert hat
@@ -280,4 +280,6 @@ Feststellung des Audits — sie stehen daneben.
 | 2026-08-24 | `fetch_allowed_domains` deckt keine Domain ab, die in den realen Suchtreffern vorkam — der Lauf machte **null Abrufe**, ohne einen einzigen Fehlversuch. Ausgerechnet `apple.com/newsroom`, die beste Quelle des Laufs, ist nicht abrufbar. |
 | 2026-08-24 | IBKRs `liquidHours` reicht **vier künftige Handelstage** voraus (Fenster von fünf Tagen). Das Audit konnte die Reichweite nicht kennen; sie entscheidet E4 (ADR 0030). |
 | 2026-08-24 | **Prompt-Caching hat keinen Angriffspunkt.** 94 % der Eingabe-Token entstehen in der serverseitigen Werkzeugschleife einer einzigen Anfrage. Nicht gebaut (ADR 0023, Nachtrag). |
+| 2026-08-30 | **`temperature=0` ist gemessen.** Zwei identische Läufe liefern dieselben sechs Einstufungen, aber unterschiedliche Konfidenz (0,62 / 0,65) und unterschiedlich viele Fehlsignalgründe. Die Vergröberung der Konfidenz ist nach Sprint 5 verschoben (ADR 0026, Nachtrag). |
+| 2026-08-30 | Die EDGAR-Kontaktadresse stand bis PR #48 in `config/default.yaml` und war auf dem Server ein dauerhafter lokaler Diff, der jedes `git checkout` blockierte. Seit dem Repository öffentlich ist, war der Platz dort auch inhaltlich falsch. Jetzt `ATA_EDGAR_CONTACT`. |
 | 2026-08-24 | Das Repository ist **öffentlich**. Damit entfällt die Plan-Schranke aus ADR 0009, und Secret Scanning samt Push Protection sind zusätzlich aktiviert. Das Audit bewertete R7 unter der Annahme eines privaten Repositories im Free-Plan. |

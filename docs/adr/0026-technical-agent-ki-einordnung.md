@@ -353,3 +353,60 @@ Eingabe.
   „Negativ / offen"). Für den Agenten ist das kein Hindernis: `strength` und
   `pivot_count` stehen an jeder Zone, und der Prompt weist ausdrücklich
   darauf hin, wie beide zu lesen sind.
+
+---
+
+### Nachtrag vom 2026-08-30: `temperature=0` gemessen
+
+Der oben als offen geführte Punkt ist erledigt. Zwei aufeinanderfolgende Läufe
+auf dem Windows-Server, **dieselbe Prompt-Fassung `technical-agent-v3`,
+dasselbe Modell, identische Eingabe** (beide Male 3443 Eingabe-Token — der
+Prompt war Zeichen für Zeichen derselbe), Symbol AAPL, Entscheidungskerze
+2026-08-21:
+
+| Feld | Lauf 1 | Lauf 2 | |
+|---|---|---|---|
+| Trendstärke | `MODERATE` | `MODERATE` | gleich |
+| Breakout | `TENTATIVE` | `TENTATIVE` | gleich |
+| Momentum | `NEUTRAL` | `NEUTRAL` | gleich |
+| Fehlsignalrisiko | `MEDIUM` | `MEDIUM` | gleich |
+| Chance/Risiko | `BALANCED` | `BALANCED` | gleich |
+| Swing-Einstieg | `QUESTIONABLE` | `QUESTIONABLE` | gleich |
+| **Konfidenz** | **0,62** | **0,65** | **abweichend** |
+| **Zahl der Fehlsignalgründe** | **4** | **2** | **abweichend** |
+| Ausgabe-Token | 422 | 384 | abweichend |
+| Kosten | 0,0056 USD | 0,0054 USD | — |
+
+**Alle sechs Einstufungen sind reproduzierbar. Die Zahlen und der Freitext
+sind es nicht.**
+
+Damit ist „reproduzierbar genug, nicht deterministisch" nicht mehr eine
+Vermutung über die API, sondern gemessen — und die Trennlinie verläuft genau
+dort, wo die Entscheidung dieses ADR sie gezogen hat. **Enums statt Zahlen war
+eine Wette; sie ist eingelöst.** Der erste Satz des Fazits war in beiden
+Läufen wortgleich, danach liefen die Texte auseinander.
+
+Der deterministische Teil war Zeile für Zeile identisch, bis zur letzten Zone.
+Die getrennte Speicherung von Berechnung und Einordnung (Doc 10, Paragraph
+6.8) hält damit auch unter Wiederholung.
+
+#### Was daraus folgt — und was ausdrücklich noch nicht
+
+**Die Konfidenz ist keine belastbare Zahl.** Sie schwankt ohne Anlass um 0,03
+und steht trotzdem in Berichtspunkt 17 (`StockReport.confidences`); ADR 0041
+sieht eine Konfidenz auch am Score vor. Naheliegend wäre, sie wie alle übrigen
+Ausgaben zu einer Stufe zu vergröbern.
+
+**Das wird hier nicht entschieden.** Es änderte einen gespeicherten Wert und
+höbe `interpreted_analysis_version`, und die Frage gehört dorthin, wo die
+Konfidenz ihre Rolle bekommt: in das Scoring von Sprint 5. Festgehalten ist
+sie hier, damit sie dort nicht neu gefunden werden muss.
+
+**Die Zahl der Fehlsignalgründe schwankt ebenfalls** (vier gegen zwei) und
+speist Berichtspunkt 12. Das bleibt, wie es ist: Es ist beschreibender Text,
+er fließt in keine Zahl, und zwei Berichte verschiedener Läufe dürfen sich
+unterscheiden.
+
+**Offen bleibt die Stichprobe.** Gemessen ist ein Symbol an einem Tag. Dass
+die Einstufungen auch bei einer knapperen Lage stabil bleiben — etwa dicht an
+der Grenze zwischen `MODERATE` und `WEAK` —, ist damit nicht gezeigt.
