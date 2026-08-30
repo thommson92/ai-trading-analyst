@@ -24,6 +24,7 @@ from ai_trading_analyst.domain.earnings import (
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
+from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
@@ -91,6 +92,8 @@ def _build_use_case(
     technical_params: TechnicalAnalysisParameters | None = None,
     agent_concurrency: AgentConcurrency | None = None,
     backtest_params: BacktestParameters | None = None,
+    notifier: Notifier | None = None,
+    notify_without_candidates: bool = False,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -119,6 +122,8 @@ def _build_use_case(
         technical_params or _TECHNICAL_PARAMS,
         backtest_params or _BACKTEST_PARAMS,
         agent_concurrency=agent_concurrency,
+        notifier=notifier,
+        notify_without_candidates=notify_without_candidates,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -1000,6 +1005,73 @@ class TestBerichtImTageslauf:
         assert bericht.technical is not None
         assert bericht.backtest, "die Signalstatistik fehlt im Bericht"
         assert bericht.gaps, "ein Bericht ohne jede Luecke ist hier unmoeglich"
+
+
+class TestErgebnismeldung:
+    """ADR 0040: Die Kurzfassung geht nur raus, wenn ein Kanal hineingereicht
+    wurde -- und ein unerreichbarer Kanal kostet den Lauf nicht."""
+
+    class _Kanal:
+        def __init__(self, fehler: Exception | None = None) -> None:
+            self.gesendet: list[tuple[str, str]] = []
+            self._fehler = fehler
+
+        def send(self, subject: str, body: str) -> None:
+            if self._fehler is not None:
+                raise self._fehler
+            self.gesendet.append((subject, body))
+
+    def _lauf(
+        self,
+        *,
+        kandidat: bool,
+        kanal: _Kanal | None,
+        ohne_kandidaten_melden: bool = False,
+    ) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=kandidat)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=kanal,
+            notify_without_candidates=ohne_kandidaten_melden,
+        )
+        use_case.execute()
+
+    def test_ohne_kanal_passiert_nichts(self) -> None:
+        """Ein manuelles 'cli screen' soll keine Push-Nachricht ausloesen."""
+        self._lauf(kandidat=True, kanal=None)
+
+    def test_mit_kandidat_geht_die_meldung_raus(self) -> None:
+        kanal = self._Kanal()
+        self._lauf(kandidat=True, kanal=kanal)
+
+        (betreff, text) = kanal.gesendet[0]
+        assert "1 Kandidat(en)" in betreff
+        assert "SYM" in text
+
+    def test_ohne_kandidat_schweigt_der_kanal(self) -> None:
+        """Doc 10, Paragraph 6.13: ob ein leerer Lauf gemeldet wird, ist
+        konfigurierbar -- und der Standard ist Schweigen."""
+        kanal = self._Kanal()
+        self._lauf(kandidat=False, kanal=kanal)
+
+        assert kanal.gesendet == []
+
+    def test_mit_schalter_wird_auch_ein_leerer_lauf_gemeldet(self) -> None:
+        kanal = self._Kanal()
+        self._lauf(kandidat=False, kanal=kanal, ohne_kandidaten_melden=True)
+
+        (betreff, _) = kanal.gesendet[0]
+        assert "0 Kandidat(en)" in betreff
+
+    def test_ein_unerreichbarer_kanal_kostet_den_lauf_nicht(self) -> None:
+        """Der Kanal ist eine Systemgrenze (ADR 0024). Das Ergebnis steht zu
+        diesem Zeitpunkt bereits in der Datenbank."""
+        kanal = self._Kanal(fehler=NotifierError("Telegram nicht erreichbar"))
+
+        self._lauf(kandidat=True, kanal=kanal)  # darf nicht werfen
 
 
 class TestGetrennteAgentenPools:

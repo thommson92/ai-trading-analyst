@@ -74,6 +74,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
 | [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
 | [0039](0039-report-generator.md) | Report Generator -- achtzehn Punkte, Luecken benannt, ohne Sprachmodell | Angenommen (fuehrt die Berichtsschema-Version ein, die Doc 10 Paragraph 8 fordert) |
+| [0040](0040-inhalt-der-ergebnismeldung.md) | Die Ergebnismeldung nennt Symbole und Signalgruende -- keine Kurse | Angenommen (entscheidet E7 des Audits vom 2026-08-23; lockert ADR 0024 bewusst) |
 
 ## Offene Entscheidungen
 
@@ -113,6 +114,12 @@ ADR, sobald die nötigen Informationen vorliegen:
   bestätigt).
 - Benachrichtigungskanal (F10) — **entschieden.** Telegram Bot API, siehe
   [ADR 0024](0024-benachrichtigungskanal-telegram.md).
+- Inhalt der Ergebnis-Benachrichtigung — **entschieden.** Symbole,
+  Signaltypen, Fehlsignalrisiko als Stufe und der Hinweis auf einen
+  unbekannten Berichtstermin; keine Kurse, keine Kennzahlen, kein Link.
+  Siehe [ADR 0040](0040-inhalt-der-ergebnismeldung.md), das ADR 0024
+  bewusst lockert. Ob eine Punktzahl hineingehoert, ist neu zu entscheiden,
+  sobald es ein Scoring gibt.
 - KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
   gestuften Modellprofilen je Analyseaufgabe, siehe
   [ADR 0021](0021-ki-anbindung-anthropic-api.md).

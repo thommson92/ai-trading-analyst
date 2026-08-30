@@ -46,8 +46,9 @@ from ai_trading_analyst.domain.earnings import (
     evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
-from ai_trading_analyst.domain.report import build_report
+from ai_trading_analyst.domain.report import build_report, render_notification
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
+from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
@@ -183,6 +184,8 @@ class RunAnalysisUseCase:
         expected_last_candle: datetime | None = None,
         agent_concurrency: AgentConcurrency | None = None,
         app_version: str = "",
+        notifier: Notifier | None = None,
+        notify_without_candidates: bool = False,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -197,6 +200,8 @@ class RunAnalysisUseCase:
         self._expected_last_candle = expected_last_candle
         self._agent_concurrency = agent_concurrency or AgentConcurrency()
         self._app_version = app_version
+        self._notifier = notifier
+        self._notify_without_candidates = notify_without_candidates
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -284,7 +289,28 @@ class RunAnalysisUseCase:
             uow.analysis_runs.update(run)
             uow.commit()
 
-        return AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+        summary = AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
+        self._notify(summary)
+        return summary
+
+    def _notify(self, summary: AnalysisRunSummary) -> None:
+        """Die kompakte Zusammenfassung an den Kanal (ADR 0040).
+
+        Nur wenn ein Notifier hineingereicht wurde -- der Tageslauf tut das,
+        ein manuelles ``cli screen`` nicht. Ein unerreichbarer Kanal darf den
+        Lauf nicht nachtraeglich scheitern lassen (ADR 0024): Er ist eine
+        Systemgrenze, und das Ergebnis steht zu diesem Zeitpunkt bereits in
+        der Datenbank.
+        """
+        if self._notifier is None:
+            return
+        if not summary.run.candidates_found and not self._notify_without_candidates:
+            return
+        betreff, text = render_notification(summary)
+        try:
+            self._notifier.send(betreff, text)
+        except NotifierError as error:
+            _logger.error("Ergebnismeldung ging nicht raus: %s", error)
 
     def _prepare_stock(self, stock: Stock) -> _PreparedItem:
         """Screening und Earnings-Filter fuer eine Aktie -- ohne Research

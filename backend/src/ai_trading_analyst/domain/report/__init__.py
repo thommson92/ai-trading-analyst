@@ -7,6 +7,7 @@ ausgewiesen, nicht ersetzt.
 
 from .builder import build_report
 from .document import as_document
+from .notification import render_notification
 from .values import (
     REPORT_SCHEMA_VERSION,
     GapKind,
@@ -31,4 +32,5 @@ __all__ = [
     "StoredReport",
     "as_document",
     "build_report",
+    "render_notification",
 ]
