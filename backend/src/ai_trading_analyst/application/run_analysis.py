@@ -46,6 +46,7 @@ from ai_trading_analyst.domain.earnings import (
     evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.report import build_report
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -181,6 +182,7 @@ class RunAnalysisUseCase:
         backtest_params: BacktestParameters,
         expected_last_candle: datetime | None = None,
         agent_concurrency: AgentConcurrency | None = None,
+        app_version: str = "",
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -194,6 +196,7 @@ class RunAnalysisUseCase:
         self._backtest_params = backtest_params
         self._expected_last_candle = expected_last_candle
         self._agent_concurrency = agent_concurrency or AgentConcurrency()
+        self._app_version = app_version
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -466,6 +469,18 @@ class RunAnalysisUseCase:
             # andere waere ein halber Datensatz (ADR 0038).
             for backtest_result in item.backtest:
                 uow.backtest_results.add(backtest_result, run.id)
+            if outcome.result.status == ScreeningStatus.CANDIDATE:
+                # Berichte entstehen nur fuer Kandidaten (ADR 0039): Ueber sie
+                # wird berichtet, ueber die uebrigen nicht. Ein Lauf ohne
+                # Kandidaten hinterlaesst keine Berichte -- gespeichert wird er
+                # trotzdem, in ``analysis_runs``.
+                uow.stock_reports.add(
+                    build_report(
+                        outcome,
+                        created_at=datetime.now(UTC),
+                        app_version=self._app_version,
+                    )
+                )
             uow.commit()
         return outcome
 

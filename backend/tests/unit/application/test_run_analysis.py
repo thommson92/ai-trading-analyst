@@ -22,6 +22,7 @@ from ai_trading_analyst.domain.earnings import (
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
+from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
@@ -40,6 +41,7 @@ from tests.unit.application.conftest import (
     FakeProcessingErrorRepository,
     FakeResearchProvider,
     FakeScreeningResultRepository,
+    FakeStockReportRepository,
     FakeStockRepository,
     FakeTechnicalInterpreter,
     FakeUnitOfWork,
@@ -931,6 +933,73 @@ class TestBacktestImTageslauf:
         assert outcome.result.status == ScreeningStatus.CANDIDATE
         assert outcome.backtest == ()
         assert outcome.technical is not None, "Die uebrigen Module liefen nicht weiter"
+
+
+class TestBerichtImTageslauf:
+    """ADR 0039: Je Kandidat ein Bericht, im selben Lauf und derselben
+    Transaktion wie das Screening-Ergebnis."""
+
+    def _lauf(self, *, kandidat: bool) -> tuple[FakeStockReportRepository, object]:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("SYM"),),
+            series_by_symbol={"SYM": make_series(_SERIES_LENGTH, candidate=kandidat)},
+        )
+        berichte = FakeStockReportRepository()
+        stocks_repo = FakeStockRepository()
+        bars_repo = InMemoryIntradayBarRepository()
+        runs_repo = FakeAnalysisRunRepository()
+        results_repo = FakeScreeningResultRepository()
+        errors_repo = FakeProcessingErrorRepository()
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                stocks_repo,
+                bars_repo,
+                runs_repo,
+                results_repo,
+                errors_repo,
+                stock_reports=berichte,
+            )
+
+        summary = RunAnalysisUseCase(
+            provider,
+            FakeEarningsProvider(),
+            FakeResearchProvider(),
+            FakeTechnicalInterpreter(),
+            FakeFundamentalDataProvider(),
+            uow_factory,
+            _PARAMS,
+            _EARNINGS_PARAMS,
+            _TECHNICAL_PARAMS,
+            _BACKTEST_PARAMS,
+            app_version="9.9.9",
+        ).execute()
+        return berichte, summary
+
+    def test_ein_kandidat_bekommt_einen_bericht(self) -> None:
+        berichte, summary = self._lauf(kandidat=True)
+
+        (bericht,) = berichte.added
+        assert bericht.symbol == "SYM"
+        assert bericht.analysis_run_id == summary.run.id  # type: ignore[attr-defined]
+        assert bericht.app_version == "9.9.9"
+        assert bericht.report_schema_version == REPORT_SCHEMA_VERSION
+
+    def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
+        """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die
+        das Screening nicht bestanden hat, waere ein Dokument ohne Anlass."""
+        berichte, _ = self._lauf(kandidat=False)
+
+        assert berichte.added == []
+
+    def test_der_bericht_fuehrt_die_teilergebnisse_des_laufs(self) -> None:
+        berichte, _ = self._lauf(kandidat=True)
+
+        (bericht,) = berichte.added
+        assert bericht.signals, "die Signalereignisse fehlen im Bericht"
+        assert bericht.technical is not None
+        assert bericht.backtest, "die Signalstatistik fehlt im Bericht"
+        assert bericht.gaps, "ein Bericht ohne jede Luecke ist hier unmoeglich"
 
 
 class TestGetrennteAgentenPools:

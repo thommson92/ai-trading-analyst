@@ -29,6 +29,7 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricName,
     MetricUnit,
 )
+from ai_trading_analyst.domain.report import Recommendation
 from ai_trading_analyst.domain.research import (
     ResearchCoverage,
     ResearchStatus,
@@ -282,6 +283,10 @@ class ScreeningResultOrm(Base):
     fundamentals_evaluated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    fundamentals_company_name: Mapped[str | None] = mapped_column(nullable=True)
+    """Der amtliche Name des Registranten aus dem SEC-Symbolverzeichnis --
+    die einzige Quelle, die das System fuer Berichtspunkt 1 hat (Doc 10,
+    Paragraph 6.12). Fehlt der Eintrag, bleibt die Spalte leer."""
     fundamentals_reason: Mapped[str | None] = mapped_column(nullable=True)
     fundamentals_price_used: Mapped[float | None] = mapped_column(nullable=True)
     """Der Kurs, mit dem die vier bewertungsabhaengigen Kennzahlen gerechnet
@@ -437,6 +442,61 @@ class ResearchCitationOrm(Base):
     """Rohwert des Anbieters, nie geparst -- siehe ``Citation.source_age``."""
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="research_citations")
+
+
+class StockReportOrm(Base):
+    """Der Analysebericht einer Aktie fuer einen Lauf (Doc 10, Paragraph 6.12;
+    ADR 0039).
+
+    Ein Datensatz je Lauf und Aktie, nie per UPDATE veraendert -- die Unique
+    Constraint verhindert zusaetzlich ein zweites, stillschweigend
+    ueberschreibendes Insert (Muster ``uq_screening_result_run_stock``).
+
+    Der Name weicht von Doc 05 (``StockAnalysis``) ab: „Analysis" ist im
+    Schema bereits mit ``analysis_runs`` belegt. Gemeint ist dieselbe Entitaet.
+
+    Das vollstaendige Dokument steht als JSONB in ``document``. Es verdoppelt
+    Daten, die auch in ``screening_results`` liegen, und genau das ist die
+    Zusicherung: Doc 10, Paragraph 8 verlangt, dass ein abgeschlossener
+    Bericht sich nicht mehr aendert. Einer, der bei jedem Abruf neu entsteht,
+    aenderte sich still mit jeder Codeaenderung.
+
+    Die Spalten daneben sind die, nach denen gefragt wird, ohne das Dokument
+    zu oeffnen -- Versionen und, sobald es ein Scoring gibt, Empfehlung und
+    Punktzahlen.
+    """
+
+    __tablename__ = "stock_reports"
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", "stock_id", name="uq_stock_report_run_stock"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analysis_runs.id"), index=True
+    )
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    report_schema_version: Mapped[str]
+    app_version: Mapped[str]
+    scoring_version: Mapped[str | None] = mapped_column(nullable=True)
+    """Leer, bis es ein Scoring gibt (Sprint 5). Doc 10, Paragraph 8 verlangt
+    die Version an jedem Ergebnis; sie vorzusehen und leer zu lassen ist
+    ehrlicher, als sie zu erfinden."""
+
+    recommendation: Mapped[Recommendation | None] = mapped_column(
+        _enum_column(Recommendation), nullable=True
+    )
+    swing_score: Mapped[float | None] = mapped_column(nullable=True)
+    investment_score: Mapped[float | None] = mapped_column(nullable=True)
+    summary: Mapped[str | None] = mapped_column(nullable=True)
+    """Die zusammenfassende Formulierung -- Aufgabe der KI-Haelfte, bis dahin
+    leer (ADR 0039, Entscheidung 2)."""
+
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+    stock: Mapped[StockOrm] = relationship()
 
 
 class ProcessingErrorOrm(Base):

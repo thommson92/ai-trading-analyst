@@ -281,6 +281,16 @@ class FundamentalSnapshot:
     status: FundamentalStatus
     evaluated_at: datetime
     analysis_version: str = FUNDAMENTAL_ANALYSIS_VERSION
+    company_name: str | None = None
+    """Der amtliche Name des Registranten aus dem SEC-Symbolverzeichnis.
+
+    Berichtspunkt 1 verlangt "Symbol und Unternehmen" (Doc 10, Paragraph
+    6.12), und dies ist die einzige Quelle, die das System dafuer hat. Fehlt
+    der Eintrag, bleibt der Name ``None`` und der Bericht weist ihn als
+    Luecke aus -- kein geratener Name.
+
+    **Keine Verfahrensaenderung:** Es aendert sich keine gerechnete Zahl,
+    ``analysis_version`` bleibt deshalb, wo sie ist."""
     metrics: Mapping[MetricName, Metric] = field(default_factory=dict)
     fiscal_years: tuple[int, ...] = ()
     """Die Geschaeftsjahre, fuer die Jahreszahlen vorlagen -- aufsteigend."""

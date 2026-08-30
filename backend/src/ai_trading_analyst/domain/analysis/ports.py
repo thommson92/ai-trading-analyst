@@ -17,6 +17,14 @@ from uuid import UUID
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+
+# Bewusst aus dem Wertemodul und nicht aus dem Paket: ``domain.report``
+# zieht ueber ``build_report`` seinerseits ``domain.analysis`` herein. Der
+# Zuschnitt ist richtig -- der Bericht liest ein Screening-Ergebnis, und die
+# Unit of Work speichert ihn --, aber als Paketimport waere es ein Kreis.
+# ``report.values`` haengt an keinem anderen Domain-Paket ausser den
+# Teilergebnissen.
+from ai_trading_analyst.domain.report.values import StockReport, StoredReport
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
@@ -311,6 +319,25 @@ class ProcessingErrorRepository(Protocol):
     def list_for_run(self, run_id: UUID) -> Sequence[StockProcessingError]: ...
 
 
+class StockReportRepository(Protocol):
+    """Speicher fuer die Analyseberichte (Doc 10, Paragraph 6.12; ADR 0039).
+
+    Kein Update-Pfad: Ein abgeschlossener Bericht wird nicht ueberschrieben
+    (Doc 10, Paragraph 8).
+    """
+
+    def add(self, report: StockReport) -> None: ...
+
+    def list_for_run(self, analysis_run_id: UUID) -> Sequence[StoredReport]:
+        """Die Berichte eines Laufs, **so wie sie geschrieben wurden**.
+
+        Kein ``StockReport``: Das gespeicherte Dokument ist die verbindliche
+        Fassung, und es beim Lesen erneut zu erzeugen hiesse, einen
+        abgeschlossenen Bericht durch heutigen Code zu schicken.
+        """
+        ...
+
+
 class UnitOfWork(Protocol):
     """Transaktionsgrenze ueber alle Repositories eines Analyse-Laufs.
 
@@ -324,6 +351,7 @@ class UnitOfWork(Protocol):
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
     backtest_results: BacktestResultRepository
+    stock_reports: StockReportRepository
 
     def __enter__(self) -> UnitOfWork: ...
 

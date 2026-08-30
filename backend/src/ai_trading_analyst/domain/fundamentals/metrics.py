@@ -512,6 +512,7 @@ def compute_fundamental_snapshot(
     symbol: str,
     figures: Mapping[FigureName, Sequence[ReportedFigure]],
     retrieved_at: datetime,
+    company_name: str | None = None,
     evaluated_at: datetime,
     trailing: Mapping[FigureName, ReportedFigure] | None = None,
     shares_outstanding: ReportedFigure | None = None,
@@ -547,6 +548,7 @@ def compute_fundamental_snapshot(
             status=FundamentalStatus.INSUFFICIENT_DATA,
             evaluated_at=evaluated_at,
             analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
+            company_name=company_name,
             reason="keine auswertbaren Zeitraumangaben in den Einreichungen",
             tag_conflicts=tuple(tag_conflicts),
         )
@@ -641,6 +643,7 @@ def compute_fundamental_snapshot(
             status=FundamentalStatus.INSUFFICIENT_DATA,
             evaluated_at=evaluated_at,
             analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
+            company_name=company_name,
             reason="keine Kennzahl liess sich aus den Einreichungen rechnen",
             tag_conflicts=tuple(tag_conflicts),
         )
@@ -650,6 +653,7 @@ def compute_fundamental_snapshot(
         status=FundamentalStatus.COMPLETED,
         evaluated_at=evaluated_at,
         analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
+        company_name=company_name,
         metrics=rechner.metrics,
         fiscal_years=tuple(tag.year for tag in rechner.berichtsjahre()),
         price_used=price,

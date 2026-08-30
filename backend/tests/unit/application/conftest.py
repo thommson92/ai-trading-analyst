@@ -26,6 +26,7 @@ from ai_trading_analyst.domain.analysis import (
     ScreeningResultRepository,
     Stock,
     StockProcessingError,
+    StockReportRepository,
     StockRepository,
     StockScreeningOutcome,
     TechnicalInterpreterError,
@@ -33,6 +34,7 @@ from ai_trading_analyst.domain.analysis import (
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
     Candle,
@@ -304,6 +306,27 @@ class FakeBacktestResultRepository:
         return tuple(r for r, lauf in self.added if lauf == analysis_run_id)
 
 
+class FakeStockReportRepository:
+    def __init__(self) -> None:
+        self.added: list[StockReport] = []
+
+    def add(self, report: StockReport) -> None:
+        self.added.append(report)
+
+    def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[StoredReport, ...]:
+        return tuple(
+            StoredReport(
+                symbol=bericht.symbol,
+                created_at=bericht.created_at,
+                report_schema_version=bericht.report_schema_version,
+                app_version=bericht.app_version,
+                document=as_document(bericht),
+            )
+            for bericht in self.added
+            if bericht.analysis_run_id == analysis_run_id
+        )
+
+
 class FakeProcessingErrorRepository:
     def __init__(self) -> None:
         self.added: list[StockProcessingError] = []
@@ -369,6 +392,7 @@ class FakeUnitOfWork:
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
         backtest_results: BacktestResultRepository | None = None,
+        stock_reports: StockReportRepository | None = None,
     ) -> None:
         self.stocks = stocks
         self.intraday_bars = intraday_bars
@@ -376,6 +400,7 @@ class FakeUnitOfWork:
         self.screening_results = screening_results
         self.processing_errors = processing_errors
         self.backtest_results = backtest_results or FakeBacktestResultRepository()
+        self.stock_reports = stock_reports or FakeStockReportRepository()
 
     def __enter__(self) -> Self:
         return self

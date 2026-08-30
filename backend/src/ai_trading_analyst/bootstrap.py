@@ -11,6 +11,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from importlib import metadata
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -205,6 +206,18 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
     )
 
 
+def app_version() -> str:
+    """Die Anwendungsversion aus den Paketmetadaten (Doc 10, Paragraph 8).
+
+    Aus ``pyproject.toml``, nicht aus einer zweiten Konstante im Code -- die
+    liefe irgendwann auseinander. Ist das Paket nicht installiert, ist die
+    Umgebung nicht die aus Doc 14 (dort steht ``pip install --no-deps -e .``);
+    das ist ein Umgebungsfehler und soll auffallen, statt einen leeren
+    Versionsstring in jeden Bericht zu schreiben.
+    """
+    return metadata.version("ai-trading-analyst")
+
+
 def build_agent_concurrency(config: AppConfig) -> AgentConcurrency:
     """Je Agent ein eigener Pool (ADR 0037, Risiko R9)."""
     return AgentConcurrency(
@@ -361,6 +374,7 @@ def build_app() -> FastAPI:
         build_technical_analysis_params(loaded.config),
         build_backtest_params(loaded.config),
         agent_concurrency=build_agent_concurrency(loaded.config),
+        app_version=app_version(),
     )
 
     def check_database_ready() -> bool:

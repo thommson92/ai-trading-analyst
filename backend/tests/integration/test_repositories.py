@@ -12,6 +12,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
+    AnalysisRun,
     RunStatus,
     Stock,
     StockProcessingError,
@@ -23,6 +24,12 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.report import (
+    REPORT_SCHEMA_VERSION,
+    ReportSection,
+    StockReport,
+    build_report,
+)
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -925,6 +932,92 @@ class TestBacktestResultRepository:
         assert len(alle) == 2
         assert [r.evaluated_at for r in aus_dem_lauf] == [im_lauf.evaluated_at]
         assert all(not r.earnings_exclusion_applied for r in alle)
+
+
+class TestStockReportRepository:
+    """ADR 0039: Ein Bericht je Lauf und Aktie, nie ueberschrieben, und beim
+    Lesen kommt das gespeicherte Dokument zurueck -- kein neu gebautes."""
+
+    def _bericht(self, stock: Stock, run: AnalysisRun) -> StockReport:
+        return build_report(
+            make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id),
+            created_at=datetime.now(UTC),
+            app_version="0.1.0",
+        )
+
+    def test_ein_bericht_uebersteht_den_rundlauf(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("RPT")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with uow_factory() as uow:
+            (gespeichert,) = uow.stock_reports.list_for_run(run.id)
+
+        assert gespeichert.symbol == "RPT"
+        assert gespeichert.report_schema_version == REPORT_SCHEMA_VERSION
+        assert gespeichert.app_version == "0.1.0"
+        # Das JSONB kommt vollstaendig zurueck -- alle achtzehn Abschnitte.
+        assert set(gespeichert.document["abschnitte"]) == {s.value for s in ReportSection}
+
+    def test_ein_zweiter_bericht_zum_selben_lauf_wird_abgewiesen(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Doc 10, Paragraph 8: Ein abgeschlossener Bericht wird nicht
+        ueberschrieben. Die Unique Constraint verhindert auch das stille
+        zweite Insert."""
+        stock = make_stock("RPT2")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with pytest.raises(IntegrityError), uow_factory() as uow:
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+    def test_ein_anderer_lauf_bekommt_keine_fremden_berichte(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("RPT3")
+        run_a, run_b = make_run(status=RunStatus.RUNNING), make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run_a)
+            uow.analysis_runs.add(run_b)
+            uow.stock_reports.add(self._bericht(stock, run_a))
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.stock_reports.list_for_run(run_b.id) == []
+
+    def test_die_sprint_5_spalten_bleiben_leer(self, uow_factory: UowFactory) -> None:
+        """Scoring gehoert zu Sprint 5, die Formulierung zur KI-Haelfte. Beide
+        Spalten stehen bereit und werden nicht gefuellt (ADR 0039)."""
+        stock = make_stock("RPT4")
+        run = make_run(status=RunStatus.RUNNING)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.stock_reports.add(self._bericht(stock, run))
+            uow.commit()
+
+        with uow_factory() as uow:
+            zeile = uow.stock_reports.list_for_run(run.id)[0]
+
+        assert zeile.document["scoring_version"] is None
+        empfehlung = zeile.document["abschnitte"][ReportSection.EMPFEHLUNG.value]
+        assert not empfehlung["verfuegbar"]
+        assert empfehlung["vorbehalte"]
 
 
 class TestProcessingErrorRepository:

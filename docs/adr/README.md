@@ -73,6 +73,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0036](0036-nativer-windows-betrieb.md) | Nativer Windows-Betrieb ist das Deployment des MVP -- keine Container | Angenommen |
 | [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
 | [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
+| [0039](0039-report-generator.md) | Report Generator -- achtzehn Punkte, Luecken benannt, ohne Sprachmodell | Angenommen (fuehrt die Berichtsschema-Version ein, die Doc 10 Paragraph 8 fordert) |
 
 ## Offene Entscheidungen
 
