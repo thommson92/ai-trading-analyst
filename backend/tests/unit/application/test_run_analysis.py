@@ -9,21 +9,25 @@ dem Ergebnis richtig umgeht.
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 
-from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
-from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus
+from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
+from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
     EarningsFilterStatus,
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
-from ai_trading_analyst.domain.research import ResearchStatus
+from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
+    TechnicalAssessment,
     TechnicalAssessmentStatus,
+    TechnicalSnapshot,
     TechnicalStatus,
 )
 from tests.unit.application.conftest import (
@@ -69,6 +73,7 @@ def _build_use_case(
     technical_interpreter: FakeTechnicalInterpreter | None = None,
     fundamental_provider: FakeFundamentalDataProvider | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
+    agent_concurrency: AgentConcurrency | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -95,6 +100,7 @@ def _build_use_case(
         _PARAMS,
         _EARNINGS_PARAMS,
         technical_params or _TECHNICAL_PARAMS,
+        agent_concurrency=agent_concurrency,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -787,7 +793,7 @@ class TestResearch:
 
     def test_mehrere_kandidaten_werden_nebenlaeufig_recherchiert_ohne_verwechslung(self) -> None:
         """Die Research-Aufrufe je Aktie laufen nebenlaeufig (siehe
-        ``RunAnalysisUseCase._run_research_concurrently``) -- trotzdem muss
+        ``RunAnalysisUseCase._run_agents_concurrently``) -- trotzdem muss
         jede Aktie exakt ihren eigenen Bericht bekommen, und die
         Ausgabereihenfolge bleibt die urspruengliche Aktienreihenfolge."""
         stocks = tuple(make_stock(symbol) for symbol in ("AAA", "BBB", "CCC", "DDD"))
@@ -810,6 +816,87 @@ class TestResearch:
         for outcome in summary.outcomes:
             assert outcome.research is not None
             assert outcome.research.summary == f"Fake-Recherche fuer {outcome.stock.symbol}"
+
+
+class TestGetrennteAgentenPools:
+    """R9: Eine haengende Recherche darf keine Einordnung aufhalten.
+
+    Vor ADR 0040 teilten sich beide Agenten vier Plaetze. Ein realer
+    Recherche-Aufruf dauert rund 15 Minuten (Messung 2026-08-24) und darf bis
+    zu 900 Sekunden laufen -- solange belegte er einen der vier Plaetze,
+    waehrend die Einordnungen warteten, die Sekunden brauchen.
+    """
+
+    _EARNINGS_CLEAR = NextEarningsDate(
+        date=date(2024, 3, 1), source="fake", retrieved_at=datetime.now(UTC)
+    )
+
+    def test_haengende_recherche_haelt_die_einordnungen_nicht_auf(self) -> None:
+        symbole = ("AAA", "BBB", "CCC", "DDD", "EEE")
+        stocks = tuple(make_stock(symbol) for symbol in symbole)
+        freigabe = threading.Event()
+        alle_eingeordnet = threading.Event()
+
+        class BlockierenderResearchProvider(FakeResearchProvider):
+            def research(self, stock: Stock) -> ResearchReport:
+                # Haelt so lange, bis der Test die Einordnungen gesehen hat.
+                # Reichlich laenger als dessen eigene Wartezeit, damit bei
+                # einem Fehlschlag die Zusicherung des Tests meldet und nicht
+                # dieses Doppel.
+                freigabe.wait(timeout=60.0)
+                return super().research(stock)
+
+        class ZaehlenderInterpreter(FakeTechnicalInterpreter):
+            def interpret(self, stock: Stock, snapshot: TechnicalSnapshot) -> TechnicalAssessment:
+                ergebnis = super().interpret(stock, snapshot)
+                if len(self.calls) == len(symbole):
+                    alle_eingeordnet.set()
+                return ergebnis
+
+        provider = FakeMarketDataProvider(
+            stocks=stocks,
+            series_by_symbol={
+                s.symbol: make_series(_SERIES_LENGTH, candidate=True) for s in stocks
+            },
+        )
+        interpreter = ZaehlenderInterpreter()
+        use_case, *_ = _build_use_case(
+            provider,
+            FakeEarningsProvider(next_by_symbol={s.symbol: self._EARNINGS_CLEAR for s in stocks}),
+            BlockierenderResearchProvider(),
+            interpreter,
+            # Ein Recherche-Platz, zwei Einordnungsplaetze.
+            #
+            # Fuenf Symbole, nicht drei: Der alte gemeinsame Pool hatte vier
+            # Plaetze, und die Auftraege wechseln sich je Aktie ab
+            # (Recherche, Einordnung, Recherche, ...). Drei blockierende
+            # Recherchen lassen dort immer einen Platz frei, ueber den alle
+            # Einordnungen doch noch durchkommen -- der Test waere gruen
+            # geblieben. Erst ab fuenf sind alle vier Plaetze belegt.
+            agent_concurrency=AgentConcurrency(research=1, technical=2),
+        )
+
+        lauf = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = lauf.submit(use_case.execute)
+            fertig = alle_eingeordnet.wait(timeout=10.0)
+            # Zum Messzeitpunkt festhalten: Nach der Freigabe laufen die
+            # Einordnungen ohnehin durch, und die Meldung waere irrefuehrend.
+            eingeordnet = len(interpreter.calls)
+            noch_blockiert = not future.done()
+            freigabe.set()
+            summary = future.result(timeout=30.0)
+        finally:
+            freigabe.set()
+            lauf.shutdown(wait=True)
+
+        assert fertig, (
+            "Die Einordnungen liefen nicht durch, waehrend die Recherche haengt "
+            f"-- nur {eingeordnet} von {len(symbole)}"
+        )
+        assert noch_blockiert, "Der Lauf war schon fertig; die Recherche hat gar nicht blockiert"
+        assert sorted(interpreter.calls) == list(symbole)
+        assert all(o.research is not None for o in summary.outcomes)
 
 
 class TestVollstaendigesScheiternAllerAktien:

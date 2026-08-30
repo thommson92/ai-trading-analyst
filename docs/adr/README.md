@@ -71,6 +71,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) | Aktualitätsschranke, Umsatz ohne Vetorecht, drei zugelassene Abweichler | Angenommen (ergänzt ADR 0032 und 0033; Nachtrag 2026-08-27 löst L1 aus ADR 0032, L3 aus ADR 0033 und L4 ein) |
 | [0035](0035-fundamentaldaten-im-tageslauf.md) | Fundamentaldaten im Tageslauf — nur für Kandidaten, Kurs aus der letzten abgeschlossenen Kerze, je Lauf gespeichert | Angenommen |
 | [0036](0036-nativer-windows-betrieb.md) | Nativer Windows-Betrieb ist das Deployment des MVP -- keine Container | Angenommen |
+| [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
 
 ## Offene Entscheidungen
 

@@ -8,6 +8,7 @@ laeuft ausschliesslich ueber ``ai_trading_analyst.domain.screening.evaluate_cand
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -68,12 +69,27 @@ Ein Tippfehler landete sonst im ``else``-Zweig und wiese ein
 Research-Ergebnis dem Feld der Einordnung zu.
 """
 
-_MAX_CONCURRENT_AGENT_CALLS = 4
-"""Obergrenze gleichzeitiger Modellaufrufe ueber **beide** Agenten hinweg.
-Jeder Aufruf ist unabhaengig (kein gemeinsamer veraenderlicher Zustand ausser
-dem laut Anthropic-SDK threadsicheren HTTP-Client) -- eine unbegrenzte
-Nebenlaeufigkeit wuerde bei vielen Kandidaten gleichzeitig ebenso viele teure
-LLM-Gespraeche parallel auslösen, statt nur die Wartezeit zu verkuerzen."""
+@dataclass(frozen=True, slots=True)
+class AgentConcurrency:
+    """Wie viele Modellaufrufe je Agent gleichzeitig laufen duerfen.
+
+    **Je Agent ein eigener Pool** (ADR 0037, Risiko R9). Vorher teilten sich
+    beide vier Plaetze; eine haengende Recherche belegte bis zu
+    ``research.request_timeout_seconds`` (900 s) einen davon, waehrend die
+    Einordnungen warteten -- die bei einem realen Lauf Sekunden dauern.
+
+    Eine Obergrenze braucht es trotzdem je Pool: Jeder Aufruf ist unabhaengig
+    (kein gemeinsamer veraenderlicher Zustand ausser dem laut Anthropic-SDK
+    threadsicheren HTTP-Client), aber unbegrenzte Nebenlaeufigkeit wuerde bei
+    vielen Kandidaten ebenso viele teure Gespraeche gleichzeitig auslösen,
+    statt die Wartezeit je Aufruf zu verkuerzen.
+    """
+
+    research: int = 2
+    technical: int = 4
+
+    def fuer(self, art: _Agentenart) -> int:
+        return self.research if art == "research" else self.technical
 
 
 @dataclass
@@ -157,6 +173,7 @@ class RunAnalysisUseCase:
         earnings_filter_params: EarningsFilterParameters,
         technical_params: TechnicalAnalysisParameters,
         expected_last_candle: datetime | None = None,
+        agent_concurrency: AgentConcurrency | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -168,6 +185,7 @@ class RunAnalysisUseCase:
         self._earnings_filter_params = earnings_filter_params
         self._technical_params = technical_params
         self._expected_last_candle = expected_last_candle
+        self._agent_concurrency = agent_concurrency or AgentConcurrency()
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -259,7 +277,7 @@ class RunAnalysisUseCase:
 
     def _prepare_stock(self, stock: Stock) -> _PreparedItem:
         """Screening und Earnings-Filter fuer eine Aktie -- ohne Research
-        (folgt nebenlaeufig in ``_run_research_concurrently``) und ohne
+        (folgt nebenlaeufig in ``_run_agents_concurrently``) und ohne
         Persistenz (folgt sequentiell in ``_persist_outcome``)."""
         try:
             series = self._market_data_provider.get_candle_series(stock)
@@ -310,15 +328,12 @@ class RunAnalysisUseCase:
     def _run_agents_concurrently(self, prepared: list[_PreparedItem]) -> None:
         """Phase 2: die langsamen Modellaufrufe, alle auf einmal.
 
-        Beide Agenten teilen sich einen Pool. Getrennte Pools waeren
-        latenzguenstiger -- eine haengende Recherche belegt bis zu
+        **Je Agent ein eigener Pool** (ADR 0037, Risiko R9). Bei einem
+        gemeinsamen Pool belegte eine haengende Recherche bis zu
         ``research.request_timeout_seconds`` (900 s) einen der vier Plaetze,
-        waehrend die kurzen Einordnungen warten --, verdoppeln aber die
-        Nebenlaeufigkeitsstruktur. Ein realer Lauf braucht rund 15 Minuten je
-        Symbol (Messung 2026-08-24), die Grenze ist also nicht theoretisch.
-        Bei der Groesse der Watchlist ist ein gemeinsamer Pool trotzdem der
-        einfachere Weg; der Ausweg ist benannt, nicht gebaut (Risiko R9 der
-        Audit-Nachverfolgung).
+        waehrend die Einordnungen warteten -- die Sekunden dauern. Ein realer
+        Recherche-Aufruf braucht rund 15 Minuten (Messung 2026-08-24), die
+        Grenze war also nicht theoretisch.
 
         Zugewiesen wird ausschliesslich im Hauptthread aus ``as_completed``
         heraus -- die Arbeiter schreiben nichts.
@@ -339,13 +354,31 @@ class RunAnalysisUseCase:
         if not auftraege:
             return
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(_MAX_CONCURRENT_AGENT_CALLS, len(auftraege))
-        ) as executor:
-            futures = {
-                executor.submit(self._agent_result, item, art): (item, art)
-                for item, art in auftraege
-            }
+        nach_art: dict[_Agentenart, list[_PreparedOutcome]] = {"research": [], "technical": []}
+        for item, art in auftraege:
+            nach_art[art].append(item)
+
+        # ExitStack statt geschachtelter with-Bloecke: Beide Pools muessen
+        # offen sein, waehrend ``as_completed`` ueber die Auftraege beider
+        # laeuft. Geschachtelt liefe der aeussere Pool sonst leer, bis der
+        # innere fertig ist -- genau die Serialisierung, die R9 beseitigt.
+        with contextlib.ExitStack() as stack:
+            futures: dict[
+                concurrent.futures.Future[ResearchReport | TechnicalAssessment],
+                tuple[_PreparedOutcome, _Agentenart],
+            ] = {}
+            for art, posten in nach_art.items():
+                if not posten:
+                    continue
+                executor = stack.enter_context(
+                    concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(self._agent_concurrency.fuer(art), len(posten)),
+                        thread_name_prefix=f"agent-{art}",
+                    )
+                )
+                for item in posten:
+                    futures[executor.submit(self._agent_result, item, art)] = (item, art)
+
             for future in concurrent.futures.as_completed(futures):
                 item, art = futures[future]
                 try:
@@ -505,7 +538,7 @@ class RunAnalysisUseCase:
         stempelt seinen eigenen, tatsaechlichen Bearbeitungszeitpunkt --
         Research ist ein mehrere Gespraechsrunden langer, nebenlaeufig zu
         anderen Aktien laufender Vorgang (siehe
-        ``RunAnalysisUseCase._run_research_concurrently``), keine
+        ``RunAnalysisUseCase._run_agents_concurrently``), keine
         Momentaufnahme wie der Earnings-Filter. ``evaluated_at`` wird nur im
         Fehlerfall unten verwendet, wo kein eigener Zeitpunkt vom Anbieter
         vorliegt.

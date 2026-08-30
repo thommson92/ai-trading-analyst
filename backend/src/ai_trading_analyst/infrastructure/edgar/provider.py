@@ -78,10 +78,12 @@ class EdgarConnectionSettings:
 class _Drossel:
     """Haelt den Mindestabstand zwischen zwei Anfragen ein.
 
-    Threadsicher, weil der Tageslauf mehrere Aktien nebenlaeufig bearbeitet
-    (``_MAX_CONCURRENT_AGENT_CALLS``) -- eine Drossel, die das nicht
-    beruecksichtigt, laesst genau dann zu viele Anfragen durch, wenn es
-    darauf ankommt.
+    Threadsicher, obwohl der Tageslauf die Fundamentaldaten heute
+    **sequentiell** holt (Phase 1 von ``RunAnalysisUseCase``, ausserhalb der
+    Agenten-Pools). Die Sperre kostet nichts und haelt die Zusicherung, wenn
+    der Beschaffungspfad spaeter nebenlaeufig wird -- eine Drossel, die das
+    nicht beruecksichtigt, laesst genau dann zu viele Anfragen durch, wenn es
+    darauf ankommt, und SEC EDGAR deckelt bei zehn je Sekunde.
     """
 
     def __init__(self, max_per_second: float, sleep: Callable[[float], None] = time.sleep) -> None:

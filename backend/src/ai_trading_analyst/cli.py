@@ -66,6 +66,7 @@ from ai_trading_analyst.application.measure_history_depth import (
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
 from ai_trading_analyst.bootstrap import (
+    build_agent_concurrency,
     build_backtest_params,
     build_earnings_filter_params,
     build_earnings_provider,
@@ -2193,6 +2194,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             build_earnings_filter_params(config),
             build_technical_analysis_params(config),
             expected_last_candle=erwartete_kerze,
+            agent_concurrency=build_agent_concurrency(config),
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
