@@ -3021,6 +3021,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             technical_interpreter,
             fundamental_provider,
             ratings_provider,
+            # Dieselbe TWS-Anbindung wie der Backfill -- IBKR laesst je
+            # Client-ID nur eine Verbindung zu (ADR 0048).
+            build_options_provider(config, project_root(loaded.source_path), bar_source),
             uow_factory,
             rule,
             build_earnings_filter_params(config),

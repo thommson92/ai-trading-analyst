@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 from ai_trading_analyst.domain.screening import ScreeningStatus
@@ -213,6 +213,14 @@ def test_beide_tabellen_fuehren_den_score_im_selben_typ(engine: Engine) -> None:
     assert str(berichte["investment_score"]) == "NUMERIC(4, 1)"
 
 
+def _typ_existiert(engine: Engine, name: str) -> bool:
+    with engine.connect() as verbindung:
+        treffer = verbindung.execute(
+            text("SELECT 1 FROM pg_type WHERE typname = :name"), {"name": name}
+        ).first()
+    return treffer is not None
+
+
 def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     engine: Engine, database_url: str, uow_factory: UowFactory
 ) -> None:
@@ -223,10 +231,10 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     naechste Upgrade-Versuch scheitert dann an einem Typ, den es schon gibt.
     Der Test dreht deshalb wirklich zurueck und wieder vor.
 
-    **Zwei Stufen auf einmal** -- Scores und Empfehlung --, und ausdruecklich
-    gegen eine feste Revision statt gegen ``-1``: Sonst prueft der Test nach
-    der naechsten Migration etwas anderes, ohne dass jemand ihn angefasst
-    hat.
+    **Drei Stufen auf einmal** -- Scores, Empfehlung und Optionsanalyse --,
+    und ausdruecklich gegen eine feste Revision statt gegen ``-1``: Sonst
+    prueft der Test nach der naechsten Migration etwas anderes, ohne dass
+    jemand ihn angefasst hat.
     """
     vor_sprint_fuenf = "a7c31d4e8f92"
     stock = make_stock("MIGDOWN")
@@ -248,6 +256,14 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
         assert "long_term_detail" not in nach_unten
         assert "recommendation" not in nach_unten
         assert "recommendation_detail" not in nach_unten
+        assert "options_status" not in nach_unten
+        assert "options_strategies" not in nach_unten
+        # Der Enumtyp ``optionsstatus`` muss mit weg -- anders als
+        # ``recommendation`` benutzt ihn keine zweite Tabelle. Ein
+        # zurueckgebliebener Typ faellt beim Wiederhochfahren nicht auf
+        # (``checkfirst``), aber er ist Muell in der Datenbank, und beim
+        # naechsten Statuswert stimmte er still nicht mehr.
+        assert not _typ_existiert(engine, "optionsstatus")
         assert "analyst_status" in nach_unten, "das Downgrade ging eine Stufe zu weit"
         # Der Enumtyp ``recommendation`` bleibt: ``stock_reports`` benutzt ihn
         # weiter. Ihn mitzuloeschen brach die Tabelle daneben.
@@ -261,9 +277,15 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
         _run_alembic(database_url, "upgrade", "head")
 
     wieder_oben = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
-    assert {"swing_score", "long_term_detail", "recommendation", "recommendation_detail"} <= (
-        wieder_oben
-    )
+    assert {
+        "swing_score",
+        "long_term_detail",
+        "recommendation",
+        "recommendation_detail",
+        "options_status",
+        "options_strategies",
+        "options_underlying_price",
+    } <= wieder_oben
 
     # Die Zeile hat beides ueberlebt. Ein Downgrade, das die Tabelle leert,
     # waere auf dem Server ein Datenverlust und kein Rueckbau.
@@ -272,3 +294,4 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     assert persisted.stock.symbol == "MIGDOWN"
     assert persisted.swing_score is None
     assert persisted.recommendation is None
+    assert persisted.options is None

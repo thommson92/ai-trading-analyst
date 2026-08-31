@@ -42,22 +42,22 @@ class FakeKette:
         self.exchange = exchange
         self.expirations = expirations
         self.strikes = strikes
-        self.tradingClass = "AAPL"  # noqa: N815 -- so heisst das Feld bei ib_async
+        self.tradingClass = "AAPL"
 
 
 class FakeKontrakt:
     def __init__(self, strike: float, expiration: str = "20261002") -> None:
         self.strike = strike
-        self.lastTradeDateOrContractMonth = expiration  # noqa: N815
+        self.lastTradeDateOrContractMonth = expiration
         self.symbol = "AAPL"
-        self.secType = "STK"  # noqa: N815
-        self.conId = 265598  # noqa: N815
+        self.secType = "STK"
+        self.conId = 265598
 
 
 class FakeGreeks:
     def __init__(self, delta: float | None, implied_vol: float | None) -> None:
         self.delta = math.nan if delta is None else delta
-        self.impliedVol = math.nan if implied_vol is None else implied_vol  # noqa: N815
+        self.impliedVol = math.nan if implied_vol is None else implied_vol
 
 
 class FakeTicker:
@@ -75,8 +75,8 @@ class FakeTicker:
         self.bid = bid
         self.ask = ask
         self.volume = volume
-        self.putOpenInterest = math.nan  # noqa: N815 -- reqTickers liefert es meist nicht
-        self.modelGreeks = FakeGreeks(delta, 0.31) if greeks else None  # noqa: N815
+        self.putOpenInterest = math.nan
+        self.modelGreeks = FakeGreeks(delta, 0.31) if greeks else None
 
 
 class FakeIb:

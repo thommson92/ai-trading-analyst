@@ -27,6 +27,8 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProviderError,
     MarketDataProvider,
     MarketDataProviderError,
+    OptionsDataProvider,
+    OptionsDataProviderError,
     ResearchProvider,
     ResearchProviderError,
     RunStatus,
@@ -53,6 +55,7 @@ from ai_trading_analyst.domain.earnings import (
     evaluate_earnings_filter,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.report import (
     StockReport,
     as_document,
@@ -133,6 +136,7 @@ class _PreparedOutcome:
     fundamentals: FundamentalSnapshot | None
     analysts: AnalystRecommendations | None
     earnings: EarningsFilterResult | None
+    options: OptionsAnalysis | None
     backtest: tuple[BacktestResult, ...]
     needs_research: bool
     research: ResearchReport | None = None
@@ -198,6 +202,7 @@ class RunAnalysisUseCase:
         technical_interpreter: TechnicalInterpreter,
         fundamental_data_provider: FundamentalDataProvider,
         analyst_recommendations_provider: AnalystRecommendationsProvider,
+        options_data_provider: OptionsDataProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
@@ -217,6 +222,7 @@ class RunAnalysisUseCase:
         self._technical_interpreter = technical_interpreter
         self._fundamental_data_provider = fundamental_data_provider
         self._analyst_recommendations_provider = analyst_recommendations_provider
+        self._options_data_provider = options_data_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
@@ -359,6 +365,7 @@ class RunAnalysisUseCase:
             fundamentals: FundamentalSnapshot | None = None
             analysts: AnalystRecommendations | None = None
             earnings: EarningsFilterResult | None = None
+            options: OptionsAnalysis | None = None
             backtest: tuple[BacktestResult, ...] = ()
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
@@ -388,6 +395,18 @@ class RunAnalysisUseCase:
                 earnings = self._evaluate_earnings(
                     stock, series.candles[decision_index].timestamp.date(), evaluated_at
                 )
+                # **Nach** dem Earnings-Filter, und nur deshalb: Ein
+                # Verfallstermin nach dem naechsten Berichtstermin wird
+                # gekennzeichnet (ADR 0048, dritte gerichtete Kopplung). Die
+                # Abhaengigkeit ist nicht blockierend -- ein unbekannter
+                # Termin laesst jeden anderen Wert vollstaendig.
+                options = self._evaluate_options(
+                    stock,
+                    price=series.candles[decision_index].close,
+                    as_of=series.candles[decision_index].timestamp.date(),
+                    technical=technical,
+                    earnings=earnings,
+                )
                 needs_research = earnings.status == EarningsFilterStatus.EARNINGS_CLEAR
 
             return _PreparedOutcome(
@@ -399,6 +418,7 @@ class RunAnalysisUseCase:
                 fundamentals=fundamentals,
                 analysts=analysts,
                 earnings=earnings,
+                options=options,
                 backtest=backtest,
                 needs_research=needs_research,
             )
@@ -562,6 +582,7 @@ class RunAnalysisUseCase:
             analysts=item.analysts,
             technical_assessment=item.technical_assessment,
             earnings=item.earnings,
+            options=item.options,
             research=item.research,
             backtest=item.backtest,
             swing_score=swing_score,
@@ -679,6 +700,47 @@ class RunAnalysisUseCase:
             return self._fundamental_data_provider.fundamentals(stock, price=price)
         except FundamentalDataProviderError as error:
             _logger.warning("Fundamentaldaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
+            return None
+
+    def _evaluate_options(
+        self,
+        stock: Stock,
+        *,
+        price: float,
+        as_of: date,
+        technical: TechnicalSnapshot | None,
+        earnings: EarningsFilterResult | None,
+    ) -> OptionsAnalysis | None:
+        """Die Put-Vorschlaege einer bereits qualifizierten Aktie (ADR 0048).
+
+        Fehlerbehandlung nach dem Muster ``_evaluate_fundamentals``: Ein
+        Ausfall wird **hier** gefangen und nicht im umgebenden
+        Fehlerisolations-Block. Eine nicht angemeldete TWS ist ein normaler
+        Betriebszustand (ADR 0014, E2); dort verschoebe sie die Aktie als
+        Ganzes in einen ``StockProcessingError`` und wuerfe Screening,
+        Chartauswertung und Backtest gleich mit weg.
+
+        ``price`` ist der Schluss der letzten **abgeschlossenen** Kerze --
+        derselbe, auf dem Screening, Chartauswertung und Fundamentalbewertung
+        stehen. Die Optionsanalyse beschafft keinen eigenen.
+
+        Zonen und Earnings-Termin sind die beiden **optionalen, nicht
+        blockierenden** Eingaben (CLAUDE.md, erste und dritte gerichtete
+        Kopplung). Fehlt eines von beidem, bleiben genau die davon
+        abhaengigen Felder leer.
+        """
+        try:
+            return self._options_data_provider.options(
+                stock,
+                price=price,
+                as_of=as_of,
+                zones=technical.zones if technical is not None else (),
+                next_earnings_date=(
+                    earnings.next_earnings_date if earnings is not None else None
+                ),
+            )
+        except OptionsDataProviderError as error:
+            _logger.warning("Optionsdaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
 
     def _evaluate_analyst_recommendations(

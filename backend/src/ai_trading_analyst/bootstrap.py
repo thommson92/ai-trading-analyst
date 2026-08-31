@@ -569,8 +569,22 @@ def build_app() -> FastAPI:
         signal_lookback_previous_candles=loaded.config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
+    # Einmal gebaut und an beide gereicht: IBKR laesst je Client-ID genau
+    # eine Verbindung zu. Der Aufbau selbst kostet nichts -- ``IbAsyncBarSource``
+    # verbindet erst beim ersten Abruf.
+    ibkr_quelle = (
+        build_ibkr_bar_source(loaded.config)
+        if "ibkr" in (loaded.config.market_data.provider, loaded.config.options.provider)
+        else None
+    )
     market_data_provider = build_market_data_provider(
-        loaded.config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+        loaded.config,
+        indicators,
+        project_root(loaded.source_path),
+        bar_source=(
+            ibkr_quelle if loaded.config.market_data.source == "live" else None
+        ),
+        uow_factory=uow_factory,
     )
     earnings_provider = build_earnings_provider(loaded.config, secrets)
     earnings_filter_params = build_earnings_filter_params(loaded.config)
@@ -583,6 +597,7 @@ def build_app() -> FastAPI:
         technical_interpreter,
         build_fundamental_data_provider(loaded.config, secrets),
         build_analyst_recommendations_provider(loaded.config, secrets),
+        build_options_provider(loaded.config, project_root(loaded.source_path), ibkr_quelle),
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,

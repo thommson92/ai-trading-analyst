@@ -17,6 +17,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scoring import RecommendationResult, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningResult
@@ -123,6 +124,19 @@ class StockScreeningOutcome:
     Recherche ausgefallen ist. Faellt umgekehrt der Anbieter aus, ist der
     Status ``UNAVAILABLE`` und nicht etwa ``None`` -- der Unterschied zwischen
     "nicht abgefragt" und "abgefragt, keine Antwort" bleibt erhalten."""
+    options: OptionsAnalysis | None = None
+    """Die Cash-Secured-Put-Vorschlaege (Doc 10, Paragraph 6.12 Punkt 13;
+    ADR 0048) -- nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.
+
+    Das einzige Feld mit **zwei** optionalen Eingaben aus anderen Modulen:
+    den Zonen der Chartauswertung und dem naechsten Berichtstermin. Beide
+    sind nicht blockierend -- fehlt eines, bleibt genau das davon abhaengige
+    Feld leer und alles Uebrige vollstaendig (CLAUDE.md, erste und dritte
+    gerichtete Kopplung).
+
+    Faellt die Quelle aus -- eine nicht angemeldete TWS ist der haeufigste
+    Fall --, bleibt das Feld ``None``. Der Swing-Score rechnet dann ohne die
+    Optionsattraktivitaet weiter, mit entsprechend gesenkter Abdeckung."""
     swing_score: ScoreResult | None = None
     """Der Swing Trade Score (Doc 10, Paragraph 6.11; ADR 0041, ADR 0045) --
     nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.

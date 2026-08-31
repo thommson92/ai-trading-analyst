@@ -39,6 +39,7 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricName,
     MetricUnit,
 )
+from ai_trading_analyst.domain.options import OptionsStatus
 from ai_trading_analyst.domain.research import (
     ResearchCoverage,
     ResearchStatus,
@@ -378,6 +379,31 @@ class ScreeningResultOrm(Base):
     )
     long_term_version: Mapped[str | None] = mapped_column(nullable=True)
     long_term_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Die Optionsanalyse (Doc 10, Paragraph 6.12 Punkt 13; ADR 0048) -- wie
+    # die fundamentals_*-Spalten nur bei CANDIDATE gesetzt.
+    options_status: Mapped[OptionsStatus | None] = mapped_column(
+        _enum_column(OptionsStatus), nullable=True
+    )
+    options_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    options_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    options_reason: Mapped[str | None] = mapped_column(nullable=True)
+    options_underlying_price: Mapped[float | None] = mapped_column(nullable=True)
+    """Der Kurs, auf dem die Strike-Auswahl stand -- der Schluss der letzten
+    abgeschlossenen Kerze. Ohne ihn liesse sich der Abstand eines Strikes zum
+    Kurs spaeter nicht nachrechnen."""
+    options_expiration: Mapped[date | None] = mapped_column(Date, nullable=True)
+    options_strategies: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    """Die bewerteten Put-Vorschlaege, hoechstens drei je Kandidat.
+
+    JSONB und keine Kindtabelle: im Ganzen geschrieben, im Ganzen gelesen,
+    nie gefiltert oder sortiert -- dasselbe Argument wie bei ``swing_detail``
+    und ``fundamentals_tag_conflicts``. Neunzehn Felder je Vorschlag als
+    Spalten waeren mehr als fuer alle uebrigen Analysemodule zusammen."""
 
     # Die Empfehlungsstufe (Doc 10, Paragraph 6.12 Punkt 16; ADR 0046) --
     # wie die Scores nur bei CANDIDATE gesetzt.
