@@ -31,6 +31,7 @@ from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
+from ai_trading_analyst.domain.scoring import ScoreKind, ScoreStatus
 from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
@@ -969,6 +970,61 @@ class TestResearch:
             assert outcome.research.summary == f"Fake-Recherche fuer {outcome.stock.symbol}"
 
 
+class TestScoringImTageslauf:
+    """ADR 0041, ADR 0045: Beide Scores entstehen im Lauf, nach den Agenten
+    und vor der Persistenz -- rein rechnerisch, ohne Netz."""
+
+    def test_ein_kandidat_bekommt_beide_scores(self) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("CAND"),),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        (outcome,) = use_case.execute().outcomes
+
+        assert outcome.swing_score is not None
+        assert outcome.investment_score is not None
+        assert outcome.swing_score.kind is ScoreKind.SWING
+        assert outcome.investment_score.kind is ScoreKind.LONG_TERM
+
+    def test_wer_kein_kandidat_ist_bekommt_keine(self) -> None:
+        """Ueber die uebrigen wird nicht berichtet -- ein Score fuer sie
+        beantwortete eine Frage, die niemand gestellt hat."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("NIX"),),
+            series_by_symbol={"NIX": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        use_case, *_ = _build_use_case(provider)
+
+        (outcome,) = use_case.execute().outcomes
+
+        assert outcome.swing_score is None
+        assert outcome.investment_score is None
+
+    def test_ohne_fundamentaldaten_entsteht_kein_investment_score_und_der_lauf_haelt(
+        self,
+    ) -> None:
+        """Der Ausfall einer Quelle darf den Lauf nicht kosten: Es entsteht
+        ein Ergebnis mit ``INSUFFICIENT_DATA``, kein Verarbeitungsfehler."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("CAND"),),
+            series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            fundamental_provider=FakeFundamentalDataProvider(error_symbols=frozenset({"CAND"})),
+        )
+
+        summary = use_case.execute()
+
+        (outcome,) = summary.outcomes
+        assert summary.errors == ()
+        assert outcome.investment_score is not None
+        assert outcome.investment_score.status is ScoreStatus.INSUFFICIENT_DATA
+        assert outcome.investment_score.value is None
+
+
 class TestBacktestImTageslauf:
     """ADR 0038: Die historische Signalstatistik entsteht je Kandidat im Lauf,
     auf derselben schon geladenen Kerzenserie."""
@@ -1120,6 +1176,17 @@ class TestBerichtImTageslauf:
         assert bericht.analysis_run_id == summary.run.id  # type: ignore[attr-defined]
         assert bericht.app_version == "9.9.9"
         assert bericht.report_schema_version == REPORT_SCHEMA_VERSION
+
+    def test_die_scores_stehen_im_bericht_mit_ihrer_version(self) -> None:
+        """Punkte 14 und 15 (Doc 10, Paragraph 6.12) -- und die
+        Berechnungsversion daneben, wie Paragraph 8 sie verlangt."""
+        berichte, _ = self._lauf(kandidat=True)
+
+        (bericht,) = berichte.added
+
+        assert bericht.swing_score is not None
+        assert bericht.investment_score is not None
+        assert bericht.scoring_version == "swing-1.0+long_term-1.0"
 
     def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
         """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die

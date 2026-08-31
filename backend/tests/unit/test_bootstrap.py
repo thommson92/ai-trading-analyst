@@ -26,9 +26,11 @@ from ai_trading_analyst.bootstrap import (
     build_fundamental_data_provider,
     build_market_data_provider,
     build_research_provider,
+    build_scoring_params,
     build_technical_interpreter,
     project_root,
 )
+from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.config.settings import (
     AnalystRatingsConfig,
     AppConfig,
@@ -39,11 +41,15 @@ from ai_trading_analyst.config.settings import (
     IbkrConfig,
     IndicatorConfig,
     MarketDataConfig,
+    MetricThresholdConfig,
     MissingSecretError,
     ResearchConfig,
+    ScoringConfig,
     Secrets,
     TechnicalAgentConfig,
 )
+from ai_trading_analyst.domain.fundamentals import MetricName
+from ai_trading_analyst.domain.scoring import SCORED_METRICS, ComponentName
 from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicResearchProvider,
     AnthropicTechnicalInterpreter,
@@ -540,3 +546,67 @@ class TestKonfigurationspruefung:
     def test_ein_negativer_anfrageabstand_wird_abgelehnt(self) -> None:
         with pytest.raises(ValidationError):
             IbkrConfig(minimum_request_interval_seconds=-1.0)
+
+
+class TestScoringParameter:
+    """Die eine Stelle, die Konfiguration und Domain zugleich kennt.
+
+    ``config`` kennt die Kennzahlenliste nicht, die Domain kennt keine
+    YAML-Datei. Ein Tippfehler im Kennzahlennamen kann deshalb nur hier
+    auffallen -- und er soll beim Start auffallen, nicht als
+    stillschweigend uebersprungene Kennzahl in einem Ergebnis.
+    """
+
+    @staticmethod
+    def _thresholds(**overrides: MetricThresholdConfig) -> dict[str, MetricThresholdConfig]:
+        vollstaendig = {
+            name.value: MetricThresholdConfig(
+                boundaries=(1.0, 2.0, 3.0, 4.0), higher_is_better=True
+            )
+            for name in SCORED_METRICS
+        }
+        vollstaendig.update(overrides)
+        return vollstaendig
+
+    def _config(self, thresholds: dict[str, MetricThresholdConfig]) -> AppConfig:
+        return AppConfig(indicators=INDICATORS, scoring=ScoringConfig(thresholds=thresholds))
+
+    def test_werte_kommen_unveraendert_aus_der_konfiguration(self) -> None:
+        config = self._config(self._thresholds())
+        params = build_scoring_params(config)
+        assert params.minimum_coverage == config.scoring.minimum_coverage
+        assert params.normal_confidence_coverage == config.scoring.normal_confidence_coverage
+        assert params.swing_version == config.scoring.swing_version
+        assert params.long_term_version == config.scoring.long_term_version
+
+    def test_die_feldnamen_werden_zu_komponentennamen(self) -> None:
+        params = build_scoring_params(self._config(self._thresholds()))
+        assert params.swing_weights[ComponentName.TECHNICAL_SIGNALS] == 0.25
+        assert params.long_term_weights[ComponentName.BALANCE_SHEET_QUALITY] == 0.20
+        assert set(params.long_term_weights) == {
+            ComponentName.PROFITABILITY,
+            ComponentName.GROWTH,
+            ComponentName.VALUATION,
+            ComponentName.BALANCE_SHEET_QUALITY,
+        }
+
+    def test_eine_fehlende_schwelle_bricht_den_start_ab(self) -> None:
+        """Ohne Abbruch fiele die Kennzahl still aus der Komponente -- und
+        der Score saehe vollstaendig aus."""
+        unvollstaendig = self._thresholds()
+        del unvollstaendig[MetricName.NET_MARGIN.value]
+        with pytest.raises(ValueError, match="NET_MARGIN"):
+            build_scoring_params(self._config(unvollstaendig))
+
+    def test_ein_unbekannter_kennzahlenname_bricht_den_start_ab(self) -> None:
+        with pytest.raises(ValueError, match="NETTOMARGE"):
+            build_scoring_params(self._config(self._thresholds(NETTOMARGE=MetricThresholdConfig(
+                boundaries=(1.0, 2.0, 3.0, 4.0), higher_is_better=True
+            ))))
+
+    def test_die_ausgelieferte_konfiguration_reicht_aus(self) -> None:
+        """Der Test, der die echte ``config/default.yaml`` prueft: Sie ist
+        das, was auf dem Server laeuft."""
+        params = build_scoring_params(load_config().config)
+        assert SCORED_METRICS <= params.thresholds.keys()
+        assert params.thresholds[MetricName.PRICE_EARNINGS_RATIO].higher_is_better is False

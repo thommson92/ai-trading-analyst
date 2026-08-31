@@ -45,6 +45,14 @@ from ai_trading_analyst.domain.research import (
     SourceLicenseClass,
     SourceRank,
 )
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     IntradayBar,
@@ -1578,3 +1586,138 @@ class TestKiEinordnung:
         assert mit.technical.chance_risk_ratio == ohne.technical.chance_risk_ratio
         assert mit.technical.trend == ohne.technical.trend
         assert mit.technical.analysis_version == ohne.technical.analysis_version
+
+
+class TestScores:
+    """Beide Scores durch PostgreSQL und zurueck (ADR 0041, ADR 0045).
+
+    Vier Spalten je Score, davon eine JSONB. Der Rundlauf ist der Test, der
+    zaehlt: Was das Detail nicht wieder hergibt, ist im Bericht verloren --
+    und Doc 10, Paragraph 6.11 verlangt neun Angaben, nicht eine Zahl.
+    """
+
+    @staticmethod
+    def _score(
+        *,
+        kind: ScoreKind = ScoreKind.SWING,
+        status: ScoreStatus = ScoreStatus.COMPLETED,
+        value: float | None = 7.4,
+    ) -> ScoreResult:
+        return ScoreResult(
+            kind=kind,
+            status=status,
+            version="1.0",
+            value=value,
+            components=(
+                ScoreComponent(
+                    name=ComponentName.TECHNICAL_SIGNALS,
+                    weight=0.25,
+                    value=10.0,
+                    effective_weight=0.3125,
+                    reason="3 von 3 Signalen",
+                ),
+                ScoreComponent(
+                    name=ComponentName.OPTIONS_ATTRACTIVENESS,
+                    weight=0.10,
+                    value=None,
+                    effective_weight=0.0,
+                    reason="die Optionsanalyse ist noch nicht gebaut (ADR 0048)",
+                ),
+            ),
+            coverage=0.8,
+            confidence=ScoreConfidence.LOW_COVERAGE,
+            positive_factors=("Technische Signale: 10.0",),
+            negative_factors=(),
+            limiting_risks=("Signalstatistik auf duenner Stichprobe",),
+        )
+
+    def _rundlauf(
+        self, uow_factory: UowFactory, symbol: str, swing: ScoreResult, investment: ScoreResult
+    ) -> StockScreeningOutcome:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            swing_score=swing,
+            investment_score=investment,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        return persisted
+
+    def test_ein_vollstaendiger_score_kommt_unveraendert_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        swing = self._score()
+        investment = self._score(kind=ScoreKind.LONG_TERM, value=5.5)
+
+        persisted = self._rundlauf(uow_factory, "SCORES", swing, investment)
+
+        assert persisted.swing_score == swing
+        assert persisted.investment_score == investment
+
+    def test_die_beiden_scores_werden_nicht_vertauscht(self, uow_factory: UowFactory) -> None:
+        """Sie stehen in zwei Spaltensaetzen mit demselben Zuschnitt -- ein
+        vertauschter Praefix faende sonst niemand."""
+        persisted = self._rundlauf(
+            uow_factory,
+            "SCORESWAP",
+            self._score(value=9.9),
+            self._score(kind=ScoreKind.LONG_TERM, value=1.1),
+        )
+        assert persisted.swing_score is not None
+        assert persisted.investment_score is not None
+        assert persisted.swing_score.kind is ScoreKind.SWING
+        assert persisted.swing_score.value == 9.9
+        assert persisted.investment_score.kind is ScoreKind.LONG_TERM
+        assert persisted.investment_score.value == 1.1
+
+    def test_eine_fehlende_komponente_bleibt_fehlend(self, uow_factory: UowFactory) -> None:
+        """Kaeme sie als 0.0 zurueck, laese sich die Luecke spaeter als
+        geprueft und schlecht -- genau die Verwechslung, die Doc 09
+        ausschliesst."""
+        persisted = self._rundlauf(
+            uow_factory, "SCORESGAP", self._score(), self._score(kind=ScoreKind.LONG_TERM)
+        )
+        assert persisted.swing_score is not None
+        assert persisted.swing_score.missing_components == (
+            ComponentName.OPTIONS_ATTRACTIVENESS,
+        )
+
+    def test_ein_score_ohne_zahl_wird_als_solcher_gespeichert(
+        self, uow_factory: UowFactory
+    ) -> None:
+        ohne = self._score(status=ScoreStatus.INSUFFICIENT_DATA, value=None)
+
+        persisted = self._rundlauf(
+            uow_factory, "SCORESNONE", ohne, self._score(kind=ScoreKind.LONG_TERM)
+        )
+
+        assert persisted.swing_score is not None
+        assert persisted.swing_score.status is ScoreStatus.INSUFFICIENT_DATA
+        assert persisted.swing_score.value is None
+
+    def test_ohne_scores_bleiben_die_spalten_leer(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("SCORESOFF")
+        run = make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(
+                make_outcome(stock, ScreeningStatus.NOT_CANDIDATE, analysis_run_id=run.id)
+            )
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        assert persisted.swing_score is None
+        assert persisted.investment_score is None
