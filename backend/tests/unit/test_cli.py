@@ -3001,3 +3001,127 @@ class TestKalenderreichweiteVerdrahtung:
         erwartet = load_config(None).config.market.timezone
         assert gesehen == [erwartet]
         assert erwartet == "America/New_York", "CLAUDE.md: der Scheduler rechnet in New York"
+
+
+class TestKalibrierung:
+    """Die Messung, auf der die Score-Schwellen stehen (ADR 0041).
+
+    Muster 'history-depth': messen, ausgeben, nichts ablegen. Die Schwellen
+    selbst entscheidet ein ADR -- hier entstehen nur die Zahlen.
+    """
+
+    def _csv(self, tmp_path: Path, zeilen: Sequence[str]) -> Path:
+        kopf = "symbol,status,abdeckung,kennzahl,wert,einheit,basis,zeitraum_ende"
+        ziel = tmp_path / "kalibrierung.csv"
+        ziel.write_text("\n".join([kopf, *zeilen]), encoding="utf-8")
+        return ziel
+
+    def test_die_fuenftelgrenzen_teilen_die_watchliste(self) -> None:
+        """Bei zehn Werten 1..10 liegen die Grenzen zwischen den Paaren.
+
+        Geprueft werden **konkrete Zahlen**, nicht nur "vier Grenzen kommen
+        zurueck": Eine Verwechslung von Quintilen und Quartilen lieferte
+        ebenfalls vier Werte.
+        """
+        grenzen = cli.quintilgrenzen([float(n) for n in range(1, 11)])
+
+        assert grenzen == pytest.approx((2.8, 4.6, 6.4, 8.2))
+
+    def test_die_reihenfolge_der_eingabe_ist_egal(self) -> None:
+        werte = [5.0, 1.0, 9.0, 3.0, 7.0, 2.0, 8.0, 4.0, 10.0, 6.0]
+        assert cli.quintilgrenzen(werte) == pytest.approx((2.8, 4.6, 6.4, 8.2))
+
+    def test_ein_ausreisser_verschiebt_die_grenzen_kaum(self) -> None:
+        """Der Grund fuer Quantile statt Mittelwert: GDDY hat eine
+        Eigenkapitalrendite von 13587 % (Eigenkapital nahe null), CRWD ein KGV
+        von 4368. Ein Mittelwert waere davon unbrauchbar, die Rangfolge nicht.
+        """
+        normal = [float(n) for n in range(1, 11)]
+        mit_ausreisser = [*normal[:-1], 10_000.0]
+
+        ohne = cli.quintilgrenzen(normal)
+        mit = cli.quintilgrenzen(mit_ausreisser)
+
+        assert mit[0] == pytest.approx(ohne[0])
+        assert mit[1] == pytest.approx(ohne[1])
+        assert abs(mit[2] - ohne[2]) < 0.5
+
+    def test_unter_fuenf_werten_gibt_es_keine_fuenftel(self) -> None:
+        """Kein Ersatzwert: Die Kennzahl bekommt in diesem Lauf keine
+        Schwellen, statt aus vier Werten Fuenftel zu erfinden."""
+        with pytest.raises(ValueError, match="mindestens fuenf"):
+            cli.quintilgrenzen([1.0, 2.0, 3.0, 4.0])
+
+    def test_die_kennzahlen_werden_aus_der_csv_gesammelt(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        zeilen = [
+            f"SYM{n},COMPLETED,1.0,RETURN_ON_EQUITY,{n / 10},FRACTION,TTM,2026-06-30"
+            for n in range(1, 11)
+        ]
+        args = build_parser().parse_args(
+            ["calibrate-scores", "--input", str(self._csv(tmp_path, zeilen))]
+        )
+
+        assert cli.command_calibrate_scores(args) == 0
+
+        ausgabe = capsys.readouterr().out
+        assert "ueber 10 Aktien" in ausgabe
+        assert "RETURN_ON_EQUITY" in ausgabe
+        assert "0.2800" in ausgabe
+
+    def test_eine_aktie_ohne_kennzahlen_wird_genannt(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """INSUFFICIENT_DATA steht mit leeren Feldern in der CSV. Sie zaehlt
+        bei der Abdeckung mit -- verschwiegen saehe die Watchliste kleiner
+        aus, als sie ist."""
+        zeilen = [
+            f"SYM{n},COMPLETED,1.0,RETURN_ON_EQUITY,{n / 10},FRACTION,TTM,2026-06-30"
+            for n in range(1, 11)
+        ]
+        zeilen.append("XOM,INSUFFICIENT_DATA,0.0,,,,,")
+        args = build_parser().parse_args(
+            ["calibrate-scores", "--input", str(self._csv(tmp_path, zeilen))]
+        )
+        cli.command_calibrate_scores(args)
+
+        ausgabe = capsys.readouterr().out
+        assert "ueber 11 Aktien" in ausgabe
+        assert "Ohne jede Kennzahl: 1 (XOM)" in ausgabe
+
+    def test_eine_unlesbare_datei_bricht_ab(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(
+            ["calibrate-scores", "--input", str(tmp_path / "gibtsnicht.csv")]
+        )
+        assert cli.command_calibrate_scores(args) == 2
+        assert "nicht lesbar" in capsys.readouterr().err
+
+    def test_eine_csv_ohne_kennzahlen_bricht_ab(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sonst entstuende eine leere Tabelle, die wie ein Ergebnis aussieht."""
+        leer = self._csv(tmp_path, ["XOM,INSUFFICIENT_DATA,0.0,,,,,"])
+        args = build_parser().parse_args(["calibrate-scores", "--input", str(leer)])
+        assert cli.command_calibrate_scores(args) == 2
+        assert "keine auswertbaren Kennzahlen" in capsys.readouterr().err
+
+    def test_die_spannweite_steht_neben_den_grenzen(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sie zeigt, warum die Grenzen aus Quantilen kommen."""
+        zeilen = [
+            f"SYM{n},COMPLETED,1.0,PRICE_EARNINGS_RATIO,{n},RATIO,TTM,2026-06-30"
+            for n in range(1, 10)
+        ]
+        zeilen.append("CRWD,COMPLETED,1.0,PRICE_EARNINGS_RATIO,4368.0,RATIO,TTM,2026-06-30")
+        args = build_parser().parse_args(
+            ["calibrate-scores", "--input", str(self._csv(tmp_path, zeilen))]
+        )
+        cli.command_calibrate_scores(args)
+
+        ausgabe = capsys.readouterr().out
+        assert "kleinster" in ausgabe
+        assert "4368.0000" in ausgabe
