@@ -13,7 +13,12 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.research import ResearchStatus
-from ai_trading_analyst.domain.scoring import ScoreKind, ScoreResult, ScoreStatus
+from ai_trading_analyst.domain.scoring import (
+    Recommendation,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from ai_trading_analyst.domain.technical import TechnicalAssessmentStatus, TechnicalStatus
 
 from .values import (
@@ -93,11 +98,7 @@ def build_report(
     luecken.fehlt(ReportSection.PUT_STRATEGIEN, _OPTIONSANALYSE)
     _pruefe_score(outcome.swing_score, ScoreKind.SWING, luecken)
     _pruefe_score(outcome.investment_score, ScoreKind.LONG_TERM, luecken)
-    luecken.fehlt(
-        ReportSection.EMPFEHLUNG,
-        "die Ableitung der Empfehlungsstufe aus beiden Scores ist noch nicht "
-        "entschieden (ADR 0046)",
-    )
+    _pruefe_empfehlung(outcome, luecken)
 
     quellen = _quellen(outcome)
     if not quellen:
@@ -121,6 +122,7 @@ def build_report(
         research=outcome.research,
         fundamentals=outcome.fundamentals,
         analysts=outcome.analysts,
+        recommendation=outcome.recommendation,
         swing_score=outcome.swing_score,
         investment_score=outcome.investment_score,
         scoring_version=_scoring_version(outcome),
@@ -324,6 +326,32 @@ def _pruefe_score(score: ScoreResult | None, kind: ScoreKind, luecken: _Luecken)
             f"Abdeckung {score.coverage:.0%} -- ohne {fehlend}, die uebrigen Gewichte "
             "sind darauf umgerechnet",
         )
+
+
+def _pruefe_empfehlung(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+    """Punkt 16 (Doc 10, Paragraph 6.12; ADR 0046).
+
+    Der Punkt ist **verfuegbar, sobald es eine Stufe gibt** -- auch wenn diese
+    ``INSUFFICIENT_DATA`` lautet. Das ist eine der fuenf Stufen aus Doc 10 und
+    keine Luecke: Sie sagt, dass die Grundlage fehlt, und nennt den Grund.
+
+    Eingeschraenkt bleibt er trotzdem: Doc 10 verlangt eine *konkrete*
+    Empfehlung, und die formulierte Zusammenfassung dazu gehoert der
+    KI-Haelfte des Berichts (ADR 0039). Ein deterministisch zusammengesetzter
+    Satz waere eine Formulierung ohne Verfasser.
+    """
+    empfehlung = outcome.recommendation
+    if empfehlung is None:
+        luecken.fehlt(ReportSection.EMPFEHLUNG, "die Empfehlungsstufe wurde nicht gerechnet")
+        return
+    if empfehlung.level is Recommendation.INSUFFICIENT_DATA:
+        grund = empfehlung.reasons[0] if empfehlung.reasons else "ohne Grund"
+        luecken.eingeschraenkt(ReportSection.EMPFEHLUNG, f"INSUFFICIENT_DATA -- {grund}")
+        return
+    luecken.eingeschraenkt(
+        ReportSection.EMPFEHLUNG,
+        "ohne formulierte Begruendung -- die KI-Haelfte des Berichts folgt getrennt (ADR 0039)",
+    )
 
 
 def _scoring_version(outcome: StockScreeningOutcome) -> str | None:

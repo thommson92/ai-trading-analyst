@@ -47,6 +47,8 @@ from ai_trading_analyst.domain.research import (
 )
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
+    Recommendation,
+    RecommendationResult,
     ScoreComponent,
     ScoreConfidence,
     ScoreKind,
@@ -1721,3 +1723,74 @@ class TestScores:
             (persisted,) = uow.screening_results.list_for_run(run.id)
         assert persisted.swing_score is None
         assert persisted.investment_score is None
+
+
+class TestEmpfehlung:
+    """Die Stufe samt Herleitung durch PostgreSQL und zurueck (ADR 0046).
+
+    Die Spalte traegt die Stufe, das JSONB die Bausteine. Doc 10, Paragraph
+    12 verlangt, dass zu jeder Empfehlung nachvollziehbar bleibt, worauf sie
+    beruht -- was der Rundlauf nicht wieder hergibt, ist dafuer verloren.
+    """
+
+    @staticmethod
+    def _empfehlung(level: Recommendation = Recommendation.CANDIDATE) -> RecommendationResult:
+        return RecommendationResult(
+            level=level,
+            version="1.0",
+            reasons=(
+                "Swing-Score 7.0 ergibt CANDIDATE",
+                "Investment-Score 3.0 senkt auf WATCH",
+            ),
+            applied_caps=("Berichtstermin unbekannt: hoechstens CANDIDATE",),
+        )
+
+    def _rundlauf(
+        self, uow_factory: UowFactory, symbol: str, empfehlung: RecommendationResult | None
+    ) -> StockScreeningOutcome:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            recommendation=empfehlung,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        return persisted
+
+    def test_die_stufe_kommt_mit_ihrer_herleitung_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        empfehlung = self._empfehlung()
+
+        persisted = self._rundlauf(uow_factory, "EMPF", empfehlung)
+
+        assert persisted.recommendation == empfehlung
+
+    @pytest.mark.parametrize("level", list(Recommendation))
+    def test_jede_stufe_laesst_sich_speichern(
+        self, uow_factory: UowFactory, level: Recommendation
+    ) -> None:
+        """Auch ``INSUFFICIENT_DATA``: Der Enumtyp stammt aus einer aelteren
+        Migration, und ein fehlender Wert faellt sonst erst im Tageslauf auf."""
+        persisted = self._rundlauf(
+            uow_factory, f"EMPF-{level.value}", self._empfehlung(level)
+        )
+
+        assert persisted.recommendation is not None
+        assert persisted.recommendation.level is level
+
+    def test_ohne_empfehlung_bleiben_die_spalten_leer(self, uow_factory: UowFactory) -> None:
+        persisted = self._rundlauf(uow_factory, "EMPFOFF", None)
+
+        assert persisted.recommendation is None

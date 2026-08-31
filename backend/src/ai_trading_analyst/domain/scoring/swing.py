@@ -17,6 +17,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+)
 from ai_trading_analyst.domain.backtesting import BacktestConfidence, BacktestResult
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import (
@@ -71,6 +75,67 @@ CHANCE_RISIKO_TEILWERTE = {
 gar nicht berechnet werden konnte (ADR 0026). Die Komponente ist dann nicht
 verfuegbar und wird umgewichtet."""
 
+ANALYST_BUY_SHARE_LABEL = "ANALYST_BUY_SHARE"
+"""Der Name, unter dem der Kauf-Anteil in der Mess-CSV und in der
+Konfiguration steht.
+
+Eine Konstante und keine zwei Zeichenketten: Der Name verbindet den Messlauf
+(``cli ratings --watchlist --output``) mit der Auswertung
+(``cli calibrate-scores``) und mit dem Konfigurationsschluessel der
+Schwellen. Drei Stellen, an denen ein Tippfehler erst am Ergebnis auffiele.
+"""
+
+
+def analyst_buy_share(
+    recommendations: AnalystRecommendations | None, *, max_age_days: int
+) -> float | None:
+    """Der Anteil der Kauf-Voten am juengsten Monatsstand -- oder ``None``.
+
+    **Ein gezaehlter Anteil, keine Konsenszahl.** ADR 0043 lehnt eine
+    Konsenszahl ab, weil deren Gewichte frei gewaehlt waeren; ein Anteil hat
+    keine. Dasselbe ADR sagt zugleich, dass die Uebersetzung in einen
+    Teilwert der Scoring-Engine zusteht -- hier ist sie.
+
+    **Die bekannte Schwaeche gehoert dazu:** Der Anteil unterscheidet nicht
+    zwischen "hold" und "sell". Zwei Titel mit je der Haelfte Kauf-Voten
+    bekommen denselben Wert, auch wenn beim einen der Rest haelt und beim
+    anderen verkauft. Eine Unterscheidung braeuchte Gewichte, und damit waere
+    es die Konsenszahl, die ADR 0043 ausschliesst.
+
+    ``None`` heisst hier durchgehend "keine Grundlage": kein Abruf, keine
+    Abdeckung, ein Monatsstand ohne ein einziges Votum -- oder ein Stand, der
+    aelter ist als ``max_age_days``. Der Teilwert entfaellt dann, statt als
+    Null zu gelten.
+
+    **Die Aktualitaetsschranke ist noetig, weil der Endpunkt keine hat.** Er
+    liefert den juengsten Stand, den er kennt; verliert ein Titel seine
+    Abdeckung, ist das ein Stand von vor zwei Jahren. Ohne Schranke ginge er
+    als heutige "News- und Ereignislage" mit vollem Gewicht ein -- ein
+    veralteter Wert ist kein fehlender, aber er behauptet Aktualitaet.
+    Dasselbe Muster wie bei den Fundamentaldaten (ADR 0034).
+
+    Gemessen wird gegen ``evaluated_at`` des Ergebnisses und nicht gegen die
+    Uhr: Die Domain kennt keine (CLAUDE.md), und ein gespeichertes Ergebnis
+    soll sich Jahre spaeter genauso nachrechnen lassen.
+
+    Diese Funktion ist **die** Stelle, an der der Anteil entsteht: Die
+    Kalibrierung ueber die Watchliste (``cli ratings --watchlist --output``)
+    ruft dieselbe Funktion. Zwei Formeln haetten Schwellen ergeben, die zu
+    den gemessenen Werten nicht passen.
+    """
+    if (
+        recommendations is None
+        or recommendations.status is not AnalystRecommendationStatus.COMPLETED
+    ):
+        return None
+    stand = recommendations.latest
+    if stand is None or stand.total == 0:
+        return None
+    if (recommendations.evaluated_at.date() - stand.period).days > max_age_days:
+        return None
+    return (stand.strong_buy + stand.buy) / stand.total
+
+
 LOW_SAMPLE_OBERGRENZE = 6.0
 """Die Trefferquote einer duennen Stichprobe wird gedeckelt (ADR 0045,
 Abschnitt 4). Die erste der begrenzenden Regeln aus ADR 0041, Abschnitt 4."""
@@ -81,6 +146,7 @@ def compute_swing_score(
     *,
     backtest: Sequence[BacktestResult],
     assessment: TechnicalAssessment | None,
+    analysts: AnalystRecommendations | None,
     parameters: ScoringParameters,
 ) -> ScoreResult:
     """Der Swing-Score einer bereits qualifizierten Aktie."""
@@ -90,12 +156,7 @@ def compute_swing_score(
         _signalstatistik(result, backtest, parameters, begrenzungen),
         _chart_setup(assessment, parameters),
         _chance_risiko(assessment, parameters),
-        ScoreComponent(
-            name=ComponentName.NEWS_AND_EVENTS,
-            weight=parameters.swing_weights[ComponentName.NEWS_AND_EVENTS],
-            reason="die Ableitung aus der Nachrichten- und Ereignislage ist noch nicht "
-            "entschieden (ADR 0046)",
-        ),
+        _news_und_ereignisse(analysts, parameters),
         ScoreComponent(
             name=ComponentName.OPTIONS_ATTRACTIVENESS,
             weight=parameters.swing_weights[ComponentName.OPTIONS_ATTRACTIVENESS],
@@ -109,6 +170,62 @@ def compute_swing_score(
         minimum_coverage=parameters.minimum_coverage,
         normal_confidence_coverage=parameters.normal_confidence_coverage,
         limiting_risks=begrenzungen,
+    )
+
+
+def _news_und_ereignisse(
+    analysts: AnalystRecommendations | None, parameters: ScoringParameters
+) -> ScoreComponent:
+    """Die News- und Ereignislage aus der Analystenverteilung (ADR 0046).
+
+    **Allein aus den gezaehlten Voten, nicht aus der Recherche.** ADR 0041
+    nennt beide Quellen; die Faktoren des ``ResearchReport`` sind aber
+    Freitext, und aus Freitext entsteht nie ein Teilwert (CLAUDE.md). Das ist
+    eine Verengung der Komponente, kein Austausch -- und sie ist im ADR als
+    solche ausgewiesen.
+    """
+    gewicht = parameters.swing_weights[ComponentName.NEWS_AND_EVENTS]
+    anteil = analyst_buy_share(analysts, max_age_days=parameters.analyst_max_age_days)
+    stand = analysts.latest if analysts is not None else None
+    if anteil is None:
+        return ScoreComponent(
+            name=ComponentName.NEWS_AND_EVENTS,
+            weight=gewicht,
+            value=None,
+            reason=_ohne_analystengrundlage(analysts, parameters),
+        )
+    assert stand is not None  # ``analyst_buy_share`` hat ihn bereits geprueft
+    return ScoreComponent(
+        name=ComponentName.NEWS_AND_EVENTS,
+        weight=gewicht,
+        value=parameters.analyst_buy_share.score(anteil),
+        # Votenzahl **und** Monatsstand: Ein Anteil von 100 Prozent aus drei
+        # Voten ist etwas anderes als einer aus vierzig, und einer von vor
+        # einem halben Jahr etwas anderes als der von gestern.
+        reason=f"Kauf-Anteil {anteil:.0%} aus {stand.total} Voten ({stand.period.isoformat()})",
+    )
+
+
+def _ohne_analystengrundlage(
+    analysts: AnalystRecommendations | None, parameters: ScoringParameters
+) -> str:
+    """Warum es keinen Kauf-Anteil gibt -- die vier Faelle auseinandergehalten.
+
+    Ein gemeinsamer Satz fuer alle vier stuende im Bericht und sagte nichts:
+    "kein Abruf", "keine Abdeckung", "keine Voten" und "zu alt" sind vier
+    verschiedene Befunde mit vier verschiedenen Folgen.
+    """
+    if analysts is None:
+        return "die Analystenempfehlungen wurden nicht abgerufen"
+    if analysts.status is not AnalystRecommendationStatus.COMPLETED:
+        return f"keine Analystenempfehlungen ({analysts.reason or analysts.status.value})"
+    stand = analysts.latest
+    if stand is None or stand.total == 0:
+        return "der juengste Monatsstand fuehrt kein einziges Votum"
+    alter = (analysts.evaluated_at.date() - stand.period).days
+    return (
+        f"der juengste Monatsstand ist vom {stand.period.isoformat()} und damit "
+        f"{alter} Tage alt (hoechstens {parameters.analyst_max_age_days})"
     )
 
 

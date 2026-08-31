@@ -125,6 +125,12 @@ analyst_ratings:
 finnhub:
   base_url: https://finnhub.io/api/v1
   request_timeout_seconds: 10
+  # Gemessen, nicht geraten: Der Messlauf ueber die Watchliste vom
+  # 2026-08-31 lief mit rund einer Anfrage je Sekunde und verlor vier von
+  # 192 Symbolen an "429 Too Many Requests". Die Gratis-Stufe deckelt bei
+  # 60 je Minute; 0,8 haelt Abstand. Gilt fuer beide Endpunkte -- das Limit
+  # gilt fuer das Konto, nicht fuer den Endpunkt.
+  max_requests_per_second: 0.8
 
 technical_analysis:
   # Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025).
@@ -407,7 +413,9 @@ notifications:
     request_timeout_seconds: 10
 
 scoring:
-  swing_version: "1.0"
+  # 1.1: Die News- und Ereignislage rechnet mit (ADR 0046) -- der Score steht
+  # auf 90 statt 80 Prozent Abdeckung. Die Optionsattraktivitaet wird 1.2.
+  swing_version: "1.1"
   long_term_version: "1.0"
   # Untergrenze der Datenabdeckung: darunter entsteht kein Score, sondern
   # INSUFFICIENT_DATA (Doc 09). Gesetzt, nicht gemessen -- sie ist der Punkt,
@@ -416,6 +424,23 @@ scoring:
   minimum_coverage: 0.6
   # Ab hier gilt der Score als NORMAL belastbar, darunter als LOW_COVERAGE.
   normal_confidence_coverage: 0.8
+  # Die Empfehlungsstufe, Berichtspunkt 16 (ADR 0046). Gesetzt, nicht
+  # gemessen: Eine Empfehlung liesse sich erst an realisierten Ausgaengen
+  # kalibrieren. Die Stufengrenzen sind immerhin von der Skala abgelesen, aus
+  # der der Swing-Score gebaut ist (2/4/6/8/10), und nicht gegriffen.
+  recommendation:
+    # Grundstufe aus dem Swing-Score.
+    strong_candidate: 8.0
+    candidate: 6.0
+    watch: 4.0
+    # Der Investment-Score hebt oder senkt um hoechstens eine Stufe. Ein
+    # fehlender korrigiert nicht -- fehlende Daten bestrafen nicht.
+    investment_strong: 8.0
+    investment_weak: 4.0
+    # Begrenzende Risiken. Sie koennen nur senken, nie heben.
+    cap_false_signal_high: WATCH
+    cap_earnings_unknown: CANDIDATE
+    version: "1.0"
   # Komponentengewichte nach ADR 0041. Beide Saetze muessen sich auf 1.0
   # summieren; die Umgewichtung bei fehlenden Komponenten rechnet der
   # Aggregator.
@@ -431,6 +456,18 @@ scoring:
     growth: 0.25
     valuation: 0.25
     balance_sheet_quality: 0.20
+  # Aelter darf der juengste Monatsstand der Analystenvoten nicht sein.
+  # Gesetzt: Die Voten erscheinen monatlich, 62 Tage lassen einen
+  # ausgefallenen Stand durchgehen, zwei nicht mehr. Der Endpunkt selbst
+  # kennt keine Schranke.
+  analyst_max_age_days: 62
+  # Die News- und Ereignislage steht auf dem Anteil der Kauf-Voten am
+  # juengsten Monatsstand (ADR 0046). Fuenftelgrenzen aus dem Lauf ueber 187
+  # Titel der Watchliste vom 2026-08-31, gemessen mit
+  # `cli ratings --watchlist --output` und `cli calibrate-scores`.
+  analyst_buy_share:
+    boundaries: [0.4362, 0.5758, 0.6988, 0.8182]
+    higher_is_better: true
   # Fuenftelgrenzen aus dem Lauf ueber 191 Titel der Watchliste vom
   # 2026-08-31 (ADR 0045), ausgewertet mit `cli calibrate-scores`. Gemessen,
   # nicht gesetzt: Ein geratener Teilwert ist eine erfundene Zahl.

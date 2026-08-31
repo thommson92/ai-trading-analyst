@@ -156,8 +156,16 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
     if report.investment_score is not None:
         inhalte[ReportSection.INVESTMENT_SCORE] = _rein(report.investment_score)
     if report.recommendation is not None:
+        # Die Herleitung gehoert dazu: Doc 10, Paragraph 12 verlangt fuer jede
+        # Empfehlung nachvollziehbar, worauf sie beruht. Die
+        # ``zusammenfassung`` bleibt leer, bis die KI-Haelfte des Berichts
+        # existiert -- ein deterministisch zusammengesetzter Satz waere eine
+        # Formulierung ohne Verfasser (ADR 0039).
         inhalte[ReportSection.EMPFEHLUNG] = {
-            "stufe": report.recommendation.value,
+            "stufe": report.recommendation.level.value,
+            "begruendung": list(report.recommendation.reasons),
+            "deckelungen": list(report.recommendation.applied_caps),
+            "version": report.recommendation.version,
             "zusammenfassung": report.summary,
         }
     return inhalte

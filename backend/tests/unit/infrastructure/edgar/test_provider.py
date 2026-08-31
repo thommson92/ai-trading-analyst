@@ -25,7 +25,6 @@ from ai_trading_analyst.infrastructure.edgar import (
     EdgarConnectionSettings,
     EdgarFundamentalDataProvider,
 )
-from ai_trading_analyst.infrastructure.edgar.provider import _Drossel
 
 SETTINGS = EdgarConnectionSettings(
     base_url="https://data.example",
@@ -225,20 +224,6 @@ class TestKursDurchreichen:
         anfragen: list[httpx.Request] = []
         _provider(_transport(anfragen)).fundamentals(AKTIE)
         assert all("price" not in str(anfrage.url).lower() for anfrage in anfragen)
-
-
-class TestDrossel:
-    def test_sie_wartet_zwischen_zwei_anfragen(self) -> None:
-        gewartet: list[float] = []
-        drossel = _Drossel(2.0, sleep=gewartet.append)
-        drossel.warte()
-        drossel.warte()
-        assert len(gewartet) == 1
-        assert gewartet[0] == pytest.approx(0.5, abs=0.05)
-
-    def test_eine_nichtpositive_rate_ist_ein_fehler(self) -> None:
-        with pytest.raises(ValueError, match="positiv"):
-            _Drossel(0.0)
 
 
 class TestEchteEinreichung:

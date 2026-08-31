@@ -46,8 +46,15 @@ Thumbs.db
 .vscode/
 !.vscode/extensions.json
 
-# Messergebnisse der Kalibrierung (ADR 0041). Sie entstehen aus
-# 'fundamental --output' und 'calibrate-scores', veralten mit dem naechsten
-# Lauf und gehoeren nicht in die Versionsverwaltung -- die ADR haelt die
-# abgeleiteten Schwellen fest, nicht die Rohdaten.
+# Messergebnisse der Kalibrierung (ADR 0041, ADR 0045, ADR 0046). Sie
+# entstehen aus 'fundamental --output' und 'ratings --output', veralten mit
+# dem naechsten Lauf und gehoeren nicht in die Versionsverwaltung -- die ADRs
+# halten die abgeleiteten Schwellen fest, nicht die Rohdaten.
+#
+# Bei den Analystenvoten ist es mehr als Ordnung: Sie sind Finnhub-Daten, und
+# ADR 0017 L8 untersagt die Weitergabe an Dritte. Dieses Repository ist
+# oeffentlich. Eine Mess-CSV darin waere genau die Weitergabe, die ADR 0047
+# fuer die Telegram-Meldung sorgfaeltig ausschliesst.
 kalibrierung*.csv
+ratings*.csv
+*.messlauf.csv

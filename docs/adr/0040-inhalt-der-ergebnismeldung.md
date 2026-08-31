@@ -116,3 +116,16 @@ Punktzahl ist näher an einer Bewertung als ein Signaltyp.
   verspäteter Lauf innerhalb der Nachholfrist läge sonst schon am Folgetag.
 - **Zu entscheiden, sobald es Scores gibt:** ob eine Punktzahl in die Meldung
   gehört. Dieses ADR sagt Nein zu Zahlen; ein Score ist eine.
+
+## Nachtrag vom 2026-08-31
+
+Der letzte Punkt ist entschieden:
+[ADR 0047](0047-scores-in-der-ergebnismeldung.md) nimmt **beide Scores und
+die Empfehlungsstufe** in die Meldung auf und löst dieses ADR in genau diesem
+Punkt ab — so wie dieses ADR seinerseits ADR 0024 gelockert hat. Alles
+Übrige gilt unverändert: kein Freitext, keine Kurse, keine Kennzahlen, kein
+Link.
+
+ADR 0047 holt außerdem zwei Dinge nach, die hier offen blieben: Finnhubs
+Einschränkung L8, die dieses ADR nicht erwähnt, und der Beleg für die
+Kürzungsgrenze, die hier mit „etwa 65 Kandidaten" geschätzt war.

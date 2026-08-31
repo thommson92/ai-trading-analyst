@@ -1186,7 +1186,7 @@ class TestBerichtImTageslauf:
 
         assert bericht.swing_score is not None
         assert bericht.investment_score is not None
-        assert bericht.scoring_version == "swing-1.0+long_term-1.0"
+        assert bericht.scoring_version == "swing-1.1+long_term-1.0"
 
     def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
         """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die

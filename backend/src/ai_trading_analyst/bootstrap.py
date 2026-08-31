@@ -11,6 +11,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import cache
 from importlib import metadata
 from pathlib import Path
 
@@ -44,6 +45,8 @@ from ai_trading_analyst.domain.scoring import (
     SIGNAL_TEILWERTE,
     ComponentName,
     MetricThresholds,
+    Recommendation,
+    RecommendationParameters,
     ScoringParameters,
 )
 from ai_trading_analyst.domain.screening import (
@@ -97,6 +100,7 @@ from ai_trading_analyst.infrastructure.persistence.session import (
 )
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.infrastructure.watchlists import load_watchlist_directory
 from ai_trading_analyst.presentation.api.app import create_app
 
@@ -195,6 +199,24 @@ def build_market_data_provider(
     )
 
 
+@cache
+def _finnhub_drossel(max_requests_per_second: float) -> Drossel:
+    """**Eine Drossel je Konto, nicht je Endpunkt** (ADR 0046).
+
+    Finnhubs Grenze gilt fuer den Zugangsschluessel, und der Tageslauf fragt
+    je Kandidat den Earnings-Kalender und die Empfehlungen unmittelbar
+    nacheinander. Zwei getrennte Drosseln liessen beide ersten Aufrufe sofort
+    durch und verdoppelten die Rate -- genau der ``429``, den die Drossel
+    verhindern soll.
+
+    ``cache``, weil die beiden ``build_*``-Funktionen unabhaengig
+    voneinander aufgerufen werden: einmal aus ``build_app``, einmal aus dem
+    CLI. Ein Modul-Singleton waere dasselbe, nur ohne den Schluessel auf die
+    Rate.
+    """
+    return Drossel(max_requests_per_second)
+
+
 def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> FinnhubEarningsProvider:
     finnhub = config.finnhub
     return FinnhubEarningsProvider(
@@ -203,7 +225,9 @@ def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> Finn
             api_key=secrets.require("finnhub_api_key"),
             request_timeout_seconds=float(finnhub.request_timeout_seconds),
             lookahead_calendar_days=config.earnings_filter.lookahead_calendar_days,
-        )
+            max_requests_per_second=finnhub.max_requests_per_second,
+        ),
+        drossel=_finnhub_drossel(finnhub.max_requests_per_second),
     )
 
 
@@ -236,7 +260,9 @@ def build_analyst_recommendations_provider(
             api_key=secrets.require("finnhub_api_key"),
             request_timeout_seconds=float(finnhub.request_timeout_seconds),
             months=config.analyst_ratings.months,
-        )
+            max_requests_per_second=finnhub.max_requests_per_second,
+        ),
+        drossel=_finnhub_drossel(finnhub.max_requests_per_second),
     )
 
 
@@ -408,10 +434,26 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
 
     _pruefe_signalabbildung(config)
 
+    empfehlung = config.scoring.recommendation
     return ScoringParameters(
+        recommendation=RecommendationParameters(
+            strong_candidate=empfehlung.strong_candidate,
+            candidate=empfehlung.candidate,
+            watch=empfehlung.watch,
+            investment_strong=empfehlung.investment_strong,
+            investment_weak=empfehlung.investment_weak,
+            cap_false_signal_high=Recommendation(empfehlung.cap_false_signal_high),
+            cap_earnings_unknown=Recommendation(empfehlung.cap_earnings_unknown),
+            version=empfehlung.version,
+        ),
         swing_weights=_gewichte(config.scoring.swing_weights),
         long_term_weights=_gewichte(config.scoring.long_term_weights),
         thresholds=schwellen,
+        analyst_max_age_days=config.scoring.analyst_max_age_days,
+        analyst_buy_share=MetricThresholds(
+            boundaries=config.scoring.analyst_buy_share.boundaries,
+            higher_is_better=config.scoring.analyst_buy_share.higher_is_better,
+        ),
         minimum_coverage=config.scoring.minimum_coverage,
         normal_confidence_coverage=config.scoring.normal_confidence_coverage,
         swing_version=config.scoring.swing_version,

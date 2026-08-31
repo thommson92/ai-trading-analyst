@@ -18,7 +18,7 @@ from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
-from ai_trading_analyst.domain.scoring import ScoreResult
+from ai_trading_analyst.domain.scoring import RecommendationResult, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
@@ -138,6 +138,13 @@ class StockScreeningOutcome:
     Getrennt vom Swing-Score gefuehrt und **nie mit ihm verrechnet** (Doc 09):
     Ein Titel kann als Swing-Kandidat stark und als Investment schwach sein,
     und genau das sichtbar zu machen ist der Zweck der Trennung."""
+    recommendation: RecommendationResult | None = None
+    """Die Empfehlungsstufe (Doc 10, Paragraph 6.12 Punkt 16; ADR 0046) --
+    nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.
+
+    Sie wird **gerechnet**, nicht im Bericht zugeordnet: Der Report Generator
+    erzeugt keine neuen Fakten (ADR 0039). Aus beiden Scores, ohne sie zu
+    einer Zahl zu verrechnen -- Doc 09 schliesst das aus."""
     backtest: tuple[BacktestResult, ...] = ()
     """Die historische Signalstatistik je Signalkombination (Doc 10,
     Paragraph 7; ADR 0038) -- nur bei ``ScreeningStatus.CANDIDATE`` gefuellt.

@@ -9,18 +9,23 @@ echtes Netzwerk pruefen laesst, ueber ``httpx.MockTransport``.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from ai_trading_analyst.config import NotificationsConfig, Secrets, TelegramConfig
+from ai_trading_analyst.domain.report import render_notification
 from ai_trading_analyst.domain.scheduling import NotifierError
 from ai_trading_analyst.infrastructure.notifications import (
+    MAX_TEXT_ZEICHEN,
     LoggingNotifier,
     NotificationChannelNotConfiguredError,
     TelegramNotifier,
     TelegramSettings,
     build_notifier,
 )
+from tests.unit.domain.report.test_notification import kandidat, zusammenfassung
 
 
 def _secrets(token: str | None = "bot-token") -> Secrets:
@@ -141,3 +146,118 @@ class TestTelegramAusgang:
             _notifier(transport).send("Betreff", "Text")
 
         assert "bot-token" not in str(fehler.value)
+
+
+class TestKuerzung:
+    """Eine zu lange Meldung wird gekuerzt, nicht verworfen (ADR 0040).
+
+    Telegram lehnt ueber 4096 Zeichen mit einem 400 ab; daraus wuerde ein
+    ``NotifierError``, den der Aufrufer protokolliert -- aus "viele
+    Kandidaten" wuerde "keine Nachricht", ausgerechnet am Tag mit dem meisten
+    zu melden. Die Zusicherung stand seit ADR 0040 im Code und war bis hier
+    ungeprueft.
+    """
+
+    def test_ein_zu_langer_text_wird_auf_die_grenze_gekuerzt(self) -> None:
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "x" * (MAX_TEXT_ZEICHEN + 500))
+
+        (text,) = gesendet
+        assert len(text) <= MAX_TEXT_ZEICHEN
+
+    def test_die_kuerzung_ist_als_kuerzung_erkennbar(self) -> None:
+        """Eine stillschweigend abgeschnittene Liste saehe aus wie eine
+        vollstaendige."""
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "x" * (MAX_TEXT_ZEICHEN + 500))
+
+        assert "gekuerzt" in gesendet[0]
+
+    def test_ein_kurzer_text_bleibt_unangetastet(self) -> None:
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "kurz und knapp")
+
+        assert gesendet == ["Betreff\n\nkurz und knapp"]
+
+
+class TestLaengeEinerEchtenMeldung:
+    """Wie viele Kandidaten passen, bevor gekuerzt wird (ADR 0047).
+
+    **Gemessen an dem, was tatsaechlich versendet wird** -- also an
+    ``Betreff + Leerzeile + Text``, nicht am Text allein. Der erste Anlauf
+    dieses Tests mass nur den Text und war damit um eine Zeile zu
+    optimistisch; der Betreff waechst ausserdem mit der Kandidatenzahl.
+
+    Der Test steht hier und nicht beim Renderer: Die Grenze ist eine
+    Eigenschaft des Kanals.
+    """
+
+    @staticmethod
+    def _laenge(anzahl: int, *, voll: bool) -> int:
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        betreff, text = render_notification(
+            zusammenfassung(
+                *(
+                    kandidat(f"SYM{i:04d}", swing=8.6, investment=5.5, voll=voll)
+                    for i in range(anzahl)
+                ),
+                aktien=200,
+            ),
+            timezone="America/New_York",
+        )
+        _notifier(httpx.MockTransport(handler)).send(betreff, text)
+        return len(gesendet[0])
+
+    def test_im_unguenstigsten_fall_passen_vierundzwanzig(self) -> None:
+        """Drei Signale, Fehlsignalrisiko und Earnings-Hinweis -- die
+        laengstmoegliche Zeile."""
+        assert self._laenge(24, voll=True) <= MAX_TEXT_ZEICHEN
+        assert self._laenge(25, voll=True) == MAX_TEXT_ZEICHEN
+
+    def test_mit_der_kurzen_zeile_passen_einundfuenfzig(self) -> None:
+        assert self._laenge(51, voll=False) <= MAX_TEXT_ZEICHEN
+        assert self._laenge(52, voll=False) == MAX_TEXT_ZEICHEN
+
+    def test_jenseits_der_grenze_wird_gekuerzt_und_nicht_verworfen(self) -> None:
+        """Der eigentliche Zweck: Aus "viele Kandidaten" darf nicht "keine
+        Nachricht" werden."""
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        betreff, text = render_notification(
+            zusammenfassung(
+                *(
+                    kandidat(f"SYM{i:04d}", swing=8.6, investment=5.5, voll=True)
+                    for i in range(60)
+                ),
+                aktien=200,
+            ),
+            timezone="America/New_York",
+        )
+        _notifier(httpx.MockTransport(handler)).send(betreff, text)
+
+        assert "gekuerzt" in gesendet[0]
+        assert "SYM0000" in gesendet[0], "der beste Kandidat ist trotz Kuerzung dabei"

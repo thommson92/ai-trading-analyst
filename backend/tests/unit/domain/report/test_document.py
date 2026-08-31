@@ -18,6 +18,8 @@ from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
+    Recommendation,
+    RecommendationResult,
     ScoreComponent,
     ScoreConfidence,
     ScoreKind,
@@ -293,3 +295,43 @@ class TestScoreImDokument:
 
     def test_das_dokument_bleibt_json(self) -> None:
         json.dumps(dokument(swing_score=self._score()))
+
+
+class TestEmpfehlungImDokument:
+    """Punkt 16 traegt die Herleitung mit, nicht nur den Namen der Stufe.
+
+    Doc 10, Paragraph 12 verlangt fuer jede Empfehlung nachvollziehbar, worauf
+    sie beruht -- und der Bericht ist die verbindliche Fassung, aus der sich
+    das spaeter nicht mehr ergaenzen laesst.
+    """
+
+    @staticmethod
+    def _inhalt() -> dict:  # type: ignore[type-arg]
+        empfehlung = RecommendationResult(
+            level=Recommendation.WATCH,
+            version="1.0",
+            reasons=(
+                "Swing-Score 9.0 ergibt STRONG_CANDIDATE",
+                "hohes Fehlsignalrisiko der KI-Einordnung: hoechstens WATCH",
+            ),
+            applied_caps=("hohes Fehlsignalrisiko der KI-Einordnung: hoechstens WATCH",),
+        )
+        abschnitt = dokument(recommendation=empfehlung)["abschnitte"][
+            ReportSection.EMPFEHLUNG.value
+        ]
+        inhalt: dict = abschnitt["inhalt"]  # type: ignore[type-arg]
+        return inhalt
+
+    def test_stufe_begruendung_deckelungen_und_version(self) -> None:
+        inhalt = self._inhalt()
+
+        assert inhalt["stufe"] == "WATCH"
+        assert len(inhalt["begruendung"]) == 2
+        assert inhalt["deckelungen"] == [
+            "hohes Fehlsignalrisiko der KI-Einordnung: hoechstens WATCH"
+        ]
+        assert inhalt["version"] == "1.0"
+
+    def test_die_zusammenfassung_steht_ausdruecklich_als_leer(self) -> None:
+        """Ein fehlender Schluessel saehe aus wie ein vergessener."""
+        assert self._inhalt()["zusammenfassung"] is None

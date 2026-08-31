@@ -283,6 +283,16 @@ class FinnhubConfig(_Section):
 
     base_url: str = "https://finnhub.io/api/v1"
     request_timeout_seconds: PositiveInt = 10
+    max_requests_per_second: PositiveFloat = 0.8
+    """Gemessen, nicht geraten: Der Messlauf ueber die Watchliste vom
+    2026-08-31 lief mit rund einer Anfrage je Sekunde und verlor vier von
+    192 Symbolen an ``429 Too Many Requests``. Die Gratis-Stufe deckelt bei
+    60 je Minute, also genau eine je Sekunde -- 0,8 haelt Abstand, aus
+    demselben Grund wie bei EDGAR: Eine Drossel, die genau auf der Grenze
+    liegt, ueberschreitet sie bei jeder Ungenauigkeit der Uhr.
+
+    Gilt fuer **beide** Endpunkte desselben Kontos, denn das Limit gilt fuer
+    das Konto und nicht fuer den Endpunkt."""
 
 
 class EdgarConfig(_Section):
@@ -785,6 +795,48 @@ class MetricThresholdConfig(_Section):
         return self
 
 
+class RecommendationConfig(_Section):
+    """Die Ableitung der Empfehlungsstufe (ADR 0046).
+
+    **Gesetzt, nicht gemessen.** Eine Empfehlung liesse sich erst an
+    realisierten Ausgaengen kalibrieren, und die gibt es nicht. Die
+    Stufengrenzen sind immerhin von der Skala abgelesen, aus der der
+    Swing-Score gebaut ist (2/4/6/8/10, ADR 0045), und nicht gegriffen.
+    """
+
+    strong_candidate: NonNegativeFloat = 8.0
+    candidate: NonNegativeFloat = 6.0
+    watch: NonNegativeFloat = 4.0
+    investment_strong: NonNegativeFloat = 8.0
+    investment_weak: NonNegativeFloat = 4.0
+    cap_false_signal_high: Literal["STRONG_CANDIDATE", "CANDIDATE", "WATCH", "AVOID_FOR_NOW"] = (
+        "WATCH"
+    )
+    """Haelt die KI-Einordnung das Signal fuer unzuverlaessig, ist mehr als
+    Beobachten nicht zu rechtfertigen -- der ganze Lauf steht auf dem
+    Signal."""
+    cap_earnings_unknown: Literal[
+        "STRONG_CANDIDATE", "CANDIDATE", "WATCH", "AVOID_FOR_NOW"
+    ] = "CANDIDATE"
+    """Ein unbekannter Termin ist ein Datenrisiko, kein schlechter Befund
+    (Doc 10, Paragraph 6.5). Er schliesst die hoechste Stufe aus, mehr
+    nicht."""
+    version: str = "1.0"
+
+    @model_validator(mode="after")
+    def _thresholds_must_fall(self) -> RecommendationConfig:
+        if not self.strong_candidate > self.candidate > self.watch:
+            raise ValueError(
+                "scoring.recommendation: die Stufengrenzen muessen fallen "
+                "(strong_candidate > candidate > watch)"
+            )
+        if self.investment_weak >= self.investment_strong:
+            raise ValueError(
+                "scoring.recommendation: investment_weak muss unter investment_strong liegen"
+            )
+        return self
+
+
 class ScoringConfig(_Section):
     """Die beiden Scores (Doc 09; Doc 10, Paragraph 6.11).
 
@@ -792,7 +844,11 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.0"
+    swing_version: str = "1.1"
+    """``1.1`` gegenueber ``1.0``: Die News- und Ereignislage rechnet mit
+    (ADR 0046). Der Score steht damit auf 90 statt 80 Prozent Abdeckung --
+    dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
+    deshalb steigt die Nummer."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
@@ -800,8 +856,22 @@ class ScoringConfig(_Section):
     normal_confidence_coverage: NonNegativeFloat = 0.8
     """Ab hier gilt der Score als ``NORMAL`` belastbar, darunter als
     ``LOW_COVERAGE``. Muster ``backtesting.normal_confidence_sample_size``."""
+    recommendation: RecommendationConfig = RecommendationConfig()
     swing_weights: SwingWeightsConfig = SwingWeightsConfig()
     long_term_weights: LongTermWeightsConfig = LongTermWeightsConfig()
+    analyst_max_age_days: PositiveInt = 62
+    """Aelter darf der juengste Monatsstand der Analystenvoten nicht sein.
+
+    **Gesetzt, nicht gemessen** (ADR 0046): Die Voten erscheinen monatlich;
+    62 Tage lassen einen ausgefallenen Stand durchgehen, zwei nicht mehr. Der
+    Endpunkt selbst kennt keine Schranke -- er liefert den juengsten Stand,
+    den er hat, auch wenn der zwei Jahre alt ist."""
+    analyst_buy_share: MetricThresholdConfig = MetricThresholdConfig(
+        boundaries=(0.4362, 0.5758, 0.6988, 0.8182), higher_is_better=True
+    )
+    """Die Schwellen der News-Komponente (ADR 0046) -- an 187 Titeln der
+    Watchliste gemessen. Ein eigenes Feld und kein Eintrag in ``thresholds``:
+    Der Kauf-Anteil ist keine Kennzahl aus einer SEC-Einreichung."""
     thresholds: dict[str, MetricThresholdConfig] = {}
     """Die Schwellen je Kennzahl, Schluessel ist der Name aus ``MetricName``.
 

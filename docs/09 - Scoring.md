@@ -39,7 +39,7 @@ keine Scheingenauigkeit vortäuschen (Doc 10 §6.11).
 | Historische Signalqualität | 25 % | `BacktestResult` je Kandidat ([ADR 0038](adr/0038-backtest-im-tageslauf.md)) |
 | Chart-Setup | 15 % | `TechnicalSnapshot` und `TechnicalAssessment` |
 | Chance-Risiko-Verhältnis | 15 % | `TechnicalSnapshot.chance_risk_ratio` |
-| News- und Ereignislage | 10 % | `ResearchReport`, Analystenempfehlungen |
+| News- und Ereignislage | 10 % | Analystenempfehlungen ([ADR 0046](adr/0046-empfehlungsstufe-aus-beiden-scores.md)) |
 | Optionsattraktivität | 10 % | Optionsanalyse |
 
 **Die Hälfte des Gewichts liegt auf den beiden nachrechenbaren Komponenten.**
@@ -57,6 +57,16 @@ vom Sprachmodell schätzen zu lassen
 10 %. [ADR 0029](adr/0029-research-qualitaet.md) belegt an zwei
 Vergleichsläufen, dass die Recherchequellen real meist nur `LIMITED`
 abdecken.
+
+Sie steht deshalb **allein auf der gezählten Analystenverteilung** — dem
+Anteil der Kauf-Voten am jüngsten Monatsstand, an 187 Titeln der Watchliste
+kalibriert und mit einer Aktualitätsschranke von 62 Tagen versehen: Der
+Endpunkt liefert den jüngsten Stand, den er kennt, auch wenn der zwei Jahre
+alt ist. Die Recherche trägt nichts bei: Ihre Faktoren sind Freitext, und
+aus Freitext entsteht nie ein Teilwert. Das ist eine Verengung gegenüber
+ADR 0041, kein Austausch, und in
+[ADR 0046](adr/0046-empfehlungsstufe-aus-beiden-scores.md) als solche
+ausgewiesen.
 
 ---
 
@@ -158,13 +168,41 @@ Interpretation.
 
 ### Begrenzende Risiken
 
-Kritische Risiken können einen Score deckeln. Die Regel entsteht mit den
-Schwellen; die Kandidaten stehen fest:
+Kritische Risiken deckeln nicht den Score, sondern die **Empfehlungsstufe**
+([ADR 0046](adr/0046-empfehlungsstufe-aus-beiden-scores.md)):
 
-- `FalseSignalRisk.HIGH` — die KI-Einordnung hält das Signal für unzuverlässig,
-- `EarningsFilterStatus.UNKNOWN` — der Berichtstermin ist unbekannt,
-- `BacktestConfidence.INSUFFICIENT_DATA` — die Stichprobe trägt nicht,
-- Datenabdeckung unterhalb der Untergrenze.
+| Befund | Wirkung |
+|---|---|
+| kein Swing-Score | `INSUFFICIENT_DATA`, absorbierend |
+| `FalseSignalRisk.HIGH` | höchstens `WATCH` |
+| `EarningsFilterStatus.UNKNOWN` | höchstens `CANDIDATE` |
+| `BacktestConfidence.INSUFFICIENT_DATA` | keine zusätzliche Deckelung |
+
+Die letzte Zeile ist Absicht: Eine untragbare Stichprobe lässt die
+Signalstatistik schon als Komponente entfallen (ADR 0045) und senkt damit die
+Datenabdeckung. Sie ein zweites Mal durchschlagen zu lassen bestrafte
+dieselbe Tatsache zweimal.
+
+---
+
+## Empfehlungsstufe
+
+Berichtspunkt 16. **Der Swing-Score führt**, denn der Tageslauf sucht
+Einstiege, nicht Unternehmen:
+
+| Swing-Score | Stufe |
+|---|---|
+| ≥ 8 | `STRONG_CANDIDATE` |
+| ≥ 6 | `CANDIDATE` |
+| ≥ 4 | `WATCH` |
+| darunter | `AVOID_FOR_NOW` |
+
+Der Investment-Score **korrigiert um höchstens eine Stufe** — ab 8 hebt er,
+bis 4 senkt er. Ein fehlender korrigiert nicht: Fehlende Daten bestrafen
+nicht. Danach greifen die begrenzenden Risiken; sie können nur senken.
+
+**Die beiden Scores werden dabei nicht zu einer Zahl verrechnet.** Zwei
+Achsen, eine Stufe — und beide Zahlen bleiben im Bericht sichtbar.
 
 ---
 
@@ -196,32 +234,26 @@ ADR 0045 als solche gekennzeichnet.
 
 `scoring.swing_version` und `scoring.long_term_version` stehen an jedem
 gespeicherten Ergebnis. Sie steigen, wenn sich Komponenten, Gewichte oder
-Schwellen ändern.
+Schwellen ändern. Der Swing-Score steht bei `1.1`: `1.0` rechnete ohne die
+News- und Ereignislage.
 
 Zwei Änderungen sind bereits absehbar:
 
 | Anlass | Wirkung |
 |---|---|
-| Optionsanalyse wird angeschlossen | Swing-Score rechnet erstmals auf 100 % statt 90 % Abdeckung |
+| Optionsanalyse wird angeschlossen | Swing-Score rechnet erstmals auf 100 % statt 90 % Abdeckung (`swing-1.2`) |
 | KI-Hälfte der Fundamentalanalyse | Investment-Score bekommt die heute unbewerteten Bereiche |
 
-Bis dahin rechnet der Swing-Score auf **80 %** Abdeckung: Neben der
-Optionsattraktivität fehlt auch die News- und Ereignislage, deren Ableitung
-mit der Empfehlungsstufe entschieden wird (ADR 0046, noch offen). Beides ist
-ausgewiesen — es heißt aber, dass die ersten Scores mit späteren nicht
-unmittelbar vergleichbar sind. Ein vollständiger Swing-Score liegt damit
-genau auf der Normalgrenze und gilt als `NORMAL`.
+Bis dahin rechnet der Swing-Score auf **90 %** Abdeckung — es fehlt allein
+die Optionsattraktivität. Das ist ausgewiesen; es heißt aber, dass die ersten
+Scores mit späteren nicht unmittelbar vergleichbar sind.
 
-**Eine gemessene Folge davon gehört dazu:** Fällt die KI-Einordnung aus,
-entfallen Chart-Setup und Chance-Risiko-Verhältnis gemeinsam — sie stehen
-beide an ihr. Übrig bleiben Signale und Signalstatistik mit zusammen 50 %,
-und damit entsteht **kein** Swing-Score. ADR 0041 hatte diesen Fall bei 60 %
-gesehen, also gerade noch oberhalb; die fehlenden zehn Prozentpunkte sind die
-News- und Ereignislage. Das ist keine Ausnahme von der Untergrenze, sondern
-ihre Anwendung — aber es heißt, dass ein Ausfall des Sprachmodells heute
-teurer ist als vorgesehen. Der Fall ist in
-`tests/unit/domain/scoring/test_swing.py` festgehalten und mit ADR 0046
-erledigt.
+**Ein Ausfall der KI-Einordnung kostet 30 Prozentpunkte auf einmal:**
+Chart-Setup und Chance-Risiko-Verhältnis stehen beide an ihr. Übrig bleiben
+60 % — genau die Leiter, die ADR 0041 vorgesehen hatte, und der Score
+entsteht weiterhin. Fällt zusätzlich der Analystenabruf aus, sind es 50 %
+und es entsteht keiner. Beide Fälle sind in
+`tests/unit/domain/scoring/test_swing.py` festgehalten.
 
 ---
 
@@ -232,13 +264,17 @@ Beispiel, wie es im Bericht erscheint:
 ```
 NVDA
 
-Swing Trade Score          8,6 / 10    Abdeckung 80 %   Konfidenz NORMAL
-  Technische Signale      10,0         Gewicht 31,3 %
-  Historische Signalgüte   8,5         Gewicht 31,3 %
-  Chart-Setup              9,0         Gewicht 18,8 %
-  Chance-Risiko            6,0         Gewicht 18,8 %
-  News- und Ereignislage   —           fehlt
+Swing Trade Score          8,5 / 10    Abdeckung 90 %   Konfidenz NORMAL
+  Technische Signale      10,0         Gewicht 27,8 %
+  Historische Signalgüte   8,5         Gewicht 27,8 %
+  Chart-Setup              9,0         Gewicht 16,7 %
+  Chance-Risiko            6,0         Gewicht 16,7 %
+  News- und Ereignislage   8,0         Gewicht 11,1 %
   Optionsattraktivität     —           fehlt
+
+Empfehlung                 STRONG_CANDIDATE
+  Swing-Score 8,5 ergibt STRONG_CANDIDATE
+  Investment-Score 9,2 -- bereits die höchste Stufe
 
 Long-Term Investment       9,2 / 10    Abdeckung 100 %  Konfidenz NORMAL
   Profitabilität           9,5         Gewicht 30,0 %
@@ -247,8 +283,8 @@ Long-Term Investment       9,2 / 10    Abdeckung 100 %  Konfidenz NORMAL
   Bilanzqualität           9,0         Gewicht 20,0 %
 ```
 
-Die Gewichte im Swing-Beispiel sind die **normierten**: Ohne die beiden
-fehlenden Komponenten verteilen sich die verbleibenden 80 % auf 100 %, aus
-25 % werden also 31,3 %. Die fehlenden Komponenten stehen trotzdem in der
-Liste — nicht als Null, sondern als Lücke. Sie mit 0 zu bewerten hieße zu
+Die Gewichte im Swing-Beispiel sind die **normierten**: Ohne die
+Optionsattraktivität verteilen sich die verbleibenden 90 % auf 100 %, aus
+25 % werden also 27,8 %. Die fehlende Komponente steht trotzdem in der Liste
+— nicht als Null, sondern als Lücke. Sie mit 0 zu bewerten hieße zu
 behaupten, die Optionen seien geprüft und unattraktiv.

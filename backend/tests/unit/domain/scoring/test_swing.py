@@ -9,12 +9,17 @@ Setzung aus dem ADR treffen und dass die begrenzende Regel greift.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+    RecommendationPeriod,
+)
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
@@ -94,6 +99,32 @@ def statistik(
     )
 
 
+def voten(
+    anteil: float, *, gesamt: int = 30, stand: date = date(2026, 8, 1)
+) -> AnalystRecommendations:
+    """Eine Verteilung mit dem gewuenschten Kauf-Anteil.
+
+    ``strong_buy`` und ``buy`` zaehlen zusammen, der Rest liegt auf ``hold``
+    -- die Abbildung unterscheidet beides nicht, und das steht so im ADR.
+    """
+    kaufe = round(anteil * gesamt)
+    return AnalystRecommendations(
+        status=AnalystRecommendationStatus.COMPLETED,
+        evaluated_at=JETZT,
+        periods=(
+            RecommendationPeriod(
+                period=stand,
+                strong_buy=kaufe,
+                buy=0,
+                hold=gesamt - kaufe,
+                sell=0,
+                strong_sell=0,
+            ),
+        ),
+        source="fixture",
+    )
+
+
 def einordnung(
     *,
     status: TechnicalAssessmentStatus = TechnicalAssessmentStatus.COMPLETED,
@@ -126,11 +157,13 @@ def rechne(
     result: ScreeningResult = _STANDARD,
     backtest: Sequence[BacktestResult] = _STANDARD,
     assessment: TechnicalAssessment | None = _STANDARD,
+    analysts: AnalystRecommendations | None = _STANDARD,
 ) -> ScoreResult:
     return compute_swing_score(
         ergebnis() if result is _STANDARD else result,
         backtest=(statistik(),) if backtest is _STANDARD else backtest,
         assessment=einordnung() if assessment is _STANDARD else assessment,
+        analysts=voten(0.9) if analysts is _STANDARD else analysts,
         parameters=params,
     )
 
@@ -138,6 +171,11 @@ def rechne(
 def teilwert(score: ScoreResult, name: ComponentName) -> float | None:
     (komponente,) = [k for k in score.components if k.name is name]
     return komponente.value
+
+
+def _grund(score: ScoreResult) -> str:
+    (komponente,) = [k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS]
+    return komponente.reason or ""
 
 
 def teilwert_zwingend(score: ScoreResult, name: ComponentName) -> float:
@@ -328,18 +366,212 @@ class TestChanceRisiko:
         assert teilwert(score, ComponentName.CHANCE_RISK) is None
 
 
-class TestNochNichtGebauteKomponenten:
-    def test_news_und_optionen_stehen_als_luecke_in_der_liste(
+class TestNewsUndEreignislage:
+    """Die Komponente steht auf der gezaehlten Analystenverteilung (ADR 0046).
+
+    Nicht auf der Recherche: Deren Faktoren sind Freitext, und aus Freitext
+    entsteht nie ein Teilwert. Eine Verengung der Komponente, kein Austausch.
+    """
+
+    def test_ein_hoher_kauf_anteil_ergibt_den_hoechsten_teilwert(
         self, scoring_params: ScoringParameters
     ) -> None:
-        """Sie mit 0 zu bewerten hiesse zu behaupten, sie seien geprueft und
-        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlen."""
+        score = rechne(scoring_params, analysts=voten(0.95))
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 10.0
+
+    def test_ein_niedriger_den_niedrigsten(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(scoring_params, analysts=voten(0.05))
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 2.0
+
+    def test_starke_und_einfache_kaufempfehlungen_zaehlen_beide(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der Anteil ist ``(strong_buy + buy) / total``.
+
+        Die uebrigen Tests legen alle Kauf-Voten auf ``strong_buy`` -- eine
+        Formel, die nur den starken Kauf zaehlt, kaeme dort mit demselben
+        Ergebnis durch. Hier liegt die Mehrheit ausdruecklich auf ``buy``.
+        """
+        gemischt = AnalystRecommendations(
+            status=AnalystRecommendationStatus.COMPLETED,
+            evaluated_at=JETZT,
+            periods=(
+                RecommendationPeriod(
+                    period=date(2026, 8, 1),
+                    strong_buy=4,
+                    buy=20,
+                    hold=6,
+                    sell=0,
+                    strong_sell=0,
+                ),
+            ),
+            source="fixture",
+        )
+
+        score = rechne(scoring_params, analysts=gemischt)
+
+        # 24 von 30 sind 80 Prozent -- das vierte Fuenftel. Nur der starke
+        # Kauf waeren 13 Prozent und damit das unterste.
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert komponente.value == 8.0
+        assert "80%" in (komponente.reason or "")
+
+    def test_verkaufsempfehlungen_senken_den_anteil(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Sie zaehlen im Nenner mit. Ein Zaehler ueber den Kauf-Voten allein
+        und ein Nenner ohne die Verkaeufe waere kein Anteil."""
+        ueberwiegend_verkauf = AnalystRecommendations(
+            status=AnalystRecommendationStatus.COMPLETED,
+            evaluated_at=JETZT,
+            periods=(
+                RecommendationPeriod(
+                    period=date(2026, 8, 1),
+                    strong_buy=3,
+                    buy=3,
+                    hold=4,
+                    sell=10,
+                    strong_sell=10,
+                ),
+            ),
+            source="fixture",
+        )
+
+        score = rechne(scoring_params, analysts=ueberwiegend_verkauf)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 2.0
+
+    def test_die_zahl_der_voten_steht_in_der_begruendung(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Ein Anteil von 100 Prozent aus drei Voten ist etwas anderes als
+        einer aus vierzig."""
+        score = rechne(scoring_params, analysts=voten(0.9, gesamt=7))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert "7 Voten" in (komponente.reason or "")
+
+    def test_ohne_abruf_fehlt_die_komponente(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(scoring_params, analysts=None)
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+    @pytest.mark.parametrize(
+        "status", [AnalystRecommendationStatus.UNKNOWN, AnalystRecommendationStatus.UNAVAILABLE]
+    )
+    def test_ohne_abdeckung_und_bei_ausfall_ebenfalls(
+        self, scoring_params: ScoringParameters, status: AnalystRecommendationStatus
+    ) -> None:
+        """"Der Anbieter fuehrt das Symbol nicht" ist keine Meinung, und ein
+        Ausfall erst recht keine (ADR 0043)."""
+        ohne = AnalystRecommendations(
+            status=status, evaluated_at=JETZT, reason="no_coverage", source="fixture"
+        )
+        score = rechne(scoring_params, analysts=ohne)
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+    def test_ein_veralteter_monatsstand_zaehlt_nicht(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der Endpunkt liefert den juengsten Stand, den er kennt -- bei einem
+        Titel ohne Abdeckung ist das einer von vor zwei Jahren. Ohne Schranke
+        ginge er als heutige Nachrichtenlage mit vollem Gewicht ein."""
+        alt = voten(0.95, stand=date(2024, 1, 1))
+
+        score = rechne(scoring_params, analysts=alt)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+    def test_ein_ausgefallener_monatsstand_wird_noch_geduldet(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """62 Tage: Ein ausgefallener Stand geht durch, zwei nicht mehr. Ohne
+        die Gegenprobe liesse sich nicht unterscheiden, ob die Schranke wirkt
+        oder alles verwirft."""
+        knapp = voten(0.95, stand=date(2026, 7, 1))
+
+        score = rechne(scoring_params, analysts=knapp)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 10.0
+
+    def test_der_grund_nennt_das_alter(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(scoring_params, analysts=voten(0.95, stand=date(2024, 1, 1)))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert "2024-01-01" in (komponente.reason or "")
+        assert "Tage alt" in (komponente.reason or "")
+
+    def test_der_monatsstand_steht_auch_im_erfolgsfall_dabei(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Ein Anteil von vor einem halben Jahr ist etwas anderes als der von
+        gestern -- im Bericht muss man das sehen."""
+        score = rechne(scoring_params, analysts=voten(0.95))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert "2026-08-01" in (komponente.reason or "")
+
+    def test_die_vier_gruende_werden_auseinandergehalten(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Ein gemeinsamer Satz fuer alle vier stuende im Bericht und sagte
+        nichts."""
+        ohne_abruf = rechne(scoring_params, analysts=None)
+        ohne_abdeckung = rechne(
+            scoring_params,
+            analysts=AnalystRecommendations(
+                status=AnalystRecommendationStatus.UNKNOWN,
+                evaluated_at=JETZT,
+                reason="no_coverage",
+                source="fixture",
+            ),
+        )
+        zu_alt = rechne(scoring_params, analysts=voten(0.9, stand=date(2024, 1, 1)))
+
+        # Nicht nur verschieden, sondern jeder sagt, was los ist: Drei
+        # verschiedene Platzhalter waeren auch verschieden und truegen
+        # trotzdem nichts bei.
+        assert "nicht abgerufen" in _grund(ohne_abruf)
+        assert "no_coverage" in _grund(ohne_abdeckung)
+        assert "Tage alt" in _grund(zu_alt)
+
+    def test_ein_monatsstand_ohne_voten_ergibt_keinen_anteil(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Sonst waere es eine Division durch null -- und ein Anteil ohne
+        Nenner ist keiner."""
+        leer = AnalystRecommendations(
+            status=AnalystRecommendationStatus.COMPLETED,
+            evaluated_at=JETZT,
+            periods=(
+                RecommendationPeriod(
+                    period=date(2026, 8, 1),
+                    strong_buy=0,
+                    buy=0,
+                    hold=0,
+                    sell=0,
+                    strong_sell=0,
+                ),
+            ),
+            source="fixture",
+        )
+        score = rechne(scoring_params, analysts=leer)
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+
+class TestNochNichtGebauteKomponenten:
+    def test_die_optionsattraktivitaet_steht_als_luecke_in_der_liste(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Sie mit 0 zu bewerten hiesse zu behaupten, sie sei geprueft und
+        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlt."""
         score = rechne(scoring_params)
-        assert set(score.missing_components) == {
-            ComponentName.NEWS_AND_EVENTS,
-            ComponentName.OPTIONS_ATTRACTIVENESS,
-        }
-        assert score.coverage == pytest.approx(0.8)
+        assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
+        assert score.coverage == pytest.approx(0.9)
 
     def test_der_beste_kandidat_bekommt_trotzdem_einen_score(
         self, scoring_params: ScoringParameters
@@ -360,24 +592,30 @@ class TestZuWenigGrundlage:
         assert score.status is ScoreStatus.INSUFFICIENT_DATA
         assert score.value is None
 
-    def test_ein_ausfall_der_ki_einordnung_kostet_heute_den_ganzen_swing_score(
+    def test_ein_ausfall_der_ki_einordnung_kostet_den_score_nicht_mehr(
         self, scoring_params: ScoringParameters
     ) -> None:
-        """**Gemessen, nicht gewuenscht.** Chart-Setup und Chance-Risiko
-        haengen beide an derselben Einordnung; faellt sie aus, bleiben
-        Signale und Signalstatistik mit zusammen 50 Prozent -- unter der
-        Untergrenze.
+        """Der Befund aus Stufe 1, erledigt (ADR 0046).
 
-        ADR 0041 hatte diesen Fall bei 60 Prozent gesehen, also gerade noch
-        oberhalb. Die fehlenden zehn Prozentpunkte sind die News- und
-        Ereignislage, die bis ADR 0046 nicht gerechnet wird. Der Test haelt
-        die Folge fest, damit sie eine Entscheidung bleibt und keine
-        Ueberraschung im Tageslauf wird.
+        Chart-Setup und Chance-Risiko haengen beide an derselben Einordnung;
+        faellt sie aus, gehen 30 Prozentpunkte zugleich verloren. Solange die
+        News-Komponente fehlte, blieben 50 Prozent -- unter der Untergrenze,
+        und der Score entfiel, obwohl die beiden nachrechenbaren Komponenten
+        vorlagen. Mit der News-Komponente sind es 60, also genau die Leiter,
+        die ADR 0041 vorgesehen hatte.
         """
         score = rechne(scoring_params, assessment=None)
 
+        assert score.coverage == pytest.approx(0.6)
+        assert score.status is ScoreStatus.COMPLETED
+        assert teilwert(score, ComponentName.SIGNAL_STATISTICS) == 7.0
+
+    def test_faellt_zusaetzlich_der_analystenabruf_aus_entsteht_kein_score(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Bei 50 Prozent ist Schluss -- richtig so, und jetzt
+        ausgeschrieben statt ueberraschend."""
+        score = rechne(scoring_params, assessment=None, analysts=None)
+
         assert score.coverage == pytest.approx(0.5)
         assert score.status is ScoreStatus.INSUFFICIENT_DATA
-        assert teilwert(score, ComponentName.SIGNAL_STATISTICS) == 7.0, (
-            "die beiden nachrechenbaren Komponenten lagen vor und gingen verloren"
-        )

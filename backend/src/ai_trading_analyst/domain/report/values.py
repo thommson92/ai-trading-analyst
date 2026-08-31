@@ -19,7 +19,7 @@ from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
-from ai_trading_analyst.domain.scoring import ScoreResult
+from ai_trading_analyst.domain.scoring import RecommendationResult, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalEvent
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
@@ -89,22 +89,6 @@ class GapKind(StrEnum):
 
     FEHLT = "FEHLT"
     EINGESCHRAENKT = "EINGESCHRAENKT"
-
-
-class Recommendation(StrEnum):
-    """Empfehlungsstufen aus Doc 10, Paragraph 6.12.
-
-    Dort ausdruecklich als *beispielhaft* bezeichnet. Sie werden hier
-    uebernommen, weil es keine andere Festlegung gibt; die endgueltige
-    deutsche Formulierung gehoert zu den KI-Leitlinien und damit zur
-    KI-Haelfte des Berichts.
-    """
-
-    STRONG_CANDIDATE = "STRONG_CANDIDATE"
-    CANDIDATE = "CANDIDATE"
-    WATCH = "WATCH"
-    AVOID_FOR_NOW = "AVOID_FOR_NOW"
-    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +194,13 @@ class StockReport:
     und Berechnungsversion. Eine blosse Zahl im Bericht waere genau die
     Scheingenauigkeit, die derselbe Absatz ausschliesst."""
     investment_score: ScoreResult | None = None
-    recommendation: Recommendation | None = None
+    recommendation: RecommendationResult | None = None
+    """Punkt 16 -- die Stufe **samt Begruendungsbausteinen und angewandten
+    Deckelungen**, nicht nur der Name.
+
+    Ohne sie stuende im Bericht eine Empfehlung ohne Grund, und Doc 10,
+    Paragraph 12 verlangt fuer jede Empfehlung nachvollziehbar, worauf sie
+    beruht."""
     summary: str | None = None
     """Die zusammenfassende Formulierung. Bleibt leer, solange der Bericht
     rein deterministisch entsteht -- sie ist Aufgabe der KI-Haelfte (ADR 0039,

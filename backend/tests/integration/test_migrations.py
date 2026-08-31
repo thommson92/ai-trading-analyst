@@ -167,6 +167,18 @@ def test_die_position_der_zitate_ist_verpflichtend(engine: Engine) -> None:
     assert spalten["position"]["nullable"] is False
 
 
+def test_die_empfehlungsspalten_entstehen_durch_die_migration(engine: Engine) -> None:
+    """ADR 0046 -- zwei Spalten, aber **kein** neuer Enumtyp.
+
+    Der Typ ``recommendation`` existiert seit ``d5a29c73e6b1`` fuer
+    ``stock_reports``. Ihn ein zweites Mal anzulegen scheitert; deshalb
+    ``create_type=False`` -- genau umgekehrt zum Fall der Score-Spalten.
+    """
+    spalten = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
+
+    assert {"recommendation", "recommendation_detail"} <= spalten
+
+
 def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
     """ADR 0041, ADR 0045 -- vier Spalten je Score und ein neuer Enum-Typ.
 
@@ -201,7 +213,7 @@ def test_beide_tabellen_fuehren_den_score_im_selben_typ(engine: Engine) -> None:
     assert str(berichte["investment_score"]) == "NUMERIC(4, 1)"
 
 
-def test_die_score_migration_laesst_sich_zurueckdrehen(
+def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     engine: Engine, database_url: str, uow_factory: UowFactory
 ) -> None:
     """Hoch **und runter**, gegen eine Datenbank mit Inhalt.
@@ -210,7 +222,13 @@ def test_die_score_migration_laesst_sich_zurueckdrehen(
     ``scorestatus`` bleibt beim blossen ``drop_column`` zurueck, und der
     naechste Upgrade-Versuch scheitert dann an einem Typ, den es schon gibt.
     Der Test dreht deshalb wirklich zurueck und wieder vor.
+
+    **Zwei Stufen auf einmal** -- Scores und Empfehlung --, und ausdruecklich
+    gegen eine feste Revision statt gegen ``-1``: Sonst prueft der Test nach
+    der naechsten Migration etwas anderes, ohne dass jemand ihn angefasst
+    hat.
     """
+    vor_sprint_fuenf = "a7c31d4e8f92"
     stock = make_stock("MIGDOWN")
     run = make_run()
     with uow_factory() as uow:
@@ -221,14 +239,20 @@ def test_die_score_migration_laesst_sich_zurueckdrehen(
         )
         uow.commit()
 
-    _run_alembic(database_url, "downgrade", "-1")
+    _run_alembic(database_url, "downgrade", vor_sprint_fuenf)
     try:
         nach_unten = {
             spalte["name"] for spalte in inspect(engine).get_columns("screening_results")
         }
         assert "swing_score" not in nach_unten
         assert "long_term_detail" not in nach_unten
+        assert "recommendation" not in nach_unten
+        assert "recommendation_detail" not in nach_unten
         assert "analyst_status" in nach_unten, "das Downgrade ging eine Stufe zu weit"
+        # Der Enumtyp ``recommendation`` bleibt: ``stock_reports`` benutzt ihn
+        # weiter. Ihn mitzuloeschen brach die Tabelle daneben.
+        berichtsspalten = {s["name"] for s in inspect(engine).get_columns("stock_reports")}
+        assert "recommendation" in berichtsspalten
         berichte = {s["name"]: s["type"] for s in inspect(engine).get_columns("stock_reports")}
         assert str(berichte["swing_score"]) == "DOUBLE PRECISION", (
             "der Typwechsel in stock_reports wurde nicht zurueckgenommen"
@@ -237,7 +261,9 @@ def test_die_score_migration_laesst_sich_zurueckdrehen(
         _run_alembic(database_url, "upgrade", "head")
 
     wieder_oben = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
-    assert {"swing_score", "long_term_detail"} <= wieder_oben
+    assert {"swing_score", "long_term_detail", "recommendation", "recommendation_detail"} <= (
+        wieder_oben
+    )
 
     # Die Zeile hat beides ueberlebt. Ein Downgrade, das die Tabelle leert,
     # waere auf dem Server ein Datenverlust und kein Rueckbau.
@@ -245,3 +271,4 @@ def test_die_score_migration_laesst_sich_zurueckdrehen(
         (persisted,) = uow.screening_results.list_for_run(run.id)
     assert persisted.stock.symbol == "MIGDOWN"
     assert persisted.swing_score is None
+    assert persisted.recommendation is None
