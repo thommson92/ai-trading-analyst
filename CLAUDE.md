@@ -72,8 +72,9 @@ Insbesondere darf die deterministische Chartanalyse **nicht** auf eine
 vorherige Web-Recherche warten. Fällt Research aus, bleiben technische Analyse
 und Backtesting vollständig.
 
-Es gibt genau **zwei** gerichtete Kopplungen. Beide gehorchen denselben drei
-Bedingungen: optionale Eingabe, nicht blockierend, keine eigene Ableitung.
+Es gibt genau **drei** gerichtete Kopplungen. Alle drei gehorchen denselben
+drei Bedingungen: optionale Eingabe, nicht blockierend, keine eigene
+Ableitung.
 
 **Optionsanalyse und Support-/Resistance-Zonen:**
 
@@ -95,6 +96,23 @@ Bedingungen: optionale Eingabe, nicht blockierend, keine eigene Ableitung.
    nicht verfügbar gekennzeichnet, die Datenabdeckung sinkt entsprechend.
 3. Die Fundamentalanalyse **beschafft keinen Kurs selbst** und leitet keinen
    ab.
+
+**Optionsanalyse und Earnings-Termin** ([ADR 0048](docs/adr/0048-optionsanalyse-im-tageslauf.md)):
+
+1. Die Optionsanalyse darf den nächsten bekannten Berichtstermin aus dem
+   Earnings-Filter als **optionale** Eingabe verwenden — allein, um einen
+   Verfallstermin zu kennzeichnen, der jenseits davon liegt.
+2. Die Abhängigkeit ist **nicht blockierend**. Ist kein Termin bekannt, bleibt
+   das Kennzeichen leer und jeder andere Wert entsteht vollständig.
+   „Unbekannt" ist dabei ausdrücklich nicht dasselbe wie „kein Termin" — ein
+   unbekannter Termin ist kein belegter Nichttermin.
+3. Die Optionsanalyse **ermittelt keinen Termin selbst** und leitet keinen ab.
+   Sie ändert insbesondere nichts an der Entscheidung des Earnings-Filters.
+
+Der Aktienkurs ist **keine** vierte Kopplung: Er kommt aus derselben
+Kerzenserie, auf der auch das Screening steht, und ist für die Optionsanalyse
+zwingend — ohne ihn gibt es kein Strike-Band. Ein Kandidat ohne Kerzenserie
+entsteht nicht, also fehlt er nie.
 
 ## Daten und Ergebnisse
 
