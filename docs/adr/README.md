@@ -80,6 +80,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
 | [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
 | [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041) |
+| [0046](0046-empfehlungsstufe-aus-beiden-scores.md) | Empfehlungsstufe aus beiden Scores | Angenommen (füllt Berichtspunkt 16 und die News-Komponente; erledigt den offenen Befund aus ADR 0045) |
+| [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8) |
 
 ## Offene Entscheidungen
 
@@ -127,8 +129,8 @@ ADR, sobald die nötigen Informationen vorliegen:
   Signaltypen, Fehlsignalrisiko als Stufe und der Hinweis auf einen
   unbekannten Berichtstermin; keine Kurse, keine Kennzahlen, kein Link.
   Siehe [ADR 0040](0040-inhalt-der-ergebnismeldung.md), das ADR 0024
-  bewusst lockert. Ob eine Punktzahl hineingehoert, ist neu zu entscheiden,
-  sobald es ein Scoring gibt.
+  bewusst lockert -- und [ADR 0047](0047-scores-in-der-ergebnismeldung.md),
+  das die dort offen gelassene Frage nach Punktzahlen entscheidet.
 - KI-Anbieter und Modellprofile (F11) — **entschieden.** Anthropic API mit
   gestuften Modellprofilen je Analyseaufgabe, siehe
   [ADR 0021](0021-ki-anbindung-anthropic-api.md).
@@ -176,8 +178,13 @@ ADR, sobald die nötigen Informationen vorliegen:
   [ADR 0045](0045-schwellen-der-score-teilwerte.md). Damit rechnen beide
   Scores.
 - Ableitung der Empfehlungsstufe aus beiden Scores (Berichtspunkt 16) —
-  **offen**, bekommt ein eigenes ADR 0046. Bis dahin führt der Bericht den
-  Punkt als Lücke mit genau diesem Grund. Dieselbe Entscheidung liefert die
-  Komponente „News- und Ereignislage" des Swing-Scores nach; bis dahin
-  rechnet er auf 80 % Abdeckung.
+  **entschieden.** Der Swing-Score führt, der Investment-Score korrigiert um
+  höchstens eine Stufe, begrenzende Risiken decken danach. Dieselbe
+  Entscheidung liefert die Komponente „News- und Ereignislage" nach; der
+  Swing-Score rechnet damit auf 90 % Abdeckung. Siehe
+  [ADR 0046](0046-empfehlungsstufe-aus-beiden-scores.md).
+- Punktzahlen in der Ergebnismeldung — **entschieden.** Beide Scores und die
+  Empfehlungsstufe gehen hinaus, sortiert nach Swing-Score. Siehe
+  [ADR 0047](0047-scores-in-der-ergebnismeldung.md), das ADR 0040 in genau
+  diesem Punkt ablöst und Finnhubs Einschränkung L8 dazu entscheidet.
 - Externer Zugriff auf das Dashboard (F12)

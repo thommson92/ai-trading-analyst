@@ -251,3 +251,15 @@ gebauten Komponenten aus dem Nenner zu nehmen wären beides Entscheidungen
 stille Anpassung. Bis dahin ist der Fall in
 `tests/unit/domain/scoring/test_swing.py` festgehalten, damit er eine
 Entscheidung bleibt und keine Überraschung im Tageslauf wird.
+
+**Erledigt am 2026-08-31 durch
+[ADR 0046](0046-empfehlungsstufe-aus-beiden-scores.md)** — und zwar ohne
+zweite Setzung: Die News- und Ereignislage, deren Abbildung Abschnitt 4
+dieses ADR aufgeschoben hatte, füllt genau die zehn Prozentpunkte, die
+fehlten. Ein Ausfall der KI-Einordnung liegt damit wieder bei 60 %, und der
+Score entsteht. Fallen Einordnung und Analystenabruf gemeinsam aus, bleibt es
+bei 50 % und keinem Score.
+
+Auch die Abbildung selbst ist damit nachgetragen: Die Komponente steht auf
+dem Anteil der Kauf-Voten, an 187 Titeln derselben Watchliste gemessen. Die
+Zeile „folgt mit der Empfehlungsstufe" in Abschnitt 4 ist eingelöst.
