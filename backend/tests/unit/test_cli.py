@@ -35,7 +35,8 @@ from ai_trading_analyst.cli import (
     require_complete_enough,
 )
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
-from ai_trading_analyst.config.loader import load_config
+from ai_trading_analyst.config.loader import LoadedConfig, load_config
+from ai_trading_analyst.config.settings import IndicatorConfig
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -276,6 +277,34 @@ def wendepreise() -> list[float]:
     Kurs durchbricht die EMA20 und der RSI kreuzt seine Glaettung, alles
     innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten."""
     return [300.0 - index for index in range(254)] + [50.0 + index * 25.0 for index in range(6)]
+
+
+def _config_mit_ibkr_bestand() -> AppConfig:
+    """Eine Konfiguration, die ``--price-from-bars`` durchlaesst.
+
+    Ausgeliefert steht ``market_data.provider`` auf ``fixture``; der Schalter
+    verlangt aber den ueber IBKR gefuellten Bestand.
+    """
+    basis = AppConfig(
+        indicators=IndicatorConfig(
+            rsi_length=14,
+            rsi_method="wilder",
+            rsi_ma_length=14,
+            rsi_ma_type="sma",
+            fast_ema_length=5,
+            slow_ema_length=20,
+            warmup_candles=250,
+        )
+    )
+    return basis.model_copy(
+        update={"market_data": basis.market_data.model_copy(update={"provider": "ibkr"})}
+    )
+
+
+def _loaded(config: AppConfig) -> LoadedConfig:
+    return LoadedConfig(
+        config=config, source_path=Path("config/default.yaml"), fingerprint="test"
+    )
 
 
 def kerzenreihe(preise: Sequence[float]) -> CandleSeries:
@@ -2022,6 +2051,90 @@ class TestFundamentalKommando:
         assert cli.command_fundamental(args) == 2
         assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
 
+    def test_kurs_von_hand_und_kurs_aus_dem_bestand_schliessen_sich_aus(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--price", "232.14", "--price-from-bars"]
+        )
+        assert cli.command_fundamental(args) == 2
+        assert "schliessen sich aus" in capsys.readouterr().err
+
+    def test_kurse_aus_dem_bestand_brauchen_den_ibkr_bestand(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Muster 'technical': Ohne diese Pruefung meldete das Kommando fuer
+        jedes echte Symbol "keine Kerzen im Bestand" -- eine Meldung, die auf
+        den Bestand zeigt, waehrend der Anbieter das Problem ist.
+
+        Ausgeliefert steht ``market_data.provider`` auf ``fixture``; das ist
+        also der Normalfall, nicht der Ausnahmefall.
+        """
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--price-from-bars"]
+        )
+        assert cli.command_fundamental(args) == 2
+        assert "braucht den ueber IBKR gefuellten Bestand" in capsys.readouterr().err
+
+    def test_der_unterbefehl_kennt_den_schalter(self) -> None:
+        args = build_parser().parse_args(["fundamental", "--watchlist", "--price-from-bars"])
+        assert args.price_from_bars is True
+        assert args.price is None
+
+    def test_ohne_den_schalter_bleibt_der_kurs_aus(self) -> None:
+        """Der Bestand wird nicht heimlich angezapft: Ein Lauf ohne den
+        Schalter rechnet weiter ohne Bewertungskennzahlen."""
+        args = build_parser().parse_args(["fundamental", "--watchlist"])
+        assert args.price_from_bars is False
+
+    def test_der_kurs_ist_der_schluss_der_letzten_abgeschlossenen_kerze(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dieselbe Regel wie im Tageslauf (ADR 0035, Entscheidung 2).
+
+        Der Test prueft den **Wert**, nicht nur dass irgendein Kurs ankommt:
+        Eine Serie mit unterschiedlichen Schlusskursen deckt auf, wenn statt
+        der letzten die erste Kerze genommen wird -- bei gleichen Werten
+        faende man das nie.
+        """
+        series = kerzenreihe([100.0, 232.14])
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+
+        config = _config_mit_ibkr_bestand()
+        ergebnis = cli._kurse_aus_dem_bestand(_loaded(config), config, ["AAPL"])
+        assert ergebnis is not None
+        kurse, stempel, ohne = ergebnis
+
+        assert kurse == {"AAPL": pytest.approx(232.14)}
+        assert stempel["AAPL"] == series.candles[-1].timestamp
+        assert ohne == []
+
+    def test_eine_aktie_ohne_bestand_rechnet_ohne_kurs_statt_zu_scheitern(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Kein Ersatzwert und kein Abbruch des ganzen Laufs: Die Aktie wird
+        ausgewertet, nur ohne die vier bewertungsabhaengigen Kennzahlen --
+        genau wie ein Lauf ohne Kurs (ADR 0032, nicht blockierende Eingabe).
+        """
+        series = kerzenreihe([100.0, 232.14])
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+
+        config = _config_mit_ibkr_bestand()
+        ergebnis = cli._kurse_aus_dem_bestand(_loaded(config), config, ["AAPL", "NIEGEHOERT"])
+        assert ergebnis is not None
+        kurse, _, ohne = ergebnis
+
+        assert "AAPL" in kurse
+        assert ohne == ["NIEGEHOERT"]
+
     def test_symbole_und_watchlist_schliessen_sich_aus(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -2108,11 +2221,42 @@ class TestFundamentalKommando:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Sonst saehe eine um 22 Punkte gedrueckte Abdeckung wie ein Mangel
-        der Tag-Listen aus."""
+        der Tag-Listen aus.
+
+        Der Hinweis nennt seit ``--price-from-bars`` keinen Schalter mehr:
+        Es gibt zwei Wege zu einem Kurs, und der Hinweis gilt fuer beide.
+        """
         cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=False)
-        assert "Ohne --price" in capsys.readouterr().out
+        assert "Ohne Kurs" in capsys.readouterr().out
         cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
-        assert "Ohne --price" not in capsys.readouterr().out
+        assert "Ohne Kurs" not in capsys.readouterr().out
+
+    def test_die_auswertung_zeigt_das_alter_der_kurse(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ein veralteter Bestand rechnet still falsche Bewertungskennzahlen:
+        Ein KGV aus dem Gewinn von heute und dem Kurs von vor drei Wochen
+        sieht aus wie ein KGV."""
+        cli._print_fundamental_aggregate(
+            [self._snapshot()],
+            [],
+            mit_kurs=True,
+            kurs_stempel={
+                "AAPL": datetime(2026, 8, 28, 16, 45, tzinfo=UTC),
+                "NVDA": datetime(2026, 8, 31, 16, 45, tzinfo=UTC),
+            },
+        )
+        ausgabe = capsys.readouterr().out
+        assert "aelteste Kerze 2026-08-28" in ausgabe
+        assert "neueste 2026-08-31" in ausgabe
+
+    def test_ohne_kurse_aus_dem_bestand_steht_kein_alter_da(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei --price gibt es keinen Kerzenzeitpunkt -- eine Zeile ueber das
+        Alter waere dort eine erfundene Angabe."""
+        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
+        assert "aelteste Kerze" not in capsys.readouterr().out
 
     def test_fehlschlaege_stehen_am_ende_noch_einmal(
         self, capsys: pytest.CaptureFixture[str]
