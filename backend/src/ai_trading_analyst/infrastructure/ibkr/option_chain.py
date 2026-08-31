@@ -1,18 +1,25 @@
 """``OptionsDataProvider`` auf Basis der IBKR-Optionsketten (ADR 0048).
 
-Der Adapter enthaelt **keine** Fachregel. Er holt zweimal -- erst den Bauplan
-der Kette, dann die Notierungen der ausgewaehlten Kontrakte -- und laesst
-dazwischen und danach die Domain entscheiden. Dasselbe Muster wie beim
+Der Adapter enthaelt **keine** Fachregel. Er holt dreimal und laesst
+dazwischen jedes Mal die Domain entscheiden -- dasselbe Muster wie beim
 EDGAR-Adapter, der ``compute_fundamental_snapshot`` ruft.
 
 Die Reihenfolge ist der Kern und keine Bequemlichkeit:
 
-1. ``select_expiration`` waehlt aus den gelisteten Verfallsterminen einen,
-2. ``select_strikes`` waehlt daraus die Strikes im Moneyness-Band,
+1. ``option_chain`` liefert die Verfallstermine, ``select_expiration`` waehlt
+   einen aus,
+2. ``option_strikes`` liefert die zu **diesem** Termin gelisteten Strikes,
+   ``select_strikes`` waehlt daraus das Moneyness-Band,
 3. **erst dann** wird notiert -- jede Notierung kostet eine
    Marktdatenanfrage,
 4. ``build_options_analysis`` bewertet, was zurueckkam, und filtert ueber das
    tatsaechlich gelieferte Delta.
+
+Schritt 2 ist ein eigener Abruf, weil ein gemessener Befund es verlangt:
+``reqSecDefOptParams`` liefert die **Vereinigung** aller Strikes ueber alle
+Verfallstermine, und die Wochenoptionen haben engere Abstaende als die
+Monatstermine. Ohne diesen Schritt gingen am 2026-08-31 bei AAPL sechs von
+zwoelf Anfragen an Kontrakte, die es zu diesem Termin nicht gibt.
 
 Ein Schaetzwert fuer das Delta vor Schritt 3 wuerde die Reihenfolge
 umdrehen und waere ein erfundener Wert (CLAUDE.md).
@@ -55,6 +62,10 @@ class OptionChainSource(Protocol):
     """
 
     def option_chain(self, contract: ContractSpec) -> OptionChainStructure: ...
+
+    def option_strikes(
+        self, contract: ContractSpec, expiration: date
+    ) -> tuple[float, ...]: ...
 
     def option_quotes(
         self,
@@ -118,12 +129,29 @@ class IbkrOptionsProvider:
                 underlying_price=price,
             )
 
-        strikes = select_strikes(struktur.strikes, price=price, parameters=self._parameters)
+        # **Nicht** ``struktur.strikes``: Das ist die Vereinigung ueber alle
+        # Verfallstermine (gemessener Befund, ADR 0048). Gefragt ist, was zu
+        # *diesem* Termin gelistet ist -- sonst gehen Anfragen an Kontrakte,
+        # die es nicht gibt, und die Auswahl schrumpft still.
+        try:
+            gelistet = self._source.option_strikes(contract, termin)
+        except IbkrBarSourceError as error:
+            raise OptionsDataProviderError(str(error)) from error
+        if not gelistet:
+            return unzureichend(
+                f"zum {termin.isoformat()} ist kein einziger Put gelistet",
+                evaluated_at=evaluated_at,
+                parameters=self._parameters,
+                underlying_price=price,
+                expiration=termin,
+            )
+
+        strikes = select_strikes(gelistet, price=price, parameters=self._parameters)
         if not strikes:
             return unzureichend(
                 f"kein Strike zwischen {self._parameters.min_moneyness:.0%} und "
                 f"{self._parameters.max_moneyness:.0%} des Kurses von {price:.2f} gelistet "
-                f"({len(struktur.strikes)} Strikes in der Kette)",
+                f"({len(gelistet)} Strikes zum {termin.isoformat()})",
                 evaluated_at=evaluated_at,
                 parameters=self._parameters,
                 underlying_price=price,

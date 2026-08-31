@@ -233,6 +233,30 @@ def _verfallstermine(symbol: str, roh: Iterable[str]) -> tuple[date, ...]:
     return tuple(sorted(termine))
 
 
+def _put_schablone(
+    symbol: str, currency: str, expiration: date, strike: float | None = None
+) -> Any:
+    """Ein Put-Kontrakt fuer ``ib_async`` -- mit oder ohne Strike.
+
+    Ohne Strike ist er die Anfrage "alle Puts dieses Termins"
+    (``reqContractDetails``), mit Strike der konkrete Kontrakt.
+
+    Ueber ``SMART``, wie bei den Aktien: Die Weiterleitung sucht die Boerse
+    mit dem besten Preis. Eine feste Optionsboerse waere eine Annahme
+    darueber, wo ein Kontrakt am liquidesten ist.
+    """
+    from ib_async import Option
+
+    return Option(
+        symbol,
+        expiration.strftime("%Y%m%d"),
+        strike if strike is not None else 0.0,
+        "P",
+        exchange="SMART",
+        currency=currency,
+    )
+
+
 def _zahl(wert: Any) -> float | None:
     """``None`` fuer alles, was keine Zahl ist -- IBKRs ``nan`` eingeschlossen."""
     if wert is None:
@@ -397,6 +421,37 @@ class IbAsyncBarSource:
             exchange=str(kette.exchange),
         )
 
+    def option_strikes(self, contract: ContractSpec, expiration: date) -> tuple[float, ...]:
+        """Die Strikes, die zu **diesem** Verfallstermin tatsaechlich gelistet sind.
+
+        Ein eigener Aufruf, und zwar aus einem gemessenen Grund:
+        ``reqSecDefOptParams`` liefert die **Vereinigung** aller Strikes ueber
+        alle Verfallstermine. Am 2026-08-31 hatte AAPL bei den Wochenoptionen
+        2,50er Abstaende, beim Termin am 25. September aber 5,00er -- von
+        zwoelf angefragten Kontrakten existierten sechs nicht (``Error 200``).
+        Die Auswahl halbierte sich, und jede vergebliche Anfrage kostete
+        trotzdem eine Marktdatenzeile.
+
+        ``reqContractDetails`` kostet **keine** Marktdatenberechtigung. Ein
+        Aufruf je Kandidat ist der Preis dafuer, dass danach jeder angefragte
+        Kontrakt auch existiert.
+        """
+        with self._lock:
+            try:
+                ib = self._connection()
+                stock = self._qualified(ib, contract)
+                details = ib.reqContractDetails(
+                    _put_schablone(stock.symbol, contract.currency, expiration)
+                )
+            except IbkrBarSourceError:
+                raise
+            except Exception as error:  # Systemgrenze: jede Bibliotheksausnahme
+                raise IbkrBarSourceError(
+                    f"Gelistete Strikes fuer '{contract.symbol}' zum "
+                    f"{expiration.isoformat()} nicht abrufbar: {error}"
+                ) from error
+        return tuple(sorted({float(eintrag.contract.strike) for eintrag in details}))
+
     def option_quotes(
         self,
         contract: ContractSpec,
@@ -445,20 +500,8 @@ class IbAsyncBarSource:
         expiration: date,
         strikes: Sequence[float],
     ) -> list[Any]:
-        from ib_async import Option
-
         puts = [
-            Option(
-                stock.symbol,
-                expiration.strftime("%Y%m%d"),
-                strike,
-                "P",
-                # Ueber SMART, wie bei den Aktien: die Weiterleitung sucht die
-                # Boerse mit dem besten Preis. Eine feste Optionsboerse waere
-                # eine Annahme darueber, wo ein Kontrakt am liquidesten ist.
-                exchange="SMART",
-                currency=contract.currency,
-            )
+            _put_schablone(stock.symbol, contract.currency, expiration, strike)
             for strike in strikes
         ]
         # ``qualifyContracts`` laesst nicht aufloesbare Kontrakte einfach weg

@@ -79,6 +79,13 @@ class FakeTicker:
         self.modelGreeks = FakeGreeks(delta, 0.31) if greeks else None
 
 
+class _Details:
+    """Was ``reqContractDetails`` je Kontrakt zurueckgibt."""
+
+    def __init__(self, contract: FakeKontrakt) -> None:
+        self.contract = contract
+
+
 class FakeIb:
     """Nur die Aufrufe, die die Optionsanbindung an ``ib_async`` richtet."""
 
@@ -86,14 +93,19 @@ class FakeIb:
         self,
         ketten: list[FakeKette] | None = None,
         tickers: list[FakeTicker] | None = None,
+        gelistet: list[float] | None = None,
     ) -> None:
         self._ketten = ketten if ketten is not None else []
         self._tickers = tickers if tickers is not None else []
+        self._gelistet = gelistet if gelistet is not None else []
         self.market_data_types: list[int] = []
         self.qualifiziert: list[Any] = []
 
     def reqSecDefOptParams(self, *args: object) -> list[FakeKette]:  # noqa: N802
         return self._ketten
+
+    def reqContractDetails(self, kontrakt: Any) -> list[Any]:  # noqa: N802
+        return [_Details(FakeKontrakt(strike)) for strike in self._gelistet]
 
     def reqMarketDataType(self, art: int) -> None:  # noqa: N802
         self.market_data_types.append(art)
@@ -216,10 +228,14 @@ class FakeQuelle:
     """Ein Doppel des ``OptionChainSource``-Protokolls."""
 
     def __init__(
-        self, struktur: OptionChainStructure, tickers: list[Any] | None = None
+        self,
+        struktur: OptionChainStructure,
+        tickers: list[Any] | None = None,
+        gelistet: tuple[float, ...] | None = None,
     ) -> None:
         self._struktur = struktur
         self._quotes = tickers if tickers is not None else []
+        self._gelistet = gelistet
         self.angefragte_strikes: list[float] = []
         self.fehler: Exception | None = None
 
@@ -227,6 +243,13 @@ class FakeQuelle:
         if self.fehler is not None:
             raise self.fehler
         return self._struktur
+
+    def option_strikes(
+        self, contract: ContractSpec, expiration: date
+    ) -> tuple[float, ...]:
+        """Ohne eigene Angabe dieselben wie in der Kette -- der Fall, in dem
+        Vereinigung und Terminliste zufaellig uebereinstimmen."""
+        return self._struktur.strikes if self._gelistet is None else self._gelistet
 
     def option_quotes(
         self,
@@ -293,3 +316,38 @@ class TestAnbieter:
         quelle.fehler = IbkrBarSourceError("TWS nicht angemeldet")
         with pytest.raises(OptionsDataProviderError, match="TWS nicht angemeldet"):
             provider(quelle).options(AKTIE, price=100.0, as_of=STICHTAG)
+
+
+class TestGelisteteStrikes:
+    """Der Befund vom 2026-08-31, gegen den dieser Schritt gebaut ist.
+
+    ``reqSecDefOptParams`` liefert die **Vereinigung** aller Strikes ueber
+    alle Verfallstermine. Bei AAPL hatten die Wochenoptionen 2,50er
+    Abstaende, der Monatstermin aber 5,00er -- sechs von zwoelf angefragten
+    Kontrakten existierten nicht (``Error 200``), und die Auswahl halbierte
+    sich still.
+    """
+
+    def test_die_terminliste_kommt_aus_den_kontraktdetails(self) -> None:
+        ib = FakeIb(gelistet=[295.0, 300.0, 305.0])
+        assert quelle(ib).option_strikes(AAPL, date(2026, 9, 25)) == (295.0, 300.0, 305.0)
+
+    def test_notiert_wird_nur_was_zu_diesem_termin_gelistet_ist(self) -> None:
+        """Die Kette kennt 2,50er Schritte, der Termin nur 5,00er."""
+        vereinigung = (295.0, 297.5, 300.0, 302.5, 305.0)
+        quelle = FakeQuelle(
+            struktur(strikes=vereinigung), gelistet=(295.0, 300.0, 305.0)
+        )
+
+        provider(quelle).options(AKTIE, price=309.42, as_of=STICHTAG)
+
+        assert quelle.angefragte_strikes == [305.0, 300.0, 295.0]
+
+    def test_ohne_gelisteten_put_wird_nicht_notiert(self) -> None:
+        quelle = FakeQuelle(struktur(), gelistet=())
+
+        analyse = provider(quelle).options(AKTIE, price=100.0, as_of=STICHTAG)
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert "kein einziger Put gelistet" in (analyse.reason or "")
+        assert quelle.angefragte_strikes == []
