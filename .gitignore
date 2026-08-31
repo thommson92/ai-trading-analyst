@@ -45,3 +45,9 @@ Thumbs.db
 .idea/
 .vscode/
 !.vscode/extensions.json
+
+# Messergebnisse der Kalibrierung (ADR 0041). Sie entstehen aus
+# 'fundamental --output' und 'calibrate-scores', veralten mit dem naechsten
+# Lauf und gehoeren nicht in die Versionsverwaltung -- die ADR haelt die
+# abgeleiteten Schwellen fest, nicht die Rohdaten.
+kalibrierung*.csv
