@@ -11,7 +11,6 @@ from .notification import render_notification
 from .values import (
     REPORT_SCHEMA_VERSION,
     GapKind,
-    Recommendation,
     ReportGap,
     ReportSection,
     ReportSource,
@@ -23,7 +22,6 @@ from .values import (
 __all__ = [
     "REPORT_SCHEMA_VERSION",
     "GapKind",
-    "Recommendation",
     "ReportGap",
     "ReportSection",
     "ReportSource",

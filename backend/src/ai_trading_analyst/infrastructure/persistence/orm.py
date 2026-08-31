@@ -39,14 +39,13 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricName,
     MetricUnit,
 )
-from ai_trading_analyst.domain.report import Recommendation
 from ai_trading_analyst.domain.research import (
     ResearchCoverage,
     ResearchStatus,
     SourceLicenseClass,
     SourceRank,
 )
-from ai_trading_analyst.domain.scoring import ScoreStatus
+from ai_trading_analyst.domain.scoring import Recommendation, ScoreStatus
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 from ai_trading_analyst.domain.technical import (
     BreakoutQuality,
@@ -379,6 +378,20 @@ class ScreeningResultOrm(Base):
     )
     long_term_version: Mapped[str | None] = mapped_column(nullable=True)
     long_term_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Die Empfehlungsstufe (Doc 10, Paragraph 6.12 Punkt 16; ADR 0046) --
+    # wie die Scores nur bei CANDIDATE gesetzt.
+    recommendation: Mapped[Recommendation | None] = mapped_column(
+        _enum_column(Recommendation), nullable=True
+    )
+    """Die Stufe selbst -- die einzige Groesse, nach der je gefiltert wird."""
+    recommendation_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """Begruendungsbausteine, angewandte Deckelungen und die Version.
+
+    JSONB und keine drei Spalten: im Ganzen geschrieben, im Ganzen gelesen --
+    dasselbe Argument wie bei ``swing_detail``. Ohne diese Angaben stuende im
+    Bericht eine Empfehlung ohne Grund, und Doc 10, Paragraph 12 verlangt das
+    Gegenteil."""
 
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(

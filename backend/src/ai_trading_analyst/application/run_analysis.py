@@ -62,10 +62,12 @@ from ai_trading_analyst.domain.report import (
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.scoring import (
+    RecommendationResult,
     ScoreResult,
     ScoringParameters,
     compute_long_term_score,
     compute_swing_score,
+    derive_recommendation,
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -508,8 +510,11 @@ class RunAnalysisUseCase:
             return self._unavailable_research(item.evaluated_at, reason)
         return self._unavailable_assessment(item.evaluated_at, reason, item.technical)
 
-    def _scores(self, item: _PreparedOutcome) -> tuple[ScoreResult | None, ScoreResult | None]:
-        """Beide Scores aus dem, was schon gerechnet ist (Doc 09; ADR 0041).
+    def _bewertung(
+        self, item: _PreparedOutcome
+    ) -> tuple[ScoreResult | None, ScoreResult | None, RecommendationResult | None]:
+        """Beide Scores und die Empfehlungsstufe aus dem, was schon gerechnet
+        ist (Doc 09; ADR 0041, ADR 0046).
 
         **Nur fuer Kandidaten** -- ueber die uebrigen wird nicht berichtet,
         und ein Score fuer eine Aktie, die kein Kandidat ist, beantwortete
@@ -521,7 +526,7 @@ class RunAnalysisUseCase:
         Mindestabdeckung ``INSUFFICIENT_DATA`` statt einer Zahl.
         """
         if item.result.status is not ScreeningStatus.CANDIDATE:
-            return None, None
+            return None, None, None
         swing = compute_swing_score(
             item.result,
             backtest=item.backtest,
@@ -529,10 +534,21 @@ class RunAnalysisUseCase:
             parameters=self._scoring_params,
         )
         investment = compute_long_term_score(item.fundamentals, parameters=self._scoring_params)
-        return swing, investment
+        empfehlung = derive_recommendation(
+            swing=swing,
+            investment=investment,
+            false_signal_risk=(
+                item.technical_assessment.false_signal_risk
+                if item.technical_assessment is not None
+                else None
+            ),
+            earnings_status=item.earnings.status if item.earnings is not None else None,
+            parameters=self._scoring_params,
+        )
+        return swing, investment, empfehlung
 
     def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
-        swing_score, investment_score = self._scores(item)
+        swing_score, investment_score, empfehlung = self._bewertung(item)
         outcome = StockScreeningOutcome(
             analysis_run_id=run.id,
             stock=item.stock,
@@ -549,6 +565,7 @@ class RunAnalysisUseCase:
             backtest=item.backtest,
             swing_score=swing_score,
             investment_score=investment_score,
+            recommendation=empfehlung,
         )
         bericht = self._build_report(outcome)
         with self._uow_factory() as uow:

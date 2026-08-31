@@ -416,6 +416,23 @@ scoring:
   minimum_coverage: 0.6
   # Ab hier gilt der Score als NORMAL belastbar, darunter als LOW_COVERAGE.
   normal_confidence_coverage: 0.8
+  # Die Empfehlungsstufe, Berichtspunkt 16 (ADR 0046). Gesetzt, nicht
+  # gemessen: Eine Empfehlung liesse sich erst an realisierten Ausgaengen
+  # kalibrieren. Die Stufengrenzen sind immerhin von der Skala abgelesen, aus
+  # der der Swing-Score gebaut ist (2/4/6/8/10), und nicht gegriffen.
+  recommendation:
+    # Grundstufe aus dem Swing-Score.
+    strong_candidate: 8.0
+    candidate: 6.0
+    watch: 4.0
+    # Der Investment-Score hebt oder senkt um hoechstens eine Stufe. Ein
+    # fehlender korrigiert nicht -- fehlende Daten bestrafen nicht.
+    investment_strong: 8.0
+    investment_weak: 4.0
+    # Begrenzende Risiken. Sie koennen nur senken, nie heben.
+    cap_false_signal_high: WATCH
+    cap_earnings_unknown: CANDIDATE
+    version: "1.0"
   # Komponentengewichte nach ADR 0041. Beide Saetze muessen sich auf 1.0
   # summieren; die Umgewichtung bei fehlenden Komponenten rechnet der
   # Aggregator.

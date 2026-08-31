@@ -445,11 +445,6 @@ class TestScores:
         report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
         assert report.scoring_version is None
 
-    def test_die_empfehlung_bleibt_offen_und_nennt_ihren_neuen_grund(self) -> None:
-        """Punkt 16 fehlt jetzt nicht mehr mangels Scoring, sondern weil die
-        Ableitung nicht entschieden ist (ADR 0046)."""
-        report = build_report(
-            make_outcome(swing_score=self._score()), created_at=ERSTELLT, app_version="0.1.0"
-        )
-        (luecke,) = [g for g in report.gaps if g.section is ReportSection.EMPFEHLUNG]
-        assert "ADR 0046" in luecke.reason
+    def test_ohne_empfehlung_fehlt_punkt_sechzehn(self) -> None:
+        report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
+        assert ReportSection.EMPFEHLUNG in report.missing_sections

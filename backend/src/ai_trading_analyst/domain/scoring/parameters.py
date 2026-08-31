@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from ai_trading_analyst.domain.fundamentals import MetricName
 
-from .values import ComponentName
+from .values import RANGFOLGE, ComponentName, Recommendation
 
 _STUFEN = (2.0, 4.0, 6.0, 8.0, 10.0)
 """Die fuenf Teilwerte, aufsteigend (ADR 0045, Entscheidung 1).
@@ -55,6 +55,46 @@ class MetricThresholds:
 
 
 @dataclass(frozen=True, slots=True)
+class RecommendationParameters:
+    """Die Stellschrauben der Empfehlungsstufe (ADR 0046).
+
+    Alles hier ist **gesetzt, nicht gemessen** -- eine Empfehlung liesse sich
+    erst an realisierten Ausgaengen kalibrieren, und die gibt es nicht. Die
+    Stufengrenzen sind immerhin nicht geraten, sondern von der Skala
+    abgelesen, aus der der Swing-Score gebaut ist (2/4/6/8/10, ADR 0045).
+    """
+
+    strong_candidate: float
+    candidate: float
+    watch: float
+    investment_strong: float
+    """Ab hier hebt der Investment-Score die Stufe um eine."""
+    investment_weak: float
+    """Bis hier senkt er sie um eine."""
+    cap_false_signal_high: Recommendation
+    cap_earnings_unknown: Recommendation
+    version: str
+
+    def __post_init__(self) -> None:
+        if not self.strong_candidate > self.candidate > self.watch:
+            raise ValueError(
+                "Die Stufengrenzen muessen fallen: strong_candidate > candidate > watch, "
+                f"gegeben sind {self.strong_candidate}, {self.candidate}, {self.watch}"
+            )
+        if self.investment_weak >= self.investment_strong:
+            raise ValueError(
+                "investment_weak muss unter investment_strong liegen, sonst hoebe und "
+                "senkte derselbe Wert die Stufe zugleich"
+            )
+        for grenze in (self.cap_false_signal_high, self.cap_earnings_unknown):
+            if grenze not in RANGFOLGE:
+                raise ValueError(
+                    f"{grenze} taugt nicht als Obergrenze -- INSUFFICIENT_DATA ist keine "
+                    "schlechtere Stufe, sondern gar keine"
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class ScoringParameters:
     """Gewichte, Grenzen und Schwellen beider Scores."""
 
@@ -68,6 +108,7 @@ class ScoringParameters:
     """Ab dieser Abdeckung gilt der Score als ``NORMAL`` belastbar, darunter
     als ``LOW_COVERAGE``. Muster ``normal_confidence_sample_size`` im
     Backtesting."""
+    recommendation: RecommendationParameters
     swing_version: str
     long_term_version: str
 

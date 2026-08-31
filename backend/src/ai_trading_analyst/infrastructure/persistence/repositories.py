@@ -53,6 +53,8 @@ from ai_trading_analyst.domain.research import (
 )
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
+    Recommendation,
+    RecommendationResult,
     ScoreComponent,
     ScoreConfidence,
     ScoreKind,
@@ -405,6 +407,31 @@ def _score_columns(prefix: str, score: ScoreResult | None) -> dict[str, Any]:
             "begrenzende_risiken": list(score.limiting_risks),
         },
     }
+
+
+def _recommendation_columns(empfehlung: RecommendationResult | None) -> dict[str, Any]:
+    if empfehlung is None:
+        return {"recommendation": None, "recommendation_detail": None}
+    return {
+        "recommendation": empfehlung.level,
+        "recommendation_detail": {
+            "version": empfehlung.version,
+            "begruendung": list(empfehlung.reasons),
+            "deckelungen": list(empfehlung.applied_caps),
+        },
+    }
+
+
+def _recommendation_from_row(row: ScreeningResultOrm) -> RecommendationResult | None:
+    if row.recommendation is None:
+        return None
+    detail: dict[str, Any] = row.recommendation_detail or {}
+    return RecommendationResult(
+        level=Recommendation(row.recommendation),
+        version=str(detail.get("version", "")),
+        reasons=tuple(detail.get("begruendung", ())),
+        applied_caps=tuple(detail.get("deckelungen", ())),
+    )
 
 
 def _score_from_row(row: ScreeningResultOrm, prefix: str, kind: ScoreKind) -> ScoreResult | None:
@@ -805,6 +832,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         analysts=_analyst_from_row(row),
         swing_score=_score_from_row(row, "swing", ScoreKind.SWING),
         investment_score=_score_from_row(row, "long_term", ScoreKind.LONG_TERM),
+        recommendation=_recommendation_from_row(row),
     )
 
 
@@ -858,6 +886,7 @@ class SqlAlchemyScreeningResultRepository:
             **_analyst_columns(outcome.analysts),
             **_score_columns("swing", outcome.swing_score),
             **_score_columns("long_term", outcome.investment_score),
+            **_recommendation_columns(outcome.recommendation),
         )
         row.signal_events = [
             SignalEventOrm(
@@ -1160,7 +1189,13 @@ class SqlAlchemyStockReportRepository:
                 report_schema_version=report.report_schema_version,
                 app_version=report.app_version,
                 scoring_version=report.scoring_version,
-                recommendation=report.recommendation,
+                # Nur die Stufe: Die Spalte beantwortet die Frage, fuer die
+                # man das Dokument nicht oeffnen muss. Begruendung und
+                # Deckelungen stehen vollstaendig in ``document`` und in
+                # ``screening_results.recommendation_detail``.
+                recommendation=(
+                    report.recommendation.level if report.recommendation is not None else None
+                ),
                 # Nur die Zahl: Die Spalten daneben beantworten die Frage,
                 # fuer die man das Dokument nicht oeffnen muss. Der
                 # vollstaendige Score mit Teilwerten, Gewichten und

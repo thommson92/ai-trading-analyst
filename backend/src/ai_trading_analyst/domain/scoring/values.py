@@ -76,6 +76,45 @@ class ComponentName(StrEnum):
     BALANCE_SHEET_QUALITY = "BALANCE_SHEET_QUALITY"
 
 
+class Recommendation(StrEnum):
+    """Empfehlungsstufen aus Doc 10, Paragraph 6.12 (Berichtspunkt 16).
+
+    Dort ausdruecklich als *beispielhaft* bezeichnet. Sie werden uebernommen,
+    weil es keine andere Festlegung gibt; die endgueltige deutsche
+    Formulierung gehoert zu den KI-Leitlinien und damit zur KI-Haelfte des
+    Berichts.
+
+    **Steht hier und nicht mehr in ``domain.report``** (ADR 0046): Die Stufe
+    wird gerechnet, nicht zugeordnet -- der Report Generator erzeugt keine
+    neuen Fakten (ADR 0039). Andersherum entstuende ausserdem ein
+    Importzyklus, weil ``report`` bereits ``scoring`` liest.
+    """
+
+    STRONG_CANDIDATE = "STRONG_CANDIDATE"
+    CANDIDATE = "CANDIDATE"
+    WATCH = "WATCH"
+    AVOID_FOR_NOW = "AVOID_FOR_NOW"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    """Ausserhalb der Rangfolge und **absorbierend**: Ohne Swing-Score gibt es
+    keine Aussage ueber den Einstieg, und eine Stufe waere dann eine
+    Behauptung ohne Grundlage."""
+
+
+RANGFOLGE: tuple[Recommendation, ...] = (
+    Recommendation.AVOID_FOR_NOW,
+    Recommendation.WATCH,
+    Recommendation.CANDIDATE,
+    Recommendation.STRONG_CANDIDATE,
+)
+"""Die vier bewertenden Stufen, aufsteigend.
+
+Eine ausdrueckliche Reihenfolge und keine Ableitung aus der Deklaration:
+Anheben, Senken und Deckeln brauchen sie, und die Enum-Reihenfolge ist eine
+Schreibkonvention, keine Zusicherung. ``INSUFFICIENT_DATA`` steht bewusst
+nicht darin -- es ist keine schlechtere Stufe, sondern gar keine.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ScoreComponent:
     """Ein Teilwert samt Gewicht und Begruendung.

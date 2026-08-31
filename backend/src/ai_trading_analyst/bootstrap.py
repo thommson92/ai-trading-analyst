@@ -44,6 +44,8 @@ from ai_trading_analyst.domain.scoring import (
     SIGNAL_TEILWERTE,
     ComponentName,
     MetricThresholds,
+    Recommendation,
+    RecommendationParameters,
     ScoringParameters,
 )
 from ai_trading_analyst.domain.screening import (
@@ -408,7 +410,18 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
 
     _pruefe_signalabbildung(config)
 
+    empfehlung = config.scoring.recommendation
     return ScoringParameters(
+        recommendation=RecommendationParameters(
+            strong_candidate=empfehlung.strong_candidate,
+            candidate=empfehlung.candidate,
+            watch=empfehlung.watch,
+            investment_strong=empfehlung.investment_strong,
+            investment_weak=empfehlung.investment_weak,
+            cap_false_signal_high=Recommendation(empfehlung.cap_false_signal_high),
+            cap_earnings_unknown=Recommendation(empfehlung.cap_earnings_unknown),
+            version=empfehlung.version,
+        ),
         swing_weights=_gewichte(config.scoring.swing_weights),
         long_term_weights=_gewichte(config.scoring.long_term_weights),
         thresholds=schwellen,

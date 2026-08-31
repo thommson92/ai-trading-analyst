@@ -12,6 +12,8 @@ import pytest
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
     MetricThresholds,
+    Recommendation,
+    RecommendationParameters,
     ScoreComponent,
     ScoreConfidence,
     ScoreKind,
@@ -21,6 +23,16 @@ from ai_trading_analyst.domain.scoring import (
 )
 
 KOMPONENTE = ScoreComponent(name=ComponentName.GROWTH, weight=1.0, value=5.0)
+EMPFEHLUNGSREGELN = RecommendationParameters(
+    strong_candidate=8.0,
+    candidate=6.0,
+    watch=4.0,
+    investment_strong=8.0,
+    investment_weak=4.0,
+    cap_false_signal_high=Recommendation.WATCH,
+    cap_earnings_unknown=Recommendation.CANDIDATE,
+    version="1.0",
+)
 
 
 def ergebnis(*, status: ScoreStatus, value: float | None) -> ScoreResult:
@@ -68,6 +80,7 @@ class TestParameter:
                 thresholds={},
                 minimum_coverage=0.9,
                 normal_confidence_coverage=0.5,
+                recommendation=EMPFEHLUNGSREGELN,
                 swing_version="1.0",
                 long_term_version="1.0",
             )
