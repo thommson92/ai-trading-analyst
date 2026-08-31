@@ -9,7 +9,7 @@ Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.options import OptionsAnalysis
 
 # Bewusst aus dem Wertemodul und nicht aus dem Paket: ``domain.report``
 # zieht ueber ``build_report`` seinerseits ``domain.analysis`` herein. Der
@@ -28,7 +29,11 @@ from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.report.values import StockReport, StoredReport
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
-from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
+from ai_trading_analyst.domain.technical import (
+    PriceZone,
+    TechnicalAssessment,
+    TechnicalSnapshot,
+)
 
 from .models import (
     AnalysisRun,
@@ -240,6 +245,48 @@ class FundamentalDataProvider(Protocol):
 
         Raises:
             FundamentalDataProviderError: wenn die Quelle nicht erreichbar war
+                oder eine Antwort lieferte, die nicht auswertbar ist.
+        """
+        ...
+
+
+class OptionsDataProviderError(Exception):
+    """Die Optionsdatenquelle war fuer eine Aktie nicht verwertbar.
+
+    Wird vom Application-Layer pro Aktie isoliert (Muster
+    ``FundamentalDataProviderError``) -- eine nicht erreichbare TWS oder eine
+    fehlende Optionsmarktdaten-Berechtigung ist ein normaler Betriebszustand,
+    kein Laufabbruch. Der Swing-Score faellt dann auf die Abdeckung ohne
+    Optionsattraktivitaet zurueck (ADR 0041, Abschnitt 3).
+    """
+
+
+class OptionsDataProvider(Protocol):
+    """Liefert bewertete Cash-Secured-Put-Vorschlaege (ADR 0048)."""
+
+    def options(
+        self,
+        stock: Stock,
+        *,
+        price: float,
+        as_of: date,
+        zones: Sequence[PriceZone] = (),
+        next_earnings_date: date | None = None,
+    ) -> OptionsAnalysis:
+        """Vorschlaege zum Zielfenster aus ``OptionsParameters``.
+
+        ``price`` ist der Schluss der letzten **abgeschlossenen** Kerze und
+        hier **nicht** optional: Ohne ihn gibt es kein Strike-Band. Die
+        Umsetzung beschafft selbst keinen Kurs und leitet keinen ab.
+
+        ``zones`` und ``next_earnings_date`` sind dagegen **optionale, nicht
+        blockierende** Eingaben (CLAUDE.md, erste und dritte gerichtete
+        Kopplung). Fehlen sie, bleiben genau die von ihnen abhaengigen Felder
+        leer; die Umsetzung leitet weder eine Zone noch einen Termin selbst
+        ab.
+
+        Raises:
+            OptionsDataProviderError: wenn die Quelle nicht erreichbar war
                 oder eine Antwort lieferte, die nicht auswertbar ist.
         """
         ...

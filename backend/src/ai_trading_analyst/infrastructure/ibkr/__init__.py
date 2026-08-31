@@ -7,11 +7,13 @@ from .bar_source import (
     IbAsyncBarSource,
     IbkrBarSourceError,
     IbkrConnectionSettings,
+    OptionChainStructure,
     duration_in_days,
     ibkr_bar_size,
     ibkr_duration,
 )
 from .market_data_provider import IbkrMarketDataProvider
+from .option_chain import IbkrOptionsProvider, OptionChainSource
 
 __all__ = [
     "SUPPORTED_BAR_MINUTES",
@@ -21,6 +23,9 @@ __all__ = [
     "IbkrBarSourceError",
     "IbkrConnectionSettings",
     "IbkrMarketDataProvider",
+    "IbkrOptionsProvider",
+    "OptionChainSource",
+    "OptionChainStructure",
     "duration_in_days",
     "ibkr_bar_size",
     "ibkr_duration",

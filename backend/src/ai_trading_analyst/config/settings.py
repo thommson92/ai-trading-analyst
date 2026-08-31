@@ -337,6 +337,69 @@ class FundamentalsConfig(_Section):
     Wachstumsraten nicht, statt sie ueber eine andere Spanne zu rechnen."""
 
 
+class OptionsConfig(_Section):
+    """Optionsanalyse: Cash Secured Puts (Doc 10, Paragraph 6.10; ADR 0048)."""
+
+    provider: Literal["fixture", "ibkr"] = "fixture"
+    """Wie ``fundamentals.provider``: ``fixture`` bleibt Standard, damit Start
+    und Tests ohne laufende TWS und ohne Optionsmarktdaten-Abo funktionieren."""
+    market_data_type: Literal[1, 2, 3, 4] = 2
+    """IBKRs Marktdatenmodus: ``1`` live, ``2`` "frozen", ``3`` verzoegert,
+    ``4`` verzoegert und "frozen".
+
+    Vorgabe ``2``: Der Tageslauf beginnt mit dem Schluss der zweiten
+    195-Minuten-Kerze -- also **zum** Boersenschluss -- und erreicht die
+    Optionen erst nach dem Kerzen-Backfill. Live gaebe es dann nichts mehr;
+    "frozen" liefert den letzten vor Schluss festgestellten Stand."""
+    min_days_to_expiration: PositiveInt = 21
+    max_days_to_expiration: PositiveInt = 45
+    """Zielfenster der Restlaufzeit in Kalendertagen (Entscheidung des
+    Projektinhabers, 2026-08-31). Ausgewaehlt wird der Verfallstermin, der
+    der Mitte des Fensters am naechsten liegt."""
+    min_delta: NonNegativeFloat = 0.10
+    max_delta: NonNegativeFloat = 0.40
+    """Zielband des Delta-**Betrags**, angewandt erst **nach** dem Abruf: Vor
+    der Notierung ist das Delta nicht bekannt."""
+    min_moneyness: NonNegativeFloat = 0.80
+    max_moneyness: NonNegativeFloat = 0.99
+    """Vorauswahl der Strikes als Anteil des Kurses. Begrenzt nur, wie viele
+    Kontrakte ueberhaupt notiert werden -- entschieden wird ueber das
+    Delta-Band."""
+    max_strikes: PositiveInt = 12
+    max_suggestions: PositiveInt = 3
+    max_relative_spread: NonNegativeFloat = 0.10
+    min_open_interest: PositiveInt = 100
+    min_volume: PositiveInt = 10
+    """Liquiditaetsschwellen. **Gesetzt, nicht gemessen** (ADR 0048): Sie
+    tragen keinen Teilwert, sondern erzeugen Warnungen. Doc 10 verlangt
+    genau das -- unzureichende Liquiditaet wird nicht verschwiegen, steht
+    aber nie an erster Stelle."""
+
+    @model_validator(mode="after")
+    def _baender_muessen_aufsteigen(self) -> OptionsConfig:
+        if self.min_days_to_expiration > self.max_days_to_expiration:
+            raise ValueError(
+                f"min_days_to_expiration ({self.min_days_to_expiration}) darf nicht groesser "
+                f"als max_days_to_expiration ({self.max_days_to_expiration}) sein"
+            )
+        if self.min_delta > self.max_delta:
+            raise ValueError(
+                f"min_delta ({self.min_delta}) darf nicht groesser als max_delta "
+                f"({self.max_delta}) sein"
+            )
+        if self.min_moneyness > self.max_moneyness:
+            raise ValueError(
+                f"min_moneyness ({self.min_moneyness}) darf nicht groesser als max_moneyness "
+                f"({self.max_moneyness}) sein"
+            )
+        if self.max_moneyness > 1.0:
+            raise ValueError(
+                "max_moneyness ueber 1.0 waere ein Put im Geld -- die Optionsanalyse "
+                "bewertet ausschliesslich Cash Secured Puts aus dem Geld (Doc 08)"
+            )
+        return self
+
+
 class EarningsFilterConfig(_Section):
     """Ausschlussfenster vor Quartalszahlen (Doc 10, Paragraph 6.5)."""
 
@@ -914,6 +977,7 @@ class AppConfig(_Section):
     research: ResearchConfig = ResearchConfig()
     technical_agent: TechnicalAgentConfig = TechnicalAgentConfig()
     fundamentals: FundamentalsConfig = FundamentalsConfig()
+    options: OptionsConfig = OptionsConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()

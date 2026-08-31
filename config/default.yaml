@@ -412,6 +412,57 @@ notifications:
     base_url: https://api.telegram.org
     request_timeout_seconds: 10
 
+options:
+  # Optionsanalyse: ausschließlich Cash Secured Puts (Doc 08; Doc 10,
+  # Paragraph 6.10; ADR 0048). Läuft nur für Kandidaten -- eine Optionskette
+  # für jeden Titel der Watchliste wäre ein Vielfaches an Abrufen ohne Nutzen.
+  #
+  # "fixture" bleibt Standard: Start, Tests und CI laufen damit ohne laufende
+  # TWS und ohne Optionsmarktdaten-Abo.
+  provider: fixture
+  # IBKRs Marktdatenmodus: 1 live, 2 "frozen", 3 verzögert, 4 verzögert+frozen.
+  #
+  # 2, weil der Tageslauf mit dem Schluss der zweiten 195-Minuten-Kerze
+  # beginnt -- also ZUM Börsenschluss -- und die Optionen erst nach dem
+  # Kerzen-Backfill erreicht, rund eine halbe Stunde später. Live gäbe es
+  # dann nichts mehr; "frozen" liefert den letzten vor Schluss festgestellten
+  # Stand.
+  market_data_type: 2
+  # Zielfenster der Restlaufzeit in KALENDERTAGEN (Entscheidung des
+  # Projektinhabers, 2026-08-31). Ausgewählt wird der Verfallstermin, der der
+  # Mitte des Fensters am nächsten liegt; bei Gleichstand der frühere.
+  min_days_to_expiration: 21
+  max_days_to_expiration: 45
+  # Zielband des Delta-BETRAGS. Es wird erst NACH dem Abruf angewandt: Vor
+  # der Notierung ist das Delta nicht bekannt, und ein geschätztes wäre ein
+  # erfundener Wert.
+  #
+  # Das Band ist breit, und das hat eine sichtbare Folge: Die annualisierte
+  # Rendite steigt innerhalb eines Verfallstermins nahezu monoton mit dem
+  # Delta, der oberste Vorschlag steht deshalb fast immer am oberen Rand.
+  # Genau darum sind es drei Vorschläge und nicht einer -- Delta, Abstand zum
+  # Kurs und Abstand zur Unterstützung stehen an jedem.
+  min_delta: 0.10
+  max_delta: 0.40
+  # Vorauswahl der Strikes als Anteil des Kurses. Sie ersetzt das Delta-Band
+  # nicht, sondern begrenzt nur, wie viele Kontrakte überhaupt notiert werden
+  # -- jede Notierung kostet eine Marktdatenanfrage.
+  min_moneyness: 0.80
+  max_moneyness: 0.99
+  max_strikes: 12
+  max_suggestions: 3
+  # Liquiditätsschwellen. GESETZT, nicht gemessen: Sie tragen keinen
+  # Score-Teilwert, sondern erzeugen Warnungen. Ein Vorschlag mit zwei oder
+  # mehr Warnungen gilt als POOR und steht nie an erster Stelle -- er wird
+  # aber auch nicht verschwiegen (Doc 10, Paragraph 6.10).
+  #
+  # Nicht gelieferte Werte erzeugen KEINE Warnung: Fehlende Werte bestrafen
+  # nicht. Open Interest fordert reqTickers nicht standardmäßig an und fehlt
+  # deshalb oft.
+  max_relative_spread: 0.10
+  min_open_interest: 100
+  min_volume: 10
+
 scoring:
   # 1.1: Die News- und Ereignislage rechnet mit (ADR 0046) -- der Score steht
   # auf 90 statt 80 Prozent Abdeckung. Die Optionsattraktivitaet wird 1.2.
