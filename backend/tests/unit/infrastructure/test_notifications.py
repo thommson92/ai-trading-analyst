@@ -9,12 +9,15 @@ echtes Netzwerk pruefen laesst, ueber ``httpx.MockTransport``.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from ai_trading_analyst.config import NotificationsConfig, Secrets, TelegramConfig
 from ai_trading_analyst.domain.scheduling import NotifierError
 from ai_trading_analyst.infrastructure.notifications import (
+    MAX_TEXT_ZEICHEN,
     LoggingNotifier,
     NotificationChannelNotConfiguredError,
     TelegramNotifier,
@@ -141,3 +144,50 @@ class TestTelegramAusgang:
             _notifier(transport).send("Betreff", "Text")
 
         assert "bot-token" not in str(fehler.value)
+
+
+class TestKuerzung:
+    """Eine zu lange Meldung wird gekuerzt, nicht verworfen (ADR 0040).
+
+    Telegram lehnt ueber 4096 Zeichen mit einem 400 ab; daraus wuerde ein
+    ``NotifierError``, den der Aufrufer protokolliert -- aus "viele
+    Kandidaten" wuerde "keine Nachricht", ausgerechnet am Tag mit dem meisten
+    zu melden. Die Zusicherung stand seit ADR 0040 im Code und war bis hier
+    ungeprueft.
+    """
+
+    def test_ein_zu_langer_text_wird_auf_die_grenze_gekuerzt(self) -> None:
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "x" * (MAX_TEXT_ZEICHEN + 500))
+
+        (text,) = gesendet
+        assert len(text) <= MAX_TEXT_ZEICHEN
+
+    def test_die_kuerzung_ist_als_kuerzung_erkennbar(self) -> None:
+        """Eine stillschweigend abgeschnittene Liste saehe aus wie eine
+        vollstaendige."""
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "x" * (MAX_TEXT_ZEICHEN + 500))
+
+        assert "gekuerzt" in gesendet[0]
+
+    def test_ein_kurzer_text_bleibt_unangetastet(self) -> None:
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "kurz und knapp")
+
+        assert gesendet == ["Betreff\n\nkurz und knapp"]

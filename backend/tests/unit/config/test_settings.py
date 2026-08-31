@@ -25,6 +25,7 @@ from ai_trading_analyst.config import (
 from ai_trading_analyst.config.settings import (
     LongTermWeightsConfig,
     MetricThresholdConfig,
+    RecommendationConfig,
     ScoringConfig,
     SwingWeightsConfig,
     project_env_file,
@@ -351,3 +352,31 @@ class TestScoringAbschnitt:
     def test_ein_unbekannter_schluessel_faellt_beim_laden_auf(self) -> None:
         with pytest.raises(ValidationError):
             ScoringConfig(minimum_coverange=0.6)  # type: ignore[call-arg]
+
+
+class TestEmpfehlungsabschnitt:
+    """``scoring.recommendation`` (ADR 0046) -- gesetzt, aber nicht beliebig."""
+
+    def test_die_voreinstellung_liegt_auf_der_skala_des_scores(self) -> None:
+        """2/4/6/8/10 sind die Stufen, aus denen der Swing-Score gebaut ist
+        (ADR 0045). Die Grenzen sind daraus abgelesen, nicht gegriffen."""
+        regeln = RecommendationConfig()
+        assert (regeln.strong_candidate, regeln.candidate, regeln.watch) == (8.0, 6.0, 4.0)
+
+    def test_steigende_stufengrenzen_sind_ein_fehler(self) -> None:
+        with pytest.raises(ValidationError, match="fallen"):
+            RecommendationConfig(candidate=9.0)
+
+    def test_gekreuzte_korrekturgrenzen_sind_ein_fehler(self) -> None:
+        with pytest.raises(ValidationError, match="investment_weak"):
+            RecommendationConfig(investment_weak=9.0)
+
+    def test_insufficient_data_ist_als_obergrenze_nicht_waehlbar(self) -> None:
+        """Schon das Schema laesst es nicht zu -- sonst faellt es erst in
+        ``build_scoring_params`` auf, also eine Schicht spaeter."""
+        with pytest.raises(ValidationError):
+            RecommendationConfig(cap_false_signal_high="INSUFFICIENT_DATA")
+
+    def test_ein_unbekannter_schluessel_faellt_beim_laden_auf(self) -> None:
+        with pytest.raises(ValidationError):
+            RecommendationConfig(cap_earnings_unkown="WATCH")  # type: ignore[call-arg]

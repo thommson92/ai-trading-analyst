@@ -13,16 +13,34 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
     RunStatus,
+    Stock,
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import render_notification
-from ai_trading_analyst.domain.screening import ScreeningResult, ScreeningStatus
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    Recommendation,
+    RecommendationParameters,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+    ScoringParameters,
+    derive_recommendation,
+)
+from ai_trading_analyst.domain.screening import (
+    ScreeningResult,
+    ScreeningStatus,
+    SignalType,
+)
 from ai_trading_analyst.domain.technical import (
     FalseSignalRisk,
     TechnicalAssessment,
     TechnicalAssessmentStatus,
 )
+from ai_trading_analyst.infrastructure.notifications import MAX_TEXT_ZEICHEN
 from tests.unit.domain.report.conftest import (
     JETZT,
     make_earnings,
@@ -33,6 +51,28 @@ from tests.unit.domain.report.conftest import (
 )
 
 _NY = "America/New_York"
+
+REGELN = ScoringParameters(
+    swing_weights={},
+    long_term_weights={},
+    thresholds={},
+    minimum_coverage=0.6,
+    normal_confidence_coverage=0.8,
+    recommendation=RecommendationParameters(
+        strong_candidate=8.0,
+        candidate=6.0,
+        watch=4.0,
+        investment_strong=8.0,
+        investment_weak=4.0,
+        cap_false_signal_high=Recommendation.WATCH,
+        cap_earnings_unknown=Recommendation.CANDIDATE,
+        version="1.0",
+    ),
+    swing_version="1.0",
+    long_term_version="1.0",
+)
+"""Nur die Empfehlungsregeln zaehlen hier -- die Meldung rechnet keinen Score,
+sie zeigt ihn."""
 
 
 def zusammenfassung(
@@ -49,6 +89,62 @@ def zusammenfassung(
         candidates_found=kandidaten,
     )
     return AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=())
+
+
+def punktzahl(wert: float | None, kind: ScoreKind) -> ScoreResult:
+    vollstaendig = wert is not None
+    return ScoreResult(
+        kind=kind,
+        status=ScoreStatus.COMPLETED if vollstaendig else ScoreStatus.INSUFFICIENT_DATA,
+        version="1.0",
+        components=(
+            ScoreComponent(
+                name=ComponentName.TECHNICAL_SIGNALS,
+                weight=1.0,
+                value=wert,
+                effective_weight=1.0 if vollstaendig else 0.0,
+            ),
+        ),
+        coverage=1.0 if vollstaendig else 0.0,
+        confidence=ScoreConfidence.NORMAL if vollstaendig else ScoreConfidence.INSUFFICIENT_DATA,
+        value=wert,
+    )
+
+
+def kandidat(
+    symbol: str, *, swing: float | None, investment: float | None, voll: bool = False
+) -> StockScreeningOutcome:
+    """Ein Kandidat mit Scores und der Stufe, die sich daraus ergibt.
+
+    ``voll`` erzeugt die **laengstmoegliche** Zeile: drei Signale, das
+    Fehlsignalrisiko und der Earnings-Hinweis. Nur damit laesst sich die
+    Kuerzungsgrenze belegen -- an einer kurzen Zeile gemessen waere sie zu
+    optimistisch.
+    """
+    swing_score = punktzahl(swing, ScoreKind.SWING)
+    investment_score = punktzahl(investment, ScoreKind.LONG_TERM)
+    zusatz: dict[str, object] = {}
+    if voll:
+        zusatz = {
+            "result": ScreeningResult(
+                status=ScreeningStatus.CANDIDATE, fired_signal_types=frozenset(SignalType)
+            ),
+            "technical_assessment": einordnung(FalseSignalRisk.MEDIUM),
+            "earnings": make_earnings(EarningsFilterStatus.UNKNOWN),
+        }
+    return make_outcome(
+        stock=Stock(id=uuid.uuid5(uuid.NAMESPACE_DNS, symbol), symbol=symbol, exchange="NASDAQ"),
+        swing_score=swing_score,
+        investment_score=investment_score,
+        recommendation=derive_recommendation(
+            swing=swing_score,
+            investment=investment_score,
+            false_signal_risk=None,
+            earnings_status=None,
+            parameters=REGELN,
+        ),
+        **zusatz,
+    )
 
 
 def einordnung(risiko: FalseSignalRisk) -> TechnicalAssessment:
@@ -122,7 +218,12 @@ class TestHandelstag:
 
 
 class TestWasDraussenBleibt:
-    """Die eigentliche Zusicherung von ADR 0040."""
+    """Die Zusicherung, die ADR 0047 **nicht** gelockert hat.
+
+    Scores und Stufe gehen jetzt hinaus (ADR 0047). Kurse, Kennzahlen und
+    jeder Freitext bleiben draussen -- die Grenze verschiebt sich von "keine
+    Zahlen" zu "keine Rohdaten und keine Formulierung".
+    """
 
     def test_kein_kurs_und_keine_kennzahl(self) -> None:
         _, text = render_notification(
@@ -163,3 +264,111 @@ class TestOhneKandidaten:
         assert betreff == "Analyse-Lauf 2026-08-30: 0 Kandidat(en)"
         assert "192 Aktien" in text
         assert "AAPL" not in text
+
+
+class TestScoresUndStufe:
+    """ADR 0047 -- der Punkt, in dem die Meldung ADR 0040  abloest."""
+
+    def test_beide_scores_und_die_stufe_stehen_in_der_zeile(self) -> None:
+        _, text = render_notification(
+            zusammenfassung(kandidat("AAPL", swing=8.6, investment=5.5)), timezone=_NY
+        )
+
+        assert "8.6" in text
+        assert "5.5" in text
+        assert "STRONG_CANDIDATE" in text
+
+    def test_ein_fehlender_score_steht_als_strich_und_nicht_als_null(self) -> None:
+        """Null hiesse geprueft und schlecht (Doc 09) -- in einer Meldung, die
+        auf ein Smartphone geht, ist der Unterschied besonders teuer."""
+        _, text = render_notification(
+            zusammenfassung(kandidat("AAPL", swing=7.0, investment=None)), timezone=_NY
+        )
+
+        assert "I --" in text
+        assert "I 0.0" not in text
+
+    def test_die_legende_erklaert_die_beiden_buchstaben(self) -> None:
+        _, text = render_notification(
+            zusammenfassung(kandidat("AAPL", swing=7.0, investment=5.0)), timezone=_NY
+        )
+        assert "S = Swing" in text
+        assert "I = Investment" in text
+
+    def test_der_beste_kandidat_steht_oben(self) -> None:
+        """Die Kuerzung greift am Ende des Textes. Alphabetisch sortiert
+        verloere man ausgerechnet die Kandidaten, wegen derer die Meldung
+        ueberhaupt geschrieben wird."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat("AAA", swing=4.0, investment=5.0),
+                kandidat("ZZZ", swing=9.0, investment=5.0),
+                kandidat("MMM", swing=6.5, investment=5.0),
+            ),
+            timezone=_NY,
+        )
+
+        assert [zeile.split()[0] for zeile in text.splitlines()[:3]] == ["ZZZ", "MMM", "AAA"]
+
+    def test_kandidaten_ohne_score_stehen_hinten(self) -> None:
+        """Nicht, weil sie schlecht waeren, sondern weil ueber sie nichts zu
+        sagen ist."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat("OHNE", swing=None, investment=None),
+                kandidat("MIT", swing=4.0, investment=5.0),
+            ),
+            timezone=_NY,
+        )
+
+        assert [zeile.split()[0] for zeile in text.splitlines()[:2]] == ["MIT", "OHNE"]
+
+    def test_bei_gleichstand_entscheidet_das_symbol(self) -> None:
+        """Ohne zweiten Schluessel haengt die Reihenfolge an der Aktienliste,
+        und zwei Laeufe derselben Lage ergaeben verschiedene Meldungen."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat("ZZZ", swing=7.0, investment=5.0),
+                kandidat("AAA", swing=7.0, investment=5.0),
+            ),
+            timezone=_NY,
+        )
+
+        assert [zeile.split()[0] for zeile in text.splitlines()[:2]] == ["AAA", "ZZZ"]
+
+
+class TestLaengeUndKuerzung:
+    """Wie viele Kandidaten passen, bevor der Kanal kuerzt (ADR 0047).
+
+    **Gemessen, nicht geschaetzt** -- und die Zahl haengt an der Zeile: Mit
+    drei Signalen, Fehlsignalrisiko und Earnings-Hinweis passen 25, mit der
+    kurzen Zeile 51. ADR 0040 hatte ohne Scores rund 65 genannt.
+
+    Der Test haelt beide Enden fest. Wandern sie, ist entweder das Format
+    gewachsen -- dann gehoert die Zahl im ADR nachgezogen -- oder es ist
+    etwas in die Meldung geraten, was dort nicht hingehoert.
+    """
+
+    @staticmethod
+    def _text(anzahl: int, *, voll: bool) -> str:
+        _, text = render_notification(
+            zusammenfassung(
+                *(
+                    kandidat(f"SYM{i:04d}", swing=8.6, investment=5.5, voll=voll)
+                    for i in range(anzahl)
+                ),
+                aktien=200,
+            ),
+            timezone=_NY,
+        )
+        return text
+
+    def test_im_unguenstigsten_fall_passen_fuenfundzwanzig(self) -> None:
+        """Drei Signale, Fehlsignalrisiko und Earnings-Hinweis -- die
+        laengstmoegliche Zeile."""
+        assert len(self._text(25, voll=True)) <= MAX_TEXT_ZEICHEN
+        assert len(self._text(26, voll=True)) > MAX_TEXT_ZEICHEN
+
+    def test_mit_der_kurzen_zeile_passen_einundfuenfzig(self) -> None:
+        assert len(self._text(51, voll=False)) <= MAX_TEXT_ZEICHEN
+        assert len(self._text(52, voll=False)) > MAX_TEXT_ZEICHEN

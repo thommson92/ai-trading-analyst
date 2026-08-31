@@ -88,3 +88,43 @@ class TestParameter:
     def test_unsortierte_grenzen_sind_auch_in_der_domain_ein_fehler(self) -> None:
         with pytest.raises(ValueError, match="aufsteigen"):
             MetricThresholds(boundaries=(4.0, 3.0, 2.0, 1.0), higher_is_better=True)
+
+
+class TestEmpfehlungsregeln:
+    """Was ``RecommendationParameters`` selbst nicht zulaesst (ADR 0046)."""
+
+    @staticmethod
+    def _regeln(**overrides: object) -> RecommendationParameters:
+        felder: dict[str, object] = {
+            "strong_candidate": 8.0,
+            "candidate": 6.0,
+            "watch": 4.0,
+            "investment_strong": 8.0,
+            "investment_weak": 4.0,
+            "cap_false_signal_high": Recommendation.WATCH,
+            "cap_earnings_unknown": Recommendation.CANDIDATE,
+            "version": "1.0",
+        }
+        felder.update(overrides)
+        return RecommendationParameters(**felder)  # type: ignore[arg-type]
+
+    def test_stufengrenzen_muessen_fallen(self) -> None:
+        """Sonst waere eine Stufe unerreichbar, ohne dass es jemand saehe."""
+        with pytest.raises(ValueError, match="fallen"):
+            self._regeln(candidate=9.0)
+
+    def test_gleiche_grenzen_sind_ebenfalls_ein_fehler(self) -> None:
+        with pytest.raises(ValueError, match="fallen"):
+            self._regeln(candidate=8.0)
+
+    def test_die_korrekturgrenzen_duerfen_sich_nicht_kreuzen(self) -> None:
+        """Sonst hoebe und senkte derselbe Investment-Score die Stufe
+        zugleich, und welche Regel gewaenne, entschiede die Zeilenfolge."""
+        with pytest.raises(ValueError, match="investment_weak"):
+            self._regeln(investment_weak=9.0)
+
+    def test_insufficient_data_taugt_nicht_als_obergrenze(self) -> None:
+        """Es ist keine schlechtere Stufe, sondern gar keine -- als Deckel
+        machte es aus jedem gedeckelten Kandidaten einen ohne Grundlage."""
+        with pytest.raises(ValueError, match="keine schlechtere Stufe"):
+            self._regeln(cap_false_signal_high=Recommendation.INSUFFICIENT_DATA)
