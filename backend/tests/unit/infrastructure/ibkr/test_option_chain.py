@@ -389,21 +389,25 @@ class TestGrundOhneVerfallstermin:
         return analyse.reason or ""
 
     def test_die_naechsten_termine_auf_beiden_seiten_stehen_drin(self) -> None:
-        """Genau die Lage vom 2026-08-31: dritter Freitag im September 18
-        Tage voraus, dritter Freitag im Oktober 46 -- einer zu wenig, einer
-        zu viel."""
-        grund = self._grund((date(2026, 9, 18), date(2026, 10, 16)))
+        """Eine Kette, die das Fenster 21-60 ueberspringt.
 
-        assert "naechste 18 und 46 Tage" in grund
+        Die Lage vom 2026-08-31 (18 und 46 Tage) faellt seit der
+        Verbreiterung **nicht** mehr durch -- 46 liegt jetzt drin. Uebrig
+        bleibt der Fall einer Kette mit einer echten Luecke, und auch der
+        soll seinen Grund benennen koennen.
+        """
+        grund = self._grund((date(2026, 9, 18), date(2026, 11, 20)))
+
+        assert "naechste 18 und 81 Tage" in grund
 
     def test_eine_fehlende_seite_wird_als_fehlend_gezeigt(self) -> None:
-        grund = self._grund((date(2026, 10, 16),))
+        grund = self._grund((date(2026, 11, 20),))
 
-        assert "naechste -- und 46 Tage" in grund
+        assert "naechste -- und 81 Tage" in grund
 
     def test_handelsklasse_und_boerse_stehen_dabei(self) -> None:
         """Ohne sie liesse sich eine angepasste Klasse nicht erkennen."""
-        grund = self._grund((date(2026, 10, 16),))
+        grund = self._grund((date(2026, 11, 20),))
 
         assert "Klasse 'AAPL' ueber SMART" in grund
 

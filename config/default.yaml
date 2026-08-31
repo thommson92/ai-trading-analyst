@@ -434,11 +434,26 @@ options:
   # nichts. Das kostet im Regelfall nichts und macht eine Einzelprobe am
   # Abend brauchbar.
   market_data_type: 2
-  # Zielfenster der Restlaufzeit in KALENDERTAGEN (Entscheidung des
-  # Projektinhabers, 2026-08-31). Ausgewählt wird der Verfallstermin, der der
-  # Mitte des Fensters am nächsten liegt; bei Gleichstand der frühere.
+  # Zielfenster der Restlaufzeit in KALENDERTAGEN -- was ZULÄSSIG ist.
+  #
+  # Die Obergrenze ist gerechnet, nicht gewählt: Zwei aufeinander folgende
+  # dritte Freitage liegen 28 oder 35 Tage auseinander. Ein Fenster schmaler
+  # als 35 Tage kann deshalb zwischen zwei Monatsverfälle fallen -- beim
+  # Messlauf am 2026-08-31 fielen so 77 von 192 Titeln aus, weil der
+  # Septemberverfall 18 und der Oktoberverfall 46 Tage entfernt lag. Ab
+  # Breite 35 (also 21 bis 56) kann das nicht mehr passieren; 60 lässt
+  # Reserve.
   min_days_to_expiration: 21
-  max_days_to_expiration: 45
+  max_days_to_expiration: 60
+  # Die bevorzugte Restlaufzeit INNERHALB des Fensters -- was GEWÄHLT wird.
+  # Bei Gleichstand gewinnt der frühere Termin.
+  #
+  # Getrennt von den Grenzen, damit die Verbreiterung des Fensters nicht
+  # zugleich die übliche Laufzeit verschiebt: Mit 35 Tagen fällt die Wahl für
+  # Titel mit Wochenoptionen genauso aus wie zuvor -- am 2026-08-31 auf den
+  # 2. Oktober --, während Titel mit reinen Monatsverfällen den Oktobertermin
+  # bekommen statt gar keinen.
+  target_days_to_expiration: 35
   # Zielband des Delta-BETRAGS. Es wird erst NACH dem Abruf angewandt: Vor
   # der Notierung ist das Delta nicht bekannt, und ein geschätztes wäre ein
   # erfundener Wert.

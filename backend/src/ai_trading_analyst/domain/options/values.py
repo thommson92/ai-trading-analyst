@@ -211,10 +211,26 @@ class OptionsParameters:
     """
 
     min_days_to_expiration: int = 21
-    max_days_to_expiration: int = 45
-    """Zielfenster der Restlaufzeit in **Kalendertagen** (Entscheidung des
-    Projektinhabers, 2026-08-31). Ausgewaehlt wird der Verfallstermin, der
-    der Mitte des Fensters am naechsten liegt."""
+    max_days_to_expiration: int = 60
+    """Zielfenster der Restlaufzeit in **Kalendertagen**.
+
+    Die Obergrenze ist **gerechnet, nicht gewaehlt**: Zwei aufeinander
+    folgende dritte Freitage liegen 28 oder 35 Tage auseinander. Ein Fenster
+    schmaler als 35 Tage kann deshalb zwischen zwei Monatsverfaelle fallen --
+    beim Messlauf am 2026-08-31 traf das 77 von 192 Titeln, weil der
+    Septemberverfall 18 und der Oktoberverfall 46 Tage entfernt lag. Ab
+    Breite 35, also ``21`` bis ``56``, kann das nicht mehr passieren; ``60``
+    laesst Reserve."""
+    target_days_to_expiration: int = 35
+    """Die bevorzugte Restlaufzeit **innerhalb** des Fensters.
+
+    Getrennt von den Grenzen, und zwar aus einem gemessenen Grund: Solange
+    die Auswahl an der Fenstermitte hing, verschob jede Verbreiterung des
+    Fensters zugleich die uebliche Wahl. Das Fenster sagt, was zulaessig ist;
+    dieser Wert sagt, was bevorzugt wird. Mit 35 Tagen faellt die Wahl fuer
+    Titel mit Wochenoptionen genauso aus wie zuvor -- am 2026-08-31 auf den
+    2. Oktober --, waehrend Titel mit reinen Monatsverfaellen den
+    Oktobertermin bekommen statt gar keinen."""
     min_delta: float = 0.10
     max_delta: float = 0.40
     """Zielband des Delta-**Betrags**. Es wird erst **nach** dem Abruf
@@ -241,6 +257,7 @@ class OptionsParameters:
             {
                 "min_days_to_expiration": float(self.min_days_to_expiration),
                 "max_days_to_expiration": float(self.max_days_to_expiration),
+                "target_days_to_expiration": float(self.target_days_to_expiration),
                 "min_delta": self.min_delta,
                 "max_delta": self.max_delta,
                 "min_moneyness": self.min_moneyness,

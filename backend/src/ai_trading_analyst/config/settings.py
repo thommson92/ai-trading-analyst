@@ -357,10 +357,19 @@ class OptionsConfig(_Section):
     nichts. Das kostet im Regelfall nichts und macht eine Einzelprobe am
     Abend brauchbar."""
     min_days_to_expiration: PositiveInt = 21
-    max_days_to_expiration: PositiveInt = 45
-    """Zielfenster der Restlaufzeit in Kalendertagen (Entscheidung des
-    Projektinhabers, 2026-08-31). Ausgewaehlt wird der Verfallstermin, der
-    der Mitte des Fensters am naechsten liegt."""
+    max_days_to_expiration: PositiveInt = 60
+    """Zielfenster der Restlaufzeit in Kalendertagen -- was **zulaessig** ist.
+
+    Die Obergrenze ist gerechnet, nicht gewaehlt: Zwei aufeinander folgende
+    dritte Freitage liegen 28 oder 35 Tage auseinander, ein schmaleres
+    Fenster als 35 Tage kann also zwischen zwei Monatsverfaelle fallen. Beim
+    Messlauf am 2026-08-31 traf das 77 von 192 Titeln (ADR 0048)."""
+    target_days_to_expiration: PositiveInt = 35
+    """Die bevorzugte Restlaufzeit **innerhalb** des Fensters -- was
+    **gewaehlt** wird.
+
+    Getrennt von den Grenzen, damit eine Verbreiterung des Fensters nicht
+    zugleich die uebliche Laufzeit verschiebt."""
     min_delta: NonNegativeFloat = 0.10
     max_delta: NonNegativeFloat = 0.40
     """Zielband des Delta-**Betrags**, angewandt erst **nach** dem Abruf: Vor
@@ -386,6 +395,16 @@ class OptionsConfig(_Section):
             raise ValueError(
                 f"min_days_to_expiration ({self.min_days_to_expiration}) darf nicht groesser "
                 f"als max_days_to_expiration ({self.max_days_to_expiration}) sein"
+            )
+        if not (
+            self.min_days_to_expiration
+            <= self.target_days_to_expiration
+            <= self.max_days_to_expiration
+        ):
+            raise ValueError(
+                f"target_days_to_expiration ({self.target_days_to_expiration}) muss zwischen "
+                f"min_days_to_expiration ({self.min_days_to_expiration}) und "
+                f"max_days_to_expiration ({self.max_days_to_expiration}) liegen"
             )
         if self.min_delta > self.max_delta:
             raise ValueError(

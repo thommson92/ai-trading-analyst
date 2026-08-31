@@ -357,6 +357,7 @@ def build_options_params(config: AppConfig) -> OptionsParameters:
     return OptionsParameters(
         min_days_to_expiration=section.min_days_to_expiration,
         max_days_to_expiration=section.max_days_to_expiration,
+        target_days_to_expiration=section.target_days_to_expiration,
         min_delta=section.min_delta,
         max_delta=section.max_delta,
         min_moneyness=section.min_moneyness,

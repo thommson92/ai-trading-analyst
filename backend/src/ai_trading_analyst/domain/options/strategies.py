@@ -47,20 +47,28 @@ Dienstag."""
 def select_expiration(
     expirations: Iterable[date], *, as_of: date, parameters: OptionsParameters
 ) -> date | None:
-    """Der Verfallstermin, der der Mitte des Zielfensters am naechsten liegt.
+    """Der Verfallstermin im Zielfenster, der der bevorzugten Laufzeit am
+    naechsten liegt (ADR 0048, Festlegung 4).
 
-    Eine Regel, nicht zwei (ADR 0048, Festlegung 4). Der Monatsverfall ist in
-    der Regel liquider als eine Wochenoption, aber ihn ueber eine zweite
-    Kalenderregel zu bevorzugen waere Komplexitaet ohne Beleg -- und die
-    Liquiditaetsbewertung macht eine duenne Kette ohnehin sichtbar.
+    Zwei getrennte Groessen, und die Trennung ist ein Messbefund: Das Fenster
+    sagt, was **zulaessig** ist, ``target_days_to_expiration`` sagt, was
+    **bevorzugt** wird. Haengt die Wahl an der Fenstermitte, verschiebt jede
+    Verbreiterung zugleich die uebliche Laufzeit -- und das Fenster musste
+    verbreitert werden, damit Titel mit reinen Monatsverfaellen ueberhaupt
+    einen Termin bekommen.
+
+    Eine Regel, nicht zwei: Der Monatsverfall ist in der Regel liquider als
+    eine Wochenoption, aber ihn ueber eine zweite Kalenderregel zu bevorzugen
+    waere Komplexitaet ohne Beleg -- und die Liquiditaetsbewertung macht eine
+    duenne Kette ohnehin sichtbar.
 
     Bei Gleichstand gewinnt der **fruehere** Termin: kuerzer gebundenes
-    Kapital bei gleichem Abstand zur Fenstermitte.
+    Kapital bei gleichem Abstand zur bevorzugten Laufzeit.
 
     ``None``, wenn das Zielfenster leer ist -- die Kette enthaelt dann keinen
     Termin zwischen ``min_days_to_expiration`` und ``max_days_to_expiration``.
     """
-    mitte = (parameters.min_days_to_expiration + parameters.max_days_to_expiration) / 2
+    mitte = parameters.target_days_to_expiration
     im_fenster = [
         termin
         for termin in expirations
@@ -105,9 +113,10 @@ def build_options_analysis(
     """Bewertet die abgerufenen Notierungen und waehlt die besten Vorschlaege.
 
     ``zones`` und ``next_earnings_date`` sind **optionale, nicht blockierende**
-    Eingaben (CLAUDE.md, erste und dritte gerichtete Kopplung). Fehlen sie,
-    bleiben genau die von ihnen abhaengigen Felder leer; jeder andere Wert
-    entsteht vollstaendig.
+    Eingaben (CLAUDE.md, erste und dritte gerichtete Kopplung). "Nicht
+    blockierend" heisst: Ein **fehlender** Wert haelt nichts auf. Ein
+    vorhandener darf sehr wohl wirken -- ein bekannter Berichtstermin vor dem
+    Verfall verwirft den Vorschlag (ADR 0048, Festlegung 7).
     """
     verworfen: list[str] = []
     strategien: list[PutStrategy] = []
@@ -175,6 +184,7 @@ _OHNE_DELTA = "ohne_delta"
 _DELTA_AUSSERHALB = "delta_ausserhalb"
 _OHNE_MITTELWERT = "ohne_mittelwert"
 _ABGELAUFEN = "abgelaufen"
+_EARNINGS_IM_FENSTER = "earnings_im_fenster"
 
 
 def _bewerte(
@@ -206,6 +216,22 @@ def _bewerte(
     if praemie is None:
         verworfen.append(_OHNE_MITTELWERT)
         return None
+    # Quartalszahlen vor dem Verfall schliessen den Vorschlag aus
+    # (Entscheidung des Projektinhabers, 2026-08-31; ADR 0048, Festlegung 7).
+    #
+    # Der Grund steht in den Messdaten: Die drei hoechsten
+    # Praemienrenditen der Watchliste am 2026-08-31 -- ORCL 71 %, STX 72 %,
+    # MU 64 % -- gehoerten alle Titeln, die innerhalb der Laufzeit
+    # berichteten. Das ist keine Gelegenheit, sondern die Verguetung fuer
+    # genau das Risiko, das ein Put-Verkaeufer traegt. Ohne diese Regel
+    # fuehrten sie die Rangliste an und trieben zugleich den Teilwert der
+    # Optionsattraktivitaet nach oben.
+    im_laufzeitfenster = _earnings_im_laufzeitfenster(
+        next_earnings_date, as_of=as_of, expiration=quote.expiration
+    )
+    if im_laufzeitfenster:
+        verworfen.append(_EARNINGS_IM_FENSTER)
+        return None
     einfache_rendite = praemie / quote.strike
     warnungen = _liquiditaetswarnungen(quote, parameters)
     return PutStrategy(
@@ -228,9 +254,7 @@ def _bewerte(
         open_interest=quote.open_interest,
         volume=quote.volume,
         distance_to_support_pct=_abstand_zur_unterstuetzung(quote.strike, zones),
-        earnings_within_term=_earnings_im_laufzeitfenster(
-            next_earnings_date, as_of=as_of, expiration=quote.expiration
-        ),
+        earnings_within_term=im_laufzeitfenster,
     )
 
 
@@ -294,7 +318,14 @@ def _zonenabstand(strike: float, zone: PriceZone) -> float:
 def _earnings_im_laufzeitfenster(
     next_earnings_date: date | None, *, as_of: date, expiration: date
 ) -> bool | None:
-    """``None`` heisst "kein Termin bekannt" und nicht "kein Termin"."""
+    """``None`` heisst "kein Termin bekannt" und nicht "kein Termin".
+
+    Der Unterschied ist hier folgenreich: ``True`` verwirft den Vorschlag,
+    ``False`` und ``None`` lassen ihn stehen. Ein unbekannter Termin darf
+    nicht wie ein belegter Nichttermin wirken -- aber er darf auch nicht
+    ausschliessen, denn dann bliebe von der Optionsanalyse bei jedem Symbol
+    ohne Earnings-Abdeckung nichts uebrig.
+    """
     if next_earnings_date is None:
         return None
     return as_of <= next_earnings_date <= expiration
@@ -318,6 +349,7 @@ def _verwerfungsgrund(
         ),
         _OHNE_MITTELWERT: "hatte Geld- und Briefkurs",
         _ABGELAUFEN: "war noch nicht verfallen",
+        _EARNINGS_IM_FENSTER: "lag vor dem naechsten Berichtstermin",
     }
     # Bei Gleichstand entscheidet die Reihenfolge in ``gruende`` und nicht die
     # Laune der Mengeniteration -- derselbe Lauf soll denselben Satz ergeben.

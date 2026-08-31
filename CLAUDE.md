@@ -100,12 +100,16 @@ Ableitung.
 **Optionsanalyse und Earnings-Termin** ([ADR 0048](docs/adr/0048-optionsanalyse-im-tageslauf.md)):
 
 1. Die Optionsanalyse darf den nächsten bekannten Berichtstermin aus dem
-   Earnings-Filter als **optionale** Eingabe verwenden — allein, um einen
-   Verfallstermin zu kennzeichnen, der jenseits davon liegt.
-2. Die Abhängigkeit ist **nicht blockierend**. Ist kein Termin bekannt, bleibt
-   das Kennzeichen leer und jeder andere Wert entsteht vollständig.
-   „Unbekannt" ist dabei ausdrücklich nicht dasselbe wie „kein Termin" — ein
-   unbekannter Termin ist kein belegter Nichttermin.
+   Earnings-Filter als **optionale** Eingabe verwenden. Liegt er vor dem
+   Verfall, entsteht der Vorschlag nicht — die Prämie vergütet dann genau das
+   Risiko, das ein Put-Verkäufer trägt.
+2. Die Abhängigkeit ist **nicht blockierend**, und das heißt hier präzise:
+   Ein **fehlender** Termin hält nichts auf. Ist keiner bekannt, entstehen
+   alle Vorschläge vollständig. „Unbekannt" ist ausdrücklich nicht dasselbe
+   wie „kein Termin" — ein unbekannter Termin ist kein belegter Nichttermin,
+   darf aber auch nicht ausschließen. Ein **vorhandener** Termin darf sehr
+   wohl wirken; die drei Bedingungen begrenzen, was fehlende Daten anrichten,
+   nicht was vorhandene bedeuten.
 3. Die Optionsanalyse **ermittelt keinen Termin selbst** und leitet keinen ab.
    Sie ändert insbesondere nichts an der Entscheidung des Earnings-Filters.
 

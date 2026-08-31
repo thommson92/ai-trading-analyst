@@ -8,7 +8,7 @@ vertauschter Nenner sieht plausibel aus.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -68,21 +68,33 @@ def zone(lower: float, upper: float, kind: ZoneKind = ZoneKind.SUPPORT) -> Price
 
 
 class TestVerfallsterminwahl:
-    def test_der_termin_naechst_der_fenstermitte_gewinnt(self) -> None:
-        # Mitte des Fensters 21-45 sind 33 Tage, also der 4. Oktober.
-        termine = [date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 16)]
+    def test_der_termin_naechst_der_bevorzugten_laufzeit_gewinnt(self) -> None:
+        # Bevorzugt sind 35 Tage, also der 6. Oktober.
+        termine = [date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 30)]
         assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
             2026, 10, 2
         )
 
+    def test_die_bevorzugte_laufzeit_ist_nicht_die_fenstermitte(self) -> None:
+        """Die Trennung ist der Kern: Das Fenster 21-60 haette die Mitte bei
+        40,5 Tagen, bevorzugt sind aber 35. Am Messtag 2026-08-31 fiel die
+        Wahl damit weiter auf den 2. Oktober -- die 115 gemessenen Werte
+        bleiben gueltig."""
+        messtag = date(2026, 8, 31)
+        termine = [date(2026, 10, 2), date(2026, 10, 9)]
+
+        assert select_expiration(termine, as_of=messtag, parameters=PARAMETER) == date(
+            2026, 10, 2
+        )
+
     def test_termine_ausserhalb_des_fensters_zaehlen_nicht(self) -> None:
-        # 12 Tage und 60 Tage -- beide ausserhalb von 21 bis 45.
-        termine = [date(2026, 9, 13), date(2026, 10, 31)]
+        # 12 Tage und 90 Tage -- beide ausserhalb von 21 bis 60.
+        termine = [date(2026, 9, 13), date(2026, 11, 30)]
         assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) is None
 
     @pytest.mark.parametrize(
         ("grenze", "tage"),
-        [(date(2026, 9, 22), 21), (date(2026, 10, 16), 45)],
+        [(date(2026, 9, 22), 21), (date(2026, 10, 31), 60)],
         ids=["untere", "obere"],
     )
     def test_die_fenstergrenzen_selbst_liegen_drin(self, grenze: date, tage: int) -> None:
@@ -91,11 +103,28 @@ class TestVerfallsterminwahl:
         assert select_expiration([grenze], as_of=STICHTAG, parameters=PARAMETER) == grenze
 
     def test_bei_gleichstand_gewinnt_der_fruehere_termin(self) -> None:
-        # 30 und 36 Tage liegen beide drei Tage von der Mitte entfernt.
-        termine = [date(2026, 10, 7), date(2026, 10, 1)]
+        # 32 und 38 Tage liegen beide drei Tage von den bevorzugten 35 weg.
+        termine = [date(2026, 10, 9), date(2026, 10, 3)]
         assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
-            2026, 10, 1
+            2026, 10, 3
         )
+
+    def test_ein_fenster_ab_breite_35_trifft_jeden_monatsverfall(self) -> None:
+        """Der Grund fuer die Verbreiterung, ausgerechnet statt geglaubt.
+
+        Zwei aufeinander folgende dritte Freitage liegen 28 oder 35 Tage
+        auseinander. Ein Fenster schmaler als 35 Tage kann deshalb zwischen
+        zwei Monatsverfaelle fallen -- am 2026-08-31 traf das 77 von 192
+        Titeln der Watchliste.
+        """
+        for vorlauf in range(35):
+            for abstand in (28, 35):
+                naechster = STICHTAG + timedelta(days=vorlauf)
+                termine = [naechster, naechster + timedelta(days=abstand)]
+                assert (
+                    select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER)
+                    is not None
+                ), f"Vorlauf {vorlauf}, Abstand {abstand} faellt durch das Fenster"
 
 
 class TestStrikeauswahl:
@@ -357,25 +386,38 @@ class TestKopplungen:
         ).strategies[0]
         assert strategie.distance_to_support_pct == pytest.approx(2 / 90)
 
-    def test_ein_termin_im_laufzeitfenster_wird_gekennzeichnet(self) -> None:
-        strategie = self.analyse(
-            next_earnings_date=date(2026, 9, 20)
-        ).strategies[0]
-        assert strategie.earnings_within_term is True
+    def test_ein_termin_im_laufzeitfenster_schliesst_den_vorschlag_aus(self) -> None:
+        """Entscheidung des Projektinhabers, 2026-08-31 (ADR 0048).
 
-    def test_ein_termin_nach_dem_verfall_wird_nicht_gekennzeichnet(self) -> None:
+        Am Messtag trugen die drei hoechsten Praemienrenditen der Watchliste
+        -- ORCL 71 %, STX 72 %, MU 64 % -- alle einen Berichtstermin
+        innerhalb der Laufzeit. Das ist keine Gelegenheit, sondern die
+        Verguetung fuer genau das Risiko, das ein Put-Verkaeufer traegt.
+        """
+        analyse = self.analyse(next_earnings_date=date(2026, 9, 20))
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == (
+            "keine der 1 Notierungen lag vor dem naechsten Berichtstermin"
+        )
+
+    def test_ein_termin_nach_dem_verfall_laesst_den_vorschlag_stehen(self) -> None:
         strategie = self.analyse(
             next_earnings_date=date(2026, 11, 5)
         ).strategies[0]
         assert strategie.earnings_within_term is False
 
-    def test_kein_bekannter_termin_ist_nicht_dasselbe_wie_kein_termin(self) -> None:
-        """``None`` und ``False`` sind verschiedene Aussagen.
+    def test_kein_bekannter_termin_schliesst_nicht_aus(self) -> None:
+        """``None`` und ``True`` duerfen nicht zusammenfallen.
 
-        Ohne die Unterscheidung saehe ein Symbol ohne Earnings-Abdeckung im
-        Bericht so aus wie eines mit belegtem Termin nach dem Verfall.
+        Wuerde ein unbekannter Termin ausschliessen, bliebe von der
+        Optionsanalyse bei jedem Symbol ohne Earnings-Abdeckung nichts
+        uebrig -- und fehlende Daten bestrafen nicht (CLAUDE.md).
         """
-        assert self.analyse().strategies[0].earnings_within_term is None
+        strategie = self.analyse().strategies[0]
+
+        assert strategie.earnings_within_term is None
+        assert strategie.annualized_return > 0
 
 
 class TestParameterAmErgebnis:
@@ -395,4 +437,5 @@ class TestParameterAmErgebnis:
             parameters=PARAMETER,
         )
         assert analyse.parameters["min_delta"] == pytest.approx(0.10)
-        assert analyse.parameters["max_days_to_expiration"] == pytest.approx(45.0)
+        assert analyse.parameters["max_days_to_expiration"] == pytest.approx(60.0)
+        assert analyse.parameters["target_days_to_expiration"] == pytest.approx(35.0)
