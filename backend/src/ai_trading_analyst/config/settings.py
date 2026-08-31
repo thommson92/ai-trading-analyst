@@ -48,7 +48,7 @@ def _pruefe_gewichtssumme(section: BaseModel, name: str) -> None:
     Gewichte, und ein Gesamtgewicht von 0,9 machte aus einer vollstaendigen
     Rechnung eine, die vollstaendig aussieht und es nicht ist.
     """
-    summe = sum(float(wert) for wert in section.__dict__.values())
+    summe = sum(float(wert) for wert in section.model_dump().values())
     if abs(summe - 1.0) > 1e-9:
         raise ValueError(f"{name}: die Gewichte summieren sich auf {summe}, noetig ist 1.0")
 

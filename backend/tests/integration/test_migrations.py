@@ -189,6 +189,18 @@ def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None
     } <= spalten
 
 
+def test_beide_tabellen_fuehren_den_score_im_selben_typ(engine: Engine) -> None:
+    """Dieselbe Zahl, derselbe Typ. ``stock_reports`` trug die beiden Spalten
+    schon als ``double precision``, gefuellt werden sie erst jetzt."""
+    inspector = inspect(engine)
+    ergebnisse = {s["name"]: s["type"] for s in inspector.get_columns("screening_results")}
+    berichte = {s["name"]: s["type"] for s in inspector.get_columns("stock_reports")}
+
+    assert str(ergebnisse["swing_score"]) == "NUMERIC(4, 1)"
+    assert str(berichte["swing_score"]) == "NUMERIC(4, 1)"
+    assert str(berichte["investment_score"]) == "NUMERIC(4, 1)"
+
+
 def test_die_score_migration_laesst_sich_zurueckdrehen(
     engine: Engine, database_url: str, uow_factory: UowFactory
 ) -> None:
@@ -217,6 +229,10 @@ def test_die_score_migration_laesst_sich_zurueckdrehen(
         assert "swing_score" not in nach_unten
         assert "long_term_detail" not in nach_unten
         assert "analyst_status" in nach_unten, "das Downgrade ging eine Stufe zu weit"
+        berichte = {s["name"]: s["type"] for s in inspect(engine).get_columns("stock_reports")}
+        assert str(berichte["swing_score"]) == "DOUBLE PRECISION", (
+            "der Typwechsel in stock_reports wurde nicht zurueckgenommen"
+        )
     finally:
         _run_alembic(database_url, "upgrade", "head")
 

@@ -9,6 +9,7 @@ eine Kennzahl ohne Schwelle bliebe.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
@@ -26,6 +27,7 @@ from ai_trading_analyst.domain.scoring import (
     KENNZAHLEN_JE_KOMPONENTE,
     SCORED_METRICS,
     ComponentName,
+    ScoreConfidence,
     ScoreKind,
     ScoreStatus,
     ScoringParameters,
@@ -197,7 +199,78 @@ class TestZuordnung:
         ]
         assert len(gezaehlt) == len(set(gezaehlt)) == len(SCORED_METRICS) == 14
 
-    def test_die_ausgelieferte_konfiguration_fuehrt_jede_davon(
+
+class TestDieParameterWirken:
+    """Ohne diese Tests liesse sich jede Stellschraube durch eine Konstante
+    ersetzen, ohne dass etwas rot wird -- und die Konfigurierbarkeit, die
+    ADR 0045 Abschnitt 5 zusichert, waere unbelegt."""
+
+    def test_die_untergrenze_kommt_aus_den_parametern(
         self, scoring_params: ScoringParameters
     ) -> None:
-        assert SCORED_METRICS <= scoring_params.thresholds.keys()
+        werte = {
+            MetricName.NET_MARGIN: 0.35,
+            MetricName.RETURN_ON_EQUITY: 0.50,
+            MetricName.RETURN_ON_ASSETS: 0.20,
+            MetricName.REVENUE_GROWTH: 0.20,
+        }
+        # Profitabilitaet und Wachstum: 55 Prozent Abdeckung -- unter der
+        # ausgelieferten Untergrenze von 60 Prozent.
+        assert (
+            compute_long_term_score(snapshot(werte), parameters=scoring_params).status
+            is ScoreStatus.INSUFFICIENT_DATA
+        )
+
+        nachsichtig = replace(scoring_params, minimum_coverage=0.5)
+
+        assert (
+            compute_long_term_score(snapshot(werte), parameters=nachsichtig).status
+            is ScoreStatus.COMPLETED
+        )
+
+    def test_die_normalgrenze_entscheidet_ueber_die_konfidenz(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        streng = replace(scoring_params, normal_confidence_coverage=1.0)
+        ohne_bewertung = {
+            name: wert
+            for name, wert in SPITZENWERTE.items()
+            if name not in KENNZAHLEN_JE_KOMPONENTE[ComponentName.VALUATION]
+        }
+
+        ergebnis = compute_long_term_score(snapshot(ohne_bewertung), parameters=streng)
+
+        assert ergebnis.coverage == pytest.approx(0.75)
+        assert ergebnis.confidence is ScoreConfidence.LOW_COVERAGE
+
+    def test_die_version_steht_am_ergebnis(self, scoring_params: ScoringParameters) -> None:
+        andere = replace(scoring_params, long_term_version="9.9")
+        assert compute_long_term_score(snapshot(SPITZENWERTE), parameters=andere).version == "9.9"
+
+    def test_geaenderte_gewichte_verschieben_den_gesamtwert(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        schwach_bewertet = dict(SPITZENWERTE)
+        schwach_bewertet[MetricName.PRICE_EARNINGS_RATIO] = 200.0
+        schwach_bewertet[MetricName.PRICE_SALES_RATIO] = 30.0
+        schwach_bewertet[MetricName.PRICE_FREE_CASH_FLOW_RATIO] = 200.0
+
+        mit_bewertung = compute_long_term_score(
+            snapshot(schwach_bewertet), parameters=scoring_params
+        )
+        ohne_bewertung = compute_long_term_score(
+            snapshot(schwach_bewertet),
+            parameters=replace(
+                scoring_params,
+                long_term_weights={
+                    ComponentName.PROFITABILITY: 0.40,
+                    ComponentName.GROWTH: 0.35,
+                    ComponentName.VALUATION: 0.0,
+                    ComponentName.BALANCE_SHEET_QUALITY: 0.25,
+                },
+            ),
+        )
+
+        assert mit_bewertung.value is not None
+        assert ohne_bewertung.value is not None
+        assert ohne_bewertung.value > mit_bewertung.value

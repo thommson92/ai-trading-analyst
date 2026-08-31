@@ -41,6 +41,7 @@ from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.fundamentals import FundamentalParameters, MetricName
 from ai_trading_analyst.domain.scoring import (
     SCORED_METRICS,
+    SIGNAL_TEILWERTE,
     ComponentName,
     MetricThresholds,
     ScoringParameters,
@@ -49,6 +50,7 @@ from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
     SessionParameters,
+    SignalType,
 )
 from ai_trading_analyst.domain.technical import TechnicalAnalysisParameters
 from ai_trading_analyst.infrastructure.anthropic import (
@@ -404,6 +406,8 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
             + ", ".join(fehlend)
         )
 
+    _pruefe_signalabbildung(config)
+
     return ScoringParameters(
         swing_weights=_gewichte(config.scoring.swing_weights),
         long_term_weights=_gewichte(config.scoring.long_term_weights),
@@ -415,6 +419,26 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
     )
 
 
+def _pruefe_signalabbildung(config: AppConfig) -> None:
+    """Fuer jede moegliche Signalzahl eines Kandidaten gibt es einen Teilwert.
+
+    ``SIGNAL_TEILWERTE`` kennt heute drei und zwei Signale -- weil
+    ``screening.required_signal_count`` auf zwei steht. Die Zahl ist aber
+    konfigurierbar: Auf eins gesetzt, verloere jeder Ein-Signal-Kandidat
+    still eine Komponente mit einem Viertel des Gewichts. Wie bei den
+    Schwellen faellt das nur hier auf, wo Konfiguration und Domain zugleich
+    sichtbar sind.
+    """
+    moeglich = range(config.screening.required_signal_count, len(SignalType) + 1)
+    ohne_abbildung = sorted(set(moeglich) - SIGNAL_TEILWERTE.keys())
+    if ohne_abbildung:
+        raise ValueError(
+            "screening.required_signal_count laesst Kandidaten mit "
+            f"{ohne_abbildung} Signalen zu, fuer die es keinen Teilwert gibt "
+            "(ADR 0045, Abschnitt 4)"
+        )
+
+
 def _gewichte(section: BaseModel) -> dict[ComponentName, float]:
     """Die Feldnamen des Abschnitts sind die Komponentennamen in klein.
 
@@ -423,7 +447,7 @@ def _gewichte(section: BaseModel) -> dict[ComponentName, float]:
     ``KeyError``, statt eine Komponente ohne Gewicht zu hinterlassen.
     """
     return {
-        ComponentName[name.upper()]: float(wert) for name, wert in section.__dict__.items()
+        ComponentName[name.upper()]: float(wert) for name, wert in section.model_dump().items()
     }
 
 

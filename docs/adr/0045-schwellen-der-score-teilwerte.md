@@ -206,3 +206,48 @@ es als Zusicherung.
   Zahlen nicht unter der verlinkten CIK liegen. Ob eine Übersteuerung der
   CIK je Symbol erlaubt wird, ist offen und braucht ein eigenes ADR — sie
   öffnet die Tür zu handgepflegten Zuordnungen.
+
+## Nachtrag vom 2026-08-31: zwei Befunde aus der Umsetzung
+
+Die unabhängige Review der Scoring-Engine hat zwei Punkte aufgeworfen, die
+zum ADR gehören und nicht in den Code.
+
+**1. Das Chance-Risiko-Verhältnis geht als Einstufung ein, nicht als Zahl.**
+
+[ADR 0041](0041-score-komponenten-und-gewichte.md) nennt als Grundlage dieser
+Komponente `TechnicalSnapshot.chance_risk_ratio` — die aus der Zonengeometrie
+gerechnete Zahl. Abschnitt 4 dieses ADR bildet stattdessen
+`RiskRewardRating` ab, also die Enum-Einstufung des Sprachmodells. Das ist
+Absicht und bleibt so:
+
+- Für die *Zahl* gibt es keine gemessenen Schwellen. Sie war nicht Teil des
+  Kalibrierungslaufs, und vier aus der Luft gegriffene Grenzen wären genau
+  der geratene Teilwert, den ADR 0041 ausschließt.
+- Die Einstufung ist kein Freitext, sondern ein Enum über einer bereits
+  gerechneten Zahl (ADR 0026), und `NOT_ASSESSABLE` wird vom Adapter
+  **erzwungen**, sobald die Zahl fehlt. Ein Modell kann also nicht einstufen,
+  was nicht berechnet wurde.
+
+Der Preis steht im nächsten Punkt. Sobald eine Verteilung der Verhältniszahl
+aus produktiven Läufen vorliegt, ist die Ablösung durch gemessene Schwellen
+der nächste Schritt — dann wäre die Komponente unabhängig vom Sprachmodell.
+
+**2. Ein Ausfall der KI-Einordnung kostet heute den ganzen Swing-Score.**
+
+Gemessen: Chart-Setup (15 %) und Chance-Risiko (15 %) stehen beide am selben
+`TechnicalAssessment`. Fällt es aus, bleiben Signale und Signalstatistik mit
+zusammen 50 % — unter der Untergrenze von 60 %, also `INSUFFICIENT_DATA`.
+
+ADR 0041 §3 hatte diesen Fall bei 60 % gesehen, gerade noch oberhalb. Die
+fehlenden zehn Prozentpunkte sind die News- und Ereignislage, die bis
+[ADR 0046](README.md) nicht gerechnet wird. Es ist damit keine Ausnahme von
+der Untergrenze, sondern ihre Anwendung — aber die Folge ist unbeabsichtigt:
+Ausgerechnet die beiden Komponenten, die ADR 0041 als „das Einzige, was sich
+nachrechnen lässt" bezeichnet, liegen dann vor und werden verworfen.
+
+**Bewusst nicht geändert.** Die Untergrenze zu senken oder die noch nicht
+gebauten Komponenten aus dem Nenner zu nehmen wären beides Entscheidungen
+über den Zuschnitt des Scores, und die gehören nach ADR 0046 — nicht in eine
+stille Anpassung. Bis dahin ist der Fall in
+`tests/unit/domain/scoring/test_swing.py` festgehalten, damit er eine
+Entscheidung bleibt und keine Überraschung im Tageslauf wird.

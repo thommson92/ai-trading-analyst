@@ -59,8 +59,27 @@ def upgrade() -> None:
             "screening_results", sa.Column(f"{prefix}_detail", postgresql.JSONB(), nullable=True)
         )
 
+    _score_spalten_der_berichte(sa.Numeric(4, 1), sa.Float())
+
+
+def _score_spalten_der_berichte(
+    neuer_typ: sa.types.TypeEngine[float], alter_typ: sa.types.TypeEngine[float]
+) -> None:
+    """``stock_reports`` traegt dieselben beiden Zahlen wie
+    ``screening_results`` -- und bis hierhin einen anderen Typ.
+
+    Die Spalten gab es seit d5a29c73e6b1, gefuellt werden sie erst jetzt.
+    Zwei Typen fuer denselben Wert waeren ein Unterschied, den niemand
+    erklaeren koennte.
+    """
+    for spalte in ("swing_score", "investment_score"):
+        op.alter_column(
+            "stock_reports", spalte, type_=neuer_typ, existing_type=alter_typ, nullable=True
+        )
+
 
 def downgrade() -> None:
+    _score_spalten_der_berichte(sa.Float(), sa.Numeric(4, 1))
     for prefix in reversed(_PREFIXES):
         for spalte in ("detail", "version", "status", "score"):
             op.drop_column("screening_results", f"{prefix}_{spalte}")

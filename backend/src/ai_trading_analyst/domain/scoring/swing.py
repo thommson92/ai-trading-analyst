@@ -29,7 +29,7 @@ from ai_trading_analyst.domain.technical import (
 )
 
 from .aggregate import aggregate
-from .parameters import ScoringParameters, clamp
+from .parameters import ScoringParameters
 from .values import ComponentName, ScoreComponent, ScoreKind, ScoreResult
 
 SIGNAL_TEILWERTE = {3: 10.0, 2: 6.0}
@@ -167,7 +167,7 @@ def _signalstatistik(
     if kuerzester.hit_rate is None:
         return fehlt(f"keine Trefferquote fuer Horizont {kuerzester.horizon}")
 
-    teilwert = clamp(kuerzester.hit_rate * 10.0)
+    teilwert = kuerzester.hit_rate * 10.0
     begruendung = (
         f"Trefferquote {kuerzester.hit_rate:.0%} ueber {kuerzester.horizon} Kerzen "
         f"({kuerzester.deduplicated_event_count} Ereignisse)"
@@ -234,7 +234,15 @@ def _chance_risiko(
     assessment: TechnicalAssessment | None, parameters: ScoringParameters
 ) -> ScoreComponent:
     gewicht = parameters.swing_weights[ComponentName.CHANCE_RISK]
-    einstufung = assessment.risk_reward_rating if assessment is not None else None
+    # Dieselbe Statuspruefung wie im Chart-Setup: Eine Einstufung an einer
+    # Einordnung, die gar nicht durchlief, waere ein Wert ohne Herkunft.
+    # Heute setzt der Adapter bei einem Ausfall keine Einstufungen -- aber
+    # zwei Funktionen, die zwanzig Zeilen auseinanderliegen und verschieden
+    # streng sind, laufen beim naechsten Umbau auseinander.
+    ausgewertet = (
+        assessment is not None and assessment.status is TechnicalAssessmentStatus.COMPLETED
+    )
+    einstufung = assessment.risk_reward_rating if ausgewertet and assessment else None
     teilwert = CHANCE_RISIKO_TEILWERTE.get(einstufung) if einstufung is not None else None
     if einstufung is None or teilwert is None:
         return ScoreComponent(

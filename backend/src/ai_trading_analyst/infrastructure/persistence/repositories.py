@@ -408,10 +408,20 @@ def _score_columns(prefix: str, score: ScoreResult | None) -> dict[str, Any]:
 
 
 def _score_from_row(row: ScreeningResultOrm, prefix: str, kind: ScoreKind) -> ScoreResult | None:
+    """Der Score aus seinen vier Spalten -- **durchgehend streng gelesen**.
+
+    Kein ``.get`` mit Ersatzwert: Geschrieben wird das Detail immer im
+    Ganzen und immer zusammen mit dem Status. Eine halb nachsichtige
+    Fassung -- die einen Schluessel mit Vorgabe, der naechste mit
+    ``KeyError`` -- verdeckt einen fehlenden Teil des Details als
+    Abdeckung 0,0 und laesst den naechsten trotzdem den ganzen Lauf
+    scheitern. Wenn hier etwas fehlt, ist die Zeile kaputt, und das soll
+    man sehen.
+    """
     status = getattr(row, f"{prefix}_status")
     if status is None:
         return None
-    detail: dict[str, Any] = getattr(row, f"{prefix}_detail") or {}
+    detail: dict[str, Any] = getattr(row, f"{prefix}_detail")
     return ScoreResult(
         kind=kind,
         status=ScoreStatus(status),
@@ -421,19 +431,17 @@ def _score_from_row(row: ScreeningResultOrm, prefix: str, kind: ScoreKind) -> Sc
             ScoreComponent(
                 name=ComponentName(eintrag["name"]),
                 weight=float(eintrag["gewicht"]),
-                value=(
-                    None if eintrag["teilwert"] is None else float(eintrag["teilwert"])
-                ),
+                value=(None if eintrag["teilwert"] is None else float(eintrag["teilwert"])),
                 effective_weight=float(eintrag["wirksames_gewicht"]),
                 reason=eintrag["begruendung"],
             )
-            for eintrag in detail.get("komponenten", ())
+            for eintrag in detail["komponenten"]
         ),
-        coverage=float(detail.get("abdeckung", 0.0)),
+        coverage=float(detail["abdeckung"]),
         confidence=ScoreConfidence(detail["konfidenz"]),
-        positive_factors=tuple(detail.get("positive_faktoren", ())),
-        negative_factors=tuple(detail.get("negative_faktoren", ())),
-        limiting_risks=tuple(detail.get("begrenzende_risiken", ())),
+        positive_factors=tuple(detail["positive_faktoren"]),
+        negative_factors=tuple(detail["negative_faktoren"]),
+        limiting_risks=tuple(detail["begrenzende_risiken"]),
     )
 
 

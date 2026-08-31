@@ -8,9 +8,8 @@ die uebrigen Gewichte werden darauf umgerechnet.
 from .aggregate import aggregate
 from .long_term import KENNZAHLEN_JE_KOMPONENTE, SCORED_METRICS, compute_long_term_score
 from .parameters import MetricThresholds, ScoringParameters
-from .swing import compute_swing_score
+from .swing import SIGNAL_TEILWERTE, compute_swing_score
 from .values import (
-    MAXIMUM_SCORE,
     ComponentName,
     ScoreComponent,
     ScoreConfidence,
@@ -21,8 +20,8 @@ from .values import (
 
 __all__ = [
     "KENNZAHLEN_JE_KOMPONENTE",
-    "MAXIMUM_SCORE",
     "SCORED_METRICS",
+    "SIGNAL_TEILWERTE",
     "ComponentName",
     "MetricThresholds",
     "ScoreComponent",

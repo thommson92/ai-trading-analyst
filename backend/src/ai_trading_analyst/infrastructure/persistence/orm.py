@@ -560,13 +560,17 @@ class StockReportOrm(Base):
     recommendation: Mapped[Recommendation | None] = mapped_column(
         _enum_column(Recommendation), nullable=True
     )
-    swing_score: Mapped[float | None] = mapped_column(nullable=True)
+    swing_score: Mapped[float | None] = mapped_column(
+        Numeric(4, 1, asdecimal=False), nullable=True
+    )
     """Nur der Gesamtwert -- die Spalte beantwortet die Frage, fuer die man
     das Dokument nicht oeffnen muss. Teilwerte, Gewichte, Abdeckung und
     Begruendung stehen vollstaendig in ``document`` und in
     ``screening_results.swing_detail``. Leer, wenn der Score
     ``INSUFFICIENT_DATA`` ist."""
-    investment_score: Mapped[float | None] = mapped_column(nullable=True)
+    investment_score: Mapped[float | None] = mapped_column(
+        Numeric(4, 1, asdecimal=False), nullable=True
+    )
     summary: Mapped[str | None] = mapped_column(nullable=True)
     """Die zusammenfassende Formulierung -- Aufgabe der KI-Haelfte, bis dahin
     leer (ADR 0039, Entscheidung 2)."""

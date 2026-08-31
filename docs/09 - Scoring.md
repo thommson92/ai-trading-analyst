@@ -128,8 +128,8 @@ Die Konfidenz eines Scores steht allein auf seiner Datenabdeckung:
 | Abdeckung | Konfidenz |
 |---|---|
 | unter der Untergrenze | `INSUFFICIENT_DATA` — es entsteht kein Score |
-| bis unter `normal_confidence_coverage` (80 %) | `LOW_COVERAGE` |
-| darüber | `NORMAL` |
+| darüber, aber unter `normal_confidence_coverage` (80 %) | `LOW_COVERAGE` |
+| **ab** `normal_confidence_coverage` | `NORMAL` |
 
 Dieselbe Dreiteilung wie bei `BacktestConfidence`, und aus demselben Grund:
 Ein Ergebnis auf dünner Grundlage ist nicht falsch, aber es ist etwas anderes
@@ -207,9 +207,21 @@ Zwei Änderungen sind bereits absehbar:
 
 Bis dahin rechnet der Swing-Score auf **80 %** Abdeckung: Neben der
 Optionsattraktivität fehlt auch die News- und Ereignislage, deren Ableitung
-mit der Empfehlungsstufe entschieden wird (ADR 0046, noch offen). Beides ist ausgewiesen — es heißt
-aber, dass die ersten Scores mit späteren nicht unmittelbar vergleichbar
-sind, und dass ihre Konfidenz bis dahin `LOW_COVERAGE` lautet.
+mit der Empfehlungsstufe entschieden wird (ADR 0046, noch offen). Beides ist
+ausgewiesen — es heißt aber, dass die ersten Scores mit späteren nicht
+unmittelbar vergleichbar sind. Ein vollständiger Swing-Score liegt damit
+genau auf der Normalgrenze und gilt als `NORMAL`.
+
+**Eine gemessene Folge davon gehört dazu:** Fällt die KI-Einordnung aus,
+entfallen Chart-Setup und Chance-Risiko-Verhältnis gemeinsam — sie stehen
+beide an ihr. Übrig bleiben Signale und Signalstatistik mit zusammen 50 %,
+und damit entsteht **kein** Swing-Score. ADR 0041 hatte diesen Fall bei 60 %
+gesehen, also gerade noch oberhalb; die fehlenden zehn Prozentpunkte sind die
+News- und Ereignislage. Das ist keine Ausnahme von der Untergrenze, sondern
+ihre Anwendung — aber es heißt, dass ein Ausfall des Sprachmodells heute
+teurer ist als vorgesehen. Der Fall ist in
+`tests/unit/domain/scoring/test_swing.py` festgehalten und mit ADR 0046
+erledigt.
 
 ---
 
@@ -220,7 +232,7 @@ Beispiel, wie es im Bericht erscheint:
 ```
 NVDA
 
-Swing Trade Score          8,6 / 10    Abdeckung 80 %   Konfidenz LOW_COVERAGE
+Swing Trade Score          8,6 / 10    Abdeckung 80 %   Konfidenz NORMAL
   Technische Signale      10,0         Gewicht 31,3 %
   Historische Signalgüte   8,5         Gewicht 31,3 %
   Chart-Setup              9,0         Gewicht 18,8 %

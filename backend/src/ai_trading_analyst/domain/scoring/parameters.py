@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from ai_trading_analyst.domain.fundamentals import MetricName
 
-from .values import MAXIMUM_SCORE, ComponentName
+from .values import ComponentName
 
 _STUFEN = (2.0, 4.0, 6.0, 8.0, 10.0)
 """Die fuenf Teilwerte, aufsteigend (ADR 0045, Entscheidung 1).
@@ -77,13 +77,3 @@ class ScoringParameters:
                 "normal_confidence_coverage darf nicht kleiner als minimum_coverage sein"
             )
 
-
-def clamp(value: float) -> float:
-    """Haelt einen Teilwert im zulaessigen Bereich.
-
-    Noetig fuer die einzige Komponente, die nicht aus einer Stufenskala
-    kommt: Die Trefferquote wird mit zehn multipliziert, und eine
-    Trefferquote knapp ueber 1 -- etwa durch Rundung beim Wiedereinlesen --
-    ergaebe sonst einen Teilwert ueber 10.
-    """
-    return max(0.0, min(MAXIMUM_SCORE, value))

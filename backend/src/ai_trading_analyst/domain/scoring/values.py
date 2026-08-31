@@ -16,9 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-MAXIMUM_SCORE = 10.0
-"""Beide Scores liegen zwischen 0 und 10 (Doc 09)."""
-
 
 class ScoreKind(StrEnum):
     """Welche der beiden Fragen ein Ergebnis beantwortet (Doc 09).

@@ -45,6 +45,7 @@ from ai_trading_analyst.config.settings import (
     MissingSecretError,
     ResearchConfig,
     ScoringConfig,
+    ScreeningConfig,
     Secrets,
     TechnicalAgentConfig,
 )
@@ -603,6 +604,18 @@ class TestScoringParameter:
             build_scoring_params(self._config(self._thresholds(NETTOMARGE=MetricThresholdConfig(
                 boundaries=(1.0, 2.0, 3.0, 4.0), higher_is_better=True
             ))))
+
+    def test_eine_signalzahl_ohne_teilwert_bricht_den_start_ab(self) -> None:
+        """``SIGNAL_TEILWERTE`` kennt drei und zwei Signale, weil
+        ``required_signal_count`` auf zwei steht. Auf eins gesetzt verloere
+        jeder Ein-Signal-Kandidat still ein Viertel des Swing-Gewichts."""
+        config = AppConfig(
+            indicators=INDICATORS,
+            screening=ScreeningConfig(required_signal_count=1),
+            scoring=ScoringConfig(thresholds=self._thresholds()),
+        )
+        with pytest.raises(ValueError, match="keinen Teilwert"):
+            build_scoring_params(config)
 
     def test_die_ausgelieferte_konfiguration_reicht_aus(self) -> None:
         """Der Test, der die echte ``config/default.yaml`` prueft: Sie ist

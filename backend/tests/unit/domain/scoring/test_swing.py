@@ -359,3 +359,25 @@ class TestZuWenigGrundlage:
         score = rechne(scoring_params, backtest=(), assessment=None)
         assert score.status is ScoreStatus.INSUFFICIENT_DATA
         assert score.value is None
+
+    def test_ein_ausfall_der_ki_einordnung_kostet_heute_den_ganzen_swing_score(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """**Gemessen, nicht gewuenscht.** Chart-Setup und Chance-Risiko
+        haengen beide an derselben Einordnung; faellt sie aus, bleiben
+        Signale und Signalstatistik mit zusammen 50 Prozent -- unter der
+        Untergrenze.
+
+        ADR 0041 hatte diesen Fall bei 60 Prozent gesehen, also gerade noch
+        oberhalb. Die fehlenden zehn Prozentpunkte sind die News- und
+        Ereignislage, die bis ADR 0046 nicht gerechnet wird. Der Test haelt
+        die Folge fest, damit sie eine Entscheidung bleibt und keine
+        Ueberraschung im Tageslauf wird.
+        """
+        score = rechne(scoring_params, assessment=None)
+
+        assert score.coverage == pytest.approx(0.5)
+        assert score.status is ScoreStatus.INSUFFICIENT_DATA
+        assert teilwert(score, ComponentName.SIGNAL_STATISTICS) == 7.0, (
+            "die beiden nachrechenbaren Komponenten lagen vor und gingen verloren"
+        )
