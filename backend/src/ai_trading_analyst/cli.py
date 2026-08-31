@@ -1764,6 +1764,11 @@ def command_fundamental(args: argparse.Namespace) -> int:
     kurse: dict[str, float] = {}
     kurs_stempel: dict[str, datetime] = {}
     if args.price_from_bars:
+        if args.market_data_provider is not None:
+            market_data = config.market_data.model_copy(
+                update={"provider": args.market_data_provider}
+            )
+            config = config.model_copy(update={"market_data": market_data})
         ergebnis = _kurse_aus_dem_bestand(loaded, config, wanted)
         if ergebnis is None:
             return 2
@@ -1834,8 +1839,8 @@ def _kurse_aus_dem_bestand(
         print(
             "--price-from-bars braucht den ueber IBKR gefuellten Bestand, "
             f"market_data.provider steht aber auf '{config.market_data.provider}'. "
-            "Entweder market_data.provider auf 'ibkr' stellen oder den Schalter "
-            "weglassen -- 'fundamental --provider' uebersteuert nur die "
+            "Entweder '--market-data-provider ibkr' setzen oder den Schalter "
+            "weglassen. '--provider' uebersteuert bei diesem Unterbefehl die "
             "Fundamentalquelle, nicht die Marktdatenquelle.",
             file=sys.stderr,
         )
@@ -3046,6 +3051,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         default=None,
         help="Schreibt alle Einzelwerte als CSV, damit nichts am Puffer haengt.",
+    )
+    fundamental.add_argument(
+        "--market-data-provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider nur fuer diesen Lauf -- noetig fuer "
+            "--price-from-bars. Der Schalter heisst nicht '--provider', weil der "
+            "bei diesem Unterbefehl schon die Fundamentalquelle uebersteuert. Auf dem "
+            "Server bleibt config/default.yaml unveraendert, damit 'git pull' keinen "
+            "lokalen Diff vorfindet; produktive Quellen werden ueber Schalter gesetzt."
+        ),
     )
     fundamental.add_argument(
         "--price-from-bars",
