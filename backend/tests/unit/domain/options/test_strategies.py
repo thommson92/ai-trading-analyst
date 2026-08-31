@@ -1,0 +1,389 @@
+"""Auswahl und Bewertung der Cash Secured Puts (ADR 0048).
+
+Die Rechenwege sind einfach genug, dass jeder einzeln geprueft wird -- und
+genau deshalb faellt eine Verwechslung sonst nicht auf: Praemie, Break-even
+und Kapitalbindung stehen alle in derselben Groessenordnung, und ein
+vertauschter Nenner sieht plausibel aus.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from typing import Any
+
+import pytest
+
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionQuote,
+    OptionsAnalysis,
+    OptionsParameters,
+    OptionsStatus,
+    PutStrategy,
+    build_options_analysis,
+    select_expiration,
+    select_strikes,
+)
+from ai_trading_analyst.domain.technical import PriceZone, ZoneKind, ZoneStrength
+
+STICHTAG = date(2026, 9, 1)
+BEWERTET_AM = datetime(2026, 9, 1, 20, 30, tzinfo=UTC)
+PARAMETER = OptionsParameters()
+
+
+def notierung(
+    strike: float,
+    *,
+    bid: float | None = 2.0,
+    ask: float | None = 2.1,
+    delta: float | None = -0.25,
+    expiration: date = date(2026, 10, 2),
+    open_interest: int | None = 500,
+    volume: int | None = 60,
+    implied_volatility: float | None = 0.3,
+) -> OptionQuote:
+    return OptionQuote(
+        expiration=expiration,
+        strike=strike,
+        bid=bid,
+        ask=ask,
+        delta=delta,
+        implied_volatility=implied_volatility,
+        open_interest=open_interest,
+        volume=volume,
+    )
+
+
+def zone(lower: float, upper: float, kind: ZoneKind = ZoneKind.SUPPORT) -> PriceZone:
+    return PriceZone(
+        lower=lower,
+        upper=upper,
+        kind=kind,
+        strength=ZoneStrength.MODERATE,
+        touch_count=3,
+        last_confirmed_at=datetime(2026, 8, 20, 13, 45, tzinfo=UTC),
+        distance_pct=0.05,
+        pivot_count=2,
+    )
+
+
+class TestVerfallsterminwahl:
+    def test_der_termin_naechst_der_fenstermitte_gewinnt(self) -> None:
+        # Mitte des Fensters 21-45 sind 33 Tage, also der 4. Oktober.
+        termine = [date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 16)]
+        assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
+            2026, 10, 2
+        )
+
+    def test_termine_ausserhalb_des_fensters_zaehlen_nicht(self) -> None:
+        # 12 Tage und 60 Tage -- beide ausserhalb von 21 bis 45.
+        termine = [date(2026, 9, 13), date(2026, 10, 31)]
+        assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) is None
+
+    @pytest.mark.parametrize(
+        ("grenze", "tage"),
+        [(date(2026, 9, 22), 21), (date(2026, 10, 16), 45)],
+        ids=["untere", "obere"],
+    )
+    def test_die_fenstergrenzen_selbst_liegen_drin(self, grenze: date, tage: int) -> None:
+        """Ein ``<`` statt ``<=`` schnitte je einen Verfallstermin ab."""
+        assert (grenze - STICHTAG).days == tage
+        assert select_expiration([grenze], as_of=STICHTAG, parameters=PARAMETER) == grenze
+
+    def test_bei_gleichstand_gewinnt_der_fruehere_termin(self) -> None:
+        # 30 und 36 Tage liegen beide drei Tage von der Mitte entfernt.
+        termine = [date(2026, 10, 7), date(2026, 10, 1)]
+        assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
+            2026, 10, 1
+        )
+
+
+class TestStrikeauswahl:
+    def test_nur_strikes_im_moneyness_band(self) -> None:
+        # Band 80 bis 99 Prozent von 100.
+        gewaehlt = select_strikes([70, 80, 95, 99, 100, 110], price=100, parameters=PARAMETER)
+        assert gewaehlt == (99.0, 95.0, 80.0)
+
+    def test_die_naechsten_am_kurs_bleiben_bei_der_kuerzung(self) -> None:
+        eng = OptionsParameters(max_strikes=2)
+        gewaehlt = select_strikes([82, 90, 98], price=100, parameters=eng)
+        assert gewaehlt == (98.0, 90.0)
+
+    def test_ohne_passenden_strike_bleibt_die_auswahl_leer(self) -> None:
+        assert select_strikes([120, 130], price=100, parameters=PARAMETER) == ()
+
+
+class TestRechenwege:
+    def strategie(self) -> PutStrategy:
+        analyse = build_options_analysis(
+            [notierung(90.0, bid=1.80, ask=1.90)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+        assert analyse.status is OptionsStatus.COMPLETED
+        return analyse.strategies[0]
+
+    def test_die_praemie_ist_der_geldkurs_nicht_der_mittelwert(self) -> None:
+        strategie = self.strategie()
+        assert strategie.premium == pytest.approx(1.80)
+        assert strategie.mid == pytest.approx(1.85)
+
+    def test_einfache_rendite_bezieht_sich_auf_den_strike(self) -> None:
+        # Kapital ist der Strike, nicht der Aktienkurs: 1,80 / 90.
+        assert self.strategie().simple_return == pytest.approx(0.02)
+
+    def test_annualisiert_wird_linear_auf_kalendertagen(self) -> None:
+        # 31 Tage bis zum 2. Oktober, 0,02 * 365 / 31.
+        assert self.strategie().annualized_return == pytest.approx(
+            0.02 * 365 / 31
+        )
+
+    def test_break_even_und_kapitalbindung(self) -> None:
+        strategie = self.strategie()
+        assert strategie.break_even == pytest.approx(88.20)
+        assert strategie.capital_at_risk == pytest.approx(9000.0)
+
+    def test_abstand_zum_kurs_bezieht_sich_auf_den_kurs(self) -> None:
+        assert self.strategie().distance_to_price_pct == pytest.approx(
+            0.10
+        )
+
+    def test_das_delta_wird_als_betrag_gefuehrt(self) -> None:
+        assert self.strategie().delta == pytest.approx(0.25)
+
+
+class TestDeltaFilter:
+    def bewerte(self, delta: float | None) -> OptionsAnalysis:
+        return build_options_analysis(
+            [notierung(90.0, delta=delta)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+    @pytest.mark.parametrize("delta", [-0.09, -0.41])
+    def test_ausserhalb_des_bandes_entsteht_kein_vorschlag(self, delta: float) -> None:
+        analyse = self.bewerte(delta)
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert "Delta-Band" in (analyse.reason or "")
+
+    @pytest.mark.parametrize("delta", [-0.10, -0.40])
+    def test_die_bandgrenzen_selbst_zaehlen_dazu(self, delta: float) -> None:
+        assert self.bewerte(delta).status is OptionsStatus.COMPLETED
+
+    def test_ohne_delta_wird_keines_geschaetzt(self) -> None:
+        """Der Fall nach Boersenschluss ohne Marktdatenberechtigung.
+
+        Ein aus der Moneyness abgeleitetes Delta waere ein erfundener Wert.
+        Der Grund benennt deshalb genau das -- er unterscheidet sich vom
+        Grund "lag nicht im Band", weil die Abhilfe eine andere ist.
+        """
+        analyse = self.bewerte(None)
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == "keine der 1 Notierungen lieferte ein Delta"
+
+
+class TestGeldkurs:
+    @pytest.mark.parametrize("bid", [None, 0.0])
+    def test_ohne_geldkurs_gibt_es_nichts_zu_verkaufen(self, bid: float | None) -> None:
+        analyse = build_options_analysis(
+            [notierung(90.0, bid=bid)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == "keine der 1 Notierungen hatte einen Geldkurs"
+
+    def test_ohne_notierung_zeigt_der_grund_auf_den_anbieter(self) -> None:
+        analyse = build_options_analysis(
+            [],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert "keine einzige Notierung" in (analyse.reason or "")
+        # Der Kurs bleibt stehen: Er belegt, worauf gerechnet wurde.
+        assert analyse.underlying_price == pytest.approx(100.0)
+
+
+class TestLiquiditaet:
+    def bewerte(self, **kwargs: Any) -> PutStrategy:
+        analyse = build_options_analysis(
+            [notierung(90.0, **kwargs)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+        return analyse.strategies[0]
+
+    def test_ohne_verletzung_gilt_die_liquiditaet_als_gut(self) -> None:
+        assert self.bewerte().liquidity is LiquidityGrade.GOOD
+
+    def test_eine_verletzung_ergibt_akzeptabel(self) -> None:
+        strategie = self.bewerte(open_interest=30)
+        assert strategie.liquidity is LiquidityGrade.ACCEPTABLE
+        assert strategie.liquidity_warnings == ("Open Interest 30",)
+
+    def test_zwei_verletzungen_ergeben_schlecht(self) -> None:
+        strategie = self.bewerte(open_interest=30, volume=2)
+        assert strategie.liquidity is LiquidityGrade.POOR
+        assert len(strategie.liquidity_warnings) == 2
+
+    def test_die_spanne_wird_am_mittelwert_gemessen(self) -> None:
+        # 2,00 zu 2,40 sind 0,40 auf einen Mittelwert von 2,20 -- 18 Prozent.
+        strategie = self.bewerte(bid=2.0, ask=2.4)
+        assert strategie.liquidity_warnings == ("Geld-Brief-Spanne 18.2%",)
+
+    def test_nicht_geliefert_ist_nicht_verletzt(self) -> None:
+        """Fehlende Werte bestrafen nicht (CLAUDE.md).
+
+        ``reqTickers`` fordert Open Interest nicht standardmaessig an. Wuerde
+        das Fehlen als Verletzung zaehlen, waere praktisch jeder Vorschlag
+        aus dem Tageslauf mindestens ``ACCEPTABLE``, ohne dass daran etwas
+        gemessen waere.
+        """
+        strategie = self.bewerte(open_interest=None, volume=None)
+        assert strategie.liquidity is LiquidityGrade.GOOD
+        assert strategie.open_interest is None
+
+
+class TestRangfolge:
+    def analyse(self, quotes: list[OptionQuote]) -> OptionsAnalysis:
+        return build_options_analysis(
+            quotes,
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+    def test_absteigend_nach_annualisierter_rendite(self) -> None:
+        analyse = self.analyse(
+            [
+                notierung(88.0, bid=1.00, ask=1.05, delta=-0.15),
+                notierung(96.0, bid=2.50, ask=2.60, delta=-0.38),
+                notierung(92.0, bid=1.70, ask=1.75, delta=-0.26),
+            ]
+        )
+        renditen = [s.annualized_return for s in analyse.strategies]
+        assert renditen == sorted(renditen, reverse=True)
+        assert analyse.strategies[0].strike == pytest.approx(96.0)
+
+    def test_schlechte_liquiditaet_steht_nie_oben(self) -> None:
+        """Doc 10, Paragraph 6.10 -- nicht verschwiegen, aber nie bevorzugt.
+
+        Der illiquide Kontrakt hat hier die **hoechste** Rendite; ohne die
+        Regel stuende er an erster Stelle.
+        """
+        analyse = self.analyse(
+            [
+                notierung(96.0, bid=3.00, ask=4.00, delta=-0.38, open_interest=5, volume=0),
+                notierung(92.0, bid=1.70, ask=1.75, delta=-0.26),
+            ]
+        )
+        assert analyse.strategies[0].strike == pytest.approx(92.0)
+        assert analyse.strategies[1].liquidity is LiquidityGrade.POOR
+
+    def test_es_bleiben_hoechstens_so_viele_wie_konfiguriert(self) -> None:
+        analyse = self.analyse([notierung(strike) for strike in (96.0, 94.0, 92.0, 90.0)])
+        assert len(analyse.strategies) == PARAMETER.max_suggestions
+
+
+class TestKopplungen:
+    """Die beiden optionalen Eingaben -- beide nicht blockierend (CLAUDE.md)."""
+
+    def analyse(self, **kwargs: Any) -> OptionsAnalysis:
+        return build_options_analysis(
+            [notierung(90.0)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+            **kwargs,
+        )
+
+    def test_ohne_zonen_bleibt_nur_das_zonenfeld_leer(self) -> None:
+        strategie = self.analyse().strategies[0]
+        assert strategie.distance_to_support_pct is None
+        assert strategie.annualized_return > 0
+
+    def test_der_strike_ueber_der_zone_ergibt_einen_positiven_abstand(self) -> None:
+        strategie = self.analyse(zones=[zone(84.0, 86.0)]).strategies[0]
+        # (90 - 86) / 90.
+        assert strategie.distance_to_support_pct == pytest.approx(4 / 90)
+
+    def test_der_strike_unter_der_zone_ergibt_einen_negativen_abstand(self) -> None:
+        strategie = self.analyse(zones=[zone(94.0, 96.0)]).strategies[0]
+        assert strategie.distance_to_support_pct == pytest.approx(-4 / 90)
+
+    def test_innerhalb_der_zone_ist_der_abstand_null(self) -> None:
+        strategie = self.analyse(zones=[zone(88.0, 92.0)]).strategies[0]
+        assert strategie.distance_to_support_pct == pytest.approx(0.0)
+
+    def test_widerstandszonen_zaehlen_nicht(self) -> None:
+        """Nur Unterstuetzungen koennen einen Strike unter dem Kurs halten."""
+        strategie = self.analyse(
+            zones=[zone(94.0, 96.0, kind=ZoneKind.RESISTANCE)]
+        ).strategies[0]
+        assert strategie.distance_to_support_pct is None
+
+    def test_die_naechstgelegene_zone_gewinnt(self) -> None:
+        strategie = self.analyse(
+            zones=[zone(70.0, 72.0), zone(86.0, 88.0)]
+        ).strategies[0]
+        assert strategie.distance_to_support_pct == pytest.approx(2 / 90)
+
+    def test_ein_termin_im_laufzeitfenster_wird_gekennzeichnet(self) -> None:
+        strategie = self.analyse(
+            next_earnings_date=date(2026, 9, 20)
+        ).strategies[0]
+        assert strategie.earnings_within_term is True
+
+    def test_ein_termin_nach_dem_verfall_wird_nicht_gekennzeichnet(self) -> None:
+        strategie = self.analyse(
+            next_earnings_date=date(2026, 11, 5)
+        ).strategies[0]
+        assert strategie.earnings_within_term is False
+
+    def test_kein_bekannter_termin_ist_nicht_dasselbe_wie_kein_termin(self) -> None:
+        """``None`` und ``False`` sind verschiedene Aussagen.
+
+        Ohne die Unterscheidung saehe ein Symbol ohne Earnings-Abdeckung im
+        Bericht so aus wie eines mit belegtem Termin nach dem Verfall.
+        """
+        assert self.analyse().strategies[0].earnings_within_term is None
+
+
+class TestParameterAmErgebnis:
+    def test_die_auswahlparameter_stehen_am_ergebnis(self) -> None:
+        """CLAUDE.md: Versionierung an jedem Ergebnis.
+
+        Ohne sie waere ``analysis_version`` eine leere Zusage -- das
+        Zielfenster ist konfigurierbar, und eine Rendite aus einem
+        60-Tage-Kontrakt ist eine andere Zahl als eine aus einem 30-Tage-.
+        """
+        analyse = build_options_analysis(
+            [notierung(90.0)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+        assert analyse.parameters["min_delta"] == pytest.approx(0.10)
+        assert analyse.parameters["max_days_to_expiration"] == pytest.approx(45.0)
