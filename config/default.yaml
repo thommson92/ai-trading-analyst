@@ -485,9 +485,9 @@ options:
   min_volume: 10
 
 scoring:
-  # 1.1: Die News- und Ereignislage rechnet mit (ADR 0046) -- der Score steht
-  # auf 90 statt 80 Prozent Abdeckung. Die Optionsattraktivitaet wird 1.2.
-  swing_version: "1.1"
+  # 1.2: Die Optionsattraktivitaet rechnet mit (ADR 0048) -- der Score steht
+  # auf 100 statt 90 Prozent Abdeckung. Alle sechs Komponenten sind gefuellt.
+  swing_version: "1.2"
   long_term_version: "1.0"
   # Untergrenze der Datenabdeckung: darunter entsteht kein Score, sondern
   # INSUFFICIENT_DATA (Doc 09). Gesetzt, nicht gemessen -- sie ist der Punkt,
@@ -539,6 +539,19 @@ scoring:
   # `cli ratings --watchlist --output` und `cli calibrate-scores`.
   analyst_buy_share:
     boundaries: [0.4362, 0.5758, 0.6988, 0.8182]
+    higher_is_better: true
+  # Die Optionsattraktivitaet steht auf der annualisierten Praemienrendite des
+  # bestbewerteten Cash-Secured-Put-Vorschlags (ADR 0048). Fuenftelgrenzen aus
+  # dem Lauf ueber 192 Titel der Watchliste vom 2026-08-31, 186 davon mit
+  # Wert, gemessen mit `cli options --watchlist --output` und
+  # `cli calibrate-scores`.
+  #
+  # Kurzlebiger als die uebrigen Schwellen, und das gehoert benannt: Praemien
+  # steigen und fallen mit der Marktvolatilitaet gemeinsam, waehrend sich
+  # Fundamentalkennzahlen quartalsweise bewegen. Eine unruhige Phase
+  # verschiebt die ganze Verteilung nach oben.
+  options_annualized_return:
+    boundaries: [0.1388, 0.1968, 0.2464, 0.3244]
     higher_is_better: true
   # Fuenftelgrenzen aus dem Lauf ueber 191 Titel der Watchliste vom
   # 2026-08-31 (ADR 0045), ausgewertet mit `cli calibrate-scores`. Gemessen,

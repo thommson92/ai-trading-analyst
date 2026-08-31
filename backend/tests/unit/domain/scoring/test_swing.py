@@ -34,7 +34,6 @@ from ai_trading_analyst.domain.options import (
 )
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
-    MetricThresholds,
     ScoreKind,
     ScoreResult,
     ScoreStatus,
@@ -573,14 +572,6 @@ class TestNewsUndEreignislage:
         assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
 
 
-OPTIONSSCHWELLEN = MetricThresholds(
-    boundaries=(0.10, 0.16, 0.24, 0.36), higher_is_better=True
-)
-"""Ein Satz Schwellen fuer die Tests. **Nicht** die spaeter gemessenen: Zum
-Zeitpunkt dieser Tests gibt es keinen Messlauf, und ausgeliefert wird
-deshalb ueberhaupt keiner (``options_annualized_return: None`)."""
-
-
 def optionen(annualisiert: float = 0.20, *, strategien: bool = True) -> OptionsAnalysis:
     return OptionsAnalysis(
         status=OptionsStatus.COMPLETED if strategien else OptionsStatus.INSUFFICIENT_DATA,
@@ -613,25 +604,23 @@ class TestOptionsattraktivitaet:
     """Die sechste Komponente (ADR 0048)."""
 
     @pytest.fixture
-    def mit_schwellen(self, scoring_params: ScoringParameters) -> ScoringParameters:
-        """Die ausgelieferten Parameter, ergaenzt um die noch nicht
-        gemessenen Optionsschwellen -- der Zustand nach dem Messlauf."""
+    def ohne_schwellen(self, scoring_params: ScoringParameters) -> ScoringParameters:
+        """Die ausgelieferten Parameter ohne die gemessenen Optionsschwellen.
+
+        Der Zustand vor dem Messlauf vom 2026-08-31, und der Zustand jeder
+        Konfiguration, die den Block weglaesst. Er bleibt vorgesehen: Ein
+        vorlaeufiger Satz Schwellen truege eine Zahl in den Score, die
+        aussieht wie die gemessenen daneben, und die Versionsnummer sagte
+        nicht, dass sie es nicht ist.
+        """
         return replace(
-            scoring_params,
-            options_annualized_return=OPTIONSSCHWELLEN,
-            swing_version="1.2",
+            scoring_params, options_annualized_return=None, swing_version="1.1"
         )
 
     def test_ohne_gemessene_schwellen_entfaellt_die_komponente(
-        self, scoring_params: ScoringParameters
+        self, ohne_schwellen: ScoringParameters
     ) -> None:
-        """So wird die Fassung ausgeliefert, bis der Messlauf gelaufen ist.
-
-        Vorlaeufige Schwellen waeren schlimmer als keine: Der Score truege
-        eine Zahl, die aussieht wie die gemessenen daneben, und die
-        Versionsnummer sagte nicht, dass sie es nicht ist.
-        """
-        score = rechne(scoring_params, options=optionen())
+        score = rechne(ohne_schwellen, options=optionen())
 
         assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
         assert score.coverage == pytest.approx(0.9)
@@ -642,27 +631,27 @@ class TestOptionsattraktivitaet:
             "die Schwellen der Optionsattraktivitaet sind noch nicht gemessen"
         )
 
-    def test_mit_schwellen_deckt_der_score_alle_sechs_komponenten(
-        self, mit_schwellen: ScoringParameters
+    def test_scoring_params_deckt_der_score_alle_sechs_komponenten(
+        self, scoring_params: ScoringParameters
     ) -> None:
-        score = rechne(mit_schwellen, options=optionen())
+        score = rechne(scoring_params, options=optionen())
 
         assert score.missing_components == ()
         assert score.coverage == pytest.approx(1.0)
 
     @pytest.mark.parametrize(
         ("annualisiert", "erwartet"),
-        [(0.05, 2.0), (0.13, 4.0), (0.20, 6.0), (0.30, 8.0), (0.50, 10.0)],
+        [(0.10, 2.0), (0.15, 4.0), (0.22, 6.0), (0.28, 8.0), (0.50, 10.0)],
     )
     def test_die_rendite_wird_ueber_die_schwellen_abgebildet(
-        self, mit_schwellen: ScoringParameters, annualisiert: float, erwartet: float
+        self, scoring_params: ScoringParameters, annualisiert: float, erwartet: float
     ) -> None:
-        score = rechne(mit_schwellen, options=optionen(annualisiert))
+        score = rechne(scoring_params, options=optionen(annualisiert))
 
         assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == erwartet
 
     def test_der_bestbewertete_vorschlag_zaehlt(
-        self, mit_schwellen: ScoringParameters
+        self, scoring_params: ScoringParameters
     ) -> None:
         """Der erste der Liste, nicht der Mittelwert ueber alle drei.
 
@@ -673,17 +662,17 @@ class TestOptionsattraktivitaet:
         analyse = optionen(0.50)
         zweiter = replace(analyse.strategies[0], annualized_return=0.05, strike=84.0)
         score = rechne(
-            mit_schwellen,
+            scoring_params,
             options=replace(analyse, strategies=(analyse.strategies[0], zweiter)),
         )
 
         assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == 10.0
 
     def test_die_begruendung_nennt_strike_und_laufzeit(
-        self, mit_schwellen: ScoringParameters
+        self, scoring_params: ScoringParameters
     ) -> None:
         """Die Zahl allein sagt nicht, aus welchem Kontrakt sie stammt."""
-        score = rechne(mit_schwellen, options=optionen(0.24))
+        score = rechne(scoring_params, options=optionen(0.24))
         (komponente,) = [
             k for k in score.components if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
         ]
@@ -691,11 +680,11 @@ class TestOptionsattraktivitaet:
         assert komponente.reason == "24% annualisiert aus Strike 92 ueber 31 Tage"
 
     def test_ohne_abruf_und_ohne_vorschlag_bleiben_zwei_verschiedene_gruende(
-        self, mit_schwellen: ScoringParameters
+        self, scoring_params: ScoringParameters
     ) -> None:
         """Der eine zeigt auf die TWS, der andere auf die Kette dieses Titels."""
-        ohne_abruf = rechne(mit_schwellen, options=None)
-        ohne_vorschlag = rechne(mit_schwellen, options=optionen(strategien=False))
+        ohne_abruf = rechne(scoring_params, options=None)
+        ohne_vorschlag = rechne(scoring_params, options=optionen(strategien=False))
 
         gruende = [
             next(
@@ -709,9 +698,9 @@ class TestOptionsattraktivitaet:
         assert gruende[1] == "kein Put-Vorschlag (keine der 12 Notierungen lieferte ein Delta)"
 
     def test_ein_ausfall_der_optionsdaten_kostet_den_score_nicht(
-        self, mit_schwellen: ScoringParameters
+        self, scoring_params: ScoringParameters
     ) -> None:
-        score = rechne(mit_schwellen, options=None)
+        score = rechne(scoring_params, options=None)
 
         assert score.status is ScoreStatus.COMPLETED
         assert score.coverage == pytest.approx(0.9)

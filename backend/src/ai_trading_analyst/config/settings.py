@@ -931,11 +931,12 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.1"
-    """``1.1`` gegenueber ``1.0``: Die News- und Ereignislage rechnet mit
-    (ADR 0046). Der Score steht damit auf 90 statt 80 Prozent Abdeckung --
+    swing_version: str = "1.2"
+    """``1.2`` gegenueber ``1.1``: Die Optionsattraktivitaet rechnet mit
+    (ADR 0048). Der Score steht damit auf 100 statt 90 Prozent Abdeckung --
     dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
-    deshalb steigt die Nummer."""
+    deshalb steigt die Nummer. ``1.1`` gegenueber ``1.0`` war aus demselben
+    Grund die News- und Ereignislage (ADR 0046)."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
