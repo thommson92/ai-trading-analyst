@@ -43,16 +43,20 @@ _TEST_DATABASE_URL_ENV = "TEST_DATABASE_URL"
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run_alembic_upgrade(database_url: str) -> None:
+def run_alembic(database_url: str, richtung: str, revision: str) -> None:
     """Setzt ATA_DATABASE_URL nur fuer die Dauer des Alembic-Aufrufs
     (``migrations/env.py`` liest sie ueber ``Secrets``) und stellt den
-    vorherigen Zustand danach wieder her."""
+    vorherigen Zustand danach wieder her.
+
+    ``richtung`` ist ``upgrade`` oder ``downgrade`` -- beides, weil ein
+    Downgrade, das nur auf dem Papier steht, keines ist.
+    """
     previous = os.environ.get("ATA_DATABASE_URL")
     os.environ["ATA_DATABASE_URL"] = database_url
     try:
         config = Config(str(_BACKEND_ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(_BACKEND_ROOT / "migrations"))
-        command.upgrade(config, "head")
+        getattr(command, richtung)(config, revision)
     finally:
         if previous is None:
             os.environ.pop("ATA_DATABASE_URL", None)
@@ -84,7 +88,7 @@ def engine(database_url: str) -> Iterator[Engine]:
     with eng.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
-    _run_alembic_upgrade(database_url)
+    run_alembic(database_url, "upgrade", "head")
     yield eng
     eng.dispose()
 

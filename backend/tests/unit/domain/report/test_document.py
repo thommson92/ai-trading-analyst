@@ -16,6 +16,14 @@ import pytest
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalAssessmentStatus
 from tests.unit.domain.report.conftest import (
     JETZT,
@@ -216,3 +224,72 @@ class TestInhalte:
         inhalt = vollstaendig()["abschnitte"][ReportSection.FUNDAMENTALE_BEWERTUNG.value]["inhalt"]
         assert inhalt["company_name"] == "Apple Inc."
         assert inhalt["metrics"]["REVENUE"]["sources"][0]["accession"]
+
+
+class TestScoreImDokument:
+    """Punkt 14 traegt den ganzen Score, nicht nur seine Zahl.
+
+    Doc 10, Paragraph 6.11 verlangt neun Angaben. Eine blosse Zahl im
+    Dokument waere genau die Scheingenauigkeit, die derselbe Absatz
+    ausschliesst -- und der Bericht ist die verbindliche Fassung, aus der
+    sich das spaeter nicht mehr ergaenzen laesst.
+    """
+
+    @staticmethod
+    def _score() -> ScoreResult:
+        return ScoreResult(
+            kind=ScoreKind.SWING,
+            status=ScoreStatus.COMPLETED,
+            version="1.0",
+            value=8.6,
+            components=(
+                ScoreComponent(
+                    name=ComponentName.TECHNICAL_SIGNALS,
+                    weight=0.25,
+                    value=10.0,
+                    effective_weight=0.3125,
+                    reason="3 von 3 Signalen",
+                ),
+                ScoreComponent(
+                    name=ComponentName.OPTIONS_ATTRACTIVENESS,
+                    weight=0.10,
+                    reason="die Optionsanalyse ist noch nicht gebaut (ADR 0048)",
+                ),
+            ),
+            coverage=0.9,
+            confidence=ScoreConfidence.NORMAL,
+            positive_factors=("Technische Signale: 10.0",),
+            limiting_risks=("Signalstatistik auf duenner Stichprobe",),
+        )
+
+    def test_der_abschnitt_traegt_teilwerte_gewichte_und_begruendung(self) -> None:
+        inhalt = dokument(swing_score=self._score())["abschnitte"][
+            ReportSection.SWING_SCORE.value
+        ]["inhalt"]
+
+        assert inhalt["value"] == 8.6
+        assert inhalt["coverage"] == 0.9
+        assert inhalt["confidence"] == "NORMAL"
+        assert inhalt["version"] == "1.0"
+        assert inhalt["positive_factors"] == ["Technische Signale: 10.0"]
+        assert inhalt["limiting_risks"] == ["Signalstatistik auf duenner Stichprobe"]
+        erste = inhalt["components"][0]
+        assert erste["name"] == "TECHNICAL_SIGNALS"
+        assert erste["weight"] == 0.25
+        assert erste["effective_weight"] == 0.3125
+        assert erste["reason"] == "3 von 3 Signalen"
+
+    def test_eine_fehlende_komponente_steht_als_luecke_und_nicht_als_null(self) -> None:
+        inhalt = dokument(swing_score=self._score())["abschnitte"][
+            ReportSection.SWING_SCORE.value
+        ]["inhalt"]
+
+        (fehlend,) = [
+            k for k in inhalt["components"] if k["name"] == "OPTIONS_ATTRACTIVENESS"
+        ]
+        assert fehlend["value"] is None
+        assert fehlend["effective_weight"] == 0.0
+        assert fehlend["weight"] == 0.10, "das verlorene Gewicht bleibt sichtbar"
+
+    def test_das_dokument_bleibt_json(self) -> None:
+        json.dumps(dokument(swing_score=self._score()))

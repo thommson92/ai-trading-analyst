@@ -61,6 +61,12 @@ from ai_trading_analyst.domain.report import (
 )
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
+from ai_trading_analyst.domain.scoring import (
+    ScoreResult,
+    ScoringParameters,
+    compute_long_term_score,
+    compute_swing_score,
+)
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
@@ -195,6 +201,7 @@ class RunAnalysisUseCase:
         earnings_filter_params: EarningsFilterParameters,
         technical_params: TechnicalAnalysisParameters,
         backtest_params: BacktestParameters,
+        scoring_params: ScoringParameters,
         expected_last_candle: datetime | None = None,
         agent_concurrency: AgentConcurrency | None = None,
         app_version: str = "",
@@ -213,6 +220,7 @@ class RunAnalysisUseCase:
         self._earnings_filter_params = earnings_filter_params
         self._technical_params = technical_params
         self._backtest_params = backtest_params
+        self._scoring_params = scoring_params
         self._expected_last_candle = expected_last_candle
         self._agent_concurrency = agent_concurrency or AgentConcurrency()
         self._app_version = app_version
@@ -500,7 +508,31 @@ class RunAnalysisUseCase:
             return self._unavailable_research(item.evaluated_at, reason)
         return self._unavailable_assessment(item.evaluated_at, reason, item.technical)
 
+    def _scores(self, item: _PreparedOutcome) -> tuple[ScoreResult | None, ScoreResult | None]:
+        """Beide Scores aus dem, was schon gerechnet ist (Doc 09; ADR 0041).
+
+        **Nur fuer Kandidaten** -- ueber die uebrigen wird nicht berichtet,
+        und ein Score fuer eine Aktie, die kein Kandidat ist, beantwortete
+        eine Frage, die niemand gestellt hat.
+
+        Ohne Fehlerisolation und ohne Netz: Das ist reine Rechnung auf
+        bereits vorliegenden Werten. Eine fehlende Eingabe ergibt eine
+        fehlende Komponente, keine Ausnahme -- und unterhalb der
+        Mindestabdeckung ``INSUFFICIENT_DATA`` statt einer Zahl.
+        """
+        if item.result.status is not ScreeningStatus.CANDIDATE:
+            return None, None
+        swing = compute_swing_score(
+            item.result,
+            backtest=item.backtest,
+            assessment=item.technical_assessment,
+            parameters=self._scoring_params,
+        )
+        investment = compute_long_term_score(item.fundamentals, parameters=self._scoring_params)
+        return swing, investment
+
     def _persist_outcome(self, run: AnalysisRun, item: _PreparedOutcome) -> StockScreeningOutcome:
+        swing_score, investment_score = self._scores(item)
         outcome = StockScreeningOutcome(
             analysis_run_id=run.id,
             stock=item.stock,
@@ -515,6 +547,8 @@ class RunAnalysisUseCase:
             earnings=item.earnings,
             research=item.research,
             backtest=item.backtest,
+            swing_score=swing_score,
+            investment_score=investment_score,
         )
         bericht = self._build_report(outcome)
         with self._uow_factory() as uow:

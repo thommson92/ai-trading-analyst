@@ -22,7 +22,13 @@ from ai_trading_analyst.config import (
     ResearchConfig,
     Secrets,
 )
-from ai_trading_analyst.config.settings import project_env_file
+from ai_trading_analyst.config.settings import (
+    LongTermWeightsConfig,
+    MetricThresholdConfig,
+    ScoringConfig,
+    SwingWeightsConfig,
+    project_env_file,
+)
 
 
 class TestMarketConfig:
@@ -297,3 +303,51 @@ class TestSecretsAusDatei:
         """Auf Entwicklungsrechnern und in der CI gibt es keine ``.env``."""
         with pytest.raises(MissingSecretError):
             Secrets(_env_file=tmp_path / "gibt-es-nicht").require("database_url")
+
+
+class TestScoringAbschnitt:
+    """Gewichte, Abdeckungsgrenzen und Schwellen (ADR 0041, ADR 0045).
+
+    Alles, was hier stillschweigend durchginge, verschoebe einen Score --
+    und ein Score ist die Zahl, die im Bericht am lautesten spricht.
+    """
+
+    def test_die_voreinstellung_traegt_die_gewichte_aus_adr_0041(self) -> None:
+        scoring = ScoringConfig()
+        assert scoring.swing_weights.technical_signals == 0.25
+        assert scoring.swing_weights.signal_statistics == 0.25
+        assert scoring.long_term_weights.profitability == 0.30
+
+    def test_gewichte_die_sich_nicht_auf_eins_summieren_sind_ein_fehler(self) -> None:
+        """Sonst waere die ausgewiesene Datenabdeckung eine andere Zahl als
+        die tatsaechliche."""
+        with pytest.raises(ValidationError, match="summieren"):
+            SwingWeightsConfig(technical_signals=0.5)
+
+    def test_das_gilt_fuer_beide_saetze(self) -> None:
+        with pytest.raises(ValidationError, match="summieren"):
+            LongTermWeightsConfig(profitability=0.9)
+
+    def test_unsortierte_fuenftelgrenzen_sind_ein_fehler(self) -> None:
+        with pytest.raises(ValidationError, match="aufsteigen"):
+            MetricThresholdConfig(boundaries=(1.0, 3.0, 2.0, 4.0), higher_is_better=True)
+
+    def test_die_richtung_ist_ein_pflichtfeld(self) -> None:
+        """Ein Default kehrte die Bewertung von KGV, KUV und
+        Verschuldungsgrad stillschweigend um."""
+        with pytest.raises(ValidationError):
+            MetricThresholdConfig(boundaries=(1.0, 2.0, 3.0, 4.0))  # type: ignore[call-arg]
+
+    def test_eine_normalgrenze_unter_der_untergrenze_ist_ein_fehler(self) -> None:
+        with pytest.raises(ValidationError, match="normal_confidence_coverage"):
+            ScoringConfig(minimum_coverage=0.9, normal_confidence_coverage=0.5)
+
+    def test_abdeckungsgrenzen_ueber_hundert_prozent_sind_ein_fehler(self) -> None:
+        """Sie sind Anteile. Bei 1,2 entstuende nie ein Score, und niemand
+        saehe warum."""
+        with pytest.raises(ValidationError, match="zwischen 0 und 1"):
+            ScoringConfig(minimum_coverage=1.2, normal_confidence_coverage=1.2)
+
+    def test_ein_unbekannter_schluessel_faellt_beim_laden_auf(self) -> None:
+        with pytest.raises(ValidationError):
+            ScoringConfig(minimum_coverange=0.6)  # type: ignore[call-arg]

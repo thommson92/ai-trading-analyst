@@ -23,6 +23,14 @@ from ai_trading_analyst.domain.report import (
     build_report,
 )
 from ai_trading_analyst.domain.research import ResearchStatus
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from tests.unit.domain.report.conftest import (
     JETZT,
     make_analysts,
@@ -331,3 +339,117 @@ class TestUebernahme:
         assert report.evaluated_at == JETZT
         assert report.created_at == ERSTELLT
         assert report.signals == outcome.result.signal_events
+
+
+class TestScores:
+    """Punkte 14 und 15 (Doc 10, Paragraph 6.11).
+
+    Drei Faelle mit drei verschiedenen Aussagen: nicht gerechnet, nicht
+    zustande gekommen, auf unvollstaendiger Grundlage. Der dritte ist
+    **eingeschraenkt und nicht fehlend** -- der Abschnitt hat Inhalt.
+    """
+
+    @staticmethod
+    def _score(
+        *,
+        kind: ScoreKind = ScoreKind.SWING,
+        status: ScoreStatus = ScoreStatus.COMPLETED,
+        value: float | None = 7.4,
+        fehlend: bool = False,
+    ) -> ScoreResult:
+        komponenten = [
+            ScoreComponent(
+                name=ComponentName.TECHNICAL_SIGNALS,
+                weight=0.25,
+                value=10.0,
+                effective_weight=1.0,
+                reason="3 von 3 Signalen",
+            )
+        ]
+        if fehlend:
+            komponenten.append(
+                ScoreComponent(
+                    name=ComponentName.OPTIONS_ATTRACTIVENESS, weight=0.10, reason="nicht gebaut"
+                )
+            )
+        return ScoreResult(
+            kind=kind,
+            status=status,
+            version="1.0",
+            value=value,
+            components=tuple(komponenten),
+            coverage=0.7 if fehlend else 1.0,
+            confidence=ScoreConfidence.NORMAL,
+        )
+
+    def test_ohne_score_fehlt_der_punkt(self) -> None:
+        report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
+        assert ReportSection.SWING_SCORE in report.missing_sections
+        assert ReportSection.INVESTMENT_SCORE in report.missing_sections
+
+    def test_ein_vollstaendiger_score_fuellt_den_punkt(self) -> None:
+        report = build_report(
+            make_outcome(swing_score=self._score(), investment_score=self._score(
+                kind=ScoreKind.LONG_TERM
+            )),
+            created_at=ERSTELLT,
+            app_version="0.1.0",
+        )
+        assert ReportSection.SWING_SCORE not in report.missing_sections
+        assert ReportSection.INVESTMENT_SCORE not in report.missing_sections
+        assert report.swing_score is not None
+        assert report.swing_score.value == 7.4
+
+    def test_eine_fehlende_komponente_macht_den_punkt_eingeschraenkt_und_nicht_fehlend(
+        self,
+    ) -> None:
+        report = build_report(
+            make_outcome(swing_score=self._score(fehlend=True)),
+            created_at=ERSTELLT,
+            app_version="0.1.0",
+        )
+        assert ReportSection.SWING_SCORE not in report.missing_sections
+        (vorbehalt,) = [
+            luecke
+            for luecke in report.gaps
+            if luecke.section is ReportSection.SWING_SCORE
+        ]
+        assert vorbehalt.kind is GapKind.EINGESCHRAENKT
+        assert "OPTIONS_ATTRACTIVENESS" in vorbehalt.reason
+
+    def test_ein_score_ohne_zahl_fehlt(self) -> None:
+        report = build_report(
+            make_outcome(
+                swing_score=self._score(
+                    status=ScoreStatus.INSUFFICIENT_DATA, value=None, fehlend=True
+                )
+            ),
+            created_at=ERSTELLT,
+            app_version="0.1.0",
+        )
+        assert ReportSection.SWING_SCORE in report.missing_sections
+
+    def test_die_versionen_beider_scores_stehen_am_bericht(self) -> None:
+        report = build_report(
+            make_outcome(
+                swing_score=self._score(),
+                investment_score=self._score(kind=ScoreKind.LONG_TERM),
+            ),
+            created_at=ERSTELLT,
+            app_version="0.1.0",
+        )
+        assert report.scoring_version == "swing-1.0+long_term-1.0"
+
+    def test_ohne_score_bleibt_die_scoring_version_leer(self) -> None:
+        """Eine Version ohne Ergebnis waere eine Angabe ueber nichts."""
+        report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
+        assert report.scoring_version is None
+
+    def test_die_empfehlung_bleibt_offen_und_nennt_ihren_neuen_grund(self) -> None:
+        """Punkt 16 fehlt jetzt nicht mehr mangels Scoring, sondern weil die
+        Ableitung nicht entschieden ist (ADR 0046)."""
+        report = build_report(
+            make_outcome(swing_score=self._score()), created_at=ERSTELLT, app_version="0.1.0"
+        )
+        (luecke,) = [g for g in report.gaps if g.section is ReportSection.EMPFEHLUNG]
+        assert "ADR 0046" in luecke.reason

@@ -8,8 +8,17 @@ das Ergebnis: alle erwarteten Tabellen existieren nach dem Upgrade.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
+
+from ai_trading_analyst.domain.screening import ScreeningStatus
+from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from tests.integration.conftest import make_outcome, make_run, make_stock
+from tests.integration.conftest import run_alembic as _run_alembic
+
+UowFactory = Callable[[], SqlAlchemyUnitOfWork]
 
 EXPECTED_TABLES = {
     "stocks",
@@ -156,3 +165,83 @@ def test_die_position_der_zitate_ist_verpflichtend(engine: Engine) -> None:
         spalte["name"]: spalte for spalte in inspect(engine).get_columns("research_citations")
     }
     assert spalten["position"]["nullable"] is False
+
+
+def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
+    """ADR 0041, ADR 0045 -- vier Spalten je Score und ein neuer Enum-Typ.
+
+    Dieselbe Falle wie beim Technical Agent: Ein ``op.add_column`` mit einem
+    Enum-Typ legt den Typ in Postgres nicht mit an. Ohne diesen Test faellt
+    ein fehlendes ``create`` erst beim ersten Speichern eines Kandidaten auf
+    -- also auf dem Server, im Tageslauf.
+    """
+    spalten = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
+
+    assert {
+        "swing_score",
+        "swing_status",
+        "swing_version",
+        "swing_detail",
+        "long_term_score",
+        "long_term_status",
+        "long_term_version",
+        "long_term_detail",
+    } <= spalten
+
+
+def test_beide_tabellen_fuehren_den_score_im_selben_typ(engine: Engine) -> None:
+    """Dieselbe Zahl, derselbe Typ. ``stock_reports`` trug die beiden Spalten
+    schon als ``double precision``, gefuellt werden sie erst jetzt."""
+    inspector = inspect(engine)
+    ergebnisse = {s["name"]: s["type"] for s in inspector.get_columns("screening_results")}
+    berichte = {s["name"]: s["type"] for s in inspector.get_columns("stock_reports")}
+
+    assert str(ergebnisse["swing_score"]) == "NUMERIC(4, 1)"
+    assert str(berichte["swing_score"]) == "NUMERIC(4, 1)"
+    assert str(berichte["investment_score"]) == "NUMERIC(4, 1)"
+
+
+def test_die_score_migration_laesst_sich_zurueckdrehen(
+    engine: Engine, database_url: str, uow_factory: UowFactory
+) -> None:
+    """Hoch **und runter**, gegen eine Datenbank mit Inhalt.
+
+    Ein Downgrade, das nur auf dem Papier steht, ist keiner: Der Enum-Typ
+    ``scorestatus`` bleibt beim blossen ``drop_column`` zurueck, und der
+    naechste Upgrade-Versuch scheitert dann an einem Typ, den es schon gibt.
+    Der Test dreht deshalb wirklich zurueck und wieder vor.
+    """
+    stock = make_stock("MIGDOWN")
+    run = make_run()
+    with uow_factory() as uow:
+        uow.stocks.add(stock)
+        uow.analysis_runs.add(run)
+        uow.screening_results.add(
+            make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
+        )
+        uow.commit()
+
+    _run_alembic(database_url, "downgrade", "-1")
+    try:
+        nach_unten = {
+            spalte["name"] for spalte in inspect(engine).get_columns("screening_results")
+        }
+        assert "swing_score" not in nach_unten
+        assert "long_term_detail" not in nach_unten
+        assert "analyst_status" in nach_unten, "das Downgrade ging eine Stufe zu weit"
+        berichte = {s["name"]: s["type"] for s in inspect(engine).get_columns("stock_reports")}
+        assert str(berichte["swing_score"]) == "DOUBLE PRECISION", (
+            "der Typwechsel in stock_reports wurde nicht zurueckgenommen"
+        )
+    finally:
+        _run_alembic(database_url, "upgrade", "head")
+
+    wieder_oben = {spalte["name"] for spalte in inspect(engine).get_columns("screening_results")}
+    assert {"swing_score", "long_term_detail"} <= wieder_oben
+
+    # Die Zeile hat beides ueberlebt. Ein Downgrade, das die Tabelle leert,
+    # waere auf dem Server ein Datenverlust und kein Rueckbau.
+    with uow_factory() as uow:
+        (persisted,) = uow.screening_results.list_for_run(run.id)
+    assert persisted.stock.symbol == "MIGDOWN"
+    assert persisted.swing_score is None

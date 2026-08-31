@@ -115,6 +115,27 @@ vollständiger.
 Sie ist **gesetzt, nicht gemessen**, konfigurierbar und von der
 Scoring-Version umfasst.
 
+**Innerhalb einer Komponente** gilt dieselbe Regel eine Ebene tiefer: Die
+Kennzahlen werden gleich gewichtet gemittelt, fehlende übersprungen, und die
+Komponente gilt erst ab der Hälfte ihrer Kennzahlen als verfügbar
+(ADR 0045). Beim Investment-Score sind das Profitabilität 3 von 6, Wachstum
+1 von 2, Bewertung 2 von 3, Bilanzqualität 2 von 3.
+
+### Konfidenz
+
+Die Konfidenz eines Scores steht allein auf seiner Datenabdeckung:
+
+| Abdeckung | Konfidenz |
+|---|---|
+| unter der Untergrenze | `INSUFFICIENT_DATA` — es entsteht kein Score |
+| darüber, aber unter `normal_confidence_coverage` (80 %) | `LOW_COVERAGE` |
+| **ab** `normal_confidence_coverage` | `NORMAL` |
+
+Dieselbe Dreiteilung wie bei `BacktestConfidence`, und aus demselben Grund:
+Ein Ergebnis auf dünner Grundlage ist nicht falsch, aber es ist etwas anderes
+als eines auf voller Grundlage. Die Grenze ist **gesetzt**, konfigurierbar und
+von der Scoring-Version umfasst — es gibt nichts, woran sie sich messen ließe.
+
 ---
 
 ## Score-Ergebnis
@@ -184,9 +205,23 @@ Zwei Änderungen sind bereits absehbar:
 | Optionsanalyse wird angeschlossen | Swing-Score rechnet erstmals auf 100 % statt 90 % Abdeckung |
 | KI-Hälfte der Fundamentalanalyse | Investment-Score bekommt die heute unbewerteten Bereiche |
 
-Bis zur ersten dieser Änderungen rechnet der Swing-Score auf 90 % Abdeckung.
-Das ist ausgewiesen — es heißt aber, dass die ersten Scores mit späteren
-nicht unmittelbar vergleichbar sind.
+Bis dahin rechnet der Swing-Score auf **80 %** Abdeckung: Neben der
+Optionsattraktivität fehlt auch die News- und Ereignislage, deren Ableitung
+mit der Empfehlungsstufe entschieden wird (ADR 0046, noch offen). Beides ist
+ausgewiesen — es heißt aber, dass die ersten Scores mit späteren nicht
+unmittelbar vergleichbar sind. Ein vollständiger Swing-Score liegt damit
+genau auf der Normalgrenze und gilt als `NORMAL`.
+
+**Eine gemessene Folge davon gehört dazu:** Fällt die KI-Einordnung aus,
+entfallen Chart-Setup und Chance-Risiko-Verhältnis gemeinsam — sie stehen
+beide an ihr. Übrig bleiben Signale und Signalstatistik mit zusammen 50 %,
+und damit entsteht **kein** Swing-Score. ADR 0041 hatte diesen Fall bei 60 %
+gesehen, also gerade noch oberhalb; die fehlenden zehn Prozentpunkte sind die
+News- und Ereignislage. Das ist keine Ausnahme von der Untergrenze, sondern
+ihre Anwendung — aber es heißt, dass ein Ausfall des Sprachmodells heute
+teurer ist als vorgesehen. Der Fall ist in
+`tests/unit/domain/scoring/test_swing.py` festgehalten und mit ADR 0046
+erledigt.
 
 ---
 
@@ -197,12 +232,12 @@ Beispiel, wie es im Bericht erscheint:
 ```
 NVDA
 
-Swing Trade Score          8,6 / 10    Abdeckung 90 %   Konfidenz NORMAL
-  Technische Signale       9,0         Gewicht 27,8 %
-  Historische Signalgüte   8,5         Gewicht 27,8 %
-  Chart-Setup              9,0         Gewicht 16,7 %
-  Chance-Risiko            8,0         Gewicht 16,7 %
-  News- und Ereignislage   8,5         Gewicht 11,1 %
+Swing Trade Score          8,6 / 10    Abdeckung 80 %   Konfidenz NORMAL
+  Technische Signale      10,0         Gewicht 31,3 %
+  Historische Signalgüte   8,5         Gewicht 31,3 %
+  Chart-Setup              9,0         Gewicht 18,8 %
+  Chance-Risiko            6,0         Gewicht 18,8 %
+  News- und Ereignislage   —           fehlt
   Optionsattraktivität     —           fehlt
 
 Long-Term Investment       9,2 / 10    Abdeckung 100 %  Konfidenz NORMAL
@@ -212,8 +247,8 @@ Long-Term Investment       9,2 / 10    Abdeckung 100 %  Konfidenz NORMAL
   Bilanzqualität           9,0         Gewicht 20,0 %
 ```
 
-Die Gewichte im Swing-Beispiel sind die **normierten**: Ohne die
-Optionsattraktivität verteilen sich die verbleibenden 90 % auf 100 %, aus
-25 % werden also 27,8 %. Die fehlende Komponente steht trotzdem in der Liste
-— nicht als Null, sondern als Lücke. Sie mit 0 zu bewerten hieße zu
+Die Gewichte im Swing-Beispiel sind die **normierten**: Ohne die beiden
+fehlenden Komponenten verteilen sich die verbleibenden 80 % auf 100 %, aus
+25 % werden also 31,3 %. Die fehlenden Komponenten stehen trotzdem in der
+Liste — nicht als Null, sondern als Lücke. Sie mit 0 zu bewerten hieße zu
 behaupten, die Optionen seien geprüft und unattraktiv.

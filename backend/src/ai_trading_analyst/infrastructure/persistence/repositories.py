@@ -51,6 +51,14 @@ from ai_trading_analyst.domain.research import (
     SourceLicenseClass,
     SourceRank,
 )
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from ai_trading_analyst.domain.screening import (
     IntradayBar,
     ScreeningResult,
@@ -359,6 +367,81 @@ def _quelle_aus_json(eintrag: dict[str, Any]) -> SourceRef:
         form=str(eintrag["form"]),
         filed=date.fromisoformat(str(eintrag["filed"])),
         tag=str(eintrag["tag"]),
+    )
+
+
+def _score_columns(prefix: str, score: ScoreResult | None) -> dict[str, Any]:
+    """Vier Spalten je Score: Wert, Status, Version und der Rest als JSONB.
+
+    ``prefix`` ist ``swing`` oder ``long_term`` -- ein Mapper fuer beide,
+    damit die Abbildung nicht an zwei Stellen auseinanderlaufen kann.
+    """
+    if score is None:
+        return {
+            f"{prefix}_score": None,
+            f"{prefix}_status": None,
+            f"{prefix}_version": None,
+            f"{prefix}_detail": None,
+        }
+    return {
+        f"{prefix}_score": score.value,
+        f"{prefix}_status": score.status,
+        f"{prefix}_version": score.version,
+        f"{prefix}_detail": {
+            "abdeckung": score.coverage,
+            "konfidenz": score.confidence.value,
+            "komponenten": [
+                {
+                    "name": komponente.name.value,
+                    "gewicht": komponente.weight,
+                    "wirksames_gewicht": komponente.effective_weight,
+                    "teilwert": komponente.value,
+                    "begruendung": komponente.reason,
+                }
+                for komponente in score.components
+            ],
+            "positive_faktoren": list(score.positive_factors),
+            "negative_faktoren": list(score.negative_factors),
+            "begrenzende_risiken": list(score.limiting_risks),
+        },
+    }
+
+
+def _score_from_row(row: ScreeningResultOrm, prefix: str, kind: ScoreKind) -> ScoreResult | None:
+    """Der Score aus seinen vier Spalten -- **durchgehend streng gelesen**.
+
+    Kein ``.get`` mit Ersatzwert: Geschrieben wird das Detail immer im
+    Ganzen und immer zusammen mit dem Status. Eine halb nachsichtige
+    Fassung -- die einen Schluessel mit Vorgabe, der naechste mit
+    ``KeyError`` -- verdeckt einen fehlenden Teil des Details als
+    Abdeckung 0,0 und laesst den naechsten trotzdem den ganzen Lauf
+    scheitern. Wenn hier etwas fehlt, ist die Zeile kaputt, und das soll
+    man sehen.
+    """
+    status = getattr(row, f"{prefix}_status")
+    if status is None:
+        return None
+    detail: dict[str, Any] = getattr(row, f"{prefix}_detail")
+    return ScoreResult(
+        kind=kind,
+        status=ScoreStatus(status),
+        version=getattr(row, f"{prefix}_version") or "",
+        value=getattr(row, f"{prefix}_score"),
+        components=tuple(
+            ScoreComponent(
+                name=ComponentName(eintrag["name"]),
+                weight=float(eintrag["gewicht"]),
+                value=(None if eintrag["teilwert"] is None else float(eintrag["teilwert"])),
+                effective_weight=float(eintrag["wirksames_gewicht"]),
+                reason=eintrag["begruendung"],
+            )
+            for eintrag in detail["komponenten"]
+        ),
+        coverage=float(detail["abdeckung"]),
+        confidence=ScoreConfidence(detail["konfidenz"]),
+        positive_factors=tuple(detail["positive_faktoren"]),
+        negative_factors=tuple(detail["negative_faktoren"]),
+        limiting_risks=tuple(detail["begrenzende_risiken"]),
     )
 
 
@@ -720,6 +803,8 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         research=research,
         fundamentals=_fundamentals_from_row(row),
         analysts=_analyst_from_row(row),
+        swing_score=_score_from_row(row, "swing", ScoreKind.SWING),
+        investment_score=_score_from_row(row, "long_term", ScoreKind.LONG_TERM),
     )
 
 
@@ -771,6 +856,8 @@ class SqlAlchemyScreeningResultRepository:
             **_technical_ai_columns(outcome.technical_assessment),
             **_fundamentals_columns(outcome.fundamentals),
             **_analyst_columns(outcome.analysts),
+            **_score_columns("swing", outcome.swing_score),
+            **_score_columns("long_term", outcome.investment_score),
         )
         row.signal_events = [
             SignalEventOrm(
@@ -999,6 +1086,13 @@ class SqlAlchemyIntradayBarRepository:
         )
 
 
+def _gesamtwert(score: ScoreResult | None) -> float | None:
+    """Die Zahl eines Scores -- ``None`` auch dann, wenn es einen Score gibt,
+    er aber ``INSUFFICIENT_DATA`` ist. Eine Spalte, die nur zum Sortieren da
+    ist, darf keinen Wert fuehren, den es nicht gibt."""
+    return score.value if score is not None else None
+
+
 def _horizon_metrics_from_row(row: BacktestResultOrm) -> HorizonMetrics:
     return HorizonMetrics(
         horizon=row.horizon,
@@ -1067,8 +1161,13 @@ class SqlAlchemyStockReportRepository:
                 app_version=report.app_version,
                 scoring_version=report.scoring_version,
                 recommendation=report.recommendation,
-                swing_score=report.swing_score,
-                investment_score=report.investment_score,
+                # Nur die Zahl: Die Spalten daneben beantworten die Frage,
+                # fuer die man das Dokument nicht oeffnen muss. Der
+                # vollstaendige Score mit Teilwerten, Gewichten und
+                # Begruendung steht in ``document`` -- und in
+                # ``screening_results``.
+                swing_score=_gesamtwert(report.swing_score),
+                investment_score=_gesamtwert(report.investment_score),
                 summary=report.summary,
                 document=as_document(report),
             )
