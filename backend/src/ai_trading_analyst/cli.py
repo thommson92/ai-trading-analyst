@@ -2925,14 +2925,14 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
-    # Alle vier Analyseanbieter stehen ausgeliefert auf 'fixture', damit Start
+    # Alle sechs Analyseanbieter stehen ausgeliefert auf 'fixture', damit Start
     # und Tests ohne Zugangsdaten auskommen. Der produktive Schalter gehoert
     # deshalb hierher und nicht in config/default.yaml: Die Aufgabenplanung
     # traegt ihn in ihren Argumenten, und ein 'git pull' auf dem Server findet
     # keinen lokalen Diff vor -- dieselbe Begruendung wie bei '--provider
     # ibkr'.
     #
-    # Es muessen **alle vier** sein. Fehlte auch nur einer, bliebe sein
+    # Es muessen **alle sechs** sein. Fehlte auch nur einer, bliebe sein
     # Abschnitt im Bericht bei den Fixture-Werten stehen -- und die sehen dort
     # wie ein Ergebnis aus, nicht wie eine Luecke. Der Ausweg waere dann, die
     # ausgelieferte Konfiguration auf dem Server zu editieren; genau das
@@ -2943,6 +2943,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         (args.fundamentals_provider, "fundamentals"),
         (args.ratings_provider, "analyst_ratings"),
         (args.technical_agent_provider, "technical_agent"),
+        (args.options_provider, "options"),
     ):
         if argument is None:
             continue
@@ -3483,6 +3484,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Modellaufruf aus (rund 0,005 USD). Bewusst getrennt von "
             "'--research-provider': Beide Agenten sind entkoppelt und haben eigene "
             "Pools (ADR 0037)."
+        ),
+    )
+    dispatch.add_argument(
+        "--options-provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert options.provider nur fuer diesen Lauf. 'ibkr' fuellt "
+            "Berichtspunkt 13 mit Put-Vorschlaegen aus der echten Optionskette "
+            "und braucht ein Optionsmarktdaten-Abo; ohne den Schalter bleibt er "
+            "auf den Fixture-Werten stehen."
         ),
     )
     dispatch.add_argument(

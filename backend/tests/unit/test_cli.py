@@ -1254,15 +1254,21 @@ class TestDispatchAnbieterUebersteuerung:
         assert abbruch.value.code == 2
 
     @staticmethod
-    def _spione_alle_fuenf(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-        """Wie ``_spione``, aber der Abbruch liegt am **letzten** der fuenf
-        Anbieter.
+    def _spione_alle_sechs(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Wie ``_spione``, aber der Abbruch liegt am **letzten** Anbieter,
+        der vor dem Lauf gebaut wird.
 
-        Nur so werden alle fuenf sichtbar: ``command_dispatch`` baut sie in
-        fester Reihenfolge, und ``_spione`` steigt bereits beim Research Agent
-        aus -- die drei danach kaemen dort nie an. Kommt ein sechster Anbieter
-        hinzu, muss der Abbruch mitwandern, sonst prueft dieser Helfer den
-        neuen stillschweigend nicht mit.
+        Nur so werden alle sichtbar: ``command_dispatch`` baut sie in fester
+        Reihenfolge, und ``_spione`` steigt bereits beim Research Agent aus --
+        die danach kaemen dort nie an. Kommt ein weiterer Anbieter hinzu, muss
+        der Abbruch mitwandern, sonst prueft dieser Helfer den neuen
+        stillschweigend nicht mit.
+
+        Der Optionsanbieter ist die Ausnahme: Er entsteht erst im Lauf, weil
+        er die bereits offene TWS-Anbindung braucht. Geprueft wird er
+        deshalb an derselben Konfiguration, aus der auch die uebrigen fuenf
+        gebaut werden -- das ist genau, was die Schleife der Uebersteuerungen
+        zu leisten hat.
         """
         gesehen: dict[str, str] = {}
 
@@ -1292,6 +1298,7 @@ class TestDispatchAnbieterUebersteuerung:
 
         def ratings(config: AppConfig, secrets: Secrets) -> AnalystRecommendationsProvider:
             gesehen["analyst_ratings"] = config.analyst_ratings.provider
+            gesehen["options"] = config.options.provider
             raise MissingSecretError("Abbruch fuer den Test")
 
         monkeypatch.setattr(
@@ -1309,7 +1316,7 @@ class TestDispatchAnbieterUebersteuerung:
     ) -> None:
         """Der ausgelieferte Zustand: kein Zugangsdatum noetig, nichts kostet
         Geld -- und nichts davon ist ein Ergebnis."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert main(["--config", str(config), "dispatch"]) == 2
@@ -1320,16 +1327,17 @@ class TestDispatchAnbieterUebersteuerung:
             "technical_agent": "fixture",
             "fundamentals": "fixture",
             "analyst_ratings": "fixture",
+            "options": "fixture",
         }
 
-    def test_die_argumente_uebersteuern_alle_fuenf_anbieter(
+    def test_die_argumente_uebersteuern_alle_anbieter(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Ohne einen Schalter je Anbieter bliebe sein Abschnitt im Bericht auf
         den Fixture-Werten stehen -- und die sehen dort wie ein Ergebnis aus,
         nicht wie eine Luecke. Der Ausweg waere, config/default.yaml auf dem
         Server zu editieren; genau das schliesst Doc 14 aus."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert (
@@ -1348,6 +1356,8 @@ class TestDispatchAnbieterUebersteuerung:
                     "anthropic",
                     "--ratings-provider",
                     "finnhub",
+                    "--options-provider",
+                    "ibkr",
                 ]
             )
             == 2
@@ -1359,6 +1369,7 @@ class TestDispatchAnbieterUebersteuerung:
             "technical_agent": "anthropic",
             "fundamentals": "edgar",
             "analyst_ratings": "finnhub",
+            "options": "ibkr",
         }
 
     @pytest.mark.parametrize(
@@ -1369,6 +1380,7 @@ class TestDispatchAnbieterUebersteuerung:
             ("--technical-agent-provider", "anthropic", "technical_agent"),
             ("--fundamentals-provider", "edgar", "fundamentals"),
             ("--ratings-provider", "finnhub", "analyst_ratings"),
+            ("--options-provider", "ibkr", "options"),
         ],
     )
     def test_jeder_schalter_wirkt_fuer_sich(
@@ -1381,13 +1393,20 @@ class TestDispatchAnbieterUebersteuerung:
     ) -> None:
         """Ein Schalter darf die uebrigen Abschnitte nicht mitverstellen --
         ``model_copy`` je Abschnitt, nicht ein gemeinsames Update."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert main(["--config", str(config), "dispatch", schalter, wert]) == 2
 
         erwartet = dict.fromkeys(
-            ("earnings", "research", "technical_agent", "fundamentals", "analyst_ratings"),
+            (
+                "earnings",
+                "research",
+                "technical_agent",
+                "fundamentals",
+                "analyst_ratings",
+                "options",
+            ),
             "fixture",
         )
         erwartet[abschnitt] = wert
@@ -1400,14 +1419,15 @@ class TestDispatchAnbieterUebersteuerung:
             ("--technical-agent-provider", "edgar"),
             ("--ratings-provider", "edgar"),
             ("--earnings-provider", "anthropic"),
+            ("--options-provider", "finnhub"),
         ],
     )
     def test_ein_anbieter_aus_dem_falschen_abschnitt_wird_abgewiesen(
         self, projekt: Path, schalter: str, wert: str
     ) -> None:
-        """Fuenf Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
-        zweien, 'anthropic' zu zweien. Ein Vertauschen faellt beim Argument
-        auf, nicht erst am Anbieter."""
+        """Sechs Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
+        zweien, 'anthropic' zu zweien, 'ibkr' zu keinem anderen. Ein
+        Vertauschen faellt beim Argument auf, nicht erst am Anbieter."""
         config = write_config(projekt, provider="ibkr")
 
         with pytest.raises(SystemExit) as abbruch:
