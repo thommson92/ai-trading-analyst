@@ -418,3 +418,46 @@ class TestGrundOhneVerfallstermin:
 
         assert grund.count("2026-") + grund.count("2027-") == 6
         assert grund.endswith("...)")
+
+
+class TestBerichtsterminBeiDerTerminwahl:
+    """Der Rueckfall auf den frueheren Verfall (ADR 0048, Festlegung 7).
+
+    Er greift im Adapter, weil dort der Berichtstermin ankommt -- und weil
+    ein Kontrakt, der ohnehin ausschiede, so gar nicht erst notiert wird.
+    """
+
+    MESSLAUF = date(2026, 8, 31)
+
+    def test_ein_frueherer_verfall_wird_genommen_statt_gar_keiner(self) -> None:
+        quelle = FakeQuelle(
+            struktur(expirations=(date(2026, 10, 2), date(2026, 10, 9)))
+        )
+
+        analyse = provider(quelle).options(
+            AKTIE,
+            price=100.0,
+            as_of=self.MESSLAUF,
+            next_earnings_date=date(2026, 10, 6),
+        )
+
+        assert analyse.expiration == date(2026, 10, 2)
+
+    def test_ohne_zulaessigen_termin_nennt_der_grund_den_berichtstermin(self) -> None:
+        """Nicht dieselbe Meldung wie bei einem zu schmalen Fenster: Das eine
+        heisst "die Kette gibt nichts her", das andere "dieser Titel steht zu
+        nah an seinen Zahlen"."""
+        quelle = FakeQuelle(
+            struktur(expirations=(date(2026, 10, 2), date(2026, 10, 9)))
+        )
+
+        analyse = provider(quelle).options(
+            AKTIE,
+            price=100.0,
+            as_of=self.MESSLAUF,
+            next_earnings_date=date(2026, 9, 15),
+        )
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert "nach dem Berichtstermin am 2026-09-15" in (analyse.reason or "")
+        assert quelle.angefragte_strikes == []

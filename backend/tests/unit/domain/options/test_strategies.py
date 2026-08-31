@@ -21,6 +21,7 @@ from ai_trading_analyst.domain.options import (
     OptionsStatus,
     PutStrategy,
     build_options_analysis,
+    expirations_in_window,
     select_expiration,
     select_strikes,
 )
@@ -102,8 +103,20 @@ class TestVerfallsterminwahl:
         assert (grenze - STICHTAG).days == tage
         assert select_expiration([grenze], as_of=STICHTAG, parameters=PARAMETER) == grenze
 
+    def test_die_zulaessigen_termine_kommen_aufsteigend(self) -> None:
+        """Darauf steht der Gleichstand: ``select_expiration`` verzichtet auf
+        einen Tiebreak im Sortierschluessel, weil ``min`` bei Gleichstand den
+        ersten Treffer behaelt -- und der erste ist der frueheste."""
+        termine = [date(2026, 10, 9), date(2026, 9, 25), date(2026, 10, 2)]
+
+        assert expirations_in_window(
+            termine, as_of=STICHTAG, parameters=PARAMETER
+        ) == (date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 9))
+
     def test_bei_gleichstand_gewinnt_der_fruehere_termin(self) -> None:
         # 32 und 38 Tage liegen beide drei Tage von den bevorzugten 35 weg.
+        # Bewusst unsortiert uebergeben: Die Reihenfolge darf nicht vom
+        # Aufrufer abhaengen.
         termine = [date(2026, 10, 9), date(2026, 10, 3)]
         assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
             2026, 10, 3
@@ -386,19 +399,57 @@ class TestKopplungen:
         ).strategies[0]
         assert strategie.distance_to_support_pct == pytest.approx(2 / 90)
 
-    def test_ein_termin_im_laufzeitfenster_schliesst_den_vorschlag_aus(self) -> None:
+    def test_der_berichtstermin_wirkt_schon_bei_der_terminwahl(self) -> None:
         """Entscheidung des Projektinhabers, 2026-08-31 (ADR 0048).
 
         Am Messtag trugen die drei hoechsten Praemienrenditen der Watchliste
         -- ORCL 71 %, STX 72 %, MU 64 % -- alle einen Berichtstermin
         innerhalb der Laufzeit. Das ist keine Gelegenheit, sondern die
         Verguetung fuer genau das Risiko, das ein Put-Verkaeufer traegt.
-        """
-        analyse = self.analyse(next_earnings_date=date(2026, 9, 20))
 
-        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
-        assert analyse.reason == (
-            "keine der 1 Notierungen lag vor dem naechsten Berichtstermin"
+        Gewaehlt wird deshalb der naechstfruehere Verfall **vor** dem
+        Termin -- und weil das schon bei der Auswahl geschieht, kommt eine
+        Notierung, die ohnehin ausschiede, gar nicht erst zustande.
+        """
+        termine = [date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 9)]
+
+        gewaehlt = select_expiration(
+            termine,
+            as_of=STICHTAG,
+            parameters=PARAMETER,
+            next_earnings_date=date(2026, 10, 5),
+        )
+
+        # Ohne den Termin faellt die Wahl auf den 9. Oktober (38 Tage, am
+        # naechsten an den bevorzugten 35).
+        assert select_expiration(termine, as_of=STICHTAG, parameters=PARAMETER) == date(
+            2026, 10, 9
+        )
+        assert gewaehlt == date(2026, 10, 2)
+
+    def test_ein_verfall_am_berichtstag_zaehlt_nicht_als_davor(self) -> None:
+        """Ob die Zahlen vor der Eroeffnung oder nach dem Schluss kommen,
+        weiss die Quelle nicht -- ein Verfall am Berichtstag waere ein
+        Wagnis auf diese Unbekannte."""
+        assert (
+            select_expiration(
+                [date(2026, 10, 2)],
+                as_of=STICHTAG,
+                parameters=PARAMETER,
+                next_earnings_date=date(2026, 10, 2),
+            )
+            is None
+        )
+
+    def test_ohne_zulaessigen_termin_vor_den_zahlen_entsteht_keiner(self) -> None:
+        assert (
+            select_expiration(
+                [date(2026, 10, 2), date(2026, 10, 9)],
+                as_of=STICHTAG,
+                parameters=PARAMETER,
+                next_earnings_date=date(2026, 9, 15),
+            )
+            is None
         )
 
     def test_ein_termin_nach_dem_verfall_laesst_den_vorschlag_stehen(self) -> None:
@@ -407,17 +458,19 @@ class TestKopplungen:
         ).strategies[0]
         assert strategie.earnings_within_term is False
 
-    def test_kein_bekannter_termin_schliesst_nicht_aus(self) -> None:
-        """``None`` und ``True`` duerfen nicht zusammenfallen.
+    def test_ein_unbekannter_termin_schraenkt_die_wahl_nicht_ein(self) -> None:
+        """Fehlende Daten bestrafen nicht (CLAUDE.md).
 
-        Wuerde ein unbekannter Termin ausschliessen, bliebe von der
+        Wuerde ein unbekannter Termin einschraenken, bliebe von der
         Optionsanalyse bei jedem Symbol ohne Earnings-Abdeckung nichts
-        uebrig -- und fehlende Daten bestrafen nicht (CLAUDE.md).
+        uebrig.
         """
-        strategie = self.analyse().strategies[0]
+        termine = [date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 9)]
 
-        assert strategie.earnings_within_term is None
-        assert strategie.annualized_return > 0
+        assert select_expiration(
+            termine, as_of=STICHTAG, parameters=PARAMETER, next_earnings_date=None
+        ) == date(2026, 10, 9)
+        assert self.analyse().strategies[0].earnings_within_term is None
 
 
 class TestParameterAmErgebnis:
