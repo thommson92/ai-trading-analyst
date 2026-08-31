@@ -8,7 +8,12 @@ die uebrigen Gewichte werden darauf umgerechnet.
 from .aggregate import aggregate
 from .long_term import KENNZAHLEN_JE_KOMPONENTE, SCORED_METRICS, compute_long_term_score
 from .parameters import MetricThresholds, ScoringParameters
-from .swing import SIGNAL_TEILWERTE, compute_swing_score
+from .swing import (
+    ANALYST_BUY_SHARE_LABEL,
+    SIGNAL_TEILWERTE,
+    analyst_buy_share,
+    compute_swing_score,
+)
 from .values import (
     ComponentName,
     ScoreComponent,
@@ -19,6 +24,7 @@ from .values import (
 )
 
 __all__ = [
+    "ANALYST_BUY_SHARE_LABEL",
     "KENNZAHLEN_JE_KOMPONENTE",
     "SCORED_METRICS",
     "SIGNAL_TEILWERTE",
@@ -31,6 +37,7 @@ __all__ = [
     "ScoreStatus",
     "ScoringParameters",
     "aggregate",
+    "analyst_buy_share",
     "compute_long_term_score",
     "compute_swing_score",
 ]

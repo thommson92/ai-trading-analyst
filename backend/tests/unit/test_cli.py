@@ -9,6 +9,7 @@ ausdruecklich nicht Gegenstand dieser Tests.
 from __future__ import annotations
 
 import argparse
+import csv
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -2637,6 +2638,142 @@ class TestRatingsKommando:
 
         assert exit_code == 2
         assert "RATINGERROR" in capsys.readouterr().err
+
+    def test_die_konfiguration_vor_dem_unterbefehl_wird_gelesen(self, projekt: Path) -> None:
+        """``ratings`` und ``calendar-reach`` erklaerten ``--config`` ein
+        zweites Mal, mit ``default=None`` -- und ueberschrieben damit still
+        den Wert des Hauptparsers. Gemerkt hat es niemand, solange kein
+        Verhalten an der Datei hing; mit ``--watchlist`` haengt es daran.
+        """
+        config = write_config(projekt, provider="fixture")
+
+        args = build_parser().parse_args(["--config", str(config), "ratings", "--symbol", "A"])
+
+        assert args.config == config
+
+    def test_die_watchliste_liefert_eine_zeile_je_aktie(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (projekt / "watchlists" / "test.txt").write_text(
+            "NASDAQ:FIXCAND,NASDAQ:NIEGEHOERT", encoding="utf-8"
+        )
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings", "--watchlist"])
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        assert "FIXCAND" in ausgabe
+        assert "NIEGEHOERT" in ausgabe
+        assert "2 Aktien, 1 mit Kauf-Anteil" in ausgabe
+        # Ausdruecklich aufgezaehlt und nicht bloss weggelassen: Wer die
+        # Verteilung auswertet, muss den Nenner kennen.
+        assert "Ohne Anteil: 1 (NIEGEHOERT)" in ausgabe
+
+    def test_die_csv_traegt_den_kauf_anteil_und_seinen_beleg(
+        self, projekt: Path, tmp_path: Path
+    ) -> None:
+        (projekt / "watchlists" / "test.txt").write_text(
+            "NASDAQ:FIXCAND,NASDAQ:NIEGEHOERT", encoding="utf-8"
+        )
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "ratings.csv"
+
+        main(["--config", str(config), "ratings", "--watchlist", "--output", str(ziel)])
+
+        zeilen = list(csv.DictReader(ziel.read_text(encoding="utf-8").splitlines()))
+        nach_symbol = {zeile["symbol"]: zeile for zeile in zeilen}
+        assert set(nach_symbol) == {"FIXCAND", "NIEGEHOERT"}
+
+        mit = nach_symbol["FIXCAND"]
+        assert mit["kennzahl"] == "ANALYST_BUY_SHARE"
+        assert 0.0 <= float(mit["wert"]) <= 1.0
+        # Ohne Monatsstand und Votenzahl liesse sich ein Anteil von 1,0 aus
+        # drei Voten nicht von einem aus vierzig unterscheiden.
+        assert mit["monatsstand"]
+        assert int(mit["voten"]) > 0
+
+        ohne = nach_symbol["NIEGEHOERT"]
+        assert ohne["status"] == "UNKNOWN"
+        assert ohne["kennzahl"] == ""
+        assert ohne["wert"] == ""
+
+    def test_die_datei_laesst_sich_ohne_umweg_kalibrieren(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der eigentliche Zweck des Schalters: Die Messung geht direkt in
+        'calibrate-scores'. Ein abweichender Spaltenname faellt sonst erst auf
+        dem Server auf, nach zweihundert Abrufen."""
+        (projekt / "watchlists" / "test.txt").write_text(
+            "NASDAQ:FIXCAND,NASDAQ:EARNCLEAR,NASDAQ:EARNEXCLUDED", encoding="utf-8"
+        )
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "ratings.csv"
+        main(["--config", str(config), "ratings", "--watchlist", "--output", str(ziel)])
+        capsys.readouterr()
+
+        exit_code = main(["--config", str(config), "calibrate-scores", "--input", str(ziel)])
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        assert "ANALYST_BUY_SHARE" in ausgabe
+        assert "Verteilung ueber 3 Aktien" in ausgabe
+
+    def test_ein_ausfall_bei_einer_aktie_kostet_nicht_den_messlauf(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei zweihundert Symbolen waere der Abbruch die teuerste denkbare
+        Reaktion auf den haeufigsten Fehler."""
+        (projekt / "watchlists" / "test.txt").write_text(
+            "NASDAQ:FIXCAND,NASDAQ:RATINGERROR", encoding="utf-8"
+        )
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings", "--watchlist"])
+
+        assert exit_code == 0
+        assert "RATINGERROR" in capsys.readouterr().err
+
+    def test_ein_unbeschreibbares_ziel_faellt_vor_dem_ersten_abruf_auf(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Muster 'fundamental': Ein Lauf ueber zweihundert Symbole dauert
+        Minuten; ein fehlendes Verzeichnis erst beim Schreiben zu bemerken
+        warf ihn weg."""
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "datei" / "ratings.csv"
+        ziel.parent.write_text("keine Datei, ein Verzeichnisname", encoding="utf-8")
+
+        exit_code = main(
+            ["--config", str(config), "ratings", "--symbol", "FIXCAND", "--output", str(ziel)]
+        )
+
+        assert exit_code == 2
+        assert "--output nicht beschreibbar" in capsys.readouterr().err
+
+    def test_symbol_und_watchlist_schliessen_sich_aus(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "ratings", "--symbol", "AAPL", "--watchlist"]
+        )
+
+        assert exit_code == 2
+        assert "nicht beides" in capsys.readouterr().err
+
+    def test_ohne_symbol_und_ohne_watchlist_passiert_nichts(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Frueher war ``--symbol`` Pflicht. Seit es das nicht mehr ist, muss
+        der Befehl selbst sagen, dass er ohne Ziel nichts tut."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "ratings"])
+
+        assert exit_code == 2
+        assert "nicht keines" in capsys.readouterr().err
 
     def test_ein_fehlendes_geheimnis_ergibt_rueckgabewert_zwei(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

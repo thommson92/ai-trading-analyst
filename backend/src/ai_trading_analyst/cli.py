@@ -123,6 +123,7 @@ from ai_trading_analyst.domain.scheduling import (
     TradingCalendarError,
     TradingSession,
 )
+from ai_trading_analyst.domain.scoring import ANALYST_BUY_SHARE_LABEL, analyst_buy_share
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
@@ -2353,12 +2354,18 @@ def command_research(args: argparse.Namespace) -> int:
 
 
 def command_ratings(args: argparse.Namespace) -> int:
-    """Manuelle Einzelprobe der Analystenempfehlungen (ADR 0043).
+    """Analystenempfehlungen -- Einzelprobe oder Messlauf ueber die Watchliste.
 
-    Braucht weder Datenbank noch Marktdatenanbieter -- der Endpunkt kennt nur
-    das Symbol. Anders als 'research' kostet ein echter Aufruf **nichts**: Er
-    liegt in Finnhubs Gratis-Stufe. 'fixture' bleibt trotzdem Standard,
-    damit der Befehl ohne Zugangsschluessel laeuft.
+    Braucht weder Datenbank noch Marktdatenanbieter: Der Endpunkt kennt nur
+    das Symbol. Anders als 'research' kostet ein echter Aufruf **nichts**, er
+    liegt in Finnhubs Gratis-Stufe; 'fixture' bleibt trotzdem Standard, damit
+    der Befehl ohne Zugangsschluessel laeuft.
+
+    ``--watchlist --output`` liefert die Verteilung des Kauf-Anteils ueber die
+    volle Watchliste. Die Datei traegt dieselben Spalten wie die der
+    Fundamentalanalyse und laesst sich deshalb **ohne neuen Auswertebefehl**
+    an 'calibrate-scores' weiterreichen (Muster ADR 0045: messen, dann
+    festlegen).
     """
     loaded = load_config(args.config)
     config = loaded.config
@@ -2374,18 +2381,137 @@ def command_ratings(args: argparse.Namespace) -> int:
         print(f"Analystenempfehlungen: {error}", file=sys.stderr)
         return 2
 
-    stock = Stock(id=uuid4(), symbol=args.symbol.upper(), exchange=args.exchange)
-
-    try:
-        empfehlungen = provider.recommendations(stock)
-    except AnalystRecommendationsProviderError as error:
-        print(f"Analystenempfehlungen fuer '{stock.symbol}': {error}", file=sys.stderr)
+    if bool(args.watchlist) == bool(args.symbol):
+        print(
+            "Entweder --symbol oder --watchlist angeben, nicht beides und nicht keines.",
+            file=sys.stderr,
+        )
         return 2
 
-    _print_analyst_recommendations(stock.symbol, empfehlungen)
+    if args.watchlist:
+        vertraege = build_watchlist(config, project_root(loaded.source_path))
+        wanted = sorted({vertrag.symbol for vertrag in vertraege})
+        if not wanted:
+            print("Die Watchlist ist leer.", file=sys.stderr)
+            return 2
+    else:
+        wanted = [args.symbol.upper()]
+
+    ziel = Path(args.output) if args.output is not None else None
+    if ziel is not None:
+        # Vor dem ersten Abruf, nicht nach dem letzten -- dieselbe Lehre wie
+        # bei 'fundamental': Ein fehlendes Verzeichnis erst beim Schreiben zu
+        # bemerken, warf den ganzen Lauf weg.
+        try:
+            ziel.parent.mkdir(parents=True, exist_ok=True)
+            ziel.touch()
+        except OSError as error:
+            print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
+    ergebnisse: list[tuple[str, AnalystRecommendations]] = []
+    fehler: list[tuple[str, str]] = []
+    for symbol in wanted:
+        stock = Stock(id=uuid4(), symbol=symbol, exchange=args.exchange)
+        try:
+            empfehlungen = provider.recommendations(stock)
+        except AnalystRecommendationsProviderError as error:
+            # Ein Ausfall bei einer Aktie kostet nicht den Messlauf: Bei
+            # zweihundert Symbolen waere das die teuerste denkbare Reaktion
+            # auf den haeufigsten Fehler.
+            fehler.append((symbol, str(error)))
+            print(f"{symbol}: {error}", file=sys.stderr)
+            continue
+        ergebnisse.append((symbol, empfehlungen))
+        if len(wanted) == 1:
+            _print_analyst_recommendations(symbol, empfehlungen)
+        else:
+            _print_analyst_summary_line(symbol, empfehlungen)
+
+    if ziel is not None:
+        _write_ratings_csv(ziel, ergebnisse)
+        print(f"\nCSV geschrieben: {ziel}")
+    if len(wanted) > 1:
+        _print_ratings_uebersicht(ergebnisse, fehler, len(wanted))
+
+    if not ergebnisse:
+        return 2
     # Fehlende Abdeckung ist kein Fehler des Befehls -- er hat sauber
     # geantwortet, dass es nichts gibt (ADR 0043).
     return 0
+
+
+def _print_analyst_summary_line(symbol: str, empfehlungen: AnalystRecommendations) -> None:
+    """Eine Zeile je Aktie -- der volle Block laeuft bei zweihundert Titeln
+    aus dem Terminalpuffer (Muster ``_print_fundamental_summary_line``)."""
+    anteil = analyst_buy_share(empfehlungen)
+    stand = empfehlungen.latest
+    print(
+        f"  {symbol:<8}{empfehlungen.status.value:<18}"
+        f"{(f'{anteil:.1%}' if anteil is not None else '--'):>8}"
+        f"{(stand.total if stand is not None else 0):>7} Voten"
+        f"  {stand.period.isoformat() if stand is not None else ''}"
+    )
+
+
+def _write_ratings_csv(
+    pfad: Path, ergebnisse: Sequence[tuple[str, AnalystRecommendations]]
+) -> None:
+    """Der Kauf-Anteil je Aktie, in den Spalten der Fundamental-CSV.
+
+    ``symbol``, ``kennzahl`` und ``wert`` sind die drei, die
+    'calibrate-scores' liest -- deshalb heissen sie hier genauso. Die uebrigen
+    Spalten belegen den Wert: Ohne den Monatsstand und die Zahl der Voten
+    liesse sich ein Anteil von 1,0 aus drei Voten nicht von einem aus vierzig
+    unterscheiden.
+
+    Eine Aktie ohne Anteil steht mit leeren Feldern in der Datei und nicht
+    gar nicht: 'calibrate-scores' zaehlt sie dann bei der Abdeckung mit und
+    weist sie aus.
+    """
+    with pfad.open("w", encoding="utf-8", newline="") as datei:
+        schreiber = csv.writer(datei)
+        schreiber.writerow(
+            ["symbol", "status", "kennzahl", "wert", "monatsstand", "voten", "quelle", "abgerufen"]
+        )
+        for symbol, empfehlungen in ergebnisse:
+            anteil = analyst_buy_share(empfehlungen)
+            stand = empfehlungen.latest
+            schreiber.writerow(
+                [
+                    symbol,
+                    empfehlungen.status.value,
+                    ANALYST_BUY_SHARE_LABEL if anteil is not None else "",
+                    f"{anteil:.6f}" if anteil is not None else "",
+                    stand.period.isoformat() if stand is not None else "",
+                    stand.total if stand is not None else "",
+                    empfehlungen.source or "",
+                    empfehlungen.retrieved_at.isoformat()
+                    if empfehlungen.retrieved_at is not None
+                    else "",
+                ]
+            )
+
+
+def _print_ratings_uebersicht(
+    ergebnisse: Sequence[tuple[str, AnalystRecommendations]],
+    fehler: Sequence[tuple[str, str]],
+    gesamt: int,
+) -> None:
+    """Wofuer es einen Anteil gibt und wofuer nicht -- ausdruecklich."""
+    mit_anteil = [
+        symbol for symbol, empfehlungen in ergebnisse if analyst_buy_share(empfehlungen) is not None
+    ]
+    ohne_anteil = [
+        symbol for symbol, empfehlungen in ergebnisse if analyst_buy_share(empfehlungen) is None
+    ]
+    print(f"\n{gesamt} Aktien, {len(mit_anteil)} mit Kauf-Anteil.")
+    if ohne_anteil:
+        print(f"  Ohne Anteil: {len(ohne_anteil)} ({', '.join(sorted(ohne_anteil))})")
+    if fehler:
+        print(f"  Abruf fehlgeschlagen: {len(fehler)}")
+        for symbol, meldung in fehler:
+            print(f"    {symbol:<8}{meldung}")
 
 
 def _print_analyst_recommendations(symbol: str, empfehlungen: AnalystRecommendations) -> None:
@@ -2973,7 +3099,7 @@ def build_parser() -> argparse.ArgumentParser:
             "nicht fuer das einzelne Papier."
         ),
     )
-    reach.add_argument("--config", default=None)
+    reach.add_argument("--config", default=argparse.SUPPRESS)
     reach.set_defaults(handler=command_calendar_reach)
 
     dispatch = subparsers.add_parser(
@@ -3260,10 +3386,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     ratings = subparsers.add_parser(
         "ratings",
-        help="Analystenempfehlungen eines Symbols (ADR 0043).",
+        help="Analystenempfehlungen eines Symbols oder der ganzen Watchliste (ADR 0043).",
     )
-    ratings.add_argument("--config", default=None, help="Pfad zur Konfigurationsdatei.")
-    ratings.add_argument("--symbol", required=True, help="Ein Symbol, z. B. 'AAPL'.")
+    ratings.add_argument(
+        "--config",
+        default=argparse.SUPPRESS,
+        help="Pfad zur Konfigurationsdatei. Auch vor dem Unterbefehl zulaessig.",
+    )
+    ratings.add_argument(
+        "--symbol", default=None, help="Ein Symbol, z. B. 'AAPL'. Alternativ --watchlist."
+    )
+    ratings.add_argument(
+        "--watchlist",
+        action="store_true",
+        help=(
+            "Fragt jedes Symbol der Watchlist ab -- der Messlauf fuer die Schwellen "
+            "der News-Komponente. Rund zweihundert Abrufe, kostenlos."
+        ),
+    )
+    ratings.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Schreibt den Kauf-Anteil je Aktie als CSV. Die Datei traegt die Spalten, "
+            "die 'calibrate-scores' liest."
+        ),
+    )
     ratings.add_argument(
         "--exchange",
         default="NASDAQ",

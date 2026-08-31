@@ -17,6 +17,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+)
 from ai_trading_analyst.domain.backtesting import BacktestConfidence, BacktestResult
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import (
@@ -70,6 +74,51 @@ CHANCE_RISIKO_TEILWERTE = {
 """``NOT_ASSESSABLE`` fehlt hier absichtlich: Es heisst, dass das Verhaeltnis
 gar nicht berechnet werden konnte (ADR 0026). Die Komponente ist dann nicht
 verfuegbar und wird umgewichtet."""
+
+ANALYST_BUY_SHARE_LABEL = "ANALYST_BUY_SHARE"
+"""Der Name, unter dem der Kauf-Anteil in der Mess-CSV und in der
+Konfiguration steht.
+
+Eine Konstante und keine zwei Zeichenketten: Der Name verbindet den Messlauf
+(``cli ratings --watchlist --output``) mit der Auswertung
+(``cli calibrate-scores``) und mit dem Konfigurationsschluessel der
+Schwellen. Drei Stellen, an denen ein Tippfehler erst am Ergebnis auffiele.
+"""
+
+
+def analyst_buy_share(recommendations: AnalystRecommendations | None) -> float | None:
+    """Der Anteil der Kauf-Voten am juengsten Monatsstand -- oder ``None``.
+
+    **Ein gezaehlter Anteil, keine Konsenszahl.** ADR 0043 lehnt eine
+    Konsenszahl ab, weil deren Gewichte frei gewaehlt waeren; ein Anteil hat
+    keine. Dasselbe ADR sagt zugleich, dass die Uebersetzung in einen
+    Teilwert der Scoring-Engine zusteht -- hier ist sie.
+
+    **Die bekannte Schwaeche gehoert dazu:** Der Anteil unterscheidet nicht
+    zwischen "hold" und "sell". Zwei Titel mit je der Haelfte Kauf-Voten
+    bekommen denselben Wert, auch wenn beim einen der Rest haelt und beim
+    anderen verkauft. Eine Unterscheidung braeuchte Gewichte, und damit waere
+    es die Konsenszahl, die ADR 0043 ausschliesst.
+
+    ``None`` heisst hier durchgehend "keine Grundlage": kein Abruf, keine
+    Abdeckung, oder ein Monatsstand ohne ein einziges Votum. Der Teilwert
+    entfaellt dann, statt als Null zu gelten.
+
+    Diese Funktion ist **die** Stelle, an der der Anteil entsteht: Die
+    Kalibrierung ueber die Watchliste (``cli ratings --watchlist --output``)
+    ruft dieselbe Funktion. Zwei Formeln haetten Schwellen ergeben, die zu
+    den gemessenen Werten nicht passen.
+    """
+    if (
+        recommendations is None
+        or recommendations.status is not AnalystRecommendationStatus.COMPLETED
+    ):
+        return None
+    stand = recommendations.latest
+    if stand is None or stand.total == 0:
+        return None
+    return (stand.strong_buy + stand.buy) / stand.total
+
 
 LOW_SAMPLE_OBERGRENZE = 6.0
 """Die Trefferquote einer duennen Stichprobe wird gedeckelt (ADR 0045,
