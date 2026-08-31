@@ -2136,7 +2136,13 @@ class TestFundamentalKommando:
             ["fundamental", "--symbols", "AAPL", "--price-from-bars"]
         )
         assert cli.command_fundamental(args) == 2
-        assert "braucht den ueber IBKR gefuellten Bestand" in capsys.readouterr().err
+        fehler = capsys.readouterr().err
+        assert "aus dem ueber IBKR gefuellten Bestand" in fehler
+        # Der Hinweis nennt den Schalter **dieses** Befehls -- dieselbe
+        # Funktion bedient auch 'options', und dort hiesse er anders.
+        assert "'--provider' uebersteuert bei diesem Unterbefehl die Fundamentalquelle" in (
+            fehler
+        )
 
     def test_ohne_den_schalter_wird_der_bestand_nicht_angefasst(
         self, monkeypatch: pytest.MonkeyPatch
@@ -3262,3 +3268,127 @@ class TestKalibrierung:
         ausgabe = capsys.readouterr().out
         assert "kleinster" in ausgabe
         assert "4368.0000" in ausgabe
+
+
+class TestOptionsKommando:
+    """``cli options`` -- Einzelprobe und Messlauf (ADR 0048).
+
+    Die Einzelprobe ist der Grund, warum es diesen Befehl gibt: Ob IBKR nach
+    Boersenschluss noch modellierte Greeks liefert, laesst sich nicht
+    herleiten, nur messen. Sie muss deshalb auch ohne gefuellten Bestand
+    laufen -- daher ``--price``.
+    """
+
+    def test_die_einzelprobe_laeuft_ohne_datenbank(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--symbol", "AAPL", "--price", "200"]
+        )
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        assert "COMPLETED" in ausgabe
+        # Delta und implizite Volatilitaet gehoeren in die Ausgabe: Genau sie
+        # sind das Ergebnis der Probe.
+        assert "Delta" in ausgabe
+        assert "annualisiert" in ausgabe
+
+    def test_symbol_und_watchlist_schliessen_sich_aus(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--symbol", "AAPL", "--watchlist"]
+        )
+
+        assert exit_code == 2
+        assert "nicht beides" in capsys.readouterr().err
+
+    def test_ein_kurs_von_hand_gilt_nur_fuer_ein_symbol(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Auf zweihundert Titel angewandt bewertete er jeden zum Kurs des
+        ersten -- und der Befehl existiert gerade zum Gegenpruefen."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--watchlist", "--price", "200"]
+        )
+
+        assert exit_code == 2
+        assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
+
+    def test_ohne_bestand_zeigt_der_hinweis_auf_die_marktdatenquelle(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Hinweis stammt aus einer Funktion, die auch 'fundamental'
+        benutzt -- er darf deshalb nicht auf deren Schalter zeigen."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "options", "--watchlist"])
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "--market-data-provider ibkr" in fehler
+        assert "--price-from-bars" not in fehler, "der Hinweis stammt vom falschen Befehl"
+
+    def test_die_csv_traegt_die_spalten_die_calibrate_scores_liest(
+        self, projekt: Path, tmp_path: Path
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "optionen.messlauf.csv"
+
+        main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--symbol",
+                "AAPL",
+                "--price",
+                "200",
+                "--output",
+                str(ziel),
+            ]
+        )
+
+        (zeile,) = list(csv.DictReader(ziel.read_text(encoding="utf-8").splitlines()))
+        assert zeile["symbol"] == "AAPL"
+        assert zeile["kennzahl"] == "OPTIONS_ANNUALIZED_RETURN"
+        assert float(zeile["wert"]) > 0
+        # Strike und Laufzeit stehen daneben, damit sich ein auffaelliger Wert
+        # nachvollziehen laesst, ohne den Lauf zu wiederholen.
+        assert zeile["strike"]
+        assert zeile["verfall"]
+
+    def test_die_datei_laesst_sich_ohne_umweg_kalibrieren(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Derselbe Zweck wie bei 'ratings': Die Messung geht direkt in
+        'calibrate-scores'. Ein abweichender Spaltenname faellt sonst erst auf
+        dem Server auf, nach zweihundert Abrufen."""
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "optionen.messlauf.csv"
+        main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--symbol",
+                "AAPL",
+                "--price",
+                "200",
+                "--output",
+                str(ziel),
+            ]
+        )
+        capsys.readouterr()
+
+        exit_code = main(["--config", str(config), "calibrate-scores", "--input", str(ziel)])
+
+        assert exit_code == 0
+        assert "OPTIONS_ANNUALIZED_RETURN" in capsys.readouterr().out

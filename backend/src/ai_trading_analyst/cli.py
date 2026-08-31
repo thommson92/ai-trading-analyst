@@ -1930,7 +1930,15 @@ def _print_kalibrierung(
 
 
 def _kurse_aus_dem_bestand(
-    loaded: LoadedConfig, config: AppConfig, wanted: Sequence[str]
+    loaded: LoadedConfig,
+    config: AppConfig,
+    wanted: Sequence[str],
+    *,
+    abhilfe: str = (
+        "Entweder '--market-data-provider ibkr' setzen oder den Schalter weglassen. "
+        "'--provider' uebersteuert bei diesem Unterbefehl die Fundamentalquelle, "
+        "nicht die Marktdatenquelle."
+    ),
 ) -> tuple[dict[str, float], dict[str, datetime], list[tuple[str, str]]] | None:
     """Schlusskurse der letzten abgeschlossenen Kerze je Symbol.
 
@@ -1949,11 +1957,9 @@ def _kurse_aus_dem_bestand(
         # echte Symbol "keine Kerzen im Bestand" -- eine Meldung, die auf den
         # Bestand zeigt, waehrend der Anbieter das Problem ist.
         print(
-            "--price-from-bars braucht den ueber IBKR gefuellten Bestand, "
+            "Die Kurse kommen aus dem ueber IBKR gefuellten Bestand, "
             f"market_data.provider steht aber auf '{config.market_data.provider}'. "
-            "Entweder '--market-data-provider ibkr' setzen oder den Schalter "
-            "weglassen. '--provider' uebersteuert bei diesem Unterbefehl die "
-            "Fundamentalquelle, nicht die Marktdatenquelle.",
+            + abhilfe,
             file=sys.stderr,
         )
         return None
@@ -2305,7 +2311,24 @@ def command_options(args: argparse.Namespace) -> int:
         # der Ausgabe, damit niemand sie fuer einen Kerzenzeitpunkt haelt.
         stichtage[wanted[0]] = datetime.now(ZoneInfo(config.market.timezone)).date()
     else:
-        ergebnis = _kurse_aus_dem_bestand(loaded, config, wanted)
+        if args.market_data_provider is not None:
+            config = config.model_copy(
+                update={
+                    "market_data": config.market_data.model_copy(
+                        update={"provider": args.market_data_provider}
+                    )
+                }
+            )
+        ergebnis = _kurse_aus_dem_bestand(
+            loaded,
+            config,
+            wanted,
+            abhilfe=(
+                "Entweder '--market-data-provider ibkr' setzen oder mit '--price' einen "
+                "Kurs von Hand uebergeben. '--provider' uebersteuert bei diesem "
+                "Unterbefehl die Optionsquelle, nicht die Marktdatenquelle."
+            ),
+        )
         if ergebnis is None:
             return 2
         kurse, kurs_stempel, ohne_bestand = ergebnis
@@ -3771,6 +3794,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Uebersteuert options.provider nur fuer diesen Aufruf. 'ibkr' braucht eine "
             "laufende TWS und das Optionsmarktdaten-Abo."
+        ),
+    )
+    options.add_argument(
+        "--market-data-provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider -- die Quelle des **Kurses**, nicht der "
+            "Optionskette. Ohne 'ibkr' ist der Bestand leer und es gibt kein Strike-Band."
         ),
     )
     options.add_argument(
