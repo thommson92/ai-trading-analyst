@@ -347,10 +347,15 @@ class OptionsConfig(_Section):
     """IBKRs Marktdatenmodus: ``1`` live, ``2`` "frozen", ``3`` verzoegert,
     ``4`` verzoegert und "frozen".
 
-    Vorgabe ``2``: Der Tageslauf beginnt mit dem Schluss der zweiten
-    195-Minuten-Kerze -- also **zum** Boersenschluss -- und erreicht die
-    Optionen erst nach dem Kerzen-Backfill. Live gaebe es dann nichts mehr;
-    "frozen" liefert den letzten vor Schluss festgestellten Stand."""
+    Der Tageslauf steht auf der **ersten** 195-Minuten-Kerze
+    (``market.daily_candle_index``), die um 12:45 New Yorker Zeit schliesst.
+    Der Optionsmarkt ist waehrend des gesamten Laufzeitfensters offen --
+    einschliesslich der zweistuendigen Nachholfrist.
+
+    Vorgabe ``2`` trotzdem: "frozen" verhaelt sich bei offener Boerse wie
+    live und liefert bei geschlossener den letzten festgestellten Stand statt
+    nichts. Das kostet im Regelfall nichts und macht eine Einzelprobe am
+    Abend brauchbar."""
     min_days_to_expiration: PositiveInt = 21
     max_days_to_expiration: PositiveInt = 45
     """Zielfenster der Restlaufzeit in Kalendertagen (Entscheidung des

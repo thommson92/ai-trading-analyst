@@ -462,11 +462,10 @@ class IbAsyncBarSource:
         """Notierungen der genannten Put-Strikes zu einem Verfallstermin.
 
         ``market_data_type`` waehlt IBKRs Marktdatenmodus: ``1`` live,
-        ``2`` "frozen" (der letzte vor Boersenschluss festgestellte Stand).
-        Der Tageslauf startet mit dem Schluss der zweiten 195-Minuten-Kerze --
-        also **zum** Boersenschluss -- und fragt die Optionen erst nach dem
-        Kerzen-Backfill ab. Live gaebe es dann nichts mehr; die Vorgabe steht
-        deshalb in der Konfiguration und nicht hier (ADR 0048).
+        ``2`` "frozen" (bei offener Boerse wie live, bei geschlossener der
+        letzte festgestellte Stand). Welcher gilt, steht in der Konfiguration
+        und nicht hier (ADR 0048) -- der Tageslauf laeuft im offenen Markt,
+        eine Einzelprobe am Abend nicht.
 
         Ein Kontrakt, den IBKR nicht aufloest, faellt weg -- gelistete Strikes
         gibt es nicht zu jedem Verfallstermin. Was fehlt, bleibt fehlend: An

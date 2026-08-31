@@ -126,24 +126,27 @@ class TestRechenwege:
         assert analyse.status is OptionsStatus.COMPLETED
         return analyse.strategies[0]
 
-    def test_die_praemie_ist_der_geldkurs_nicht_der_mittelwert(self) -> None:
+    def test_die_praemie_ist_der_mittelwert_nicht_der_geldkurs(self) -> None:
+        """ADR 0048, Festlegung 6. Bei liquiden Optionen fuellt ein Limit
+        nahe der Mitte; der Geldkurs untertriebe die Rendite."""
         strategie = self.strategie()
-        assert strategie.premium == pytest.approx(1.80)
-        assert strategie.mid == pytest.approx(1.85)
+        assert strategie.premium == pytest.approx(1.85)
+        assert strategie.bid == pytest.approx(1.80)
+        assert strategie.ask == pytest.approx(1.90)
 
     def test_einfache_rendite_bezieht_sich_auf_den_strike(self) -> None:
-        # Kapital ist der Strike, nicht der Aktienkurs: 1,80 / 90.
-        assert self.strategie().simple_return == pytest.approx(0.02)
+        # Kapital ist der Strike, nicht der Aktienkurs: 1,85 / 90.
+        assert self.strategie().simple_return == pytest.approx(1.85 / 90)
 
     def test_annualisiert_wird_linear_auf_kalendertagen(self) -> None:
-        # 31 Tage bis zum 2. Oktober, 0,02 * 365 / 31.
+        # 31 Tage bis zum 2. Oktober, (1,85 / 90) * 365 / 31.
         assert self.strategie().annualized_return == pytest.approx(
-            0.02 * 365 / 31
+            (1.85 / 90) * 365 / 31
         )
 
     def test_break_even_und_kapitalbindung(self) -> None:
         strategie = self.strategie()
-        assert strategie.break_even == pytest.approx(88.20)
+        assert strategie.break_even == pytest.approx(88.15)
         assert strategie.capital_at_risk == pytest.approx(9000.0)
 
     def test_abstand_zum_kurs_bezieht_sich_auf_den_kurs(self) -> None:
@@ -188,11 +191,17 @@ class TestDeltaFilter:
         assert analyse.reason == "keine der 1 Notierungen lieferte ein Delta"
 
 
-class TestGeldkurs:
-    @pytest.mark.parametrize("bid", [None, 0.0])
-    def test_ohne_geldkurs_gibt_es_nichts_zu_verkaufen(self, bid: float | None) -> None:
+class TestPraemie:
+    @pytest.mark.parametrize(
+        ("bid", "ask"),
+        [(None, 2.1), (2.0, None), (None, None)],
+        ids=["ohne_geld", "ohne_brief", "ohne_beides"],
+    )
+    def test_ein_halber_mittelwert_ist_keiner(
+        self, bid: float | None, ask: float | None
+    ) -> None:
         analyse = build_options_analysis(
-            [notierung(90.0, bid=bid)],
+            [notierung(90.0, bid=bid, ask=ask)],
             price=100.0,
             expiration=date(2026, 10, 2),
             as_of=STICHTAG,
@@ -200,7 +209,7 @@ class TestGeldkurs:
             parameters=PARAMETER,
         )
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
-        assert analyse.reason == "keine der 1 Notierungen hatte einen Geldkurs"
+        assert analyse.reason == "keine der 1 Notierungen hatte Geld- und Briefkurs"
 
     def test_ohne_notierung_zeigt_der_grund_auf_den_anbieter(self) -> None:
         analyse = build_options_analysis(

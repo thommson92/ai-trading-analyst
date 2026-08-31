@@ -28,9 +28,13 @@ OPTIONS_ANALYSIS_VERSION = "options-v1"
 
 Aendert sich eine Auswahlregel -- die Wahl des Verfallstermins, das
 Strike-Band, die Herkunft der Praemie --, steigt diese Nummer. Eine
-annualisierte Rendite aus dem Mid ist eine **andere Zahl** als eine aus dem
-Bid, und man muss einem gespeicherten Ergebnis ansehen koennen, welche von
-beiden es ist."""
+annualisierte Rendite aus dem Mittelwert ist eine **andere Zahl** als eine
+aus dem Geldkurs, und man muss einem gespeicherten Ergebnis ansehen koennen,
+welche von beiden es ist.
+
+``v1`` rechnet mit dem **Mittelwert**. Waehrend der Entwicklung stand hier
+kurzzeitig der Geldkurs; da nie ein Ergebnis gespeichert wurde, bleibt es
+bei ``v1``."""
 
 
 class OptionsStatus(StrEnum):
@@ -40,7 +44,7 @@ class OptionsStatus(StrEnum):
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
     """Die Kette kam an, aber es blieb kein einziger Vorschlag uebrig: kein
     Verfallstermin im Zielfenster, kein Strike im Moneyness-Band, kein
-    Kontrakt mit Delta im Band, oder keine Notierung mit einem Geldkurs.
+    Kontrakt mit Delta im Band, oder keine Notierung mit beidseitigem Kurs.
 
     Es gibt hier bewusst **kein** ``UNAVAILABLE``: Ein Ausfall der Quelle
     verlaesst diesen Weg als ``OptionsDataProviderError``, den der
@@ -96,9 +100,11 @@ class OptionQuote:
 
     @property
     def mid(self) -> float | None:
-        """Der Mittelwert aus Geld- und Briefkurs, sofern beide vorliegen.
+        """Der Mittelwert aus Geld- und Briefkurs -- **die Praemie**, mit der
+        gerechnet wird (ADR 0048, Festlegung 6).
 
-        Nicht die Praemie, mit der gerechnet wird -- siehe ``PutStrategy``."""
+        ``None``, wenn eine der beiden Seiten fehlt: Ein halber Mittelwert
+        waere kein Mittelwert."""
         if self.bid is None or self.ask is None:
             return None
         return (self.bid + self.ask) / 2
@@ -121,10 +127,17 @@ class PutStrategy:
     """Relativer Abstand des Strikes zum Aktienkurs, ``(kurs - strike) / kurs``.
     Bei einem Put aus dem Geld positiv."""
     premium: float
-    """**Der Geldkurs**, nicht der Mittelwert (ADR 0048, Festlegung 6): der
-    Preis, den ein Verkauf zum Markt sofort einbraechte. Die "angenommene
-    realistische Praemie" aus Doc 10 ist damit die konservative Annahme --
-    ``mid`` steht daneben und ist in der Regel hoeher."""
+    """**Der Mittelwert aus Geld- und Briefkurs** (ADR 0048, Festlegung 6) --
+    die "angenommene realistische Praemie" aus Doc 10, Paragraph 6.10.
+
+    Nicht der Geldkurs: Bei liquiden Optionen fuellt ein Limit in der Regel
+    nahe der Mitte, und der Geldkurs untertriebe die Rendite dann spuerbar --
+    bei einem weiten Spread um zweistellige Prozentsaetze. Wo die Spanne
+    tatsaechlich weit ist, sagt das die Liquiditaetsbewertung, statt es in
+    einer stillschweigend konservativen Praemie zu verstecken.
+
+    ``bid`` und ``ask`` stehen daneben; wer den vorsichtigeren Wert will,
+    findet ihn dort."""
     break_even: float
     capital_at_risk: float
     """``strike * 100`` -- der Betrag, der bei einem Cash Secured Put

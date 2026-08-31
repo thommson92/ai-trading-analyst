@@ -173,7 +173,7 @@ def unzureichend(
 
 _OHNE_DELTA = "ohne_delta"
 _DELTA_AUSSERHALB = "delta_ausserhalb"
-_OHNE_GELDKURS = "ohne_geldkurs"
+_OHNE_MITTELWERT = "ohne_mittelwert"
 _ABGELAUFEN = "abgelaufen"
 
 
@@ -199,14 +199,13 @@ def _bewerte(
     if not parameters.min_delta <= delta <= parameters.max_delta:
         verworfen.append(_DELTA_AUSSERHALB)
         return None
-    # Der Geldkurs **ist** die Praemie (ADR 0048, Festlegung 6). Ohne ihn gibt
-    # es keine Rendite zu rechnen, und ein Kontrakt ohne Gebot ist auch
-    # praktisch nicht zu verkaufen.
-    if quote.bid is None or quote.bid <= 0:
-        verworfen.append(_OHNE_GELDKURS)
+    # Der Mittelwert **ist** die Praemie (ADR 0048, Festlegung 6). Er setzt
+    # Geld- **und** Briefkurs voraus; fehlt einer, gibt es keinen Mittelwert
+    # und damit keine Rendite zu rechnen.
+    praemie = quote.mid
+    if praemie is None:
+        verworfen.append(_OHNE_MITTELWERT)
         return None
-
-    praemie = quote.bid
     einfache_rendite = praemie / quote.strike
     warnungen = _liquiditaetswarnungen(quote, parameters)
     return PutStrategy(
@@ -317,7 +316,7 @@ def _verwerfungsgrund(
         _DELTA_AUSSERHALB: (
             f"lag im Delta-Band {parameters.min_delta:.2f} bis {parameters.max_delta:.2f}"
         ),
-        _OHNE_GELDKURS: "hatte einen Geldkurs",
+        _OHNE_MITTELWERT: "hatte Geld- und Briefkurs",
         _ABGELAUFEN: "war noch nicht verfallen",
     }
     # Bei Gleichstand entscheidet die Reihenfolge in ``gruende`` und nicht die

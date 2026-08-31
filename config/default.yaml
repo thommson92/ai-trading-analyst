@@ -422,11 +422,17 @@ options:
   provider: fixture
   # IBKRs Marktdatenmodus: 1 live, 2 "frozen", 3 verzögert, 4 verzögert+frozen.
   #
-  # 2, weil der Tageslauf mit dem Schluss der zweiten 195-Minuten-Kerze
-  # beginnt -- also ZUM Börsenschluss -- und die Optionen erst nach dem
-  # Kerzen-Backfill erreicht, rund eine halbe Stunde später. Live gäbe es
-  # dann nichts mehr; "frozen" liefert den letzten vor Schluss festgestellten
-  # Stand.
+  # Der Tageslauf steht auf der ERSTEN 195-Minuten-Kerze (market.daily_candle_index:
+  # 1), die um 12:45 New Yorker Zeit schließt. Nach dem Kerzen-Backfill sind
+  # die Optionen gegen 13:15 ET dran, spätestens gegen 15:15 (die Nachholfrist
+  # aus scheduler.max_catch_up_seconds beträgt zwei Stunden). Der Optionsmarkt
+  # ist im gesamten Fenster offen -- gemessen am 2026-08-31 um 13:02 ET:
+  # modellierte Greeks kamen zurück.
+  #
+  # Trotzdem 2 und nicht 1: "frozen" verhält sich bei offener Börse wie live
+  # und liefert bei geschlossener den letzten festgestellten Stand statt
+  # nichts. Das kostet im Regelfall nichts und macht eine Einzelprobe am
+  # Abend brauchbar.
   market_data_type: 2
   # Zielfenster der Restlaufzeit in KALENDERTAGEN (Entscheidung des
   # Projektinhabers, 2026-08-31). Ausgewählt wird der Verfallstermin, der der
