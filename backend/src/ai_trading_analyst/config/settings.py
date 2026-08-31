@@ -844,7 +844,11 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.0"
+    swing_version: str = "1.1"
+    """``1.1`` gegenueber ``1.0``: Die News- und Ereignislage rechnet mit
+    (ADR 0046). Der Score steht damit auf 90 statt 80 Prozent Abdeckung --
+    dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
+    deshalb steigt die Nummer."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
@@ -855,6 +859,12 @@ class ScoringConfig(_Section):
     recommendation: RecommendationConfig = RecommendationConfig()
     swing_weights: SwingWeightsConfig = SwingWeightsConfig()
     long_term_weights: LongTermWeightsConfig = LongTermWeightsConfig()
+    analyst_buy_share: MetricThresholdConfig = MetricThresholdConfig(
+        boundaries=(0.4362, 0.5758, 0.6988, 0.8182), higher_is_better=True
+    )
+    """Die Schwellen der News-Komponente (ADR 0046) -- an 187 Titeln der
+    Watchliste gemessen. Ein eigenes Feld und kein Eintrag in ``thresholds``:
+    Der Kauf-Anteil ist keine Kennzahl aus einer SEC-Einreichung."""
     thresholds: dict[str, MetricThresholdConfig] = {}
     """Die Schwellen je Kennzahl, Schluessel ist der Name aus ``MetricName``.
 

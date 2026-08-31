@@ -427,6 +427,10 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
         swing_weights=_gewichte(config.scoring.swing_weights),
         long_term_weights=_gewichte(config.scoring.long_term_weights),
         thresholds=schwellen,
+        analyst_buy_share=MetricThresholds(
+            boundaries=config.scoring.analyst_buy_share.boundaries,
+            higher_is_better=config.scoring.analyst_buy_share.higher_is_better,
+        ),
         minimum_coverage=config.scoring.minimum_coverage,
         normal_confidence_coverage=config.scoring.normal_confidence_coverage,
         swing_version=config.scoring.swing_version,

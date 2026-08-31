@@ -413,7 +413,9 @@ notifications:
     request_timeout_seconds: 10
 
 scoring:
-  swing_version: "1.0"
+  # 1.1: Die News- und Ereignislage rechnet mit (ADR 0046) -- der Score steht
+  # auf 90 statt 80 Prozent Abdeckung. Die Optionsattraktivitaet wird 1.2.
+  swing_version: "1.1"
   long_term_version: "1.0"
   # Untergrenze der Datenabdeckung: darunter entsteht kein Score, sondern
   # INSUFFICIENT_DATA (Doc 09). Gesetzt, nicht gemessen -- sie ist der Punkt,
@@ -454,6 +456,13 @@ scoring:
     growth: 0.25
     valuation: 0.25
     balance_sheet_quality: 0.20
+  # Die News- und Ereignislage steht auf dem Anteil der Kauf-Voten am
+  # juengsten Monatsstand (ADR 0046). Fuenftelgrenzen aus dem Lauf ueber 187
+  # Titel der Watchliste vom 2026-08-31, gemessen mit
+  # `cli ratings --watchlist --output` und `cli calibrate-scores`.
+  analyst_buy_share:
+    boundaries: [0.4362, 0.5758, 0.6988, 0.8182]
+    higher_is_better: true
   # Fuenftelgrenzen aus dem Lauf ueber 191 Titel der Watchliste vom
   # 2026-08-31 (ADR 0045), ausgewertet mit `cli calibrate-scores`. Gemessen,
   # nicht gesetzt: Ein geratener Teilwert ist eine erfundene Zahl.

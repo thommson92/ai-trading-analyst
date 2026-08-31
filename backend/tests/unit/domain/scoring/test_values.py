@@ -78,6 +78,9 @@ class TestParameter:
                 swing_weights={},
                 long_term_weights={},
                 thresholds={},
+                analyst_buy_share=MetricThresholds(
+                    boundaries=(0.4, 0.6, 0.7, 0.8), higher_is_better=True
+                ),
                 minimum_coverage=0.9,
                 normal_confidence_coverage=0.5,
                 recommendation=EMPFEHLUNGSREGELN,

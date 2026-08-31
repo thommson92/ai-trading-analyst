@@ -130,6 +130,7 @@ def compute_swing_score(
     *,
     backtest: Sequence[BacktestResult],
     assessment: TechnicalAssessment | None,
+    analysts: AnalystRecommendations | None,
     parameters: ScoringParameters,
 ) -> ScoreResult:
     """Der Swing-Score einer bereits qualifizierten Aktie."""
@@ -139,12 +140,7 @@ def compute_swing_score(
         _signalstatistik(result, backtest, parameters, begrenzungen),
         _chart_setup(assessment, parameters),
         _chance_risiko(assessment, parameters),
-        ScoreComponent(
-            name=ComponentName.NEWS_AND_EVENTS,
-            weight=parameters.swing_weights[ComponentName.NEWS_AND_EVENTS],
-            reason="die Ableitung aus der Nachrichten- und Ereignislage ist noch nicht "
-            "entschieden (ADR 0046)",
-        ),
+        _news_und_ereignisse(analysts, parameters),
         ScoreComponent(
             name=ComponentName.OPTIONS_ATTRACTIVENESS,
             weight=parameters.swing_weights[ComponentName.OPTIONS_ATTRACTIVENESS],
@@ -158,6 +154,38 @@ def compute_swing_score(
         minimum_coverage=parameters.minimum_coverage,
         normal_confidence_coverage=parameters.normal_confidence_coverage,
         limiting_risks=begrenzungen,
+    )
+
+
+def _news_und_ereignisse(
+    analysts: AnalystRecommendations | None, parameters: ScoringParameters
+) -> ScoreComponent:
+    """Die News- und Ereignislage aus der Analystenverteilung (ADR 0046).
+
+    **Allein aus den gezaehlten Voten, nicht aus der Recherche.** ADR 0041
+    nennt beide Quellen; die Faktoren des ``ResearchReport`` sind aber
+    Freitext, und aus Freitext entsteht nie ein Teilwert (CLAUDE.md). Das ist
+    eine Verengung der Komponente, kein Austausch -- und sie ist im ADR als
+    solche ausgewiesen.
+    """
+    gewicht = parameters.swing_weights[ComponentName.NEWS_AND_EVENTS]
+    anteil = analyst_buy_share(analysts)
+    if anteil is None:
+        grund = "keine Analystenempfehlungen"
+        if analysts is not None and analysts.reason:
+            grund = f"keine Analystenempfehlungen ({analysts.reason})"
+        return ScoreComponent(
+            name=ComponentName.NEWS_AND_EVENTS, weight=gewicht, value=None, reason=grund
+        )
+    stand = analysts.latest if analysts is not None else None
+    voten = stand.total if stand is not None else 0
+    return ScoreComponent(
+        name=ComponentName.NEWS_AND_EVENTS,
+        weight=gewicht,
+        value=parameters.analyst_buy_share.score(anteil),
+        # Die Zahl der Voten gehoert dazu: Ein Anteil von 100 Prozent aus
+        # drei Voten ist etwas anderes als einer aus vierzig.
+        reason=f"Kauf-Anteil {anteil:.0%} aus {voten} Voten",
     )
 
 

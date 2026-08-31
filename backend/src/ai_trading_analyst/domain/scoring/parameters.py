@@ -101,6 +101,11 @@ class ScoringParameters:
     swing_weights: Mapping[ComponentName, float]
     long_term_weights: Mapping[ComponentName, float]
     thresholds: Mapping[MetricName, MetricThresholds]
+    analyst_buy_share: MetricThresholds
+    """Die Schwellen der News-Komponente (ADR 0046). Ein eigenes Feld und
+    kein Eintrag in ``thresholds``: Der Kauf-Anteil ist keine
+    ``MetricName`` -- er stammt nicht aus einer SEC-Einreichung, sondern aus
+    einer gezaehlten Votenverteilung."""
     minimum_coverage: float
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
     ``INSUFFICIENT_DATA`` (Doc 09). Gesetzt, nicht gemessen."""
