@@ -20,6 +20,7 @@ from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatu
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
 from ai_trading_analyst.domain.research import ResearchStatus
+from ai_trading_analyst.domain.scoring import ScoringParameters
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     CandleSeries,
@@ -82,7 +83,7 @@ class _AlwaysFailingMarketDataProvider:
 
 
 def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
-    uow_factory: UowFactory,
+    uow_factory: UowFactory, scoring_params: ScoringParameters
 ) -> None:
     earnings_provider = FixtureEarningsProvider(reference_date=lambda: _FIXTURE_DECISION_DATE)
     use_case = RunAnalysisUseCase(
@@ -97,6 +98,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
         _BACKTEST_PARAMS,
+        scoring_params,
     )
 
     summary = use_case.execute()
@@ -168,7 +170,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
 
 
 def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persistiert(
-    uow_factory: UowFactory,
+    uow_factory: UowFactory, scoring_params: ScoringParameters
 ) -> None:
     use_case = RunAnalysisUseCase(
         _AlwaysFailingMarketDataProvider(),
@@ -182,6 +184,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         _EARNINGS_PARAMS,
         _TECHNICAL_PARAMS,
         _BACKTEST_PARAMS,
+        scoring_params,
     )
 
     summary = use_case.execute()

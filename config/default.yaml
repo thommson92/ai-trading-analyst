@@ -409,6 +409,86 @@ notifications:
 scoring:
   swing_version: "1.0"
   long_term_version: "1.0"
+  # Untergrenze der Datenabdeckung: darunter entsteht kein Score, sondern
+  # INSUFFICIENT_DATA (Doc 09). Gesetzt, nicht gemessen -- sie ist der Punkt,
+  # an dem "fehlende Daten werden sichtbar behandelt" von einer Kennzeichnung
+  # zu einer Folge wird.
+  minimum_coverage: 0.6
+  # Ab hier gilt der Score als NORMAL belastbar, darunter als LOW_COVERAGE.
+  normal_confidence_coverage: 0.8
+  # Komponentengewichte nach ADR 0041. Beide Saetze muessen sich auf 1.0
+  # summieren; die Umgewichtung bei fehlenden Komponenten rechnet der
+  # Aggregator.
+  swing_weights:
+    technical_signals: 0.25
+    signal_statistics: 0.25
+    chart_setup: 0.15
+    chance_risk: 0.15
+    news_and_events: 0.10
+    options_attractiveness: 0.10
+  long_term_weights:
+    profitability: 0.30
+    growth: 0.25
+    valuation: 0.25
+    balance_sheet_quality: 0.20
+  # Fuenftelgrenzen aus dem Lauf ueber 191 Titel der Watchliste vom
+  # 2026-08-31 (ADR 0045), ausgewertet mit `cli calibrate-scores`. Gemessen,
+  # nicht gesetzt: Ein geratener Teilwert ist eine erfundene Zahl.
+  #
+  # boundaries sind die Grenzen bei 20/40/60/80 Prozent, aufsteigend.
+  # higher_is_better sagt, in welche Richtung bewertet wird -- bei KGV, KUV,
+  # Kurs/FCF, Verschuldungsgrad und Verwaesserung ist niedriger besser.
+  thresholds:
+    # Profitabilitaet
+    GROSS_MARGIN:
+      boundaries: [0.3337, 0.4385, 0.5833, 0.6828]
+      higher_is_better: true
+    OPERATING_MARGIN:
+      boundaries: [0.0840, 0.1504, 0.2145, 0.3298]
+      higher_is_better: true
+    NET_MARGIN:
+      boundaries: [0.0663, 0.1092, 0.1727, 0.2745]
+      higher_is_better: true
+    FREE_CASH_FLOW_MARGIN:
+      boundaries: [0.0668, 0.1218, 0.1821, 0.2828]
+      higher_is_better: true
+    RETURN_ON_EQUITY:
+      boundaries: [0.0961, 0.1587, 0.2441, 0.3813]
+      higher_is_better: true
+    RETURN_ON_ASSETS:
+      boundaries: [0.0311, 0.0622, 0.0985, 0.1575]
+      higher_is_better: true
+    # Wachstum
+    REVENUE_GROWTH:
+      boundaries: [0.0145, 0.0511, 0.0864, 0.1317]
+      higher_is_better: true
+    NET_INCOME_GROWTH:
+      boundaries: [-0.0623, 0.0363, 0.1150, 0.2620]
+      higher_is_better: true
+    # Bewertung -- niedriger ist besser
+    PRICE_EARNINGS_RATIO:
+      boundaries: [16.41, 23.30, 31.16, 39.81]
+      higher_is_better: false
+    PRICE_SALES_RATIO:
+      boundaries: [1.57, 2.92, 4.88, 7.46]
+      higher_is_better: false
+    PRICE_FREE_CASH_FLOW_RATIO:
+      boundaries: [15.24, 20.49, 27.23, 40.10]
+      higher_is_better: false
+    # Bilanzqualitaet
+    DEBT_TO_EQUITY:
+      boundaries: [0.6085, 1.0694, 1.7143, 3.3968]
+      higher_is_better: false
+    CURRENT_RATIO:
+      # Monoton steigend bewertet, obwohl er das nicht ist: Ein Wert von 7,6
+      # ist gebundenes Kapital, nicht Staerke. Bekannte Vereinfachung,
+      # ausgewiesen in ADR 0045.
+      boundaries: [0.8656, 1.1152, 1.4745, 2.2839]
+      higher_is_better: true
+    SHARE_COUNT_GROWTH:
+      # Positiv heisst mehr Aktien, also Verwaesserung -- niedriger ist besser.
+      boundaries: [-0.0259, -0.0160, -0.0036, 0.0052]
+      higher_is_better: false
 
 logging:
   level: INFO

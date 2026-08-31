@@ -14,7 +14,10 @@ from collections.abc import Iterator
 
 import pytest
 
+from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config import Secrets
+from ai_trading_analyst.config.loader import load_config
+from ai_trading_analyst.domain.scoring import ScoringParameters
 
 _SECRET_ENV_PREFIX = "ATA_"
 
@@ -57,3 +60,15 @@ def restored_root_logger() -> Iterator[None]:
             if handler not in root.handlers:
                 root.addHandler(handler)
         root.setLevel(original_level)
+
+
+@pytest.fixture(scope="session")
+def scoring_params() -> ScoringParameters:
+    """Die Score-Parameter aus der **ausgelieferten** ``config/default.yaml``.
+
+    Bewusst nicht aus von Hand gesetzten Zahlen: Die Schwellen sind gemessen
+    (ADR 0045), und ein Test gegen erfundene Schwellen prueft eine Abbildung,
+    die es nicht gibt. So faellt ausserdem auf, wenn eine Kennzahl in der
+    ausgelieferten Datei keine Schwelle mehr hat.
+    """
+    return build_scoring_params(load_config().config)

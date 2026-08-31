@@ -40,6 +40,19 @@ def _parse_time(value: str) -> time:
     return time(hours, minutes)
 
 
+def _pruefe_gewichtssumme(section: BaseModel, name: str) -> None:
+    """Komponentengewichte muessen sich auf 1 summieren.
+
+    Sonst waere die ausgewiesene Datenabdeckung eine andere Zahl als die
+    tatsaechliche: Der Aggregator normiert auf die Summe der vorhandenen
+    Gewichte, und ein Gesamtgewicht von 0,9 machte aus einer vollstaendigen
+    Rechnung eine, die vollstaendig aussieht und es nicht ist.
+    """
+    summe = sum(float(wert) for wert in section.__dict__.values())
+    if abs(summe - 1.0) > 1e-9:
+        raise ValueError(f"{name}: die Gewichte summieren sich auf {summe}, noetig ist 1.0")
+
+
 class GateNotClearedError(RuntimeError):
     """Ein fachliches Freigabe-Gate ist noch offen."""
 
@@ -715,11 +728,98 @@ class NotificationsConfig(_Section):
     telegram: TelegramConfig = TelegramConfig()
 
 
+class SwingWeightsConfig(_Section):
+    """Gewichte der sechs Swing-Komponenten (ADR 0041).
+
+    Die Haelfte des Gewichts liegt auf den beiden nachrechenbaren
+    Komponenten: Signale und Signalstatistik sind das Einzige am
+    Swing-Score, was sich gegen die gespeicherten Kerzen pruefen laesst.
+    """
+
+    technical_signals: NonNegativeFloat = 0.25
+    signal_statistics: NonNegativeFloat = 0.25
+    chart_setup: NonNegativeFloat = 0.15
+    chance_risk: NonNegativeFloat = 0.15
+    news_and_events: NonNegativeFloat = 0.10
+    options_attractiveness: NonNegativeFloat = 0.10
+
+    @model_validator(mode="after")
+    def _weights_must_sum_to_one(self) -> SwingWeightsConfig:
+        _pruefe_gewichtssumme(self, "scoring.swing_weights")
+        return self
+
+
+class LongTermWeightsConfig(_Section):
+    """Gewichte der vier Investment-Komponenten (ADR 0041)."""
+
+    profitability: NonNegativeFloat = 0.30
+    growth: NonNegativeFloat = 0.25
+    valuation: NonNegativeFloat = 0.25
+    balance_sheet_quality: NonNegativeFloat = 0.20
+
+    @model_validator(mode="after")
+    def _weights_must_sum_to_one(self) -> LongTermWeightsConfig:
+        _pruefe_gewichtssumme(self, "scoring.long_term_weights")
+        return self
+
+
+class MetricThresholdConfig(_Section):
+    """Die vier Fuenftelgrenzen einer Kennzahl (ADR 0045).
+
+    Gemessen an einem Lauf ueber die volle Watchliste, nicht gesetzt. Sie
+    werden neu gemessen, wenn sich die Watchliste wesentlich aendert oder
+    eine Berichtssaison durch ist -- und heben dann
+    ``scoring.long_term_version``.
+    """
+
+    boundaries: tuple[float, float, float, float]
+    higher_is_better: bool
+    """Pflichtfeld ohne Default: Bei KGV, KUV, Kurs/FCF, Verschuldungsgrad
+    und Verwaesserung ist **niedriger** besser, und ein vergessener Schalter
+    kehrte die Bewertung stillschweigend um."""
+
+    @model_validator(mode="after")
+    def _boundaries_must_be_ordered(self) -> MetricThresholdConfig:
+        if list(self.boundaries) != sorted(self.boundaries):
+            raise ValueError(f"Fuenftelgrenzen muessen aufsteigen, gegeben sind {self.boundaries}")
+        return self
+
+
 class ScoringConfig(_Section):
-    """Versionierung der Bewertungslogik (Doc 10, Paragraph 6.11)."""
+    """Die beiden Scores (Doc 09; Doc 10, Paragraph 6.11).
+
+    Die Versionsnummern steigen, wenn sich Komponenten, Gewichte **oder
+    Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
+    """
 
     swing_version: str = "1.0"
     long_term_version: str = "1.0"
+    minimum_coverage: NonNegativeFloat = 0.6
+    """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
+    ``INSUFFICIENT_DATA`` (Doc 09). Gesetzt, nicht gemessen."""
+    normal_confidence_coverage: NonNegativeFloat = 0.8
+    """Ab hier gilt der Score als ``NORMAL`` belastbar, darunter als
+    ``LOW_COVERAGE``. Muster ``backtesting.normal_confidence_sample_size``."""
+    swing_weights: SwingWeightsConfig = SwingWeightsConfig()
+    long_term_weights: LongTermWeightsConfig = LongTermWeightsConfig()
+    thresholds: dict[str, MetricThresholdConfig] = {}
+    """Die Schwellen je Kennzahl, Schluessel ist der Name aus ``MetricName``.
+
+    Eine Abbildung und keine vierzehn Felder: Die Kennzahlenliste gehoert der
+    Domain, und sie hier ein zweites Mal zu fuehren hiesse, zwei Listen
+    synchron halten zu muessen. Dass die Schluessel gueltig **und
+    vollstaendig** sind, prueft ``bootstrap`` -- an der einen Stelle, die
+    beide Seiten kennt."""
+
+    @model_validator(mode="after")
+    def _coverage_thresholds_must_be_ordered(self) -> ScoringConfig:
+        if self.normal_confidence_coverage < self.minimum_coverage:
+            raise ValueError(
+                "normal_confidence_coverage darf nicht kleiner als minimum_coverage sein"
+            )
+        if self.minimum_coverage > 1.0 or self.normal_confidence_coverage > 1.0:
+            raise ValueError("Abdeckungsgrenzen sind Anteile und liegen zwischen 0 und 1")
+        return self
 
 
 class LoggingConfig(_Section):

@@ -19,6 +19,7 @@ from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
+from ai_trading_analyst.domain.scoring import ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalEvent
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
@@ -201,8 +202,14 @@ class StockReport:
     fundamentals: FundamentalSnapshot | None = None
     analysts: AnalystRecommendations | None = None
 
-    swing_score: float | None = None
-    investment_score: float | None = None
+    swing_score: ScoreResult | None = None
+    """Der vollstaendige Score und nicht nur seine Zahl.
+
+    Doc 10, Paragraph 6.11 verlangt an jedem Score neun Angaben -- Teilwerte,
+    Gewichtungen, Datenabdeckung, Konfidenz, Faktoren, begrenzende Risiken
+    und Berechnungsversion. Eine blosse Zahl im Bericht waere genau die
+    Scheingenauigkeit, die derselbe Absatz ausschliesst."""
+    investment_score: ScoreResult | None = None
     recommendation: Recommendation | None = None
     summary: str | None = None
     """Die zusammenfassende Formulierung. Bleibt leer, solange der Bericht
@@ -216,9 +223,13 @@ class StockReport:
     report_schema_version: str = REPORT_SCHEMA_VERSION
     app_version: str = ""
     scoring_version: str | None = None
-    """Leer, bis es ein Scoring gibt (Sprint 5). Doc 10, Paragraph 8 verlangt
-    die Version an jedem Ergebnis; sie hier vorzusehen und leer zu lassen ist
-    ehrlicher, als sie zu erfinden."""
+    """Die Versionen beider Scores in einem Feld (Doc 10, Paragraph 8).
+
+    Sie stehen ohnehin an jedem ``ScoreResult``; hier zusammengefasst, weil
+    Doc 10 die Berechnungsversion **am Bericht** verlangt und die beiden
+    Scores getrennt versioniert sind (``swing_version`` steigt mit der
+    Optionsanalyse, ``long_term_version`` mit einer Neumessung der
+    Schwellen). Leer, wenn kein Score entstanden ist."""
 
     missing_sections: frozenset[ReportSection] = field(default_factory=frozenset)
 

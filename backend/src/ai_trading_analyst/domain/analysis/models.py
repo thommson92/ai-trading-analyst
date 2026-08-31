@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.research import ResearchReport
+from ai_trading_analyst.domain.scoring import ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
@@ -122,6 +123,21 @@ class StockScreeningOutcome:
     Recherche ausgefallen ist. Faellt umgekehrt der Anbieter aus, ist der
     Status ``UNAVAILABLE`` und nicht etwa ``None`` -- der Unterschied zwischen
     "nicht abgefragt" und "abgefragt, keine Antwort" bleibt erhalten."""
+    swing_score: ScoreResult | None = None
+    """Der Swing Trade Score (Doc 10, Paragraph 6.11; ADR 0041, ADR 0045) --
+    nur bei ``ScreeningStatus.CANDIDATE`` gesetzt.
+
+    Anders als die Felder darueber steht hier **kein** Zulieferer dahinter:
+    Der Score wird aus ihnen gerechnet, nachdem sie vorliegen, ohne Netz und
+    ohne Modellaufruf. Fehlt eine Eingabe, fehlt eine Komponente -- der Score
+    entsteht trotzdem, umgewichtet, und unterhalb der Mindestabdeckung als
+    ``INSUFFICIENT_DATA`` (Doc 09)."""
+    investment_score: ScoreResult | None = None
+    """Der Long-Term Investment Score, gerechnet aus ``fundamentals``.
+
+    Getrennt vom Swing-Score gefuehrt und **nie mit ihm verrechnet** (Doc 09):
+    Ein Titel kann als Swing-Kandidat stark und als Investment schwach sein,
+    und genau das sichtbar zu machen ist der Zweck der Trennung."""
     backtest: tuple[BacktestResult, ...] = ()
     """Die historische Signalstatistik je Signalkombination (Doc 10,
     Paragraph 7; ADR 0038) -- nur bei ``ScreeningStatus.CANDIDATE`` gefuellt.

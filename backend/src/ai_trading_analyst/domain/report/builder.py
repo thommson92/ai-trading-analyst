@@ -13,6 +13,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.research import ResearchStatus
+from ai_trading_analyst.domain.scoring import ScoreKind, ScoreResult, ScoreStatus
 from ai_trading_analyst.domain.technical import TechnicalAssessmentStatus, TechnicalStatus
 
 from .values import (
@@ -25,7 +26,12 @@ from .values import (
     StockReport,
 )
 
-_SPRINT_5 = "Optionsanalyse und Scoring gehoeren zu Sprint 5 und sind nicht gebaut"
+_OPTIONSANALYSE = "die Optionsanalyse ist noch nicht gebaut (ADR 0048)"
+
+_SCORE_ABSCHNITT = {
+    ScoreKind.SWING: ReportSection.SWING_SCORE,
+    ScoreKind.LONG_TERM: ReportSection.INVESTMENT_SCORE,
+}
 
 
 class _Luecken:
@@ -84,12 +90,13 @@ def build_report(
     _pruefe_risiken(outcome, luecken)
     _pruefe_fundamentaldaten(outcome, luecken)
 
-    luecken.fehlt(ReportSection.PUT_STRATEGIEN, _SPRINT_5)
-    luecken.fehlt(ReportSection.SWING_SCORE, _SPRINT_5)
-    luecken.fehlt(ReportSection.INVESTMENT_SCORE, _SPRINT_5)
+    luecken.fehlt(ReportSection.PUT_STRATEGIEN, _OPTIONSANALYSE)
+    _pruefe_score(outcome.swing_score, ScoreKind.SWING, luecken)
+    _pruefe_score(outcome.investment_score, ScoreKind.LONG_TERM, luecken)
     luecken.fehlt(
         ReportSection.EMPFEHLUNG,
-        "ohne Swing- und Investment-Score gibt es keine Grundlage fuer eine Empfehlung",
+        "die Ableitung der Empfehlungsstufe aus beiden Scores ist noch nicht "
+        "entschieden (ADR 0046)",
     )
 
     quellen = _quellen(outcome)
@@ -114,6 +121,9 @@ def build_report(
         research=outcome.research,
         fundamentals=outcome.fundamentals,
         analysts=outcome.analysts,
+        swing_score=outcome.swing_score,
+        investment_score=outcome.investment_score,
+        scoring_version=_scoring_version(outcome),
         gaps=luecken.alle,
         sources=quellen,
         report_schema_version=REPORT_SCHEMA_VERSION,
@@ -285,6 +295,53 @@ def _pruefe_fundamentaldaten(outcome: StockScreeningOutcome, luecken: _Luecken) 
             ReportSection.FUNDAMENTALE_BEWERTUNG,
             f"Abdeckung {fundamentals.coverage:.0%} -- ohne {fehlende}",
         )
+
+
+def _pruefe_score(score: ScoreResult | None, kind: ScoreKind, luecken: _Luecken) -> None:
+    """Punkt 14 beziehungsweise 15 (Doc 10, Paragraph 6.11).
+
+    Drei Faelle, drei verschiedene Aussagen: kein Score gerechnet, kein Score
+    zustande gekommen, oder ein Score auf unvollstaendiger Grundlage. Der
+    dritte ist **eingeschraenkt und nicht fehlend** -- der Abschnitt hat
+    Inhalt, und die umgewichteten Gewichte stehen darin. Ihn als fehlend zu
+    fuehren waere ein Widerspruch im Dokument.
+    """
+    abschnitt = _SCORE_ABSCHNITT[kind]
+    if score is None:
+        luecken.fehlt(abschnitt, "der Score wurde nicht gerechnet")
+        return
+    if score.status is ScoreStatus.INSUFFICIENT_DATA:
+        fehlend = ", ".join(name.value for name in score.missing_components)
+        luecken.fehlt(
+            abschnitt,
+            f"Datenabdeckung {score.coverage:.0%} reicht nicht -- ohne {fehlend}",
+        )
+        return
+    if score.missing_components:
+        fehlend = ", ".join(name.value for name in score.missing_components)
+        luecken.eingeschraenkt(
+            abschnitt,
+            f"Abdeckung {score.coverage:.0%} -- ohne {fehlend}, die uebrigen Gewichte "
+            "sind darauf umgerechnet",
+        )
+
+
+def _scoring_version(outcome: StockScreeningOutcome) -> str | None:
+    """Die Versionen beider Scores in einem Feld (Doc 10, Paragraph 8).
+
+    Beide, weil sie unabhaengig voneinander steigen. ``None``, wenn kein
+    Score gerechnet wurde -- eine Version ohne Ergebnis waere eine Angabe
+    ueber nichts.
+    """
+    teile = [
+        f"{art.value.lower()}-{score.version}"
+        for art, score in (
+            (ScoreKind.SWING, outcome.swing_score),
+            (ScoreKind.LONG_TERM, outcome.investment_score),
+        )
+        if score is not None
+    ]
+    return "+".join(teile) if teile else None
 
 
 def _quellen(outcome: StockScreeningOutcome) -> tuple[ReportSource, ...]:

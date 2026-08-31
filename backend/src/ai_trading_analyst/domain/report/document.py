@@ -145,13 +145,16 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
             "kursziele": None,
         }
 
-    # Punkte 13 bis 16 haben keinen Inhalt: Optionsanalyse und Scoring
-    # gehoeren zu Sprint 5. Die Felder stehen trotzdem am Bericht, damit
-    # Sprint 5 sie fuellen kann, ohne das Schema zu heben.
+    # Punkte 14 und 15: der vollstaendige Score, nicht nur seine Zahl -- Doc
+    # 10, Paragraph 6.11 verlangt Teilwerte, Gewichte, Abdeckung, Konfidenz,
+    # Faktoren und begrenzende Risiken. Auch ein Score mit
+    # ``INSUFFICIENT_DATA`` steht hier: Er sagt, welche Komponenten fehlten,
+    # und das ist mehr als eine Luecke. Punkt 13 bleibt leer (Optionsanalyse,
+    # ADR 0048), Punkt 16 ebenfalls (Empfehlungsstufe, ADR 0046).
     if report.swing_score is not None:
-        inhalte[ReportSection.SWING_SCORE] = report.swing_score
+        inhalte[ReportSection.SWING_SCORE] = _rein(report.swing_score)
     if report.investment_score is not None:
-        inhalte[ReportSection.INVESTMENT_SCORE] = report.investment_score
+        inhalte[ReportSection.INVESTMENT_SCORE] = _rein(report.investment_score)
     if report.recommendation is not None:
         inhalte[ReportSection.EMPFEHLUNG] = {
             "stufe": report.recommendation.value,

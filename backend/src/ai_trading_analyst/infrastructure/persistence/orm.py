@@ -14,7 +14,16 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import ARRAY, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    ARRAY,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -37,6 +46,7 @@ from ai_trading_analyst.domain.research import (
     SourceLicenseClass,
     SourceRank,
 )
+from ai_trading_analyst.domain.scoring import ScoreStatus
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 from ai_trading_analyst.domain.technical import (
     BreakoutQuality,
@@ -335,6 +345,41 @@ class ScreeningResultOrm(Base):
     Aktie und Lauf (``analyst_ratings.months``); als Zeilen waere das eine
     Tabelle fuer eine Angabe, die nur am Stueck etwas bedeutet."""
 
+    # Die beiden Scores (Doc 10, Paragraph 6.11; ADR 0041, ADR 0045) -- wie
+    # die uebrigen Analysespalten nur bei CANDIDATE gesetzt.
+    #
+    # Vier Spalten je Score und nicht vierzehn: Sortiert und gefiltert wird
+    # ausschliesslich nach dem Gesamtwert, alles Uebrige wird im Ganzen
+    # geschrieben und im Ganzen gelesen -- dasselbe Argument wie bei
+    # ``technical_parameters`` und ``fundamentals_tag_conflicts``. Eine neue
+    # Komponente braucht so keine Migration, und eine alte bleibt in alten
+    # Zeilen lesbar.
+    swing_score: Mapped[float | None] = mapped_column(
+        Numeric(4, 1, asdecimal=False), nullable=True
+    )
+    """Der Gesamtwert zwischen 0 und 10, oder NULL bei
+    ``INSUFFICIENT_DATA``. ``NUMERIC(4,1)`` und kein ``float``: Ein Score
+    traegt genau eine Nachkommastelle, und die Spalte soll das festhalten
+    statt es der Binaerrundung zu ueberlassen. ``asdecimal=False``, damit
+    beim Lesen ein ``float`` zurueckkommt und nicht ein ``Decimal``, das die
+    Typangabe Luegen straft."""
+    swing_status: Mapped[ScoreStatus | None] = mapped_column(
+        _enum_column(ScoreStatus), nullable=True
+    )
+    swing_version: Mapped[str | None] = mapped_column(nullable=True)
+    swing_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """Teilwerte, Gewichte, Abdeckung, Konfidenz, Faktoren und begrenzende
+    Risiken -- die uebrigen acht der neun Angaben aus Doc 10, Paragraph
+    6.11."""
+    long_term_score: Mapped[float | None] = mapped_column(
+        Numeric(4, 1, asdecimal=False), nullable=True
+    )
+    long_term_status: Mapped[ScoreStatus | None] = mapped_column(
+        _enum_column(ScoreStatus), nullable=True
+    )
+    long_term_version: Mapped[str | None] = mapped_column(nullable=True)
+    long_term_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(
         back_populates="screening_result", cascade="all, delete-orphan"
@@ -509,14 +554,18 @@ class StockReportOrm(Base):
     report_schema_version: Mapped[str]
     app_version: Mapped[str]
     scoring_version: Mapped[str | None] = mapped_column(nullable=True)
-    """Leer, bis es ein Scoring gibt (Sprint 5). Doc 10, Paragraph 8 verlangt
-    die Version an jedem Ergebnis; sie vorzusehen und leer zu lassen ist
-    ehrlicher, als sie zu erfinden."""
+    """Die Versionen beider Scores in einem Feld (Doc 10, Paragraph 8) --
+    etwa ``swing-1.0+long_term-1.0``. Leer, wenn kein Score entstanden ist."""
 
     recommendation: Mapped[Recommendation | None] = mapped_column(
         _enum_column(Recommendation), nullable=True
     )
     swing_score: Mapped[float | None] = mapped_column(nullable=True)
+    """Nur der Gesamtwert -- die Spalte beantwortet die Frage, fuer die man
+    das Dokument nicht oeffnen muss. Teilwerte, Gewichte, Abdeckung und
+    Begruendung stehen vollstaendig in ``document`` und in
+    ``screening_results.swing_detail``. Leer, wenn der Score
+    ``INSUFFICIENT_DATA`` ist."""
     investment_score: Mapped[float | None] = mapped_column(nullable=True)
     summary: Mapped[str | None] = mapped_column(nullable=True)
     """Die zusammenfassende Formulierung -- Aufgabe der KI-Haelfte, bis dahin

@@ -47,7 +47,7 @@ class TestVollstaendigkeit:
 
     def test_jede_luecke_bringt_ihre_begruendung_mit(self) -> None:
         text = render_report(dokument(), symbol="AAPL")
-        assert "[FEHLT] Optionsanalyse und Scoring gehoeren zu Sprint 5" in text
+        assert "[FEHLT] die Optionsanalyse ist noch nicht gebaut (ADR 0048)" in text
 
 
 class TestInhalt:

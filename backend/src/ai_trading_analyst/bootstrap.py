@@ -15,6 +15,7 @@ from importlib import metadata
 from pathlib import Path
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
@@ -37,7 +38,13 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters
-from ai_trading_analyst.domain.fundamentals import FundamentalParameters
+from ai_trading_analyst.domain.fundamentals import FundamentalParameters, MetricName
+from ai_trading_analyst.domain.scoring import (
+    SCORED_METRICS,
+    ComponentName,
+    MetricThresholds,
+    ScoringParameters,
+)
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorParameters,
@@ -368,6 +375,58 @@ def build_technical_interpreter(config: AppConfig, secrets: Secrets) -> Technica
     )
 
 
+def build_scoring_params(config: AppConfig) -> ScoringParameters:
+    """Aus ``ScoringConfig`` die Parameter der beiden Scores (ADR 0041, 0045).
+
+    **Hier und nicht in der Konfiguration** wird geprueft, dass die Schwellen
+    zu den Kennzahlen passen: ``config`` kennt die Domain nicht, und die
+    Domain kennt keine Konfigurationsdatei. Diese Funktion kennt beide Seiten
+    und ist damit die einzige Stelle, an der ein Tippfehler im
+    Kennzahlennamen auffallen kann -- beim Start und nicht als
+    stillschweigend uebersprungene Kennzahl in einem Ergebnis.
+    """
+    schwellen: dict[MetricName, MetricThresholds] = {}
+    for name, eintrag in config.scoring.thresholds.items():
+        try:
+            kennzahl = MetricName(name)
+        except ValueError as error:
+            raise ValueError(
+                f"scoring.thresholds: '{name}' ist keine bekannte Kennzahl"
+            ) from error
+        schwellen[kennzahl] = MetricThresholds(
+            boundaries=eintrag.boundaries, higher_is_better=eintrag.higher_is_better
+        )
+
+    fehlend = sorted(name.value for name in SCORED_METRICS - schwellen.keys())
+    if fehlend:
+        raise ValueError(
+            "scoring.thresholds: ohne Schwellen keine Teilwerte -- es fehlen "
+            + ", ".join(fehlend)
+        )
+
+    return ScoringParameters(
+        swing_weights=_gewichte(config.scoring.swing_weights),
+        long_term_weights=_gewichte(config.scoring.long_term_weights),
+        thresholds=schwellen,
+        minimum_coverage=config.scoring.minimum_coverage,
+        normal_confidence_coverage=config.scoring.normal_confidence_coverage,
+        swing_version=config.scoring.swing_version,
+        long_term_version=config.scoring.long_term_version,
+    )
+
+
+def _gewichte(section: BaseModel) -> dict[ComponentName, float]:
+    """Die Feldnamen des Abschnitts sind die Komponentennamen in klein.
+
+    Keine zweite Liste, die mit der ersten synchron bleiben muesste: Ein Feld
+    ohne passenden ``ComponentName`` bricht beim Start mit einem
+    ``KeyError``, statt eine Komponente ohne Gewicht zu hinterlassen.
+    """
+    return {
+        ComponentName[name.upper()]: float(wert) for name, wert in section.__dict__.items()
+    }
+
+
 def build_backtest_params(config: AppConfig) -> BacktestParameters:
     return BacktestParameters(
         horizons=config.backtesting.horizons,
@@ -413,6 +472,7 @@ def build_app() -> FastAPI:
         earnings_filter_params,
         build_technical_analysis_params(loaded.config),
         build_backtest_params(loaded.config),
+        build_scoring_params(loaded.config),
         agent_concurrency=build_agent_concurrency(loaded.config),
         app_version=app_version(),
         market_timezone=loaded.config.market.timezone,

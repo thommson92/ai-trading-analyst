@@ -17,6 +17,8 @@ import pytest
 
 from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
+from ai_trading_analyst.bootstrap import build_scoring_params
+from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -74,6 +76,13 @@ Ereignisse liefern. Was der Backtest inhaltlich rechnet, prueft
 ``tests/unit/domain/backtesting``; hier zaehlt nur, dass der Use Case ihn
 aufruft und das Ergebnis richtig ablegt."""
 
+_SCORING_PARAMS = build_scoring_params(load_config().config)
+"""Die Score-Parameter aus der **ausgelieferten** ``config/default.yaml``.
+
+Nicht von Hand gesetzt: Die Schwellen sind gemessen (ADR 0045), und was der
+Use Case hier zeigen soll, ist ohnehin nur, dass er beide Scores rechnet und
+ablegt. Was sie inhaltlich ergeben, prueft ``tests/unit/domain/scoring``."""
+
 _TECHNICAL_PARAMS = TechnicalAnalysisParameters(
     pivot_reach=1,
     atr_length=2,
@@ -128,6 +137,7 @@ def _build_use_case(
         _EARNINGS_PARAMS,
         technical_params or _TECHNICAL_PARAMS,
         backtest_params or _BACKTEST_PARAMS,
+        _SCORING_PARAMS,
         agent_concurrency=agent_concurrency,
         notifier=notifier,
         notify_without_candidates=notify_without_candidates,
@@ -1023,6 +1033,7 @@ class TestBacktestImTageslauf:
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
             _BACKTEST_PARAMS,
+            _SCORING_PARAMS,
         ).execute()
 
         assert backtests.added, "Nichts gespeichert"
@@ -1096,6 +1107,7 @@ class TestBerichtImTageslauf:
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
             _BACKTEST_PARAMS,
+            _SCORING_PARAMS,
             app_version="9.9.9",
         ).execute()
         return berichte, summary
@@ -1168,6 +1180,7 @@ class TestBerichtBleibtAbgeleitet:
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
             _BACKTEST_PARAMS,
+            _SCORING_PARAMS,
         ).execute()
 
         assert not summary.errors, "der Bericht hat die Aktie in einen Fehler verwandelt"
@@ -1377,6 +1390,7 @@ class TestVeralteteDaten:
             _EARNINGS_PARAMS,
             _TECHNICAL_PARAMS,
             _BACKTEST_PARAMS,
+            _SCORING_PARAMS,
             expected_last_candle=erwartet,
         ).execute()
 
