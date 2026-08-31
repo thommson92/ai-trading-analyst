@@ -623,3 +623,51 @@ class TestScoringParameter:
         params = build_scoring_params(load_config().config)
         assert SCORED_METRICS <= params.thresholds.keys()
         assert params.thresholds[MetricName.PRICE_EARNINGS_RATIO].higher_is_better is False
+
+
+class TestFinnhubDrossel:
+    """Eine Drossel je Konto, nicht je Endpunkt (ADR 0046).
+
+    Finnhubs Grenze gilt fuer den Zugangsschluessel, und der Tageslauf fragt
+    je Kandidat beide Endpunkte unmittelbar nacheinander. Zwei getrennte
+    Drosseln liessen beide ersten Aufrufe sofort durch und verdoppelten die
+    Rate.
+    """
+
+    def test_beide_anbieter_teilen_sich_dieselbe_drossel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "geheim")
+        config = AppConfig(
+            indicators=INDICATORS,
+            earnings_filter=EarningsFilterConfig(provider="finnhub"),
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+        )
+
+        earnings = build_earnings_provider(config, Secrets())
+        ratings = build_analyst_recommendations_provider(config, Secrets())
+
+        assert earnings._drossel is ratings._drossel  # type: ignore[attr-defined]
+
+    def test_eine_andere_rate_ergibt_eine_andere_drossel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sonst truege ein zweiter Lauf mit anderer Einstellung die Drossel
+        des ersten -- ein zwischengespeicherter Wert, der nicht mehr zur
+        Konfiguration passt."""
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "geheim")
+        schnell = AppConfig(
+            indicators=INDICATORS,
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+            finnhub=FinnhubConfig(max_requests_per_second=5.0),
+        )
+        langsam = AppConfig(
+            indicators=INDICATORS,
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+            finnhub=FinnhubConfig(max_requests_per_second=0.5),
+        )
+
+        erste = build_analyst_recommendations_provider(schnell, Secrets())
+        zweite = build_analyst_recommendations_provider(langsam, Secrets())
+
+        assert erste._drossel is not zweite._drossel  # type: ignore[attr-defined]

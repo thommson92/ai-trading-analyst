@@ -106,6 +106,10 @@ class ScoringParameters:
     kein Eintrag in ``thresholds``: Der Kauf-Anteil ist keine
     ``MetricName`` -- er stammt nicht aus einer SEC-Einreichung, sondern aus
     einer gezaehlten Votenverteilung."""
+    analyst_max_age_days: int
+    """Aelter darf der juengste Monatsstand der Analystenvoten nicht sein
+    (ADR 0046). Gesetzt: Die Voten erscheinen monatlich, zwei ausgefallene
+    Staende sind keine Abdeckung mehr."""
     minimum_coverage: float
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
     ``INSUFFICIENT_DATA`` (Doc 09). Gesetzt, nicht gemessen."""

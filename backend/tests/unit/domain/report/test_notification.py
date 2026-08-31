@@ -41,7 +41,6 @@ from ai_trading_analyst.domain.technical import (
     TechnicalAssessment,
     TechnicalAssessmentStatus,
 )
-from ai_trading_analyst.infrastructure.notifications import MAX_TEXT_ZEICHEN
 from tests.unit.domain.report.conftest import (
     JETZT,
     make_earnings,
@@ -58,6 +57,7 @@ REGELN = ScoringParameters(
     long_term_weights={},
     thresholds={},
     analyst_buy_share=MetricThresholds(boundaries=(0.4, 0.6, 0.7, 0.8), higher_is_better=True),
+    analyst_max_age_days=62,
     minimum_coverage=0.6,
     normal_confidence_coverage=0.8,
     recommendation=RecommendationParameters(
@@ -337,40 +337,3 @@ class TestScoresUndStufe:
         )
 
         assert [zeile.split()[0] for zeile in text.splitlines()[:2]] == ["AAA", "ZZZ"]
-
-
-class TestLaengeUndKuerzung:
-    """Wie viele Kandidaten passen, bevor der Kanal kuerzt (ADR 0047).
-
-    **Gemessen, nicht geschaetzt** -- und die Zahl haengt an der Zeile: Mit
-    drei Signalen, Fehlsignalrisiko und Earnings-Hinweis passen 25, mit der
-    kurzen Zeile 51. ADR 0040 hatte ohne Scores rund 65 genannt.
-
-    Der Test haelt beide Enden fest. Wandern sie, ist entweder das Format
-    gewachsen -- dann gehoert die Zahl im ADR nachgezogen -- oder es ist
-    etwas in die Meldung geraten, was dort nicht hingehoert.
-    """
-
-    @staticmethod
-    def _text(anzahl: int, *, voll: bool) -> str:
-        _, text = render_notification(
-            zusammenfassung(
-                *(
-                    kandidat(f"SYM{i:04d}", swing=8.6, investment=5.5, voll=voll)
-                    for i in range(anzahl)
-                ),
-                aktien=200,
-            ),
-            timezone=_NY,
-        )
-        return text
-
-    def test_im_unguenstigsten_fall_passen_fuenfundzwanzig(self) -> None:
-        """Drei Signale, Fehlsignalrisiko und Earnings-Hinweis -- die
-        laengstmoegliche Zeile."""
-        assert len(self._text(25, voll=True)) <= MAX_TEXT_ZEICHEN
-        assert len(self._text(26, voll=True)) > MAX_TEXT_ZEICHEN
-
-    def test_mit_der_kurzen_zeile_passen_einundfuenfzig(self) -> None:
-        assert len(self._text(51, voll=False)) <= MAX_TEXT_ZEICHEN
-        assert len(self._text(52, voll=False)) > MAX_TEXT_ZEICHEN

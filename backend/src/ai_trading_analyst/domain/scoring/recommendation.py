@@ -73,14 +73,14 @@ def derive_recommendation(
     if korrektur is not None:
         begruendungen.append(korrektur)
 
-    stufe, deckelungen = _gedeckelt(stufe, false_signal_risk, earnings_status, parameters)
-    begruendungen.extend(deckelungen)
+    stufe, befunde, wirksam = _gedeckelt(stufe, false_signal_risk, earnings_status, parameters)
+    begruendungen.extend(befunde)
 
     return RecommendationResult(
         level=stufe,
         version=regeln.version,
         reasons=tuple(begruendungen),
-        applied_caps=tuple(deckelungen),
+        applied_caps=tuple(wirksam),
     )
 
 
@@ -136,8 +136,19 @@ def _gedeckelt(
     false_signal_risk: FalseSignalRisk | None,
     earnings_status: EarningsFilterStatus | None,
     parameters: ScoringParameters,
-) -> tuple[Recommendation, list[str]]:
+) -> tuple[Recommendation, list[str], list[str]]:
     """Begrenzende Risiken (Doc 09) -- sie koennen nur senken, nie heben.
+
+    Gibt drei Dinge zurueck: die Stufe, **alle zutreffenden** Befunde und die
+    Teilmenge, die tatsaechlich gesenkt hat.
+
+    Die Unterscheidung ist noetig, und die Reihenfolge ist der Grund: Greifen
+    beide Deckelungen, senkt die erste die Stufe unter die zweite, und die
+    zweite waere dann "unwirksam". Stuende nur sie in der Begruendung,
+    verschwaende ein vorliegender Befund still aus dem Bericht -- Doc 10,
+    Paragraph 12 verlangt das Gegenteil. ``applied_caps`` bleibt trotzdem auf
+    die wirksamen beschraenkt: Sonst laese sich eine unveraenderte Stufe als
+    gedeckelte.
 
     **Die Konfidenz der Signalstatistik steht bewusst nicht hier.** Sie laesst
     die Komponente schon entfallen (ADR 0045) und senkt damit bereits die
@@ -145,7 +156,8 @@ def _gedeckelt(
     bestrafte dieselbe Tatsache zweimal.
     """
     regeln = parameters.recommendation
-    angewandt: list[str] = []
+    befunde: list[str] = []
+    wirksam: list[str] = []
     obergrenzen: list[tuple[Recommendation, str]] = []
 
     if false_signal_risk is FalseSignalRisk.HIGH:
@@ -156,10 +168,12 @@ def _gedeckelt(
         obergrenzen.append((regeln.cap_earnings_unknown, "Berichtstermin unbekannt"))
 
     for grenze, grund in obergrenzen:
+        eintrag = f"{grund}: hoechstens {grenze.value}"
+        befunde.append(eintrag)
         if RANGFOLGE.index(stufe) > RANGFOLGE.index(grenze):
-            angewandt.append(f"{grund}: hoechstens {grenze.value}")
+            wirksam.append(eintrag)
             stufe = grenze
-    return stufe, angewandt
+    return stufe, befunde, wirksam
 
 
 def _verschoben(stufe: Recommendation, schritte: int) -> Recommendation:

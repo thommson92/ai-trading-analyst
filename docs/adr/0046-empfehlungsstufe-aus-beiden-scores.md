@@ -53,8 +53,26 @@ vom 2026-08-31 (`cli ratings --watchlist --output`, ausgewertet mit
 | Kauf-Anteil | 187 | 81,8 % | 69,9 % | 57,6 % | 43,6 % | 2 |
 
 Spannweite 3,7 % (CLX) bis 94,1 % (NVDA, ANET). Die Komponente ist **nicht
-verfügbar** bei `UNKNOWN`, `UNAVAILABLE` und bei einem Monatsstand ohne ein
-einziges Votum.
+verfügbar** bei `UNKNOWN`, `UNAVAILABLE`, bei einem Monatsstand ohne ein
+einziges Votum — und bei einem **zu alten** Stand.
+
+**Die Aktualitätsschranke liegt bei 62 Tagen** (`scoring.analyst_max_age_days`).
+Sie ist nötig, weil der Endpunkt keine hat: Er liefert den jüngsten Stand, den
+er kennt, und bei einem Titel, der seine Abdeckung verloren hat, ist das einer
+von vor zwei Jahren. Ohne Schranke ginge er als heutige Nachrichtenlage mit
+vollem Gewicht ein — ein veralteter Wert ist kein fehlender, aber er behauptet
+Aktualität. Dasselbe Muster wie bei den Fundamentaldaten
+([ADR 0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md)).
+
+62 Tage sind **gesetzt**, aber nicht gegriffen: Die Voten erscheinen
+monatlich; ein ausgefallener Stand geht durch, zwei nicht mehr. Gemessen wird
+gegen `evaluated_at` des Ergebnisses und nicht gegen die Uhr — die Domain
+kennt keine, und ein gespeichertes Ergebnis soll sich Jahre später genauso
+nachrechnen lassen.
+
+Der Monatsstand steht **auch im Erfolgsfall** in der Begründung: Ein
+Kauf-Anteil von vor einem halben Jahr ist etwas anderes als der von gestern,
+und im Bericht muss man das sehen.
 
 `swing_version` steigt auf **1.1**.
 
@@ -181,5 +199,12 @@ Folge.
   (`finnhub.max_requests_per_second: 0.8`, dieselbe Drossel wie bei EDGAR).
   Auf die gemessenen Fünftel hat der Ausfall keinen Einfluss — 187 Werte
   tragen sie.
+
+  **Eine Drossel je Konto, nicht je Endpunkt.** Die Grenze gilt für den
+  Zugangsschlüssel, und der Tageslauf fragt je Kandidat den Earnings-Kalender
+  und die Empfehlungen unmittelbar nacheinander. Zwei getrennte Drosseln
+  ließen beide ersten Aufrufe sofort durch und verdoppelten die Rate — genau
+  der `429`, den die Drossel verhindern soll. `bootstrap` baut sie deshalb
+  einmal und reicht sie in beide Adapter.
 - **Die Neumessung gehört zur Pflege.** Wie die Schwellen aus ADR 0045
   beschreiben auch diese den Markt von Ende August 2026.

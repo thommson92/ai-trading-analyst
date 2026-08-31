@@ -60,7 +60,7 @@ def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[
 
     zeilen = [_kandidatenzeile(outcome) for outcome in sorted(kandidaten, key=_rangfolge)]
     zeilen.append("")
-    zeilen.append("Scores 0-10, S = Swing, I = Investment. Kein Freitext in dieser")
+    zeilen.append("S = Swing, I = Investment, je bis 10. Kein Freitext in dieser")
     zeilen.append("Meldung (ADR 0047) -- der vollstaendige Bericht:")
     zeilen.append(f"cli report --run {summary.run.id}")
     return betreff, "\n".join(zeilen)

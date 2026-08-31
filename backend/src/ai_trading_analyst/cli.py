@@ -2409,6 +2409,11 @@ def command_ratings(args: argparse.Namespace) -> int:
             print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
             return 2
 
+    # Derselbe Massstab wie im Scoring: Wuerde der Messlauf Staende
+    # mitzaehlen, die das Scoring spaeter verwirft, passten die Schwellen
+    # nicht zu den Werten, gegen die sie angewandt werden.
+    max_age_days = config.scoring.analyst_max_age_days
+
     ergebnisse: list[tuple[str, AnalystRecommendations]] = []
     fehler: list[tuple[str, str]] = []
     for symbol in wanted:
@@ -2426,13 +2431,13 @@ def command_ratings(args: argparse.Namespace) -> int:
         if len(wanted) == 1:
             _print_analyst_recommendations(symbol, empfehlungen)
         else:
-            _print_analyst_summary_line(symbol, empfehlungen)
+            _print_analyst_summary_line(symbol, empfehlungen, max_age_days)
 
     if ziel is not None:
-        _write_ratings_csv(ziel, ergebnisse)
+        _write_ratings_csv(ziel, ergebnisse, max_age_days)
         print(f"\nCSV geschrieben: {ziel}")
     if len(wanted) > 1:
-        _print_ratings_uebersicht(ergebnisse, fehler, len(wanted))
+        _print_ratings_uebersicht(ergebnisse, fehler, len(wanted), max_age_days)
 
     if not ergebnisse:
         return 2
@@ -2441,10 +2446,12 @@ def command_ratings(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_analyst_summary_line(symbol: str, empfehlungen: AnalystRecommendations) -> None:
+def _print_analyst_summary_line(
+    symbol: str, empfehlungen: AnalystRecommendations, max_age_days: int
+) -> None:
     """Eine Zeile je Aktie -- der volle Block laeuft bei zweihundert Titeln
     aus dem Terminalpuffer (Muster ``_print_fundamental_summary_line``)."""
-    anteil = analyst_buy_share(empfehlungen)
+    anteil = analyst_buy_share(empfehlungen, max_age_days=max_age_days)
     stand = empfehlungen.latest
     print(
         f"  {symbol:<8}{empfehlungen.status.value:<18}"
@@ -2455,7 +2462,7 @@ def _print_analyst_summary_line(symbol: str, empfehlungen: AnalystRecommendation
 
 
 def _write_ratings_csv(
-    pfad: Path, ergebnisse: Sequence[tuple[str, AnalystRecommendations]]
+    pfad: Path, ergebnisse: Sequence[tuple[str, AnalystRecommendations]], max_age_days: int
 ) -> None:
     """Der Kauf-Anteil je Aktie, in den Spalten der Fundamental-CSV.
 
@@ -2475,7 +2482,7 @@ def _write_ratings_csv(
             ["symbol", "status", "kennzahl", "wert", "monatsstand", "voten", "quelle", "abgerufen"]
         )
         for symbol, empfehlungen in ergebnisse:
-            anteil = analyst_buy_share(empfehlungen)
+            anteil = analyst_buy_share(empfehlungen, max_age_days=max_age_days)
             stand = empfehlungen.latest
             schreiber.writerow(
                 [
@@ -2497,13 +2504,18 @@ def _print_ratings_uebersicht(
     ergebnisse: Sequence[tuple[str, AnalystRecommendations]],
     fehler: Sequence[tuple[str, str]],
     gesamt: int,
+    max_age_days: int,
 ) -> None:
     """Wofuer es einen Anteil gibt und wofuer nicht -- ausdruecklich."""
     mit_anteil = [
-        symbol for symbol, empfehlungen in ergebnisse if analyst_buy_share(empfehlungen) is not None
+        symbol
+        for symbol, empfehlungen in ergebnisse
+        if analyst_buy_share(empfehlungen, max_age_days=max_age_days) is not None
     ]
     ohne_anteil = [
-        symbol for symbol, empfehlungen in ergebnisse if analyst_buy_share(empfehlungen) is None
+        symbol
+        for symbol, empfehlungen in ergebnisse
+        if analyst_buy_share(empfehlungen, max_age_days=max_age_days) is None
     ]
     print(f"\n{gesamt} Aktien, {len(mit_anteil)} mit Kauf-Anteil.")
     if ohne_anteil:

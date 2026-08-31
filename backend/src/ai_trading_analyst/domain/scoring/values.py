@@ -167,9 +167,14 @@ class ScoreResult:
     negative_factors: tuple[str, ...] = ()
     limiting_risks: tuple[str, ...] = ()
     """Befunde, die den Score begrenzen oder eine Komponente haben entfallen
-    lassen (Doc 09 "Begrenzende Risiken"). Heute setzt sie allein die
-    Konfidenz der Signalstatistik (ADR 0045, Abschnitt 4); die uebrigen
-    Kandidaten folgen mit der Empfehlungsstufe (ADR 0046)."""
+    lassen (Doc 09 "Begrenzende Risiken").
+
+    Gesetzt wird sie allein von der Konfidenz der Signalstatistik (ADR 0045,
+    Abschnitt 4). Die uebrigen begrenzenden Risiken -- hohes
+    Fehlsignalrisiko, unbekannter Berichtstermin -- stehen bewusst **nicht**
+    hier: Sie deckeln die Empfehlungsstufe und nicht den Score (ADR 0046).
+    Ein Score ist eine Messung der Lage, eine Empfehlung eine Folgerung
+    daraus, und nur die zweite darf ein Risiko zurueckhalten."""
 
     def __post_init__(self) -> None:
         if (self.value is None) != (self.status is ScoreStatus.INSUFFICIENT_DATA):

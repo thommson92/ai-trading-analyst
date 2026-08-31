@@ -25,6 +25,8 @@ from ai_trading_analyst.domain.report import (
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
+    Recommendation,
+    RecommendationResult,
     ScoreComponent,
     ScoreConfidence,
     ScoreKind,
@@ -448,3 +450,67 @@ class TestScores:
     def test_ohne_empfehlung_fehlt_punkt_sechzehn(self) -> None:
         report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
         assert ReportSection.EMPFEHLUNG in report.missing_sections
+
+
+class TestEmpfehlung:
+    """Punkt 16 (ADR 0046).
+
+    Der Punkt ist verfuegbar, sobald es eine Stufe gibt -- auch bei
+    ``INSUFFICIENT_DATA``, denn das ist eine der fuenf Stufen aus Doc 10 und
+    keine Luecke. Eingeschraenkt bleibt er trotzdem: Die formulierte
+    Zusammenfassung gehoert der KI-Haelfte (ADR 0039).
+    """
+
+    @staticmethod
+    def _stufe(
+        level: Recommendation = Recommendation.CANDIDATE,
+        *,
+        gruende: tuple[str, ...] = ("Swing-Score 7.0 ergibt CANDIDATE",),
+    ) -> RecommendationResult:
+        return RecommendationResult(level=level, version="1.0", reasons=gruende)
+
+    def test_eine_stufe_macht_den_punkt_verfuegbar(self) -> None:
+        report = build_report(
+            make_outcome(recommendation=self._stufe()), created_at=ERSTELLT, app_version="0.1.0"
+        )
+
+        assert ReportSection.EMPFEHLUNG not in report.missing_sections
+        assert report.recommendation is not None
+        assert report.recommendation.level is Recommendation.CANDIDATE
+
+    def test_er_bleibt_eingeschraenkt_solange_die_formulierung_fehlt(self) -> None:
+        report = build_report(
+            make_outcome(recommendation=self._stufe()), created_at=ERSTELLT, app_version="0.1.0"
+        )
+
+        (vorbehalt,) = [g for g in report.gaps if g.section is ReportSection.EMPFEHLUNG]
+        assert vorbehalt.kind is GapKind.EINGESCHRAENKT
+        assert "ADR 0039" in vorbehalt.reason
+
+    def test_insufficient_data_nennt_den_grund_und_fehlt_nicht(self) -> None:
+        """Die Stufe sagt, dass die Grundlage fehlt -- das ist mehr als eine
+        Luecke, und der Grund gehoert dazu."""
+        report = build_report(
+            make_outcome(
+                recommendation=self._stufe(
+                    Recommendation.INSUFFICIENT_DATA,
+                    gruende=("ohne Swing-Score gibt es keine Aussage ueber den Einstieg",),
+                )
+            ),
+            created_at=ERSTELLT,
+            app_version="0.1.0",
+        )
+
+        assert ReportSection.EMPFEHLUNG not in report.missing_sections
+        (vorbehalt,) = [g for g in report.gaps if g.section is ReportSection.EMPFEHLUNG]
+        assert vorbehalt.kind is GapKind.EINGESCHRAENKT
+        assert "ohne Swing-Score" in vorbehalt.reason
+
+    def test_die_zusammenfassung_bleibt_leer(self) -> None:
+        """Ein deterministisch zusammengesetzter Satz waere eine Formulierung
+        ohne Verfasser (ADR 0039)."""
+        report = build_report(
+            make_outcome(recommendation=self._stufe()), created_at=ERSTELLT, app_version="0.1.0"
+        )
+
+        assert report.summary is None

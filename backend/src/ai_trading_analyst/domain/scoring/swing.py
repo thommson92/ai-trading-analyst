@@ -86,7 +86,9 @@ Schwellen. Drei Stellen, an denen ein Tippfehler erst am Ergebnis auffiele.
 """
 
 
-def analyst_buy_share(recommendations: AnalystRecommendations | None) -> float | None:
+def analyst_buy_share(
+    recommendations: AnalystRecommendations | None, *, max_age_days: int
+) -> float | None:
     """Der Anteil der Kauf-Voten am juengsten Monatsstand -- oder ``None``.
 
     **Ein gezaehlter Anteil, keine Konsenszahl.** ADR 0043 lehnt eine
@@ -101,8 +103,20 @@ def analyst_buy_share(recommendations: AnalystRecommendations | None) -> float |
     es die Konsenszahl, die ADR 0043 ausschliesst.
 
     ``None`` heisst hier durchgehend "keine Grundlage": kein Abruf, keine
-    Abdeckung, oder ein Monatsstand ohne ein einziges Votum. Der Teilwert
-    entfaellt dann, statt als Null zu gelten.
+    Abdeckung, ein Monatsstand ohne ein einziges Votum -- oder ein Stand, der
+    aelter ist als ``max_age_days``. Der Teilwert entfaellt dann, statt als
+    Null zu gelten.
+
+    **Die Aktualitaetsschranke ist noetig, weil der Endpunkt keine hat.** Er
+    liefert den juengsten Stand, den er kennt; verliert ein Titel seine
+    Abdeckung, ist das ein Stand von vor zwei Jahren. Ohne Schranke ginge er
+    als heutige "News- und Ereignislage" mit vollem Gewicht ein -- ein
+    veralteter Wert ist kein fehlender, aber er behauptet Aktualitaet.
+    Dasselbe Muster wie bei den Fundamentaldaten (ADR 0034).
+
+    Gemessen wird gegen ``evaluated_at`` des Ergebnisses und nicht gegen die
+    Uhr: Die Domain kennt keine (CLAUDE.md), und ein gespeichertes Ergebnis
+    soll sich Jahre spaeter genauso nachrechnen lassen.
 
     Diese Funktion ist **die** Stelle, an der der Anteil entsteht: Die
     Kalibrierung ueber die Watchliste (``cli ratings --watchlist --output``)
@@ -116,6 +130,8 @@ def analyst_buy_share(recommendations: AnalystRecommendations | None) -> float |
         return None
     stand = recommendations.latest
     if stand is None or stand.total == 0:
+        return None
+    if (recommendations.evaluated_at.date() - stand.period).days > max_age_days:
         return None
     return (stand.strong_buy + stand.buy) / stand.total
 
@@ -169,23 +185,47 @@ def _news_und_ereignisse(
     solche ausgewiesen.
     """
     gewicht = parameters.swing_weights[ComponentName.NEWS_AND_EVENTS]
-    anteil = analyst_buy_share(analysts)
-    if anteil is None:
-        grund = "keine Analystenempfehlungen"
-        if analysts is not None and analysts.reason:
-            grund = f"keine Analystenempfehlungen ({analysts.reason})"
-        return ScoreComponent(
-            name=ComponentName.NEWS_AND_EVENTS, weight=gewicht, value=None, reason=grund
-        )
+    anteil = analyst_buy_share(analysts, max_age_days=parameters.analyst_max_age_days)
     stand = analysts.latest if analysts is not None else None
-    voten = stand.total if stand is not None else 0
+    if anteil is None:
+        return ScoreComponent(
+            name=ComponentName.NEWS_AND_EVENTS,
+            weight=gewicht,
+            value=None,
+            reason=_ohne_analystengrundlage(analysts, parameters),
+        )
+    assert stand is not None  # ``analyst_buy_share`` hat ihn bereits geprueft
     return ScoreComponent(
         name=ComponentName.NEWS_AND_EVENTS,
         weight=gewicht,
         value=parameters.analyst_buy_share.score(anteil),
-        # Die Zahl der Voten gehoert dazu: Ein Anteil von 100 Prozent aus
-        # drei Voten ist etwas anderes als einer aus vierzig.
-        reason=f"Kauf-Anteil {anteil:.0%} aus {voten} Voten",
+        # Votenzahl **und** Monatsstand: Ein Anteil von 100 Prozent aus drei
+        # Voten ist etwas anderes als einer aus vierzig, und einer von vor
+        # einem halben Jahr etwas anderes als der von gestern.
+        reason=f"Kauf-Anteil {anteil:.0%} aus {stand.total} Voten ({stand.period.isoformat()})",
+    )
+
+
+def _ohne_analystengrundlage(
+    analysts: AnalystRecommendations | None, parameters: ScoringParameters
+) -> str:
+    """Warum es keinen Kauf-Anteil gibt -- die vier Faelle auseinandergehalten.
+
+    Ein gemeinsamer Satz fuer alle vier stuende im Bericht und sagte nichts:
+    "kein Abruf", "keine Abdeckung", "keine Voten" und "zu alt" sind vier
+    verschiedene Befunde mit vier verschiedenen Folgen.
+    """
+    if analysts is None:
+        return "die Analystenempfehlungen wurden nicht abgerufen"
+    if analysts.status is not AnalystRecommendationStatus.COMPLETED:
+        return f"keine Analystenempfehlungen ({analysts.reason or analysts.status.value})"
+    stand = analysts.latest
+    if stand is None or stand.total == 0:
+        return "der juengste Monatsstand fuehrt kein einziges Votum"
+    alter = (analysts.evaluated_at.date() - stand.period).days
+    return (
+        f"der juengste Monatsstand ist vom {stand.period.isoformat()} und damit "
+        f"{alter} Tage alt (hoechstens {parameters.analyst_max_age_days})"
     )
 
 

@@ -81,6 +81,7 @@ class TestParameter:
                 analyst_buy_share=MetricThresholds(
                     boundaries=(0.4, 0.6, 0.7, 0.8), higher_is_better=True
                 ),
+                analyst_max_age_days=62,
                 minimum_coverage=0.9,
                 normal_confidence_coverage=0.5,
                 recommendation=EMPFEHLUNGSREGELN,

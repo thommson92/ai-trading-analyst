@@ -90,13 +90,17 @@ class FinnhubAnalystRecommendationsProvider:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        drossel: Drossel | None = None,
     ) -> None:
         self._settings = settings
         self._now = now
-        self._drossel = Drossel(settings.max_requests_per_second, sleep)
-        """Finnhubs Gratis-Stufe deckelt bei 60 Anfragen je Minute. Ohne
-        Abstand verliert ein Lauf ueber die Watchliste Symbole an ``429``
-        -- gemessen am 2026-08-31 (ADR 0046)."""
+        self._drossel = drossel or Drossel(settings.max_requests_per_second, sleep)
+        """**Eine Drossel je Konto, nicht je Endpunkt.** Finnhubs Grenze von
+        60 Anfragen je Minute gilt fuer den Zugangsschluessel; der Tageslauf
+        fragt je Kandidat beide Endpunkte unmittelbar nacheinander. Mit zwei
+        eigenen Drosseln liesse jede den ersten Aufruf sofort durch, und aus
+        einer Anfrage je Sekunde wuerden zwei. ``bootstrap`` reicht deshalb
+        dieselbe herein; der Default gilt nur fuer Tests und Einzelaufrufe."""
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``). ``None`` verwendet
         den echten Transport von ``httpx``."""

@@ -211,6 +211,29 @@ class TestBegrenzendeRisiken:
             earnings=EarningsFilterStatus.UNKNOWN,
         ) is Recommendation.WATCH
 
+    def test_beide_befunde_stehen_in_der_begruendung(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Greifen beide Deckelungen, senkt die erste unter die zweite -- die
+        zweite ist dann rechnerisch unwirksam. Stuende sie deshalb nicht in
+        der Begruendung, verschwaende ein vorliegender Befund still aus dem
+        Bericht (Doc 10, Paragraph 12)."""
+        ergebnis = derive_recommendation(
+            swing=score(9.0),
+            investment=score(6.0, kind=ScoreKind.LONG_TERM),
+            false_signal_risk=FalseSignalRisk.HIGH,
+            earnings_status=EarningsFilterStatus.UNKNOWN,
+            parameters=scoring_params,
+        )
+
+        gesamt = " | ".join(ergebnis.reasons)
+        assert "Fehlsignalrisiko" in gesamt
+        assert "Berichtstermin unbekannt" in gesamt
+        # Gesenkt hat nur die erste -- danach lag die Stufe schon unter der
+        # zweiten Obergrenze.
+        assert len(ergebnis.applied_caps) == 1
+        assert "Fehlsignalrisiko" in ergebnis.applied_caps[0]
+
     def test_nur_wirksame_deckelungen_werden_ausgewiesen(
         self, scoring_params: ScoringParameters
     ) -> None:
@@ -225,6 +248,9 @@ class TestBegrenzendeRisiken:
         )
         assert ergebnis.level is Recommendation.AVOID_FOR_NOW
         assert ergebnis.applied_caps == ()
+        # Der Befund selbst steht trotzdem in der Begruendung -- er liegt vor,
+        # er hat nur nichts veraendert.
+        assert any("Fehlsignalrisiko" in grund for grund in ergebnis.reasons)
 
 
 class TestHerleitung:

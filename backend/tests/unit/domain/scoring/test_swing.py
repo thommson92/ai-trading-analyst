@@ -99,7 +99,9 @@ def statistik(
     )
 
 
-def voten(anteil: float, *, gesamt: int = 30) -> AnalystRecommendations:
+def voten(
+    anteil: float, *, gesamt: int = 30, stand: date = date(2026, 8, 1)
+) -> AnalystRecommendations:
     """Eine Verteilung mit dem gewuenschten Kauf-Anteil.
 
     ``strong_buy`` und ``buy`` zaehlen zusammen, der Rest liegt auf ``hold``
@@ -111,7 +113,7 @@ def voten(anteil: float, *, gesamt: int = 30) -> AnalystRecommendations:
         evaluated_at=JETZT,
         periods=(
             RecommendationPeriod(
-                period=date(2026, 8, 1),
+                period=stand,
                 strong_buy=kaufe,
                 buy=0,
                 hold=gesamt - kaufe,
@@ -169,6 +171,11 @@ def rechne(
 def teilwert(score: ScoreResult, name: ComponentName) -> float | None:
     (komponente,) = [k for k in score.components if k.name is name]
     return komponente.value
+
+
+def _grund(score: ScoreResult) -> str:
+    (komponente,) = [k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS]
+    return komponente.reason or ""
 
 
 def teilwert_zwingend(score: ScoreResult, name: ComponentName) -> float:
@@ -464,6 +471,73 @@ class TestNewsUndEreignislage:
         )
         score = rechne(scoring_params, analysts=ohne)
         assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+    def test_ein_veralteter_monatsstand_zaehlt_nicht(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der Endpunkt liefert den juengsten Stand, den er kennt -- bei einem
+        Titel ohne Abdeckung ist das einer von vor zwei Jahren. Ohne Schranke
+        ginge er als heutige Nachrichtenlage mit vollem Gewicht ein."""
+        alt = voten(0.95, stand=date(2024, 1, 1))
+
+        score = rechne(scoring_params, analysts=alt)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+    def test_ein_ausgefallener_monatsstand_wird_noch_geduldet(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """62 Tage: Ein ausgefallener Stand geht durch, zwei nicht mehr. Ohne
+        die Gegenprobe liesse sich nicht unterscheiden, ob die Schranke wirkt
+        oder alles verwirft."""
+        knapp = voten(0.95, stand=date(2026, 7, 1))
+
+        score = rechne(scoring_params, analysts=knapp)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 10.0
+
+    def test_der_grund_nennt_das_alter(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(scoring_params, analysts=voten(0.95, stand=date(2024, 1, 1)))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert "2024-01-01" in (komponente.reason or "")
+        assert "Tage alt" in (komponente.reason or "")
+
+    def test_der_monatsstand_steht_auch_im_erfolgsfall_dabei(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Ein Anteil von vor einem halben Jahr ist etwas anderes als der von
+        gestern -- im Bericht muss man das sehen."""
+        score = rechne(scoring_params, analysts=voten(0.95))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert "2026-08-01" in (komponente.reason or "")
+
+    def test_die_vier_gruende_werden_auseinandergehalten(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Ein gemeinsamer Satz fuer alle vier stuende im Bericht und sagte
+        nichts."""
+        ohne_abruf = rechne(scoring_params, analysts=None)
+        ohne_abdeckung = rechne(
+            scoring_params,
+            analysts=AnalystRecommendations(
+                status=AnalystRecommendationStatus.UNKNOWN,
+                evaluated_at=JETZT,
+                reason="no_coverage",
+                source="fixture",
+            ),
+        )
+        zu_alt = rechne(scoring_params, analysts=voten(0.9, stand=date(2024, 1, 1)))
+
+        gruende = {
+            _grund(ohne_abruf),
+            _grund(ohne_abdeckung),
+            _grund(zu_alt),
+        }
+        assert len(gruende) == 3
 
     def test_ein_monatsstand_ohne_voten_ergibt_keinen_anteil(
         self, scoring_params: ScoringParameters

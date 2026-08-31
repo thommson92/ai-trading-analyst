@@ -859,6 +859,13 @@ class ScoringConfig(_Section):
     recommendation: RecommendationConfig = RecommendationConfig()
     swing_weights: SwingWeightsConfig = SwingWeightsConfig()
     long_term_weights: LongTermWeightsConfig = LongTermWeightsConfig()
+    analyst_max_age_days: PositiveInt = 62
+    """Aelter darf der juengste Monatsstand der Analystenvoten nicht sein.
+
+    **Gesetzt, nicht gemessen** (ADR 0046): Die Voten erscheinen monatlich;
+    62 Tage lassen einen ausgefallenen Stand durchgehen, zwei nicht mehr. Der
+    Endpunkt selbst kennt keine Schranke -- er liefert den juengsten Stand,
+    den er hat, auch wenn der zwei Jahre alt ist."""
     analyst_buy_share: MetricThresholdConfig = MetricThresholdConfig(
         boundaries=(0.4362, 0.5758, 0.6988, 0.8182), higher_is_better=True
     )

@@ -423,14 +423,26 @@ def _recommendation_columns(empfehlung: RecommendationResult | None) -> dict[str
 
 
 def _recommendation_from_row(row: ScreeningResultOrm) -> RecommendationResult | None:
+    """Die Stufe samt Herleitung -- **streng gelesen**, wie die Scores daneben.
+
+    Kein ``.get`` mit Ersatzwert: Geschrieben wird das Detail immer zusammen
+    mit der Stufe. Eine fehlende Version stillschweigend zu einer leeren
+    Zeichenkette zu machen ergaebe ein Ergebnis ohne Versionsangabe -- und
+    die verlangt CLAUDE.md an jedem.
+    """
     if row.recommendation is None:
         return None
-    detail: dict[str, Any] = row.recommendation_detail or {}
+    detail = row.recommendation_detail
+    if detail is None:
+        raise ValueError(
+            f"Screening-Ergebnis {row.id}: Empfehlungsstufe {row.recommendation} ohne "
+            "Herleitung -- die Zeile ist beschaedigt"
+        )
     return RecommendationResult(
         level=Recommendation(row.recommendation),
-        version=str(detail.get("version", "")),
-        reasons=tuple(detail.get("begruendung", ())),
-        applied_caps=tuple(detail.get("deckelungen", ())),
+        version=str(detail["version"]),
+        reasons=tuple(detail["begruendung"]),
+        applied_caps=tuple(detail["deckelungen"]),
     )
 
 

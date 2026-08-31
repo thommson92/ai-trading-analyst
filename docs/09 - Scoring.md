@@ -60,7 +60,9 @@ abdecken.
 
 Sie steht deshalb **allein auf der gezählten Analystenverteilung** — dem
 Anteil der Kauf-Voten am jüngsten Monatsstand, an 187 Titeln der Watchliste
-kalibriert. Die Recherche trägt nichts bei: Ihre Faktoren sind Freitext, und
+kalibriert und mit einer Aktualitätsschranke von 62 Tagen versehen: Der
+Endpunkt liefert den jüngsten Stand, den er kennt, auch wenn der zwei Jahre
+alt ist. Die Recherche trägt nichts bei: Ihre Faktoren sind Freitext, und
 aus Freitext entsteht nie ein Teilwert. Das ist eine Verengung gegenüber
 ADR 0041, kein Austausch, und in
 [ADR 0046](adr/0046-empfehlungsstufe-aus-beiden-scores.md) als solche

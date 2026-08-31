@@ -94,11 +94,17 @@ geschätzt**:
 
 | Zeile | Kandidaten, die passen |
 |---|---|
-| voll (drei Signale, Fehlsignalrisiko, Earnings-Hinweis) | 25 |
+| voll (drei Signale, Fehlsignalrisiko, Earnings-Hinweis) | 24 |
 | kurz (zwei Signale, keine Hinweise) | 51 |
 
 ADR 0040 hatte ohne Scores rund 65 genannt. Beide Enden sind als Test
 festgehalten; wandern sie, gehört die Zahl hier nachgezogen.
+
+Gemessen wird an dem, **was tatsächlich versendet wird** — also an
+`Betreff + Leerzeile + Text`, denn der Adapter kürzt die zusammengesetzte
+Zeichenkette. Ein erster Anlauf maß nur den Text und war damit um eine Zeile
+zu optimistisch; der Betreff wächst außerdem mit der Kandidatenzahl. Der Test
+schickt deshalb durch den Notifier und misst, was beim Transport ankommt.
 
 Die Kürzung selbst war seit ADR 0040 zugesichert und **bis heute ungeprüft**
 — das ist mit diesem ADR nachgeholt.
@@ -119,7 +125,7 @@ Die Kürzung selbst war seit ADR 0040 zugesichert und **bis heute ungeprüft**
 - **Analyseinhalte verlassen das eigene Netz in größerem Umfang.** Wer den
   Nachrichtenverlauf mitliest, sieht nicht mehr nur, welche Titel das System
   interessant fand, sondern auch, wie gut es sie fand.
-- **Bei mehr als 25 Kandidaten steht der Rest nur im Bericht.** Eine
+- **Bei mehr als 24 Kandidaten steht der Rest nur im Bericht.** Eine
   fachliche Obergrenze wird weiterhin nicht eingeführt, bevor gemessen ist,
   wie viele es an einem gewöhnlichen Tag sind — der erste produktive
   Tageslauf steht noch aus.

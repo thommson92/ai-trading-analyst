@@ -59,12 +59,17 @@ class FinnhubEarningsProvider:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        drossel: Drossel | None = None,
     ) -> None:
         self._settings = settings
         self._now = now
-        self._drossel = Drossel(settings.max_requests_per_second, sleep)
-        """Dasselbe Konto, dieselbe Grenze wie bei den Empfehlungen -- das
-        Limit gilt fuer das Konto, nicht fuer den Endpunkt."""
+        self._drossel = drossel or Drossel(settings.max_requests_per_second, sleep)
+        """**Eine Drossel je Konto, nicht je Endpunkt.** Finnhubs Grenze von
+        60 Anfragen je Minute gilt fuer den Zugangsschluessel; der Tageslauf
+        fragt je Kandidat beide Endpunkte unmittelbar nacheinander. Mit zwei
+        eigenen Drosseln liesse jede den ersten Aufruf sofort durch, und aus
+        einer Anfrage je Sekunde wuerden zwei. ``bootstrap`` reicht deshalb
+        dieselbe herein; der Default gilt nur fuer Tests und Einzelaufrufe."""
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``). ``None`` verwendet
         den echten Transport von ``httpx``."""

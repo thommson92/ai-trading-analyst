@@ -456,6 +456,11 @@ scoring:
     growth: 0.25
     valuation: 0.25
     balance_sheet_quality: 0.20
+  # Aelter darf der juengste Monatsstand der Analystenvoten nicht sein.
+  # Gesetzt: Die Voten erscheinen monatlich, 62 Tage lassen einen
+  # ausgefallenen Stand durchgehen, zwei nicht mehr. Der Endpunkt selbst
+  # kennt keine Schranke.
+  analyst_max_age_days: 62
   # Die News- und Ereignislage steht auf dem Anteil der Kauf-Voten am
   # juengsten Monatsstand (ADR 0046). Fuenftelgrenzen aus dem Lauf ueber 187
   # Titel der Watchliste vom 2026-08-31, gemessen mit
