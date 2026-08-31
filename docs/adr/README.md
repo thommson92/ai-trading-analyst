@@ -78,6 +78,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0041](0041-score-komponenten-und-gewichte.md) | Komponenten und Gewichte der beiden Scores | Angenommen (schliesst den Punkt, den ADR 0001 ausdruecklich offen liess; loest den Widerspruch zwischen Doc 09 und Doc 10 Paragraph 6.11) |
 | [0042](0042-kein-historischer-earnings-filter.md) | Der Backtest bekommt keinen historischen Earnings-Filter | Angenommen (entscheidet E3 des Audits vom 2026-08-23 -- verworfen mit Begruendung, nicht vertagt) |
 | [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
+| [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
 
 ## Offene Entscheidungen
 

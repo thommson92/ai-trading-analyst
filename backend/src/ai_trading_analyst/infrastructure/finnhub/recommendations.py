@@ -34,8 +34,7 @@ from ai_trading_analyst.domain.analysts import (
     RecommendationPeriod,
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
-
-from .redaction import redact
+from ai_trading_analyst.observability.secret_redaction import redact
 
 _logger = get_logger(__name__)
 

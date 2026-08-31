@@ -7,8 +7,12 @@ from pathlib import Path
 import pytest
 
 from ai_trading_analyst.config import ConfigError, default_config_path, load_config
-from ai_trading_analyst.config.loader import DEFAULT_CONFIG_ENV_VAR
+from ai_trading_analyst.config.loader import DEFAULT_CONFIG_ENV_VAR, load_secrets
 from ai_trading_analyst.config.settings import ResearchPricingConfig
+from ai_trading_analyst.observability.secret_redaction import (
+    forget_secrets,
+    redact_registered,
+)
 
 
 class TestLoadConfig:
@@ -160,3 +164,46 @@ class TestShippedDefaultConfig:
                 assert key.lstrip("- ") not in forbidden_keys, (
                     f"Geheimnis-verdaechtiger Schluessel: {key}"
                 )
+
+
+class TestGeheimnisseWerdenZurSchwaerzungAngemeldet:
+    """``load_secrets`` ist die einzige Stelle, an der der Betrieb
+    Geheimnisse laedt -- CLI, API und Scheduler gehen alle durch sie.
+
+    Die Anmeldung gehoert deshalb hierher und nicht in die einzelnen Adapter:
+    Sonst haengt der Schutz daran, dass jeder neue Adapter daran denkt, und
+    ein Geheimnis geraet auch an Stellen in eine Zeile, die sein eigener
+    Adapter nie sieht.
+    """
+
+    def test_ein_gesetztes_geheimnis_wird_angemeldet(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        forget_secrets()
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "geheimer-schluessel-1234")
+
+        load_secrets()
+
+        try:
+            geschwaerzt = redact_registered("token=geheimer-schluessel-1234")
+            assert "geheimer-schluessel-1234" not in geschwaerzt
+        finally:
+            forget_secrets()
+
+    def test_alle_gesetzten_geheimnisse_werden_angemeldet_nicht_nur_finnhub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Befund kam von Finnhub, die Luecke war allgemein: Auch der
+        LLM-Schluessel und der Telegram-Token koennen in eine Zeile geraten."""
+        forget_secrets()
+        monkeypatch.setenv("ATA_LLM_API_KEY", "llm-schluessel-abcdef")
+        monkeypatch.setenv("ATA_NOTIFICATION_TOKEN", "telegram-token-abcdef")
+
+        load_secrets()
+
+        try:
+            geschwaerzt = redact_registered("a=llm-schluessel-abcdef b=telegram-token-abcdef")
+            assert "llm-schluessel-abcdef" not in geschwaerzt
+            assert "telegram-token-abcdef" not in geschwaerzt
+        finally:
+            forget_secrets()

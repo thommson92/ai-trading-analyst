@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from ai_trading_analyst.config.settings import AppConfig, Secrets
+from ai_trading_analyst.observability.secret_redaction import register_secret
 
 DEFAULT_CONFIG_ENV_VAR = "ATA_CONFIG_FILE"
 _DEFAULT_CONFIG_FILENAME = "default.yaml"
@@ -84,5 +85,16 @@ def load_config(path: Path | None = None) -> LoadedConfig:
 
 
 def load_secrets() -> Secrets:
-    """Liest die Geheimnisse aus den Umgebungsvariablen."""
-    return Secrets()
+    """Liest die Geheimnisse aus den Umgebungsvariablen.
+
+    Meldet dabei jeden gesetzten Wert bei der Schwaerzung an. Diese Funktion
+    ist die einzige Stelle, an der der Betrieb Geheimnisse laedt -- CLI, API
+    und Scheduler gehen alle durch sie hindurch. Der Schutz haengt damit
+    nicht daran, dass ein einzelner Adapter daran denkt.
+    """
+    secrets = Secrets()
+    for field_name in type(secrets).model_fields:
+        value: SecretStr | None = getattr(secrets, field_name)
+        if value is not None:
+            register_secret(value.get_secret_value())
+    return secrets
