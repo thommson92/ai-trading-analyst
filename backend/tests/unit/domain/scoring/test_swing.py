@@ -532,12 +532,12 @@ class TestNewsUndEreignislage:
         )
         zu_alt = rechne(scoring_params, analysts=voten(0.9, stand=date(2024, 1, 1)))
 
-        gruende = {
-            _grund(ohne_abruf),
-            _grund(ohne_abdeckung),
-            _grund(zu_alt),
-        }
-        assert len(gruende) == 3
+        # Nicht nur verschieden, sondern jeder sagt, was los ist: Drei
+        # verschiedene Platzhalter waeren auch verschieden und truegen
+        # trotzdem nichts bei.
+        assert "nicht abgerufen" in _grund(ohne_abruf)
+        assert "no_coverage" in _grund(ohne_abdeckung)
+        assert "Tage alt" in _grund(zu_alt)
 
     def test_ein_monatsstand_ohne_voten_ergibt_keinen_anteil(
         self, scoring_params: ScoringParameters

@@ -209,7 +209,7 @@ def _finnhub_drossel(max_requests_per_second: float) -> Drossel:
     durch und verdoppelten die Rate -- genau der ``429``, den die Drossel
     verhindern soll.
 
-    ``lru_cache``, weil die beiden ``build_*``-Funktionen unabhaengig
+    ``cache``, weil die beiden ``build_*``-Funktionen unabhaengig
     voneinander aufgerufen werden: einmal aus ``build_app``, einmal aus dem
     CLI. Ein Modul-Singleton waere dasselbe, nur ohne den Schluessel auf die
     Rate.
