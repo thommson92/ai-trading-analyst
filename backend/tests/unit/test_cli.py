@@ -279,6 +279,20 @@ def wendepreise() -> list[float]:
     return [300.0 - index for index in range(254)] + [50.0 + index * 25.0 for index in range(6)]
 
 
+class _FakeEngine:
+    """Haelt fest, ob die Verbindung freigegeben wurde.
+
+    Der Kurslauf haengt vor einem minutenlangen EDGAR-Abruf; ein offener
+    Pool ueberdauerte ihn ohne Grund.
+    """
+
+    def __init__(self) -> None:
+        self.freigegeben = False
+
+    def dispose(self) -> None:
+        self.freigegeben = True
+
+
 def _config_mit_ibkr_bestand() -> AppConfig:
     """Eine Konfiguration, die ``--price-from-bars`` durchlaesst.
 
@@ -2076,16 +2090,186 @@ class TestFundamentalKommando:
         assert cli.command_fundamental(args) == 2
         assert "braucht den ueber IBKR gefuellten Bestand" in capsys.readouterr().err
 
-    def test_der_unterbefehl_kennt_den_schalter(self) -> None:
-        args = build_parser().parse_args(["fundamental", "--watchlist", "--price-from-bars"])
-        assert args.price_from_bars is True
-        assert args.price is None
+    def test_ohne_den_schalter_wird_der_bestand_nicht_angefasst(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Bestand wird nicht heimlich angezapft.
 
-    def test_ohne_den_schalter_bleibt_der_kurs_aus(self) -> None:
-        """Der Bestand wird nicht heimlich angezapft: Ein Lauf ohne den
-        Schalter rechnet weiter ohne Bewertungskennzahlen."""
-        args = build_parser().parse_args(["fundamental", "--watchlist"])
-        assert args.price_from_bars is False
+        Geprueft wird, dass ``_kurse_aus_dem_bestand`` **ungerufen** bleibt --
+        ein Test auf den argparse-Default sagte darueber nichts.
+        """
+        gerufen: list[object] = []
+
+        def merken(
+            *args: object, **kwargs: object
+        ) -> tuple[dict[str, float], dict[str, object], list[object]]:
+            gerufen.append(args)
+            return {}, {}, []
+
+        monkeypatch.setattr(cli, "_kurse_aus_dem_bestand", merken)
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--provider", "fixture"]
+        )
+        cli.command_fundamental(args)
+        assert gerufen == []
+
+    def test_der_kurs_aus_dem_bestand_erreicht_den_anbieter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Die Verdrahtung, nicht nur die Ermittlung.
+
+        Waere das dict nach ``stock.id`` statt nach Symbol verschluesselt,
+        bliebe jeder andere Test gruen und der Anbieter bekaeme ``None``.
+        """
+        gesehen: dict[str, float | None] = {}
+
+        class Anbieter:
+            def fundamentals(self, stock: Stock, price: float | None = None) -> object:
+                gesehen[stock.symbol] = price
+                raise FundamentalDataProviderError("reicht -- der Kurs ist geprueft")
+
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", lambda *a, **k: Anbieter())
+        monkeypatch.setattr(
+            cli,
+            "_kurse_aus_dem_bestand",
+            lambda *a, **k: ({"AAPL": 232.14}, {"AAPL": datetime(2026, 8, 31, tzinfo=UTC)}, []),
+        )
+
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL,NVDA", "--price-from-bars"]
+        )
+        cli.command_fundamental(args)
+
+        assert gesehen["AAPL"] == pytest.approx(232.14)
+        # NVDA hatte keinen Kurs -- kein Ersatzwert, kein Kurs des Nachbarn.
+        assert gesehen["NVDA"] is None
+
+    def test_der_grund_fuer_einen_fehlenden_kurs_wird_genannt(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Eine weggebrochene Datenbank und eine lueckenhafte Historie
+        melden sich beide beim Laden der Kerzen. Unter einer Sammelmeldung
+        "nicht im Bestand" saehen sie aus wie ein fehlender Backfill -- und
+        der Leser suchte an der falschen Stelle.
+        """
+        monkeypatch.setattr(
+            cli,
+            "_kurse_aus_dem_bestand",
+            lambda *a, **k: ({}, {}, [("AAPL", "lueckenhafte Historie: zur Kerze fehlen Bars")]),
+        )
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--provider", "fixture", "--price-from-bars"]
+        )
+        cli.command_fundamental(args)
+
+        assert "lueckenhafte Historie" in capsys.readouterr().err
+
+    def test_der_anbieterfehler_wird_nicht_zu_nicht_im_bestand(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Derselbe Befund an der Quelle: ``_kurse_aus_dem_bestand`` selbst
+        darf die Ursache nicht verschlucken."""
+
+        class Kaputt:
+            def list_stocks(self) -> Sequence[Stock]:
+                return (Stock(id=uuid.uuid4(), symbol="AAPL", exchange="NASDAQ"),)
+
+            def get_candle_series(self, stock: Stock) -> CandleSeries:
+                raise MarketDataProviderError("Der Bestand von 'AAPL' ist nicht lesbar")
+
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(cli, "build_market_data_provider", lambda *a, **k: Kaputt())
+
+        config = _config_mit_ibkr_bestand()
+        ergebnis = cli._kurse_aus_dem_bestand(_loaded(config), config, ["AAPL"])
+
+        assert ergebnis is not None
+        _, _, ohne = ergebnis
+        assert ohne == [("AAPL", "Der Bestand von 'AAPL' ist nicht lesbar")]
+
+    def test_die_kursherkunft_steht_auch_ohne_summary_da(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Ohne --summary laeuft die Auswertung gar nicht. Stuende das Alter
+        nur dort, waere ein Lauf mit --output blind fuer einen drei Wochen
+        alten Bestand."""
+        cli._print_kursherkunft({"AAPL": datetime(2026, 8, 28, tzinfo=UTC)}, gesamt=190)
+        ausgabe = capsys.readouterr().out
+        assert "1 von 190" in ausgabe
+        assert "2026-08-28" in ausgabe
+
+    def test_ohne_einen_einzigen_kurs_sagt_die_herkunft_das_auch(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli._print_kursherkunft({}, gesamt=190)
+        assert "Kein einziger Kurs" in capsys.readouterr().out
+
+    def test_teilweise_kurse_unterdruecken_den_hinweis_nicht(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Bei einem von zwei Titeln gilt der Hinweis fuer den anderen weiter.
+
+        Der Test laeuft durch ``command_fundamental``, damit er die
+        **Berechnung** von ``mit_kurs`` prueft. Ein direkter Aufruf der
+        Auswertung mit ``mit_kurs=False`` bewiese nur, dass die Funktion
+        ausgibt, was man ihr sagt.
+        """
+        snapshot = self._snapshot()
+
+        class Anbieter:
+            def fundamentals(self, stock: Stock, price: float | None = None) -> object:
+                return snapshot
+
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", lambda *a, **k: Anbieter())
+        monkeypatch.setattr(
+            cli,
+            "_kurse_aus_dem_bestand",
+            lambda *a, **k: (
+                {"AAPL": 232.14},
+                {"AAPL": datetime(2026, 8, 31, tzinfo=UTC)},
+                [("NVDA", "nicht im Bestand")],
+            ),
+        )
+
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL,NVDA", "--price-from-bars", "--summary"]
+        )
+        cli.command_fundamental(args)
+
+        assert "Ohne Kurs" in capsys.readouterr().out
+
+    def test_vollstaendige_kurse_unterdruecken_den_hinweis(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Gegenrichtung -- sonst bestuende der Test auch, wenn der
+        Hinweis immer erschiene."""
+        snapshot = self._snapshot()
+
+        class Anbieter:
+            def fundamentals(self, stock: Stock, price: float | None = None) -> object:
+                return snapshot
+
+        monkeypatch.setattr(cli, "build_fundamental_data_provider", lambda *a, **k: Anbieter())
+        monkeypatch.setattr(
+            cli,
+            "_kurse_aus_dem_bestand",
+            lambda *a, **k: (
+                {"AAPL": 232.14, "NVDA": 180.0},
+                {
+                    "AAPL": datetime(2026, 8, 31, tzinfo=UTC),
+                    "NVDA": datetime(2026, 8, 31, tzinfo=UTC),
+                },
+                [],
+            ),
+        )
+
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL,NVDA", "--price-from-bars", "--summary"]
+        )
+        cli.command_fundamental(args)
+
+        assert "Ohne Kurs" not in capsys.readouterr().out
 
     def test_der_kurs_ist_der_schluss_der_letzten_abgeschlossenen_kerze(
         self, monkeypatch: pytest.MonkeyPatch
@@ -2098,7 +2282,7 @@ class TestFundamentalKommando:
         faende man das nie.
         """
         series = kerzenreihe([100.0, 232.14])
-        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
         monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
         monkeypatch.setattr(
             cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
@@ -2113,6 +2297,48 @@ class TestFundamentalKommando:
         assert stempel["AAPL"] == series.candles[-1].timestamp
         assert ohne == []
 
+    def test_die_datenbankverbindung_wird_freigegeben(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Danach folgt ein minutenlanger EDGAR-Abruf. Ein offener Pool
+        ueberdauerte ihn ohne Grund."""
+        engine = _FakeEngine()
+        series = kerzenreihe([100.0, 232.14])
+        monkeypatch.setattr(cli, "_open_database", lambda: engine)
+        monkeypatch.setattr(cli, "build_session_factory", lambda e: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+
+        config = _config_mit_ibkr_bestand()
+        cli._kurse_aus_dem_bestand(_loaded(config), config, ["AAPL"])
+
+        assert engine.freigegeben is True
+
+    def test_der_bestand_wird_als_gespeicherte_quelle_gelesen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nicht live: Das Kommando soll ohne TWS laufen. Der Anbieter wird
+        mit ``source="stored"`` gebaut, auch wenn die Konfiguration etwas
+        anderes sagt."""
+        gesehen: dict[str, str] = {}
+
+        def bauer(config: AppConfig, *a: object, **k: object) -> object:
+            gesehen["source"] = config.market_data.source
+            return FakeProvider(kerzenreihe([100.0, 232.14]))
+
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda e: None)
+        monkeypatch.setattr(cli, "build_market_data_provider", bauer)
+
+        basis = _config_mit_ibkr_bestand()
+        config = basis.model_copy(
+            update={"market_data": basis.market_data.model_copy(update={"source": "live"})}
+        )
+        cli._kurse_aus_dem_bestand(_loaded(config), config, ["AAPL"])
+
+        assert gesehen["source"] == "stored"
+
     def test_eine_aktie_ohne_bestand_rechnet_ohne_kurs_statt_zu_scheitern(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2121,7 +2347,7 @@ class TestFundamentalKommando:
         genau wie ein Lauf ohne Kurs (ADR 0032, nicht blockierende Eingabe).
         """
         series = kerzenreihe([100.0, 232.14])
-        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
         monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
         monkeypatch.setattr(
             cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
@@ -2133,7 +2359,7 @@ class TestFundamentalKommando:
         kurse, _, ohne = ergebnis
 
         assert "AAPL" in kurse
-        assert ohne == ["NIEGEHOERT"]
+        assert ohne == [("NIEGEHOERT", "nicht im Bestand")]
 
     def test_symbole_und_watchlist_schliessen_sich_aus(
         self, capsys: pytest.CaptureFixture[str]
@@ -2230,33 +2456,6 @@ class TestFundamentalKommando:
         assert "Ohne Kurs" in capsys.readouterr().out
         cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
         assert "Ohne Kurs" not in capsys.readouterr().out
-
-    def test_die_auswertung_zeigt_das_alter_der_kurse(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Ein veralteter Bestand rechnet still falsche Bewertungskennzahlen:
-        Ein KGV aus dem Gewinn von heute und dem Kurs von vor drei Wochen
-        sieht aus wie ein KGV."""
-        cli._print_fundamental_aggregate(
-            [self._snapshot()],
-            [],
-            mit_kurs=True,
-            kurs_stempel={
-                "AAPL": datetime(2026, 8, 28, 16, 45, tzinfo=UTC),
-                "NVDA": datetime(2026, 8, 31, 16, 45, tzinfo=UTC),
-            },
-        )
-        ausgabe = capsys.readouterr().out
-        assert "aelteste Kerze 2026-08-28" in ausgabe
-        assert "neueste 2026-08-31" in ausgabe
-
-    def test_ohne_kurse_aus_dem_bestand_steht_kein_alter_da(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Bei --price gibt es keinen Kerzenzeitpunkt -- eine Zeile ueber das
-        Alter waere dort eine erfundene Angabe."""
-        cli._print_fundamental_aggregate([self._snapshot()], [], mit_kurs=True)
-        assert "aelteste Kerze" not in capsys.readouterr().out
 
     def test_fehlschlaege_stehen_am_ende_noch_einmal(
         self, capsys: pytest.CaptureFixture[str]

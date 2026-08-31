@@ -1768,14 +1768,12 @@ def command_fundamental(args: argparse.Namespace) -> int:
         if ergebnis is None:
             return 2
         kurse, kurs_stempel, ohne_bestand = ergebnis
-        for symbol in ohne_bestand:
+        for symbol, grund in ohne_bestand:
             # Kein Ersatzwert und keine stille Auslassung: Die Aktie wird
             # ausgewertet, nur eben ohne die vier bewertungsabhaengigen
             # Kennzahlen -- genau wie ein Lauf ohne Kurs (ADR 0032).
-            print(
-                f"{symbol}: keine Kerzen im Bestand, rechnet ohne Kurs.",
-                file=sys.stderr,
-            )
+            print(f"{symbol}: {grund}, rechnet ohne Kurs.", file=sys.stderr)
+        _print_kursherkunft(kurs_stempel, len(wanted))
 
     fehler: list[tuple[str, str]] = []
     ergebnisse: list[FundamentalSnapshot] = []
@@ -1805,15 +1803,18 @@ def command_fundamental(args: argparse.Namespace) -> int:
         _print_fundamental_aggregate(
             ergebnisse,
             fehler,
-            mit_kurs=args.price is not None or bool(kurse),
-            kurs_stempel=kurs_stempel,
+            # Nur wenn JEDE Aktie einen Kurs hatte. Bei fuenf von hundert
+            # gilt der Hinweis fuer die anderen fuenfundneunzig weiter --
+            # sonst saehe ihre gedrueckte Abdeckung wieder wie ein Mangel
+            # der Tag-Listen aus.
+            mit_kurs=args.price is not None or len(kurse) == len(wanted),
         )
     return 1 if fehler else 0
 
 
 def _kurse_aus_dem_bestand(
     loaded: LoadedConfig, config: AppConfig, wanted: Sequence[str]
-) -> tuple[dict[str, float], dict[str, datetime], list[str]] | None:
+) -> tuple[dict[str, float], dict[str, datetime], list[tuple[str, str]]] | None:
     """Schlusskurse der letzten abgeschlossenen Kerze je Symbol.
 
     **Dieselbe Regel wie im Tageslauf** (``RunAnalysisUseCase``, ADR 0035
@@ -1821,7 +1822,8 @@ def _kurse_aus_dem_bestand(
     Live-Kurs. Die Fundamentalanalyse beschafft weiterhin keinen Kurs selbst;
     sie bekommt ihn gereicht (ADR 0032, CLAUDE.md).
 
-    Liefert Kurse, deren Kerzenzeitpunkte und die Symbole ohne Bestand.
+    Liefert Kurse, deren Kerzenzeitpunkte und die Symbole ohne Kurs mit dem
+    jeweiligen Grund.
     ``None`` heisst: Die Vorbedingungen stimmen nicht, der Aufrufer bricht ab.
     """
     if config.market_data.provider != "ibkr":
@@ -1832,7 +1834,9 @@ def _kurse_aus_dem_bestand(
         print(
             "--price-from-bars braucht den ueber IBKR gefuellten Bestand, "
             f"market_data.provider steht aber auf '{config.market_data.provider}'. "
-            "Erst 'backfill' laufen lassen oder den Schalter weglassen.",
+            "Entweder market_data.provider auf 'ibkr' stellen oder den Schalter "
+            "weglassen -- 'fundamental --provider' uebersteuert nur die "
+            "Fundamentalquelle, nicht die Marktdatenquelle.",
             file=sys.stderr,
         )
         return None
@@ -1856,24 +1860,51 @@ def _kurse_aus_dem_bestand(
     bekannt = {stock.symbol: stock for stock in provider.list_stocks()}
     kurse: dict[str, float] = {}
     stempel: dict[str, datetime] = {}
-    ohne_bestand: list[str] = []
+    ohne_bestand: list[tuple[str, str]] = []
     for symbol in wanted:
         stock = bekannt.get(symbol)
         if stock is None:
-            ohne_bestand.append(symbol)
+            ohne_bestand.append((symbol, "nicht im Bestand"))
             continue
         try:
             series = provider.get_candle_series(stock)
-        except MarketDataProviderError:
-            ohne_bestand.append(symbol)
+        except MarketDataProviderError as error:
+            # Die Ursache mitnehmen, nicht verschlucken (Muster
+            # 'technical'): Eine weggebrochene Datenbank und eine
+            # lueckenhafte Historie melden sich beide hier. Unter der
+            # Sammelmeldung "nicht im Bestand" saehen sie aus wie ein
+            # fehlender Backfill -- und der Leser suchte an der falschen
+            # Stelle.
+            ohne_bestand.append((symbol, str(error)))
             continue
         if not series.candles:
-            ohne_bestand.append(symbol)
+            ohne_bestand.append((symbol, "keine Kerzen"))
             continue
         letzte = series.candles[-1]
         kurse[symbol] = letzte.close
         stempel[symbol] = letzte.timestamp
+    engine.dispose()
     return kurse, stempel, ohne_bestand
+
+
+def _print_kursherkunft(kurs_stempel: Mapping[str, datetime], gesamt: int) -> None:
+    """Woher die Kurse stammen und wie alt sie sind.
+
+    **Unabhaengig von ``--summary``.** Ein veralteter Bestand rechnet sonst
+    still falsche Bewertungskennzahlen: Ein KGV aus dem Gewinn von heute und
+    dem Kurs von vor drei Wochen sieht aus wie ein KGV. Der Tageslauf hat
+    dafuer ``_require_expected_candle``; dieses Kommando laeuft bewusst auch
+    auf aelterem Bestand und weist ihn deshalb aus, statt ihn abzulehnen.
+    """
+    if not kurs_stempel:
+        print("Kein einziger Kurs aus dem Bestand -- alle Aktien rechnen ohne.")
+        return
+    zeitpunkte = sorted(kurs_stempel.values())
+    print(
+        f"Kurse aus dem Bestand fuer {len(kurs_stempel)} von {gesamt} Aktien: "
+        f"aelteste Kerze {zeitpunkte[0].isoformat()}, "
+        f"neueste {zeitpunkte[-1].isoformat()}"
+    )
 
 
 def _print_fundamental_summary_line(snapshot: FundamentalSnapshot) -> None:
@@ -1897,7 +1928,6 @@ def _print_fundamental_aggregate(
     fehler: Sequence[tuple[str, str]],
     *,
     mit_kurs: bool,
-    kurs_stempel: Mapping[str, datetime] | None = None,
 ) -> None:
     """Die Auswertung, um die es beim Watchlist-Lauf geht (ADR 0032 L1).
 
@@ -1916,16 +1946,7 @@ def _print_fundamental_aggregate(
         f"Abdeckung: niedrigste {abdeckungen[0]:.0%}, Median {mitte:.0%}, "
         f"hoechste {abdeckungen[-1]:.0%}"
     )
-    if kurs_stempel:
-        # Ein veralteter Bestand rechnet still falsche Bewertungskennzahlen:
-        # Ein KGV aus dem Gewinn von heute und dem Kurs von vor drei Wochen
-        # sieht aus wie ein KGV. Deshalb steht das Alter in der Auswertung
-        # und nicht nur im Protokoll.
-        zeitpunkte = sorted(kurs_stempel.values())
-        print(
-            f"Kurse aus dem Bestand fuer {len(kurs_stempel)} Aktien: aelteste Kerze "
-            f"{zeitpunkte[0].isoformat()}, neueste {zeitpunkte[-1].isoformat()}"
-        )
+
     if not mit_kurs:
         print(
             "Ohne Kurs entfallen die vier bewertungsabhaengigen Kennzahlen bei "
@@ -3033,7 +3054,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Nimmt je Aktie den Schluss der letzten abgeschlossenen Kerze aus dem "
             "gespeicherten Bestand -- dieselbe Regel wie im Tageslauf (ADR 0035). "
             "Erst damit rechnet ein Lauf ueber die Watchliste die vier "
-            "bewertungsabhaengigen Kennzahlen. Setzt einen gefuellten Bestand voraus."
+            "bewertungsabhaengigen Kennzahlen. Setzt einen gefuellten Bestand voraus "
+            "und laedt dafuer die volle Historie jeder Aktie -- das verdoppelt die "
+            "Laufzeit ungefaehr."
         ),
     )
     fundamental.add_argument(
