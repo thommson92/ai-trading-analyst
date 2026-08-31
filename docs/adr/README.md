@@ -171,6 +171,13 @@ ADR, sobald die nötigen Informationen vorliegen:
   sondern `INSUFFICIENT_DATA`. Siehe
   [ADR 0041](0041-score-komponenten-und-gewichte.md) und den Nachtrag an
   [ADR 0001](0001-dokumentenhierarchie.md). **Die Schwellen** (Kennzahl →
-  Teilwert 0–10) sind damit ausdrücklich **noch nicht** entschieden — sie
-  werden in Sprint 5 an einem Lauf über die volle Watchliste kalibriert.
+  Teilwert 0–10) sind inzwischen ebenfalls entschieden: an 191 Titeln der
+  Watchliste gemessen, siehe
+  [ADR 0045](0045-schwellen-der-score-teilwerte.md). Damit rechnen beide
+  Scores.
+- Ableitung der Empfehlungsstufe aus beiden Scores (Berichtspunkt 16) —
+  **offen**, bekommt ein eigenes ADR 0046. Bis dahin führt der Bericht den
+  Punkt als Lücke mit genau diesem Grund. Dieselbe Entscheidung liefert die
+  Komponente „News- und Ereignislage" des Swing-Scores nach; bis dahin
+  rechnet er auf 80 % Abdeckung.
 - Externer Zugriff auf das Dashboard (F12)

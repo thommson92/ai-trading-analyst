@@ -11,6 +11,14 @@ from datetime import UTC, datetime
 
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
+from ai_trading_analyst.domain.scoring import (
+    ComponentName,
+    ScoreComponent,
+    ScoreConfidence,
+    ScoreKind,
+    ScoreResult,
+    ScoreStatus,
+)
 from ai_trading_analyst.presentation.report_text import render_report, render_run
 from tests.unit.domain.report.conftest import (
     make_backtest,
@@ -87,3 +95,40 @@ class TestGanzerLauf:
         text = render_run([("AAA", dokument()), ("BBB", dokument())])
         assert "=== AAA ===" in text
         assert "=== BBB ===" in text
+
+
+class TestScoreInDerLesbarenFassung:
+    def test_der_score_erscheint_mit_teilwerten_und_begruendung(self) -> None:
+        """Die Textfassung ist das, was der Betreiber auf dem Server sieht.
+        Ein Score, der dort nur als Zahl ankaeme, waere die Scheingenauigkeit
+        aus Doc 10, Paragraph 6.11."""
+        score = ScoreResult(
+            kind=ScoreKind.SWING,
+            status=ScoreStatus.COMPLETED,
+            version="1.0",
+            value=8.6,
+            components=(
+                ScoreComponent(
+                    name=ComponentName.TECHNICAL_SIGNALS,
+                    weight=0.25,
+                    value=10.0,
+                    effective_weight=0.3125,
+                    reason="3 von 3 Signalen",
+                ),
+                ScoreComponent(
+                    name=ComponentName.OPTIONS_ATTRACTIVENESS,
+                    weight=0.10,
+                    reason="die Optionsanalyse ist noch nicht gebaut (ADR 0048)",
+                ),
+            ),
+            coverage=0.9,
+            confidence=ScoreConfidence.NORMAL,
+        )
+
+        text = render_report(dokument(swing_score=score), symbol="AAPL")
+
+        assert "8.6" in text
+        assert "TECHNICAL_SIGNALS" in text
+        assert "3 von 3 Signalen" in text
+        # Auch die Luecke steht da -- mit ihrem Grund, nicht als Null.
+        assert "die Optionsanalyse ist noch nicht gebaut (ADR 0048)" in text
