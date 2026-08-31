@@ -121,9 +121,7 @@ class IbkrOptionsProvider:
         )
         if termin is None:
             return unzureichend(
-                f"kein Verfallstermin zwischen {self._parameters.min_days_to_expiration} und "
-                f"{self._parameters.max_days_to_expiration} Tagen gelistet "
-                f"({len(struktur.expirations)} Termine in der Kette)",
+                _kein_termin_im_fenster(struktur, as_of=as_of, parameters=self._parameters),
                 evaluated_at=evaluated_at,
                 parameters=self._parameters,
                 underlying_price=price,
@@ -182,3 +180,45 @@ class IbkrOptionsProvider:
             zones=zones,
             next_earnings_date=next_earnings_date,
         )
+
+
+_TERMINE_IN_DER_MELDUNG = 6
+"""Wie viele Verfallstermine der Grund aufzaehlt. Genug, um eine Kette mit
+Wochenoptionen von einer ohne zu unterscheiden -- und wenig genug, dass die
+Zeile lesbar bleibt."""
+
+
+def _kein_termin_im_fenster(
+    struktur: OptionChainStructure, *, as_of: date, parameters: OptionsParameters
+) -> str:
+    """Warum das Zielfenster leer blieb -- mit den Zahlen, die es erklaeren.
+
+    Der Messlauf vom 2026-08-31 liess 77 von 192 Titeln aus **einem** Grund
+    ausfallen, und die Sammelmeldung "kein Verfallstermin gelistet" reichte
+    nicht aus, um zwei sehr verschiedene Ursachen zu unterscheiden: eine
+    Kette, die nur Monatsverfaelle fuehrt (dann liegt das Fenster zwischen
+    zwei Terminen), und eine, bei der der Adapter die falsche Kette erwischt
+    hat (dann fehlen die Wochentermine, die es gibt).
+
+    Der Grund nennt deshalb die naechsten Termine auf beiden Seiten, die
+    Handelsklasse und die Boerse. Eine Zeile je ausgefallenem Titel, und die
+    Frage ist beantwortet, statt dass ein zweiter Messlauf noetig waere.
+    """
+    abstaende = sorted((termin - as_of).days for termin in struktur.expirations)
+    darunter = [tage for tage in abstaende if tage < parameters.min_days_to_expiration]
+    darueber = [tage for tage in abstaende if tage > parameters.max_days_to_expiration]
+    nachbarn = (
+        f"naechste {darunter[-1] if darunter else '--'} und "
+        f"{darueber[0] if darueber else '--'} Tage"
+    )
+    liste = ", ".join(
+        termin.isoformat() for termin in struktur.expirations[:_TERMINE_IN_DER_MELDUNG]
+    )
+    if len(struktur.expirations) > _TERMINE_IN_DER_MELDUNG:
+        liste += ", ..."
+    return (
+        f"kein Verfallstermin zwischen {parameters.min_days_to_expiration} und "
+        f"{parameters.max_days_to_expiration} Tagen gelistet -- {nachbarn} "
+        f"(Klasse '{struktur.trading_class}' ueber {struktur.exchange}, "
+        f"{len(struktur.expirations)} Termine: {liste})"
+    )

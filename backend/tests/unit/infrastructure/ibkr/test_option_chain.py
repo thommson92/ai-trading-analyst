@@ -9,7 +9,7 @@ dahinter hat ihre eigenen Tests in ``tests/unit/domain/options``.
 from __future__ import annotations
 
 import math
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -137,6 +137,21 @@ class TestKettenabruf:
         struktur = quelle(ib).option_chain(AAPL)
         assert struktur.exchange == "SMART"
         assert struktur.strikes == (90.0, 100.0)
+
+    def test_unter_mehreren_smart_klassen_gewinnt_die_reichste(self) -> None:
+        """Ein Basiswert kann mehrere Handelsklassen haben -- neben der
+        regulaeren etwa eine nach einem Split angepasste, die nur noch wenige
+        Termine fuehrt. Die zu erwischen, weil sie zufaellig zuerst kommt,
+        saehe aus wie "dieser Titel hat keine Wochenoptionen"."""
+        angepasst = FakeKette("SMART", ["20261016"], [100.0])
+        angepasst.tradingClass = "NFLX1"
+        regulaer = FakeKette("SMART", ["20260925", "20261002", "20261016"], [100.0])
+        ib = FakeIb(ketten=[angepasst, regulaer])
+
+        struktur = quelle(ib).option_chain(AAPL)
+
+        assert struktur.trading_class == "AAPL"
+        assert len(struktur.expirations) == 3
 
     def test_ohne_smart_gewinnt_die_reichste_kette(self) -> None:
         ib = FakeIb(
@@ -351,3 +366,51 @@ class TestGelisteteStrikes:
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
         assert "kein einziger Put gelistet" in (analyse.reason or "")
         assert quelle.angefragte_strikes == []
+
+
+class TestGrundOhneVerfallstermin:
+    """Der Grund muss zwei Ursachen unterscheiden koennen (Messlauf 2026-08-31).
+
+    Eine Kette, die nur Monatsverfaelle fuehrt, und eine, bei der der Adapter
+    die falsche Klasse erwischt hat, ergaben dieselbe Sammelmeldung -- und
+    damit war nicht zu entscheiden, ob eine Fensteranpassung oder ein
+    Codefehler die Antwort ist.
+    """
+
+    # Der Tag des Messlaufs. Von ihm aus liegt der Septemberverfall
+    # 18 Tage und der Oktoberverfall 46 Tage entfernt -- das Fenster 21-45
+    # trifft keinen von beiden.
+    MESSLAUF = date(2026, 8, 31)
+
+    def _grund(self, expirations: tuple[date, ...], *, as_of: date = MESSLAUF) -> str:
+        quelle = FakeQuelle(struktur(expirations=expirations))
+        analyse = provider(quelle).options(AKTIE, price=100.0, as_of=as_of)
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        return analyse.reason or ""
+
+    def test_die_naechsten_termine_auf_beiden_seiten_stehen_drin(self) -> None:
+        """Genau die Lage vom 2026-08-31: dritter Freitag im September 18
+        Tage voraus, dritter Freitag im Oktober 46 -- einer zu wenig, einer
+        zu viel."""
+        grund = self._grund((date(2026, 9, 18), date(2026, 10, 16)))
+
+        assert "naechste 18 und 46 Tage" in grund
+
+    def test_eine_fehlende_seite_wird_als_fehlend_gezeigt(self) -> None:
+        grund = self._grund((date(2026, 10, 16),))
+
+        assert "naechste -- und 46 Tage" in grund
+
+    def test_handelsklasse_und_boerse_stehen_dabei(self) -> None:
+        """Ohne sie liesse sich eine angepasste Klasse nicht erkennen."""
+        grund = self._grund((date(2026, 10, 16),))
+
+        assert "Klasse 'AAPL' ueber SMART" in grund
+
+    def test_die_termine_werden_aufgezaehlt_aber_gekuerzt(self) -> None:
+        viele = tuple(date(2026, 11, 20) + timedelta(days=30 * i) for i in range(9))
+
+        grund = self._grund(viele)
+
+        assert grund.count("2026-") + grund.count("2027-") == 6
+        assert grund.endswith("...)")

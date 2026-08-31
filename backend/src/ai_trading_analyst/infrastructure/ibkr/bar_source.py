@@ -201,11 +201,18 @@ class OptionChainStructure:
 
 
 def _bevorzugte_kette(ketten: Sequence[Any]) -> Any:
-    """Die SMART-Kette, sonst die mit den meisten Verfallsterminen."""
-    for kette in ketten:
-        if str(kette.exchange) == "SMART":
-            return kette
-    return max(ketten, key=lambda kette: len(kette.expirations))
+    """Die reichste SMART-Kette, sonst die reichste ueberhaupt.
+
+    **Nicht die erste SMART-Kette:** ``reqSecDefOptParams`` liefert einen
+    Eintrag je Kombination aus Boerse und Handelsklasse, und ein Basiswert
+    kann mehrere Klassen haben -- neben der regulaeren etwa eine angepasste
+    nach einem Split oder einer Sonderdividende. Die angepasste fuehrt
+    typischerweise nur noch wenige Termine. Sie zu erwischen, weil sie
+    zufaellig zuerst kommt, sieht aus wie "dieser Titel hat keine
+    Wochenoptionen".
+    """
+    smart = [kette for kette in ketten if str(kette.exchange) == "SMART"]
+    return max(smart or ketten, key=lambda kette: len(kette.expirations))
 
 
 def _verfallstermine(symbol: str, roh: Iterable[str]) -> tuple[date, ...]:
