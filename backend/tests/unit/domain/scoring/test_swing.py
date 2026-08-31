@@ -376,6 +376,66 @@ class TestNewsUndEreignislage:
         score = rechne(scoring_params, analysts=voten(0.05))
         assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 2.0
 
+    def test_starke_und_einfache_kaufempfehlungen_zaehlen_beide(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der Anteil ist ``(strong_buy + buy) / total``.
+
+        Die uebrigen Tests legen alle Kauf-Voten auf ``strong_buy`` -- eine
+        Formel, die nur den starken Kauf zaehlt, kaeme dort mit demselben
+        Ergebnis durch. Hier liegt die Mehrheit ausdruecklich auf ``buy``.
+        """
+        gemischt = AnalystRecommendations(
+            status=AnalystRecommendationStatus.COMPLETED,
+            evaluated_at=JETZT,
+            periods=(
+                RecommendationPeriod(
+                    period=date(2026, 8, 1),
+                    strong_buy=4,
+                    buy=20,
+                    hold=6,
+                    sell=0,
+                    strong_sell=0,
+                ),
+            ),
+            source="fixture",
+        )
+
+        score = rechne(scoring_params, analysts=gemischt)
+
+        # 24 von 30 sind 80 Prozent -- das vierte Fuenftel. Nur der starke
+        # Kauf waeren 13 Prozent und damit das unterste.
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.NEWS_AND_EVENTS
+        ]
+        assert komponente.value == 8.0
+        assert "80%" in (komponente.reason or "")
+
+    def test_verkaufsempfehlungen_senken_den_anteil(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Sie zaehlen im Nenner mit. Ein Zaehler ueber den Kauf-Voten allein
+        und ein Nenner ohne die Verkaeufe waere kein Anteil."""
+        ueberwiegend_verkauf = AnalystRecommendations(
+            status=AnalystRecommendationStatus.COMPLETED,
+            evaluated_at=JETZT,
+            periods=(
+                RecommendationPeriod(
+                    period=date(2026, 8, 1),
+                    strong_buy=3,
+                    buy=3,
+                    hold=4,
+                    sell=10,
+                    strong_sell=10,
+                ),
+            ),
+            source="fixture",
+        )
+
+        score = rechne(scoring_params, analysts=ueberwiegend_verkauf)
+
+        assert teilwert(score, ComponentName.NEWS_AND_EVENTS) == 2.0
+
     def test_die_zahl_der_voten_steht_in_der_begruendung(
         self, scoring_params: ScoringParameters
     ) -> None:
