@@ -42,9 +42,9 @@ unveränderte URL.
 2. **Beide Log-Formatter** lassen ihre **fertige Zeile** hindurchlaufen —
    nach dem Anhängen des Tracebacks und der Zusatzfelder. Damit sind Meldung,
    Ausnahmekette und **fremde Zeilen** gleichermaßen abgedeckt.
-3. `load_secrets` meldet **jeden gesetzten Wert** aus `Secrets` an, nicht nur
-   den Finnhub-Schlüssel. Es ist die einzige Stelle, an der der Betrieb
-   Geheimnisse lädt; CLI, API und Scheduler gehen alle hindurch.
+3. **`Secrets` selbst** meldet in `model_post_init` jeden gesetzten Wert an,
+   nicht nur den Finnhub-Schlüssel. Die Anmeldung hängt damit an der
+   *Entstehung* des Geheimnisses, nicht an einem von mehreren Ladewegen.
 4. Die Schwärzung der Fehlermeldung in beiden Finnhub-Adaptern **bleibt**. Sie
    deckt einen Weg ab, den die Senke nicht sieht: eine Ausnahme, die als Text
    auf `stderr` oder in eine CLI-Ausgabe geht, ohne durch das Logging zu
@@ -87,16 +87,13 @@ einem Wechsel auf den Header sinnvoll.
   abgedeckt, sobald sein Schlüssel in `Secrets` steht. Das ist der eigentliche
   Gewinn gegenüber einer Schwärzung je Adapter: Der Schutz hängt nicht mehr
   daran, dass der nächste Adapter daran denkt.
-- Der Schutz hängt daran, dass Geheimnisse über `load_secrets` geladen werden.
-  Ein direkt gebautes `Secrets()` — wie in Tests üblich — meldet nichts an.
-  Für den Betrieb ist das der richtige Zuschnitt; für einen künftigen zweiten
-  Einstiegspunkt ist es eine Fußangel und hier festgehalten.
+- Es gibt **keinen** Weg, an der Anmeldung vorbeizubauen. Wer ein `Secrets`
+  in der Hand hält, hat es damit angemeldet.
 - Protokolle bleiben lesbar: Endpunkt, Symbol und Statuscode stehen weiterhin
   in der Zeile, nur der Wert des Geheimnisses ist `***`.
 - **Bereits geschriebene Protokolle sind nicht rückwirkend sauber.** Wo
-  Ausgaben des Servers in Dateien gelandet sind, enthalten sie den Schlüssel
-  im Klartext. Konsequenz: Der Finnhub-Schlüssel ist zu erneuern, und
-  vorhandene Protokolldateien sind zu prüfen.
+  Ausgaben in Dateien gelandet sind, enthalten sie den Schlüssel im Klartext.
+  Konsequenz: Schlüssel erneuern und vorhandene Protokolldateien prüfen.
 
 ## Alternativen
 
@@ -107,3 +104,39 @@ sie ist beim Suchen eines Problems nützlich. Verworfen.
 **Nur je Adapter schwärzen**, wie am 2026-08-30. Der Befund selbst ist das
 Gegenargument: Genau diese Lösung war in Kraft, während zwei von drei Kanälen
 offen standen.
+
+
+## Nachtrag vom 2026-08-31: die erste Fassung griff nicht
+
+Die Anmeldung saß zunächst in `load_secrets`, mit der Begründung, das sei
+„die einzige Stelle, an der der Betrieb Geheimnisse lädt". Das war falsch.
+**Das CLI baut `Secrets()` an sechs Stellen selbst** und ging daran vorbei.
+
+Die Fußangel stand im ersten Text dieses ADR sogar wörtlich — als
+Konsequenz, dass „ein direkt gebautes `Secrets()` — wie in Tests üblich —
+nichts anmeldet". Der Zusatz „wie in Tests üblich" war die Fehleinschätzung:
+Es ist der Normalfall des CLI.
+
+Gefunden hat es die Serverprobe, die dieses ADR selbst vorgeschrieben hatte
+(„ob in der Ausgabe irgendwo der Zugangsschlüssel steht"). Der erste
+produktive Finnhub-Abruf am 2026-08-31 gab aus:
+
+```
+httpx: HTTP Request: GET https://finnhub.io/...&token=<echter Schlüssel> "HTTP/1.1 200 OK"
+```
+
+Die Tests waren grün, weil sie `load_secrets` prüften — den Weg, den das CLI
+nicht nimmt. Ein Test, der die Verdrahtung an *einem* Einstiegspunkt prüft,
+sagt nichts über die anderen.
+
+Zwei Änderungen daraus:
+
+1. Die Anmeldung wandert nach `Secrets.model_post_init`. Sie hängt jetzt an
+   der Entstehung des Geheimnisses; ein zweiter Ladeweg kann nicht mehr
+   danebenliegen.
+2. Der Regressionstest baut `Secrets()` **direkt** und läuft in der
+   Reihenfolge von `command_ratings`: Logging aufsetzen, Geheimnis laden,
+   abrufen. Mutiert man die Anmeldung weg, erscheint die Serverausgabe
+   zeichengenau wieder.
+
+Der betroffene Schlüssel wurde erneuert.
