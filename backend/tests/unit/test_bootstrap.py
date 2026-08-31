@@ -18,9 +18,11 @@ import pytest
 from pydantic import ValidationError
 
 from ai_trading_analyst.bootstrap import (
+    build_analyst_recommendations_provider,
     build_backtest_params,
     build_bar_source,
     build_earnings_provider,
+    build_finnhub_earnings_provider,
     build_fundamental_data_provider,
     build_market_data_provider,
     build_research_provider,
@@ -28,9 +30,11 @@ from ai_trading_analyst.bootstrap import (
     project_root,
 )
 from ai_trading_analyst.config.settings import (
+    AnalystRatingsConfig,
     AppConfig,
     EarningsFilterConfig,
     EdgarConfig,
+    FinnhubConfig,
     FundamentalsConfig,
     IbkrConfig,
     IndicatorConfig,
@@ -46,7 +50,13 @@ from ai_trading_analyst.infrastructure.anthropic import (
 )
 from ai_trading_analyst.infrastructure.anthropic.client import VERBINDUNGSAUFBAU_SEKUNDEN
 from ai_trading_analyst.infrastructure.edgar import EdgarFundamentalDataProvider
-from ai_trading_analyst.infrastructure.finnhub import FinnhubEarningsProvider
+from ai_trading_analyst.infrastructure.finnhub import (
+    FinnhubAnalystRecommendationsProvider,
+    FinnhubEarningsProvider,
+)
+from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider import (
+    FixtureAnalystRecommendationsProvider,
+)
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
     FixtureFundamentalDataProvider,
@@ -342,6 +352,108 @@ class TestTechnicalAgentAnbieterauswahl:
         Modell (ADR 0021, Modellstufung)."""
         config = AppConfig(indicators=INDICATORS)
         assert config.llm.technical.model != config.llm.research.model
+
+
+class TestAnalystenAnbieterauswahl:
+    """ADR 0043 -- Auswahl und Verdrahtung.
+
+    Die Verdrahtung ist der eigentliche Punkt: ``months`` und
+    ``request_timeout_seconds`` sind beide ``PositiveInt``, eine Verwechslung
+    waere typkorrekt und bliebe ohne Test gruen.
+    """
+
+    def test_standard_ist_der_fixture_anbieter(self) -> None:
+        config = AppConfig(indicators=INDICATORS)
+        assert config.analyst_ratings.provider == "fixture"
+        provider = build_analyst_recommendations_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FixtureAnalystRecommendationsProvider)
+
+    def test_finnhub_ohne_secret_scheitert_verstaendlich(self) -> None:
+        config = AppConfig(
+            indicators=INDICATORS,
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+        )
+        with pytest.raises(MissingSecretError, match="ATA_FINNHUB_API_KEY"):
+            build_analyst_recommendations_provider(config, Secrets(_env_file=None))
+
+    def test_finnhub_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+        )
+        provider = build_analyst_recommendations_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, FinnhubAnalystRecommendationsProvider)
+
+    def test_jede_einstellung_landet_an_ihrem_platz(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Alle drei Zahlen **verschieden**: Bei gleichen Werten koennte eine
+        Vertauschung von ``months`` und ``request_timeout_seconds`` nicht
+        auffallen."""
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub", months=6),
+            finnhub=FinnhubConfig(base_url="https://example.test/v1", request_timeout_seconds=3),
+        )
+
+        provider = build_analyst_recommendations_provider(config, Secrets(_env_file=None))
+
+        assert isinstance(provider, FinnhubAnalystRecommendationsProvider)
+        assert provider._settings.months == 6
+        assert provider._settings.request_timeout_seconds == 3.0
+        assert provider._settings.base_url == "https://example.test/v1"
+        assert provider._settings.api_key == "test-key"
+
+
+class TestFinnhubAbschnittWirdRichtigVerdrahtet:
+    """ADR 0043 hat Host und Zeitgrenze aus ``earnings_filter`` herausgeloest.
+
+    Der Schematest prueft, dass die Schluessel am neuen Ort liegen. Hier geht
+    es darum, dass der Earnings-Adapter sie auch **von dort** liest -- und das
+    Kalenderfenster weiterhin von seinem alten Platz.
+    """
+
+    def test_der_earnings_adapter_liest_host_und_fenster_von_zwei_stellen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "test-key")
+        config = AppConfig(
+            indicators=INDICATORS,
+            finnhub=FinnhubConfig(base_url="https://example.test/v1", request_timeout_seconds=3),
+            earnings_filter=EarningsFilterConfig(
+                provider="finnhub", lookahead_calendar_days=45
+            ),
+        )
+
+        provider = build_finnhub_earnings_provider(config, Secrets(_env_file=None))
+
+        assert provider._settings.base_url == "https://example.test/v1"
+        assert provider._settings.request_timeout_seconds == 3.0
+        # Aus dem **anderen** Abschnitt -- der Wert beschreibt den Endpunkt,
+        # nicht den Zugang.
+        assert provider._settings.lookahead_calendar_days == 45
+
+    def test_beide_endpunkte_teilen_sich_einen_schluessel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein Konto, ein Schluessel -- wer nur einen der beiden scharf
+        schaltet, braucht ihn trotzdem ganz."""
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "gemeinsamer-schluessel")
+        config = AppConfig(
+            indicators=INDICATORS,
+            earnings_filter=EarningsFilterConfig(provider="finnhub"),
+            analyst_ratings=AnalystRatingsConfig(provider="finnhub"),
+        )
+
+        earnings = build_finnhub_earnings_provider(config, Secrets(_env_file=None))
+        ratings = build_analyst_recommendations_provider(config, Secrets(_env_file=None))
+
+        assert isinstance(ratings, FinnhubAnalystRecommendationsProvider)
+        assert earnings._settings.api_key == ratings._settings.api_key
 
 
 class TestBarquelle:

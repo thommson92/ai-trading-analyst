@@ -58,3 +58,21 @@ Entscheidungen des Auftraggebers, die über allen Dokumenten stehen.
   Backtesting implementiert wird.
 - Der offene Punkt beim Swing-Score (fünf oder sechs Komponenten) bleibt eine
   fachliche Frage und wird nicht durch diese Rangfolge entschieden.
+
+### Nachtrag vom 2026-08-30: der ausgenommene Punkt ist entschieden
+
+Der letzte Punkt oben — „bleibt eine fachliche Frage und wird nicht durch
+diese Rangfolge entschieden" — ist mit
+[ADR 0041](0041-score-komponenten-und-gewichte.md) beantwortet.
+
+Der Swing-Score bekommt die **sechs** Komponenten aus Doc 10 §6.11, mit
+Gewichten, die dieses Dokument nicht nennt und Doc 09 anders nannte. Der
+Widerspruch war größer als hier vermerkt: Er betrifft auch den
+Investment-Score, wo Doc 09 fünf und Doc 10 acht Komponenten führte. Dort
+entschied ADR 0041 gegen beide Dokumente — vier Komponenten, weil die
+übrigen keine Datengrundlage haben.
+
+**An der Rangfolge selbst ändert das nichts.** Sie war für diesen Punkt
+ausdrücklich nicht zuständig, und ADR 0041 hat ihn nicht über die Hierarchie
+entschieden, sondern fachlich. Doc 09 und Doc 10 §6.11 sind seither
+angeglichen.

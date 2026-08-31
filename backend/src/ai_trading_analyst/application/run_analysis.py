@@ -18,6 +18,9 @@ from uuid import uuid4
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
+    AnalystRecommendationsFormatError,
+    AnalystRecommendationsProvider,
+    AnalystRecommendationsProviderError,
     EarningsProvider,
     EarningsProviderError,
     FundamentalDataProvider,
@@ -33,6 +36,10 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreter,
     TechnicalInterpreterError,
     UnitOfWork,
+)
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
 )
 from ai_trading_analyst.domain.backtesting import (
     BacktestParameters,
@@ -116,6 +123,7 @@ class _PreparedOutcome:
     evaluated_at: datetime
     technical: TechnicalSnapshot | None
     fundamentals: FundamentalSnapshot | None
+    analysts: AnalystRecommendations | None
     earnings: EarningsFilterResult | None
     backtest: tuple[BacktestResult, ...]
     needs_research: bool
@@ -181,6 +189,7 @@ class RunAnalysisUseCase:
         research_provider: ResearchProvider,
         technical_interpreter: TechnicalInterpreter,
         fundamental_data_provider: FundamentalDataProvider,
+        analyst_recommendations_provider: AnalystRecommendationsProvider,
         uow_factory: Callable[[], UnitOfWork],
         candidate_rule_params: CandidateRuleParameters,
         earnings_filter_params: EarningsFilterParameters,
@@ -198,6 +207,7 @@ class RunAnalysisUseCase:
         self._research_provider = research_provider
         self._technical_interpreter = technical_interpreter
         self._fundamental_data_provider = fundamental_data_provider
+        self._analyst_recommendations_provider = analyst_recommendations_provider
         self._uow_factory = uow_factory
         self._candidate_rule_params = candidate_rule_params
         self._earnings_filter_params = earnings_filter_params
@@ -337,6 +347,7 @@ class RunAnalysisUseCase:
 
             technical: TechnicalSnapshot | None = None
             fundamentals: FundamentalSnapshot | None = None
+            analysts: AnalystRecommendations | None = None
             earnings: EarningsFilterResult | None = None
             backtest: tuple[BacktestResult, ...] = ()
             needs_research = False
@@ -360,6 +371,10 @@ class RunAnalysisUseCase:
                 fundamentals = self._evaluate_fundamentals(
                     stock, series.candles[decision_index].close
                 )
+                # Ebenfalls unabhaengig vom Earnings-Filter und vom Research
+                # Agent: Berichtspunkt 9 soll auch dann stehen, wenn die
+                # Recherche ausgefallen ist (ADR 0043).
+                analysts = self._evaluate_analyst_recommendations(stock, evaluated_at)
                 earnings = self._evaluate_earnings(
                     stock, series.candles[decision_index].timestamp.date(), evaluated_at
                 )
@@ -372,6 +387,7 @@ class RunAnalysisUseCase:
                 evaluated_at=evaluated_at,
                 technical=technical,
                 fundamentals=fundamentals,
+                analysts=analysts,
                 earnings=earnings,
                 backtest=backtest,
                 needs_research=needs_research,
@@ -494,6 +510,7 @@ class RunAnalysisUseCase:
             signal_rule_version=SIGNAL_RULE_VERSION,
             technical=item.technical,
             fundamentals=item.fundamentals,
+            analysts=item.analysts,
             technical_assessment=item.technical_assessment,
             earnings=item.earnings,
             research=item.research,
@@ -611,6 +628,47 @@ class RunAnalysisUseCase:
         except FundamentalDataProviderError as error:
             _logger.warning("Fundamentaldaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
+
+    def _evaluate_analyst_recommendations(
+        self, stock: Stock, evaluated_at: datetime
+    ) -> AnalystRecommendations:
+        """Die Analystenempfehlungen einer bereits qualifizierten Aktie.
+
+        Fehlerbehandlung nach dem Muster ``_evaluate_earnings``: Ein Ausfall
+        des Anbieters wird **hier** abgefangen und nicht im umgebenden
+        Fehlerisolations-Block. Dort verschoebe er die Aktie als Ganzes in
+        einen ``StockProcessingError`` und wuerfe Screening, Chartauswertung
+        und Backtest gleich mit weg.
+
+        Anders als ``_evaluate_fundamentals`` gibt diese Methode nie ``None``
+        zurueck: Ein Ausfall ist ``UNAVAILABLE`` mit Grund. "Nicht abgefragt"
+        und "abgefragt, keine Antwort" sind verschiedene Aussagen, und der
+        Bericht soll sie unterscheiden koennen (ADR 0043).
+        """
+        try:
+            return self._analyst_recommendations_provider.recommendations(stock)
+        except AnalystRecommendationsFormatError as error:
+            # Der Anbieter war erreichbar, seine Antwort aber nicht lesbar.
+            # Ein eigener Grund, weil das etwas anderes ueber die Datenlage
+            # sagt als ein Ausfall -- dieselbe Unterscheidung wie beim
+            # Earnings-Filter.
+            _logger.warning(
+                "Analystenempfehlungen fuer %s nicht auswertbar: %s", stock.symbol, error
+            )
+            return AnalystRecommendations(
+                status=AnalystRecommendationStatus.UNAVAILABLE,
+                evaluated_at=evaluated_at,
+                reason="invalid_data",
+            )
+        except AnalystRecommendationsProviderError as error:
+            _logger.warning(
+                "Analystenempfehlungen fuer %s nicht verfuegbar: %s", stock.symbol, error
+            )
+            return AnalystRecommendations(
+                status=AnalystRecommendationStatus.UNAVAILABLE,
+                evaluated_at=evaluated_at,
+                reason="provider_error",
+            )
 
     def _evaluate_earnings(
         self, stock: Stock, as_of: date, evaluated_at: datetime

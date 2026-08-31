@@ -26,6 +26,7 @@ from ai_trading_analyst.config.settings import (
     Secrets,
 )
 from ai_trading_analyst.domain.analysis import (
+    AnalystRecommendationsProvider,
     EarningsProvider,
     FundamentalDataProvider,
     HistoricalBarSource,
@@ -56,8 +57,13 @@ from ai_trading_analyst.infrastructure.edgar import (
     EdgarFundamentalDataProvider,
 )
 from ai_trading_analyst.infrastructure.finnhub import (
+    FinnhubAnalystRecommendationsProvider,
     FinnhubConnectionSettings,
     FinnhubEarningsProvider,
+    FinnhubRecommendationSettings,
+)
+from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider import (
+    FixtureAnalystRecommendationsProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.earnings_provider import FixtureEarningsProvider
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
@@ -181,13 +187,13 @@ def build_market_data_provider(
 
 
 def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> FinnhubEarningsProvider:
-    finnhub = config.earnings_filter.finnhub
+    finnhub = config.finnhub
     return FinnhubEarningsProvider(
         FinnhubConnectionSettings(
             base_url=finnhub.base_url,
             api_key=secrets.require("finnhub_api_key"),
             request_timeout_seconds=float(finnhub.request_timeout_seconds),
-            lookahead_calendar_days=finnhub.lookahead_calendar_days,
+            lookahead_calendar_days=config.earnings_filter.lookahead_calendar_days,
         )
     )
 
@@ -202,6 +208,27 @@ def build_earnings_provider(config: AppConfig, secrets: Secrets) -> EarningsProv
     if config.earnings_filter.provider == "fixture":
         return FixtureEarningsProvider()
     return build_finnhub_earnings_provider(config, secrets)
+
+
+def build_analyst_recommendations_provider(
+    config: AppConfig, secrets: Secrets
+) -> AnalystRecommendationsProvider:
+    """Waehlt den Anbieter der Analystenempfehlungen (ADR 0043).
+
+    Muster ``build_earnings_provider``: ``fixture`` bleibt der Standard und
+    der Weg fuer einen Start ohne Finnhub-Zugang.
+    """
+    if config.analyst_ratings.provider == "fixture":
+        return FixtureAnalystRecommendationsProvider()
+    finnhub = config.finnhub
+    return FinnhubAnalystRecommendationsProvider(
+        FinnhubRecommendationSettings(
+            base_url=finnhub.base_url,
+            api_key=secrets.require("finnhub_api_key"),
+            request_timeout_seconds=float(finnhub.request_timeout_seconds),
+            months=config.analyst_ratings.months,
+        )
+    )
 
 
 def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
@@ -380,6 +407,7 @@ def build_app() -> FastAPI:
         research_provider,
         technical_interpreter,
         build_fundamental_data_provider(loaded.config, secrets),
+        build_analyst_recommendations_provider(loaded.config, secrets),
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,

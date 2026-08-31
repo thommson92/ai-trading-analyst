@@ -8,6 +8,7 @@ from ai_trading_analyst.config.loader import (
     load_secrets,
 )
 from ai_trading_analyst.config.settings import (
+    AnalystRatingsConfig,
     AppConfig,
     BacktestingConfig,
     DataAvailabilityConfig,
@@ -32,6 +33,7 @@ from ai_trading_analyst.config.settings import (
 )
 
 __all__ = [
+    "AnalystRatingsConfig",
     "AppConfig",
     "BacktestingConfig",
     "ConfigError",

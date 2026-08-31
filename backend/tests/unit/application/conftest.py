@@ -16,6 +16,8 @@ from typing import Self
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunRepository,
+    AnalystRecommendationsFormatError,
+    AnalystRecommendationsProviderError,
     BacktestResultRepository,
     EarningsProviderError,
     FundamentalDataProviderError,
@@ -31,6 +33,7 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
     TechnicalInterpreterError,
 )
+from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
@@ -48,6 +51,9 @@ from ai_trading_analyst.domain.technical import (
     TechnicalSnapshot,
     TechnicalStatus,
     TrendStrength,
+)
+from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider import (
+    FixtureAnalystRecommendationsProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
     FixtureFundamentalDataProvider,
@@ -171,6 +177,42 @@ class FakeFundamentalDataProvider:
         if stock.symbol in self._crash_symbols:
             raise RuntimeError(f"Vertragsbruch fuer {stock.symbol}")
         return FixtureFundamentalDataProvider().fundamentals(stock, price=price)
+
+
+class FakeAnalystRecommendationsProvider:
+    """Testdoppel der Analystenempfehlungen (Muster ``FakeFundamentalDataProvider``).
+
+    ``error_symbols`` wirft die Vertragsausnahme, ``crash_symbols`` eine rohe
+    ``RuntimeError`` -- also einen Vertragsbruch. Das erste darf nur Punkt 9
+    kosten, das zweite die Aktie (ADR 0043).
+    """
+
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+        format_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._error_symbols = error_symbols
+        self._crash_symbols = crash_symbols
+        self._format_symbols = format_symbols
+        """Der Anbieter war erreichbar, seine Antwort aber unlesbar -- ein
+        eigener Grund im Bericht (ADR 0043)."""
+        self.calls: list[str] = []
+
+    def recommendations(self, stock: Stock) -> AnalystRecommendations:
+        self.calls.append(stock.symbol)
+        if stock.symbol in self._format_symbols:
+            raise AnalystRecommendationsFormatError(
+                f"Simulierte unlesbare Antwort fuer {stock.symbol}"
+            )
+        if stock.symbol in self._error_symbols:
+            raise AnalystRecommendationsProviderError(
+                f"Simulierter Providerfehler fuer {stock.symbol}"
+            )
+        if stock.symbol in self._crash_symbols:
+            raise RuntimeError(f"Vertragsbruch fuer {stock.symbol}")
+        return FixtureAnalystRecommendationsProvider().recommendations(stock)
 
 
 class FakeTechnicalInterpreter:

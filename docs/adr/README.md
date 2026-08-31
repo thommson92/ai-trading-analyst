@@ -75,6 +75,10 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
 | [0039](0039-report-generator.md) | Report Generator -- achtzehn Punkte, Luecken benannt, ohne Sprachmodell | Angenommen (fuehrt die Berichtsschema-Version ein, die Doc 10 Paragraph 8 fordert) |
 | [0040](0040-inhalt-der-ergebnismeldung.md) | Die Ergebnismeldung nennt Symbole und Signalgruende -- keine Kurse | Angenommen (entscheidet E7 des Audits vom 2026-08-23; lockert ADR 0024 bewusst) |
+| [0041](0041-score-komponenten-und-gewichte.md) | Komponenten und Gewichte der beiden Scores | Angenommen (schliesst den Punkt, den ADR 0001 ausdruecklich offen liess; loest den Widerspruch zwischen Doc 09 und Doc 10 Paragraph 6.11) |
+| [0042](0042-kein-historischer-earnings-filter.md) | Der Backtest bekommt keinen historischen Earnings-Filter | Angenommen (entscheidet E3 des Audits vom 2026-08-23 -- verworfen mit Begruendung, nicht vertagt) |
+| [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
+| [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
 
 ## Offene Entscheidungen
 
@@ -96,18 +100,22 @@ ADR, sobald die nötigen Informationen vorliegen:
 - Anbieter für historische Intraday-Kurse (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 3/4: 195-Minuten-Aggregation und historische
   Abdeckung bis 2 Jahre live bestätigt).
-- Kursziele (F9) — **zurückgestellt.** Termine und Analystenratings sind
-  durch [ADR 0017](0017-finnhub-fuer-earnings-und-ratings.md) entschieden
-  (Finnhub, kostenlose Stufe); der Kursziel-Endpunkt ist dort
-  kostenpflichtig. Bewusst ohne Kursziele gebaut, nachrüstbar in einer
-  späteren Ausbaustufe.
-- Historische Berichtstermine für das Backtesting — **zurückgestellt.**
-  Vorgemerkter Weg ist SEC EDGAR (Einreichungsdatum des `8-K` mit Item
-  2.02): amtlich, kostenlos und ohne Lizenzbeschränkung. Siehe ADR 0017,
-  Einschränkung L9. Die Abweichung ist seit
-  [ADR 0038](0038-backtest-im-tageslauf.md) am Ergebnis gekennzeichnet
-  (`BacktestResult.earnings_exclusion_applied`) statt unsichtbar; zu
-  entscheiden ist sie vor Sprint 5, wenn das Scoring die Zahl braucht.
+- Kursziele (F9) — **entschieden: dauerhaft zurückgestellt.** Keine der zehn
+  Score-Komponenten aus [ADR 0041](0041-score-komponenten-und-gewichte.md)
+  braucht sie, und genau daran hatte das Audit die Entscheidung geknüpft. Der
+  Finnhub-Endpunkt ist kostenpflichtig; welche Bezahlstufe ihn enthält, ist
+  unbelegt. Stattdessen sind die **Analystenempfehlungen** nachgebaut, die
+  ADR 0017 mitentschied und die nie jemand gebaut hatte — siehe
+  [ADR 0043](0043-analystenempfehlungen-statt-kurszielen.md).
+- Historische Berichtstermine für das Backtesting — **entschieden: werden
+  nicht gebaut.** Ein `8-K`-Einreichungsdatum ist der *realisierte* Termin,
+  nicht der zum Signalzeitpunkt bekannte; ein Filter darauf tauschte eine
+  beschriebene Verzerrung gegen eine unbeschriebene und verstieße gegen die
+  Look-ahead-Regel aus Doc 10 §6.6. Die Abweichung bleibt am Ergebnis
+  gekennzeichnet (`BacktestResult.earnings_exclusion_applied`), Risiko R6
+  bleibt **eingegrenzt, nicht geschlossen**. Der EDGAR-Weg bleibt vorgemerkt;
+  die Entscheidung ist umkehrbar. Siehe
+  [ADR 0042](0042-kein-historischer-earnings-filter.md).
 - Anbieter für Optionsketten mit Greeks (F9) — durch IBKR beantwortet
   (ADR 0013, Spike-Frage 6: Optionsketten-Struktur und modellierte Greeks
   nach Aktivierung eines zusätzlichen Optionsmarktdaten-Abos live
@@ -155,4 +163,13 @@ ADR, sobald die nötigen Informationen vorliegen:
   Dashboard-Sprint neu bewertet. Siehe
   [ADR 0036](0036-nativer-windows-betrieb.md), das Doc 13 und Doc 10
   Paragraph 14 abloest.
+- Komponenten und Gewichte der beiden Scores — **entschieden.** Swing: die
+  sechs Komponenten aus Doc 10 §6.11, mit Gewichten. Investment: vier statt
+  acht — nur das, was deterministisch gerechnet wird. Fehlende Komponenten
+  werden umgewichtet; unterhalb von 60 % Abdeckung entsteht kein Score,
+  sondern `INSUFFICIENT_DATA`. Siehe
+  [ADR 0041](0041-score-komponenten-und-gewichte.md) und den Nachtrag an
+  [ADR 0001](0001-dokumentenhierarchie.md). **Die Schwellen** (Kennzahl →
+  Teilwert 0–10) sind damit ausdrücklich **noch nicht** entschieden — sie
+  werden in Sprint 5 an einem Lauf über die volle Watchliste kalibriert.
 - Externer Zugriff auf das Dashboard (F12)

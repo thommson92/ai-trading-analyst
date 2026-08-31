@@ -752,39 +752,56 @@ Die Scoring Engine berechnet zwei getrennte Bewertungen:
 
 Sie kombiniert deterministische Teilwerte und strukturierte qualitative Bewertungen.
 
+Komponenten und Gewichte sind entschieden in
+[ADR 0041](adr/0041-score-komponenten-und-gewichte.md); die Herleitung steht
+dort und in [Doc 09](09%20-%20Scoring.md).
+
 ### Grundregeln
 
 - Scores liegen zwischen 0 und 10.
 - Jeder Score besitzt dokumentierte Teilkomponenten.
 - Gewichtungen sind konfigurierbar und versioniert.
 - Fehlende Daten werden sichtbar behandelt.
+- **Fehlt eine Komponente, werden die übrigen Gewichte auf 100 % normiert.**
+- **Unterhalb einer konfigurierbaren Mindestabdeckung entsteht kein Score,
+  sondern `INSUFFICIENT_DATA`.** Eine fehlende Komponente wird nie mit null
+  Punkten bewertet — das behauptete, sie sei geprüft und schlecht.
 - Ein Score darf keine Scheingenauigkeit vortäuschen.
 - Kritische Risiken können einen Score begrenzen.
 - Die Begründung muss mit den Teilwerten übereinstimmen.
 
 ### Swing Trade Score
 
-Vorgesehene Komponenten:
+Komponenten:
 
 - technische Signale,
-- Qualität des Chart-Setups,
 - historische Signalqualität,
-- News- und Ereignislage,
+- Qualität des Chart-Setups,
 - Chance-Risiko-Verhältnis,
+- News- und Ereignislage,
 - Optionsattraktivität.
 
 ### Long-Term Investment Score
 
-Vorgesehene Komponenten:
+Komponenten:
 
-- Geschäftsqualität,
-- Wachstum,
 - Profitabilität,
-- Bilanzqualität,
+- Wachstum,
 - Bewertung,
-- Wettbewerbsvorteile,
-- Management,
-- langfristige Chancen und Risiken.
+- Bilanzqualität.
+
+**Vier ursprünglich vorgesehene Komponenten tragen keinen Teilwert:**
+Geschäftsqualität, Wettbewerbsvorteile, Management sowie die langfristigen
+Chancen und Risiken. Sie bleiben Analysebereiche nach §6.9 und erscheinen als
+Text im Bericht, werden aber nicht in eine Zahl übersetzt — es fehlt die
+Vergleichsgruppe, und aus XBRL-Daten ist sie nicht abzuleiten
+([ADR 0032](adr/0032-fundamentalanalyse-deterministisch.md), L5).
+
+Sobald die KI-Hälfte der Fundamentalanalyse Einstufungen liefert — als
+Aufzählungswerte nach dem Muster von
+[ADR 0026](adr/0026-technical-agent-ki-einordnung.md), nie als Zahl aus
+Freitext —, kommen sie als Komponenten hinzu und heben die
+Berechnungsversion.
 
 ### Score-Ergebnis
 

@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ai_trading_analyst.domain.analysis import RunStatus
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
@@ -306,6 +307,33 @@ class ScreeningResultOrm(Base):
     Aktie und bei einzelnen ueber vierzig; als Zeilen waeren das mehr als
     fuer alle uebrigen Analysemodule zusammen, fuer eine rein diagnostische
     Angabe (ADR 0035, Entscheidung 6)."""
+
+    # Analystenempfehlungen (Doc 10, Paragraph 6.12 Punkt 9; ADR 0043) --
+    # wie die uebrigen Analysespalten nur bei CANDIDATE gesetzt.
+    analyst_status: Mapped[AnalystRecommendationStatus | None] = mapped_column(
+        _enum_column(AnalystRecommendationStatus), nullable=True
+    )
+    analyst_analysis_version: Mapped[str | None] = mapped_column(nullable=True)
+    analyst_evaluated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    analyst_source: Mapped[str | None] = mapped_column(nullable=True)
+    analyst_source_url: Mapped[str | None] = mapped_column(nullable=True)
+    """Die Adresse, unter der die Verteilung herkam -- vom Anbieter
+    gesetzt, damit ein Fixture-Lauf nicht die Adresse des echten
+    Dienstes traegt (ADR 0043)."""
+    analyst_retrieved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    analyst_reason: Mapped[str | None] = mapped_column(nullable=True)
+    analyst_periods: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    """Die Votenverteilung je Monatsstand, neuester zuerst.
+
+    JSONB und keine Kindtabelle: Sie wird im Ganzen geschrieben und im Ganzen
+    gelesen, nie gefiltert oder sortiert -- dasselbe Argument wie bei
+    ``fundamentals_tag_conflicts``. Es sind hoechstens vier Eintraege je
+    Aktie und Lauf (``analyst_ratings.months``); als Zeilen waere das eine
+    Tabelle fuer eine Angabe, die nur am Stueck etwas bedeutet."""
 
     stock: Mapped[StockOrm] = relationship()
     signal_events: Mapped[list[SignalEventOrm]] = relationship(

@@ -19,6 +19,11 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.analysts import (
+    ANALYST_ANALYSIS_VERSION,
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+)
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
@@ -65,6 +70,9 @@ from ai_trading_analyst.domain.technical import (
     TrendStrength,
     ZoneKind,
     ZoneStrength,
+)
+from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider import (
+    FixtureAnalystRecommendationsProvider,
 )
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
     FixtureFundamentalDataProvider,
@@ -358,6 +366,118 @@ class TestScreeningResultRepository:
             (persisted,) = uow.screening_results.list_for_run(run.id)
 
         assert persisted.fundamentals is None
+
+    def test_analystenempfehlungen_ueberleben_die_datenbank(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """ADR 0043 -- die Verteilung roh, mit Quelle und Abrufzeitpunkt.
+
+        Der Rundlauf geht ueber JSONB. Geprueft wird die **Reihenfolge**
+        ausdruecklich mit: Sie ist Teil der Zusage von ``periods``, und eine
+        Liste, die beim Lesen kippt, faellt beim Vergleich zweier Objekte mit
+        gleichen Zahlen nicht auf.
+        """
+        stock = make_stock("FIXCAND")
+        run = make_run()
+        empfehlungen = FixtureAnalystRecommendationsProvider().recommendations(stock)
+        assert empfehlungen.status is AnalystRecommendationStatus.COMPLETED
+        assert len(empfehlungen.periods) > 1, "Die Vorlage braucht mehrere Monatsstaende"
+
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            analysts=empfehlungen,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.analysts == empfehlungen
+        gelesen = persisted.analysts
+        assert gelesen is not None
+        assert [stand.period for stand in gelesen.periods] == [
+            stand.period for stand in empfehlungen.periods
+        ]
+        # Jede der fuenf Votenklassen einzeln: Ein vertauschtes Paar faellt
+        # beim Objektvergleich zwar auf, aber erst beim Lesen der Meldung.
+        original, wieder = empfehlungen.periods[0], gelesen.periods[0]
+        assert (
+            wieder.strong_buy,
+            wieder.buy,
+            wieder.hold,
+            wieder.sell,
+            wieder.strong_sell,
+        ) == (
+            original.strong_buy,
+            original.buy,
+            original.hold,
+            original.sell,
+            original.strong_sell,
+        )
+        assert gelesen.source == "fixture"
+        assert gelesen.retrieved_at is not None
+        assert gelesen.analysis_version == ANALYST_ANALYSIS_VERSION
+
+    def test_ein_ausfall_wird_als_ausfall_gespeichert(self, uow_factory: UowFactory) -> None:
+        """Nicht als leeres Feld: "nicht abgefragt" und "abgefragt, keine
+        Antwort" sind verschiedene Aussagen (ADR 0043)."""
+        stock = make_stock("RATINGSDOWN")
+        run = make_run()
+        ausfall = AnalystRecommendations(
+            status=AnalystRecommendationStatus.UNAVAILABLE,
+            evaluated_at=datetime.now(UTC),
+            reason="provider_error",
+        )
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            analysts=ausfall,
+        )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        gelesen = persisted.analysts
+        assert gelesen is not None
+        assert gelesen.status is AnalystRecommendationStatus.UNAVAILABLE
+        assert gelesen.reason == "provider_error"
+        assert gelesen.periods == ()
+
+    def test_ein_ergebnis_ohne_empfehlungen_bleibt_ohne(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("NORATINGS")
+        run = make_run()
+        outcome = make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+
+        assert persisted.analysts is None
 
     def test_chartauswertung_mit_zonen_wird_mitgespeichert(self, uow_factory: UowFactory) -> None:
         stock = make_stock("WITHTECHNICAL")

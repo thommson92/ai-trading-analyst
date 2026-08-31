@@ -19,6 +19,7 @@ from typing import Any
 
 from ai_trading_analyst.config.settings import LoggingConfig
 from ai_trading_analyst.observability.correlation import current_context
+from ai_trading_analyst.observability.secret_redaction import redact_registered
 
 # Attribute, die jeder LogRecord von Haus aus mitbringt. Alles, was darueber
 # hinausgeht, stammt aus einem `extra=` und gehoert in die Ausgabe.
@@ -100,7 +101,10 @@ class JsonLogFormatter(logging.Formatter):
 
         payload["source"] = f"{record.pathname}:{record.lineno}"
 
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        # Die **fertige** Zeile schwaerzen, nicht die einzelnen Felder: So
+        # sind Traceback, Zusatzfelder und fremde Meldungen -- etwa die
+        # Anfragezeile von ``httpx`` -- mit abgedeckt.
+        return redact_registered(json.dumps(payload, ensure_ascii=False, default=str))
 
 
 class ConsoleLogFormatter(logging.Formatter):
@@ -113,8 +117,10 @@ class ConsoleLogFormatter(logging.Formatter):
         timestamp = dt.datetime.fromtimestamp(record.created, tz=dt.UTC).strftime("%H:%M:%S")
         line = f"{timestamp} {record.levelname:<8} {prefix}{record.name}: {record.getMessage()}"
         if record.exc_info is not None:
+            # Der Traceback laeuft ueber ``__cause__`` mit. Genau dort steht
+            # die ungeschwaerzte URL der ausloesenden ``httpx``-Ausnahme.
             line = f"{line}\n{self.formatException(record.exc_info)}"
-        return line
+        return redact_registered(line)
 
 
 def configure_logging(config: LoggingConfig | None = None) -> None:

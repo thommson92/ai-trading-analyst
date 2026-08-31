@@ -23,6 +23,7 @@ import httpx
 from ai_trading_analyst.domain.analysis import EarningsProviderError, Stock
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.observability.logging_setup import get_logger
+from ai_trading_analyst.observability.secret_redaction import redact
 
 _logger = get_logger(__name__)
 
@@ -82,8 +83,11 @@ class FinnhubEarningsProvider:
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as error:
+            # Der Fehlertext von ``httpx`` enthaelt die vollstaendige URL --
+            # samt Zugangsschluessel. Ohne Schwaerzung stuende er auf stderr.
             raise FinnhubEarningsProviderError(
-                f"Earnings-Kalender fuer '{symbol}' konnte nicht abgerufen werden: {error}"
+                f"Earnings-Kalender fuer '{symbol}' konnte nicht abgerufen werden: "
+                f"{redact(str(error), self._settings.api_key)}"
             ) from error
 
         return self._parse_earliest_entry(symbol, payload)

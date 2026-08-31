@@ -19,6 +19,11 @@ from ai_trading_analyst.domain.analysis import (
     StockProcessingError,
     StockScreeningOutcome,
 )
+from ai_trading_analyst.domain.analysts import (
+    AnalystRecommendations,
+    AnalystRecommendationStatus,
+    RecommendationPeriod,
+)
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
@@ -387,6 +392,72 @@ def _fundamentals_columns(snapshot: FundamentalSnapshot | None) -> dict[str, Any
     }
 
 
+_ANALYST_FIELDS = (
+    "status",
+    "analysis_version",
+    "evaluated_at",
+    "source",
+    "source_url",
+    "retrieved_at",
+    "reason",
+    "periods",
+)
+"""Die ``analyst_``-Spalten ohne Praefix (Muster ``_FUNDAMENTALS_FIELDS``).
+Einmal geschrieben, damit die beiden Zweige des Mappers nicht auseinander
+laufen koennen."""
+
+
+def _analyst_columns(recommendations: AnalystRecommendations | None) -> dict[str, Any]:
+    """Spalten der Analystenempfehlungen, ``analyst_``-praefigiert (ADR 0043)."""
+    if recommendations is None:
+        return {f"analyst_{name}": None for name in _ANALYST_FIELDS}
+    return {
+        "analyst_status": recommendations.status,
+        "analyst_analysis_version": recommendations.analysis_version,
+        "analyst_evaluated_at": recommendations.evaluated_at,
+        "analyst_source": recommendations.source,
+        "analyst_source_url": recommendations.source_url,
+        "analyst_retrieved_at": recommendations.retrieved_at,
+        "analyst_reason": recommendations.reason,
+        "analyst_periods": [
+            {
+                "period": zeitraum.period.isoformat(),
+                "strong_buy": zeitraum.strong_buy,
+                "buy": zeitraum.buy,
+                "hold": zeitraum.hold,
+                "sell": zeitraum.sell,
+                "strong_sell": zeitraum.strong_sell,
+            }
+            for zeitraum in recommendations.periods
+        ],
+    }
+
+
+def _analyst_from_row(row: ScreeningResultOrm) -> AnalystRecommendations | None:
+    if row.analyst_status is None or row.analyst_evaluated_at is None:
+        return None
+    return AnalystRecommendations(
+        status=AnalystRecommendationStatus(row.analyst_status),
+        evaluated_at=row.analyst_evaluated_at,
+        periods=tuple(
+            RecommendationPeriod(
+                period=date.fromisoformat(str(eintrag["period"])),
+                strong_buy=int(eintrag["strong_buy"]),
+                buy=int(eintrag["buy"]),
+                hold=int(eintrag["hold"]),
+                sell=int(eintrag["sell"]),
+                strong_sell=int(eintrag["strong_sell"]),
+            )
+            for eintrag in row.analyst_periods or ()
+        ),
+        source=row.analyst_source,
+        source_url=row.analyst_source_url,
+        retrieved_at=row.analyst_retrieved_at,
+        reason=row.analyst_reason,
+        analysis_version=row.analyst_analysis_version or "",
+    )
+
+
 def _fundamentals_from_row(row: ScreeningResultOrm) -> FundamentalSnapshot | None:
     if row.fundamentals_status is None or row.fundamentals_evaluated_at is None:
         return None
@@ -648,6 +719,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         earnings=earnings,
         research=research,
         fundamentals=_fundamentals_from_row(row),
+        analysts=_analyst_from_row(row),
     )
 
 
@@ -698,6 +770,7 @@ class SqlAlchemyScreeningResultRepository:
             **_technical_columns(outcome.technical),
             **_technical_ai_columns(outcome.technical_assessment),
             **_fundamentals_columns(outcome.fundamentals),
+            **_analyst_columns(outcome.analysts),
         )
         row.signal_events = [
             SignalEventOrm(

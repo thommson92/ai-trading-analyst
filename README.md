@@ -27,7 +27,7 @@ getrennt.
 
 ## Projektstand
 
-**Sprints 1–3 abgeschlossen, Sprint 4 begonnen.** Die deterministische Kette
+**Sprints 1–4 abgeschlossen, Sprint 5 vorbereitet.** Die deterministische Kette
 läuft durchgehend: Watchlist-Import, resumierbarer Backfill, Bildung
 abgeschlossener 195-Minuten-Kerzen aus nativen 15-Minuten-Bars,
 Indikatorberechnung, Screener, Earnings-Filter, Backtesting und der
@@ -48,8 +48,9 @@ Als Datenquelle ist **Interactive Brokers** freigegeben
 ([ADR 0014](docs/adr/0014-ibkr-produktivintegration-freigegeben.md), technisch
 `GO_WITH_LIMITATIONS`, vertraglich `GO`); TradingView ist mit **NO_GO**
 ausgeschieden ([ADR 0012](docs/adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)).
-Earnings-Termine kommen von Finnhub
-([ADR 0017](docs/adr/0017-finnhub-fuer-earnings-und-ratings.md)), die
+Earnings-Termine und **Analystenempfehlungen** kommen von Finnhub
+([ADR 0017](docs/adr/0017-finnhub-fuer-earnings-und-ratings.md),
+[ADR 0043](docs/adr/0043-analystenempfehlungen-statt-kurszielen.md)), die
 KI-Anbindung von Anthropic
 ([ADR 0021](docs/adr/0021-ki-anbindung-anthropic-api.md)).
 
@@ -86,6 +87,25 @@ Der Bericht wird als JSON-Dokument unveränderlich gespeichert;
 `cli report --run <lauf-id>` zeigt ihn lesbar oder als Dokument. Die
 KI-Formulierung folgt getrennt.
 
+Die **Analystenempfehlungen** füllen Berichtspunkt 9 mit gezählten Voten
+statt mit Modelltext: `/stock/recommendation` liefert je Symbol bis zu vier
+Monatsstände mit der vollen Verteilung von `strong buy` bis `strong sell`.
+Gespeichert wird sie **roh** — wie daraus ein Score-Teilwert wird, entscheidet
+Sprint 5, und eine hier gebildete Konsenszahl sähe präzise aus, ohne es zu
+sein. `cli ratings --symbol AAPL --provider finnhub` ist die Einzelprobe;
+sie kostet nichts. **Kursziele gibt es dauerhaft nicht** — der Endpunkt dafür
+ist kostenpflichtig, und keine Score-Komponente braucht sie
+([ADR 0043](docs/adr/0043-analystenempfehlungen-statt-kurszielen.md)).
+
+**Sprint 5 ist entschieden, aber noch nicht gebaut.** Woraus die beiden Scores
+bestehen, sagten Doc 09 und Doc 10 unterschiedlich — ein Punkt, den
+[ADR 0001](docs/adr/0001-dokumentenhierarchie.md) ausdrücklich offen ließ.
+[ADR 0041](docs/adr/0041-score-komponenten-und-gewichte.md) entscheidet ihn:
+sechs Komponenten für den Swing-Score, vier für den Investment-Score, fehlende
+werden umgewichtet, unterhalb von 60 % Abdeckung entsteht `INSUFFICIENT_DATA`
+statt einer Zahl. Die Schwellen selbst werden in Sprint 5 an echten Daten
+kalibriert, nicht gesetzt.
+
 Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt
 ([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)): Ein
 ausgefallener Tageslauf meldet sich über Telegram, statt nur im Protokoll zu
@@ -105,7 +125,8 @@ Noch offen:
 |---|---|
 | Fundamental Agent, KI-Hälfte | Sprint 4 — die deterministischen Kennzahlen stehen ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md), [ADR 0033](docs/adr/0033-zwoelfmonatswerte-statt-jahresabschluss.md)), die Einordnung folgt |
 | Report Generator, KI-Hälfte | Sprint 4 — der deterministische Bericht steht ([ADR 0039](docs/adr/0039-report-generator.md)), die Formulierung folgt |
-| Optionsanalyse, Swing- und Investment-Score | Sprint 5 |
+| Scoring Engine und Empfehlung | Sprint 5 — Komponenten und Gewichte entschieden ([ADR 0041](docs/adr/0041-score-komponenten-und-gewichte.md)), die Schwellen werden zuerst kalibriert |
+| Optionsanalyse | Sprint 5 — Machbarkeit gemessen (IBKR-Spike, Greeks live bestätigt) |
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
 
 Der Erledigungsstand der Befunde aus dem
@@ -425,6 +446,14 @@ cd backend && .venv/bin/python -m pytest
 ```
 
 In der CI übernimmt das ein Postgres-Service-Container (`.github/workflows/ci.yml`).
+
+**Nur ein Lauf gleichzeitig.** Die Integrationstests teilen sich eine
+Datenbank und räumen sie zwischen den Fällen auf. Zwei parallele
+`pytest`-Läufe gegen denselben Container ziehen einander die Zeilen weg;
+das Ergebnis sind sporadische Fehler in `test_repositories.py`,
+`test_cli_backfill.py` oder `test_api.py`, die einzeln wiederholt sofort
+grün sind. Wer nebenher prüfen will, startet einen zweiten Container auf
+einem anderen Port und setzt `TEST_DATABASE_URL` entsprechend.
 
 ### Backend lokal starten
 

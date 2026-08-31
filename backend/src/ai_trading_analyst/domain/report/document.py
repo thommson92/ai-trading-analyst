@@ -15,6 +15,8 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
+
 from .values import ReportSection, StockReport
 
 _ABSCHNITTSNUMMER = {section: nummer for nummer, section in enumerate(ReportSection, start=1)}
@@ -113,11 +115,6 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
             "abdeckung": _rein(research.coverage),
             "belege": _rein(research.evidence),
         }
-        inhalte[ReportSection.ANALYSTENMEINUNGEN] = {
-            "positive_faktoren": list(research.positive_factors),
-            "negative_faktoren": list(research.negative_factors),
-            "kursziele": None,
-        }
         if research.positive_factors:
             inhalte[ReportSection.CHANCEN] = list(research.positive_factors)
     # Punkt 12 aus beiden Quellen und **ausserhalb** des Research-Zweiges: Die
@@ -132,6 +129,21 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
 
     if fundamentals is not None:
         inhalte[ReportSection.FUNDAMENTALE_BEWERTUNG] = _rein(fundamentals)
+
+    # Punkt 9 **ausserhalb** des Research-Zweiges (ADR 0043): Die gezaehlte
+    # Votenverteilung hat mit der Recherche nichts zu tun und steht auch dann,
+    # wenn diese ausgefallen ist. Bis ADR 0043 fuellten hier die positiven und
+    # negativen Faktoren der Recherche den Platz -- sie stehen ohnehin in den
+    # Punkten 11 und 12, und eine Analystenmeinung waren sie nie.
+    analysts = report.analysts
+    if analysts is not None and analysts.status is AnalystRecommendationStatus.COMPLETED:
+        inhalte[ReportSection.ANALYSTENMEINUNGEN] = {
+            "empfehlungen": _rein(analysts),
+            # Ausdruecklich null und nicht weggelassen: Doc 10 verlangt
+            # Kursziele, und es wird sie nicht geben (ADR 0043). Ein fehlender
+            # Schluessel saehe aus wie ein vergessener.
+            "kursziele": None,
+        }
 
     # Punkte 13 bis 16 haben keinen Inhalt: Optionsanalyse und Scoring
     # gehoeren zu Sprint 5. Die Felder stehen trotzdem am Bericht, damit

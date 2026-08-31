@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ai_trading_analyst.domain.analysis.models import StockScreeningOutcome
+from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
 from ai_trading_analyst.domain.research import ResearchStatus
@@ -79,6 +80,7 @@ def build_report(
     _pruefe_signalstatistik(outcome, luecken)
     _pruefe_technik(outcome, luecken)
     _pruefe_research(outcome, luecken)
+    _pruefe_analystenmeinungen(outcome, luecken)
     _pruefe_risiken(outcome, luecken)
     _pruefe_fundamentaldaten(outcome, luecken)
 
@@ -111,6 +113,7 @@ def build_report(
         technical_assessment=outcome.technical_assessment,
         research=outcome.research,
         fundamentals=outcome.fundamentals,
+        analysts=outcome.analysts,
         gaps=luecken.alle,
         sources=quellen,
         report_schema_version=REPORT_SCHEMA_VERSION,
@@ -185,30 +188,55 @@ def _research_grund(outcome: StockScreeningOutcome) -> str | None:
 def _pruefe_research(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
     """Die Punkte, die **allein** an der Recherche haengen.
 
-    Die Risiken stehen bewusst nicht dabei: Sie speisen sich zusaetzlich aus
-    der KI-Einordnung und werden deshalb getrennt geprueft.
+    Zwei Punkte stehen bewusst nicht dabei. Die Risiken speisen sich
+    zusaetzlich aus der KI-Einordnung. Und die Analystenmeinungen standen bis
+    ADR 0043 hier -- ohne Recherche galt Punkt 9 als fehlend, obwohl die
+    gezaehlte Votenverteilung mit der Recherche nichts zu tun hat.
     """
     grund = _research_grund(outcome)
     if grund is not None:
-        for abschnitt in (
-            ReportSection.NACHRICHTEN,
-            ReportSection.ANALYSTENMEINUNGEN,
-            ReportSection.CHANCEN,
-        ):
+        for abschnitt in (ReportSection.NACHRICHTEN, ReportSection.CHANCEN):
             luecken.fehlt(abschnitt, grund)
         return
 
     research = outcome.research
     assert research is not None  # ``_research_grund`` hat es bereits geprueft
-    # Kursziele sind bewusst nicht gebaut (ADR 0017): Der Finnhub-Endpunkt ist
-    # kostenpflichtig. Punkt 9 verlangt sie ausdruecklich -- das gehoert
-    # gesagt, nicht weggelassen.
-    luecken.eingeschraenkt(
-        ReportSection.ANALYSTENMEINUNGEN,
-        "ohne Kursziele -- der Anbieter fuehrt sie nur kostenpflichtig (ADR 0017)",
-    )
     if not research.positive_factors:
         luecken.fehlt(ReportSection.CHANCEN, "die Recherche nennt keine positiven Faktoren")
+
+
+def _pruefe_analystenmeinungen(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+    """Punkt 9 -- **unabhaengig von der Recherche** (ADR 0043).
+
+    Der Punkt bleibt auch im Erfolgsfall eingeschraenkt: Doc 10 verlangt neben
+    den Meinungen auch Kursziele, und die sind dauerhaft zurueckgestellt, weil
+    der Endpunkt kostenpflichtig ist und keine Score-Komponente sie braucht.
+    Das gehoert gesagt, nicht weggelassen.
+    """
+    analysts = outcome.analysts
+
+    if analysts is None:
+        luecken.fehlt(ReportSection.ANALYSTENMEINUNGEN, "die Empfehlungen wurden nicht abgerufen")
+        return
+    if analysts.status is AnalystRecommendationStatus.UNAVAILABLE:
+        luecken.fehlt(
+            ReportSection.ANALYSTENMEINUNGEN,
+            f"der Anbieter war nicht erreichbar ({analysts.reason or 'ohne Angabe'})",
+        )
+        return
+    if analysts.status is AnalystRecommendationStatus.UNKNOWN:
+        # Keine Abdeckung ist nicht "keine Meinung" (ADR 0043) -- der Punkt
+        # fehlt, statt eine leere Verteilung als Aussage auszugeben.
+        luecken.fehlt(
+            ReportSection.ANALYSTENMEINUNGEN,
+            "der Anbieter fuehrt fuer dieses Symbol keine Empfehlungen",
+        )
+        return
+
+    luecken.eingeschraenkt(
+        ReportSection.ANALYSTENMEINUNGEN,
+        "ohne Kursziele -- dauerhaft zurueckgestellt (ADR 0043)",
+    )
 
 
 def _pruefe_risiken(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
@@ -293,4 +321,22 @@ def _quellen(outcome: StockScreeningOutcome) -> tuple[ReportSource, ...]:
                     ),
                 )
         quellen.extend(gesehen.values())
+    analysts = outcome.analysts
+    if (
+        analysts is not None
+        and analysts.status is AnalystRecommendationStatus.COMPLETED
+        and analysts.source_url is not None
+    ):
+        # Die Adresse kommt vom Anbieter, nicht aus dieser Datei: Ein Bericht
+        # aus Fixture-Zahlen darf nicht die Adresse des echten Dienstes
+        # nennen. Ohne Adresse gibt es keinen Beleg -- und damit auch keine
+        # Quellenzeile, statt einer mit erfundener Herkunft.
+        quellen.append(
+            ReportSource(
+                kind=SourceKind.ANALYSTS,
+                label=f"Analystenempfehlungen ({analysts.source or 'ohne Angabe'})",
+                url=analysts.source_url,
+                retrieved_at=analysts.retrieved_at,
+            )
+        )
     return tuple(quellen)

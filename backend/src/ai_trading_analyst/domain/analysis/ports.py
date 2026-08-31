@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
@@ -147,6 +148,45 @@ class EarningsProvider(Protocol):
 
         Raises:
             EarningsProviderError: wenn die Quelle nicht erreichbar war.
+        """
+        ...
+
+
+class AnalystRecommendationsProviderError(Exception):
+    """Ein Anbieter konnte fuer eine Aktie keine Empfehlungen liefern.
+
+    Wird vom Application-Layer pro Aktie isoliert (Muster
+    ``EarningsProviderError``) -- ein Ausfall der Quelle ist ein normaler
+    Betriebszustand (ADR 0017), kein Laufabbruch.
+    """
+
+
+class AnalystRecommendationsFormatError(AnalystRecommendationsProviderError):
+    """Der Anbieter war erreichbar, seine Antwort aber nicht auswertbar.
+
+    Getrennt von der Basisklasse, weil der Unterschied im Bericht steht:
+    "nicht erreicht" und "erreicht, aber unlesbar" sind verschiedene
+    Aussagen ueber die Datenlage. Der Earnings-Filter macht dieselbe
+    Unterscheidung (ADR 0017, Gruende ``provider_error`` und
+    ``invalid_data``).
+    """
+
+
+class AnalystRecommendationsProvider(Protocol):
+    """Liefert die Votenverteilung der Analysten je Monatsstand."""
+
+    def recommendations(self, stock: Stock) -> AnalystRecommendations:
+        """Empfehlungen der letzten Monate, neuester Stand zuerst (ADR 0043).
+
+        Fuehrt der Anbieter das Symbol nicht, ist das ``UNKNOWN`` mit Grund
+        ``"no_coverage"`` -- **nicht** eine leere Verteilung und nicht "keine
+        Meinung". Kursziele liefert dieser Port nicht und wird es nicht: Sie
+        sind dauerhaft zurueckgestellt (ADR 0043).
+
+        Raises:
+            AnalystRecommendationsProviderError: wenn die Quelle nicht
+                erreichbar war oder eine Antwort lieferte, die nicht
+                auswertbar ist.
         """
         ...
 
