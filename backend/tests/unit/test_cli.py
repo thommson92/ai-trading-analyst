@@ -2074,6 +2074,53 @@ class TestFundamentalKommando:
         assert cli.command_fundamental(args) == 2
         assert "schliessen sich aus" in capsys.readouterr().err
 
+    def test_der_marktdatenschalter_macht_den_bestand_erreichbar(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auf dem Server bleibt ``config/default.yaml`` unveraendert, damit
+        ``git pull`` keinen lokalen Diff vorfindet -- produktive Quellen
+        werden ueber Schalter gesetzt. Ohne diesen Weg waere
+        ``--price-from-bars`` dort nicht benutzbar.
+
+        Der Schalter heisst ``--market-data-provider``, weil ``--provider``
+        bei diesem Unterbefehl schon die Fundamentalquelle uebersteuert.
+        """
+        gesehen: dict[str, str] = {}
+
+        def merken(loaded: object, config: AppConfig, wanted: object) -> None:
+            gesehen["provider"] = config.market_data.provider
+            return None
+
+        monkeypatch.setattr(cli, "_kurse_aus_dem_bestand", merken)
+        args = build_parser().parse_args(
+            [
+                "fundamental", "--symbols", "AAPL", "--price-from-bars",
+                "--market-data-provider", "ibkr",
+            ]
+        )
+        cli.command_fundamental(args)
+
+        assert gesehen["provider"] == "ibkr"
+
+    def test_ohne_den_marktdatenschalter_bleibt_die_konfiguration_stehen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Schalter uebersteuert nur, wenn er gesetzt ist -- sonst
+        stuende die Quelle des Laufs nicht mehr in der Konfiguration."""
+        gesehen: dict[str, str] = {}
+
+        def merken(loaded: object, config: AppConfig, wanted: object) -> None:
+            gesehen["provider"] = config.market_data.provider
+            return None
+
+        monkeypatch.setattr(cli, "_kurse_aus_dem_bestand", merken)
+        args = build_parser().parse_args(
+            ["fundamental", "--symbols", "AAPL", "--price-from-bars"]
+        )
+        cli.command_fundamental(args)
+
+        assert gesehen["provider"] == "fixture"
+
     def test_kurse_aus_dem_bestand_brauchen_den_ibkr_bestand(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
