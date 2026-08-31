@@ -865,6 +865,30 @@ class Secrets(BaseSettings):
             return None
         return value
 
+    def model_post_init(self, __context: object) -> None:
+        """Meldet jeden gesetzten Wert zur Schwaerzung an (ADR 0044).
+
+        **Warum hier und nicht in** ``load_secrets``: Genau dort stand es
+        zuerst -- und griff nicht. Das CLI baut ``Secrets()`` an sechs
+        Stellen selbst und ging daran vorbei. Die Probe auf dem Server hat
+        das gefunden: Der Finnhub-Schluessel stand unveraendert in der
+        Anfragezeile von ``httpx``, obwohl die Schwaerzung angeblich stand.
+
+        Am Modell haengt die Anmeldung an der **Entstehung** des
+        Geheimnisses statt an einem von mehreren Ladewegen. Wer ein
+        ``Secrets`` in der Hand haelt, hat es damit auch angemeldet -- es
+        gibt keinen zweiten Weg, an dem jemand vorbeibauen kann.
+        """
+        # Lokaler Import: ``secret_redaction`` selbst ist ein Blatt ohne
+        # eigene Abhaengigkeiten, aber ``observability/__init__`` zieht das
+        # Logging nach -- und das importiert ``LoggingConfig`` von hier.
+        from ai_trading_analyst.observability.secret_redaction import register_secret
+
+        for field_name in type(self).model_fields:
+            value: SecretStr | None = getattr(self, field_name)
+            if value is not None:
+                register_secret(value.get_secret_value())
+
     def require(self, field_name: str) -> str:
         """Liefert den Klartextwert eines Geheimnisses oder scheitert eindeutig."""
         if field_name not in type(self).model_fields:

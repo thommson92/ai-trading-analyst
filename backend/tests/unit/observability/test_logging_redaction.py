@@ -16,9 +16,13 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
-from ai_trading_analyst.config.settings import LoggingConfig
+from ai_trading_analyst.config.settings import LoggingConfig, Secrets
 from ai_trading_analyst.observability.logging_setup import configure_logging, get_logger
-from ai_trading_analyst.observability.secret_redaction import forget_secrets, register_secret
+from ai_trading_analyst.observability.secret_redaction import (
+    forget_secrets,
+    redact_registered,
+    register_secret,
+)
 
 GEHEIM = "geheimer-finnhub-schluessel-12345"
 
@@ -116,4 +120,50 @@ class TestAusnahmekette:
 
         ausgabe = capsys.readouterr().out
         assert "HTTPStatusError" in ausgabe, "ohne Traceback prueft der Test nichts"
+        assert GEHEIM not in ausgabe
+
+
+class TestDieAnmeldungHaengtAmModellNichtAmLadeweg:
+    """Der Fehler, den die Serverprobe am 2026-08-31 gefunden hat.
+
+    Die Anmeldung sass zuerst in ``load_secrets``. Das CLI baut ``Secrets()``
+    an sechs Stellen selbst und ging daran vorbei -- der Finnhub-Schluessel
+    stand unveraendert in der Anfragezeile von ``httpx``, obwohl die
+    Schwaerzung als erledigt galt.
+
+    Der Test prueft deshalb nicht ``load_secrets``, sondern die **direkte**
+    Konstruktion: genau den Weg, den das CLI nimmt.
+    """
+
+    def test_ein_direkt_gebautes_secrets_meldet_an(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        forget_secrets()
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", "direkt-gebauter-schluessel")
+
+        Secrets(_env_file=None)
+
+        assert "direkt-gebauter-schluessel" not in redact_registered(
+            "token=direkt-gebauter-schluessel"
+        )
+
+    def test_der_weg_des_cli_schwaerzt_die_anfragezeile(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Serverprobe als Test: Logging aufsetzen, ``Secrets()`` bauen,
+        abrufen -- in genau dieser Reihenfolge, wie ``command_ratings`` es tut."""
+        forget_secrets()
+        monkeypatch.setenv("ATA_FINNHUB_API_KEY", GEHEIM)
+        configure_logging(LoggingConfig(level="INFO", format="console"))
+
+        schluessel = Secrets(_env_file=None).require("finnhub_api_key")
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[]))
+        with httpx.Client(transport=transport) as client:
+            client.get(
+                "https://finnhub.io/api/v1/stock/recommendation",
+                params={"symbol": "AAPL", "token": schluessel},
+            )
+
+        ausgabe = capsys.readouterr().out
+        assert "HTTP Request" in ausgabe, "ohne die Zeile prueft der Test nichts"
         assert GEHEIM not in ausgabe
