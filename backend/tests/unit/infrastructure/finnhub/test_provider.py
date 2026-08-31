@@ -29,6 +29,7 @@ SETTINGS = FinnhubConnectionSettings(
     api_key="test-key",
     request_timeout_seconds=1.0,
     lookahead_calendar_days=30,
+    max_requests_per_second=1000.0,
 )
 TODAY = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 AAPL = Stock(id=uuid.uuid4(), symbol="AAPL", exchange="NASDAQ")
@@ -128,6 +129,7 @@ class TestEchterNetzwerkfehler:
             api_key="test-key",
             request_timeout_seconds=1.0,
             lookahead_calendar_days=30,
+            max_requests_per_second=1000.0,
         )
         provider = FinnhubEarningsProvider(settings, now=lambda: TODAY)
         with pytest.raises(FinnhubEarningsProviderError, match="AAPL"):

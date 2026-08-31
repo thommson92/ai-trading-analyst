@@ -125,6 +125,12 @@ analyst_ratings:
 finnhub:
   base_url: https://finnhub.io/api/v1
   request_timeout_seconds: 10
+  # Gemessen, nicht geraten: Der Messlauf ueber die Watchliste vom
+  # 2026-08-31 lief mit rund einer Anfrage je Sekunde und verlor vier von
+  # 192 Symbolen an "429 Too Many Requests". Die Gratis-Stufe deckelt bei
+  # 60 je Minute; 0,8 haelt Abstand. Gilt fuer beide Endpunkte -- das Limit
+  # gilt fuer das Konto, nicht fuer den Endpunkt.
+  max_requests_per_second: 0.8
 
 technical_analysis:
   # Deterministische Chartauswertung (Doc 10, Paragraph 6.8; ADR 0025).

@@ -27,6 +27,7 @@ SETTINGS = FinnhubRecommendationSettings(
     api_key="test-key",
     request_timeout_seconds=1.0,
     months=4,
+    max_requests_per_second=1000.0,
 )
 JETZT = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 AAPL = Stock(id=uuid.uuid4(), symbol="AAPL", exchange="NASDAQ")
@@ -186,6 +187,7 @@ class TestEchterNetzwerkfehler:
                 api_key="test-key",
                 request_timeout_seconds=1.0,
                 months=4,
+                max_requests_per_second=1000.0,
             ),
             now=lambda: JETZT,
         )
@@ -240,3 +242,47 @@ class TestSchluesselLandetNichtImFehlertext:
             provider.recommendations(AAPL)
 
         assert "test-key" not in fehler.value.args[0]
+
+
+class TestDrosselung:
+    """Finnhubs Gratis-Stufe deckelt bei 60 Anfragen je Minute.
+
+    Der Messlauf ueber die Watchliste vom 2026-08-31 lief mit rund einer
+    Anfrage je Sekunde und verlor vier von 192 Symbolen an ``429`` -- der
+    Adapter hielt bis dahin keinen Abstand.
+    """
+
+    def test_zwischen_zwei_abrufen_wird_gewartet(self) -> None:
+        gewartet: list[float] = []
+        provider = FinnhubAnalystRecommendationsProvider(
+            FinnhubRecommendationSettings(
+                base_url="https://finnhub.io/api/v1",
+                api_key="test-key",
+                request_timeout_seconds=1.0,
+                months=4,
+                max_requests_per_second=2.0,
+            ),
+            now=lambda: JETZT,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
+            sleep=gewartet.append,
+        )
+
+        provider.recommendations(AAPL)
+        provider.recommendations(AAPL)
+
+        assert len(gewartet) == 1
+        assert gewartet[0] == pytest.approx(0.5, abs=0.05)
+
+    def test_der_erste_abruf_wartet_nicht(self) -> None:
+        """Eine Einzelprobe soll sofort antworten."""
+        gewartet: list[float] = []
+        provider = FinnhubAnalystRecommendationsProvider(
+            SETTINGS,
+            now=lambda: JETZT,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
+            sleep=gewartet.append,
+        )
+
+        provider.recommendations(AAPL)
+
+        assert gewartet == []

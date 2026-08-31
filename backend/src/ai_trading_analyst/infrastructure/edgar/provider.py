@@ -27,6 +27,7 @@ from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     compute_fundamental_snapshot,
 )
+from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 from .companyfacts import CompanyFactsError, ResolvedFacts, resolve_company_facts
@@ -81,35 +82,6 @@ class EdgarConnectionSettings:
         return f"ai-trading-analyst {self.contact}"
 
 
-class _Drossel:
-    """Haelt den Mindestabstand zwischen zwei Anfragen ein.
-
-    Threadsicher, obwohl der Tageslauf die Fundamentaldaten heute
-    **sequentiell** holt (Phase 1 von ``RunAnalysisUseCase``, ausserhalb der
-    Agenten-Pools). Die Sperre kostet nichts und haelt die Zusicherung, wenn
-    der Beschaffungspfad spaeter nebenlaeufig wird -- eine Drossel, die das
-    nicht beruecksichtigt, laesst genau dann zu viele Anfragen durch, wenn es
-    darauf ankommt, und SEC EDGAR deckelt bei zehn je Sekunde.
-    """
-
-    def __init__(self, max_per_second: float, sleep: Callable[[float], None] = time.sleep) -> None:
-        if max_per_second <= 0:
-            raise ValueError(f"max_requests_per_second muss positiv sein, war {max_per_second}")
-        self._mindestabstand = 1.0 / max_per_second
-        self._sleep = sleep
-        self._sperre = threading.Lock()
-        self._zuletzt = 0.0
-
-    def warte(self) -> None:
-        with self._sperre:
-            jetzt = time.monotonic()
-            rest = self._zuletzt + self._mindestabstand - jetzt
-            if rest > 0:
-                self._sleep(rest)
-                jetzt += rest
-            self._zuletzt = jetzt
-
-
 @dataclass(frozen=True, slots=True)
 class _Emittent:
     """Ein Eintrag des SEC-Symbolverzeichnisses.
@@ -157,7 +129,7 @@ class EdgarFundamentalDataProvider:
         self._now = now
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``)."""
-        self._drossel = _Drossel(settings.max_requests_per_second, sleep)
+        self._drossel = Drossel(settings.max_requests_per_second, sleep)
         self._cik_index: Mapping[str, _Emittent] | None = None
         self._index_sperre = threading.Lock()
 

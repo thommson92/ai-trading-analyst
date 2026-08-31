@@ -205,6 +205,7 @@ def build_finnhub_earnings_provider(config: AppConfig, secrets: Secrets) -> Finn
             api_key=secrets.require("finnhub_api_key"),
             request_timeout_seconds=float(finnhub.request_timeout_seconds),
             lookahead_calendar_days=config.earnings_filter.lookahead_calendar_days,
+            max_requests_per_second=finnhub.max_requests_per_second,
         )
     )
 
@@ -238,6 +239,7 @@ def build_analyst_recommendations_provider(
             api_key=secrets.require("finnhub_api_key"),
             request_timeout_seconds=float(finnhub.request_timeout_seconds),
             months=config.analyst_ratings.months,
+            max_requests_per_second=finnhub.max_requests_per_second,
         )
     )
 

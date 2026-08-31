@@ -13,6 +13,7 @@ Event-Loop-Nebeneffekt wie ``ib_async`` -- ein regulaerer Modul-Import genuegt.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -22,6 +23,7 @@ import httpx
 
 from ai_trading_analyst.domain.analysis import EarningsProviderError, Stock
 from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
@@ -45,6 +47,7 @@ class FinnhubConnectionSettings:
     api_key: str
     request_timeout_seconds: float
     lookahead_calendar_days: int
+    max_requests_per_second: float
 
 
 class FinnhubEarningsProvider:
@@ -55,9 +58,13 @@ class FinnhubEarningsProvider:
         settings: FinnhubConnectionSettings,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
         self._now = now
+        self._drossel = Drossel(settings.max_requests_per_second, sleep)
+        """Dasselbe Konto, dieselbe Grenze wie bei den Empfehlungen -- das
+        Limit gilt fuer das Konto, nicht fuer den Endpunkt."""
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``). ``None`` verwendet
         den echten Transport von ``httpx``."""
@@ -65,6 +72,7 @@ class FinnhubEarningsProvider:
     def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
         symbol = stock.symbol
         today = self._now().date()
+        self._drossel.warte()
         window_end = today + timedelta(days=self._settings.lookahead_calendar_days)
 
         try:

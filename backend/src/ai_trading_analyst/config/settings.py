@@ -283,6 +283,16 @@ class FinnhubConfig(_Section):
 
     base_url: str = "https://finnhub.io/api/v1"
     request_timeout_seconds: PositiveInt = 10
+    max_requests_per_second: PositiveFloat = 0.8
+    """Gemessen, nicht geraten: Der Messlauf ueber die Watchliste vom
+    2026-08-31 lief mit rund einer Anfrage je Sekunde und verlor vier von
+    192 Symbolen an ``429 Too Many Requests``. Die Gratis-Stufe deckelt bei
+    60 je Minute, also genau eine je Sekunde -- 0,8 haelt Abstand, aus
+    demselben Grund wie bei EDGAR: Eine Drossel, die genau auf der Grenze
+    liegt, ueberschreitet sie bei jeder Ungenauigkeit der Uhr.
+
+    Gilt fuer **beide** Endpunkte desselben Kontos, denn das Limit gilt fuer
+    das Konto und nicht fuer den Endpunkt."""
 
 
 class EdgarConfig(_Section):

@@ -16,6 +16,7 @@ keine Score-Komponente braucht sie (ADR 0043).
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -33,6 +34,7 @@ from ai_trading_analyst.domain.analysts import (
     AnalystRecommendationStatus,
     RecommendationPeriod,
 )
+from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
@@ -76,6 +78,7 @@ class FinnhubRecommendationSettings:
     """Wie viele Monatsstaende hoechstens uebernommen werden. Der Endpunkt
     kennt keinen Zeitraumparameter -- er liefert, was er hat, und die
     Begrenzung geschieht hier."""
+    max_requests_per_second: float
 
 
 class FinnhubAnalystRecommendationsProvider:
@@ -86,9 +89,14 @@ class FinnhubAnalystRecommendationsProvider:
         settings: FinnhubRecommendationSettings,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._settings = settings
         self._now = now
+        self._drossel = Drossel(settings.max_requests_per_second, sleep)
+        """Finnhubs Gratis-Stufe deckelt bei 60 Anfragen je Minute. Ohne
+        Abstand verliert ein Lauf ueber die Watchliste Symbole an ``429``
+        -- gemessen am 2026-08-31 (ADR 0046)."""
         self._transport = transport
         """Nur fuer Tests gesetzt (``httpx.MockTransport``). ``None`` verwendet
         den echten Transport von ``httpx``."""
@@ -96,6 +104,7 @@ class FinnhubAnalystRecommendationsProvider:
     def recommendations(self, stock: Stock) -> AnalystRecommendations:
         symbol = stock.symbol
         evaluated_at = self._now()
+        self._drossel.warte()
 
         try:
             with httpx.Client(
