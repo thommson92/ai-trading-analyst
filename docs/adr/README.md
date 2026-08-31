@@ -79,6 +79,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0042](0042-kein-historischer-earnings-filter.md) | Der Backtest bekommt keinen historischen Earnings-Filter | Angenommen (entscheidet E3 des Audits vom 2026-08-23 -- verworfen mit Begruendung, nicht vertagt) |
 | [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
 | [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
+| [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041) |
 
 ## Offene Entscheidungen
 

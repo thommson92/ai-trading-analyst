@@ -149,14 +149,25 @@ Schwellen; die Kandidaten stehen fest:
 
 ## Schwellen
 
-**Aus welcher Kennzahl welcher Teilwert zwischen 0 und 10 wird, steht noch
-nicht fest.** Die Schwellen werden an einem Lauf über die volle Watchliste
-kalibriert, nicht gesetzt — dasselbe Vorgehen wie bei den Zonen
+Aus welcher Kennzahl welcher Teilwert zwischen 0 und 10 wird, steht in
+[ADR 0045](adr/0045-schwellen-der-score-teilwerte.md).
+
+Sie sind **gemessen, nicht gesetzt**: Fünftelgrenzen aus einem Lauf über 191
+Titel der Watchliste vom 2026-08-31, ausgewertet mit `cli calibrate-scores`.
+Dasselbe Vorgehen wie bei den Zonen
 ([ADR 0025](adr/0025-deterministische-chartauswertung-und-zonen.md)) und der
 Historientiefe ([ADR 0027](adr/0027-historientiefe-messen-vor-anspruch.md)).
+Das war eine Voraussetzung, kein Restposten: **Ein geratener Teilwert ist eine
+erfundene Zahl.**
 
-Das ist eine Voraussetzung, kein Restposten: **Ein geratener Teilwert ist
-eine erfundene Zahl.**
+Fünf Stufen — 2, 4, 6, 8, 10. Das oberste Fünftel der Watchliste bekommt volle
+Punkte, das unterste **2 und nicht 0**: Ein Titel im untersten Fünftel der
+Nettomarge hat trotzdem eine Nettomarge.
+
+**Der Swing-Score ist die Ausnahme.** Seine Komponenten sind Enums und zwei
+bereits normierte Zahlen, und es gibt noch keinen produktiven Tageslauf, aus
+dem sich eine Verteilung ergäbe. Seine Abbildung ist eine **Setzung** und in
+ADR 0045 als solche gekennzeichnet.
 
 ---
 
