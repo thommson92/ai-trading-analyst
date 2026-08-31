@@ -8,18 +8,25 @@ den CLAUDE.md verbietet.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.report import (
     REPORT_SCHEMA_VERSION,
     GapKind,
     ReportSection,
     SourceKind,
+    StockReport,
     build_report,
 )
 from ai_trading_analyst.domain.research import ResearchStatus
@@ -450,6 +457,87 @@ class TestScores:
     def test_ohne_empfehlung_fehlt_punkt_sechzehn(self) -> None:
         report = build_report(make_outcome(), created_at=ERSTELLT, app_version="0.1.0")
         assert ReportSection.EMPFEHLUNG in report.missing_sections
+
+
+class TestPutStrategien:
+    """Punkt 13 (ADR 0048).
+
+    Drei Zustaende mit drei verschiedenen Aussagen -- und der dritte ist der
+    interessante: Vorschlaege ohne Abstand zur Unterstuetzung sind
+    **eingeschraenkt**, nicht fehlend. Der Abschnitt hat Inhalt; ihn als
+    fehlend zu fuehren waere ein Widerspruch im Dokument.
+    """
+
+    @staticmethod
+    def _strategie(*, mit_zone: bool = True) -> PutStrategy:
+        return PutStrategy(
+            expiration=date(2026, 10, 2),
+            days_to_expiration=31,
+            strike=92.0,
+            distance_to_price_pct=0.08,
+            premium=1.5,
+            break_even=90.5,
+            capital_at_risk=9200.0,
+            simple_return=0.0163,
+            annualized_return=0.192,
+            liquidity=LiquidityGrade.GOOD,
+            distance_to_support_pct=0.03 if mit_zone else None,
+        )
+
+    def _analyse(
+        self, *strategien: PutStrategy, reason: str | None = None
+    ) -> OptionsAnalysis:
+        return OptionsAnalysis(
+            status=(
+                OptionsStatus.COMPLETED if strategien else OptionsStatus.INSUFFICIENT_DATA
+            ),
+            evaluated_at=ERSTELLT,
+            underlying_price=100.0,
+            expiration=date(2026, 10, 2) if strategien else None,
+            strategies=strategien,
+            reason=reason,
+        )
+
+    def _bericht(self, analyse: OptionsAnalysis | None) -> StockReport:
+        return build_report(
+            make_outcome(options=analyse), created_at=ERSTELLT, app_version="0.1.0"
+        )
+
+    def test_vorschlaege_machen_den_punkt_verfuegbar(self) -> None:
+        report = self._bericht(self._analyse(self._strategie()))
+
+        assert ReportSection.PUT_STRATEGIEN not in report.missing_sections
+        assert report.options is not None
+        assert report.options.strategies[0].strike == pytest.approx(92.0)
+        assert not [g for g in report.gaps if g.section is ReportSection.PUT_STRATEGIEN]
+
+    def test_ohne_abruf_zeigt_der_grund_auf_die_quelle(self) -> None:
+        report = self._bericht(None)
+
+        (luecke,) = [g for g in report.gaps if g.section is ReportSection.PUT_STRATEGIEN]
+        assert luecke.kind is GapKind.FEHLT
+        assert "nicht erreichbar" in luecke.reason
+
+    def test_ohne_passenden_kontrakt_steht_der_befund_der_kette_da(self) -> None:
+        """Ein anderer Befund als "nicht erreichbar": Die Quelle hat
+        geantwortet, die Kette gab nur nichts Passendes her."""
+        report = self._bericht(
+            self._analyse(reason="keine der 12 Notierungen lieferte ein Delta")
+        )
+
+        (luecke,) = [g for g in report.gaps if g.section is ReportSection.PUT_STRATEGIEN]
+        assert luecke.kind is GapKind.FEHLT
+        assert luecke.reason == "keine der 12 Notierungen lieferte ein Delta"
+
+    def test_ohne_zonen_ist_der_punkt_eingeschraenkt_nicht_fehlend(self) -> None:
+        report = self._bericht(
+            self._analyse(self._strategie(mit_zone=False), self._strategie())
+        )
+
+        assert ReportSection.PUT_STRATEGIEN not in report.missing_sections
+        (vorbehalt,) = [g for g in report.gaps if g.section is ReportSection.PUT_STRATEGIEN]
+        assert vorbehalt.kind is GapKind.EINGESCHRAENKT
+        assert "1 von 2 Vorschlaegen" in vorbehalt.reason
 
 
 class TestEmpfehlung:

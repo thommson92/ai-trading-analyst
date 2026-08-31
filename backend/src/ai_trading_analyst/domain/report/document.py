@@ -145,12 +145,28 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
             "kursziele": None,
         }
 
+    # Punkt 13: die Put-Vorschlaege mit allen Ausgabegroessen aus Doc 10,
+    # Paragraph 6.10. Auch ein Ergebnis ohne Vorschlag steht hier -- es nennt
+    # den Grund, und das ist mehr als eine Luecke.
+    if report.options is not None:
+        inhalte[ReportSection.PUT_STRATEGIEN] = {
+            "status": report.options.status.value,
+            "kurs": report.options.underlying_price,
+            "verfallstermin": (
+                None
+                if report.options.expiration is None
+                else report.options.expiration.isoformat()
+            ),
+            "vorschlaege": [_rein(s) for s in report.options.strategies],
+            "grund": report.options.reason,
+            "version": report.options.analysis_version,
+        }
+
     # Punkte 14 und 15: der vollstaendige Score, nicht nur seine Zahl -- Doc
     # 10, Paragraph 6.11 verlangt Teilwerte, Gewichte, Abdeckung, Konfidenz,
     # Faktoren und begrenzende Risiken. Auch ein Score mit
     # ``INSUFFICIENT_DATA`` steht hier: Er sagt, welche Komponenten fehlten,
-    # und das ist mehr als eine Luecke. Punkt 13 bleibt leer (Optionsanalyse,
-    # ADR 0048), Punkt 16 ebenfalls (Empfehlungsstufe, ADR 0046).
+    # und das ist mehr als eine Luecke.
     if report.swing_score is not None:
         inhalte[ReportSection.SWING_SCORE] = _rein(report.swing_score)
     if report.investment_score is not None:

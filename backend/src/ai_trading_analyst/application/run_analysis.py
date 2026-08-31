@@ -552,6 +552,7 @@ class RunAnalysisUseCase:
             backtest=item.backtest,
             assessment=item.technical_assessment,
             analysts=item.analysts,
+            options=item.options,
             parameters=self._scoring_params,
         )
         investment = compute_long_term_score(item.fundamentals, parameters=self._scoring_params)

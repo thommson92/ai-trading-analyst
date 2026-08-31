@@ -935,6 +935,16 @@ class ScoringConfig(_Section):
     """Die Schwellen der News-Komponente (ADR 0046) -- an 187 Titeln der
     Watchliste gemessen. Ein eigenes Feld und kein Eintrag in ``thresholds``:
     Der Kauf-Anteil ist keine Kennzahl aus einer SEC-Einreichung."""
+    options_annualized_return: MetricThresholdConfig | None = None
+    """Die Schwellen der Optionsattraktivitaet (ADR 0048) -- die annualisierte
+    Praemienrendite des bestbewerteten Put-Vorschlags.
+
+    **Ohne Eintrag entfaellt die Komponente** mit benanntem Grund, und der
+    Swing-Score bleibt bei der Abdeckung ohne sie. Das ist Absicht: Ein
+    vorlaeufiger Satz Schwellen truege eine Zahl in den Score, die aussieht
+    wie die gemessenen daneben. Gefuellt wird das Feld nach dem Messlauf
+    ueber die Watchliste (``cli options --watchlist --output``), und dann
+    steigt ``swing_version``."""
     thresholds: dict[str, MetricThresholdConfig] = {}
     """Die Schwellen je Kennzahl, Schluessel ist der Name aus ``MetricName``.
 

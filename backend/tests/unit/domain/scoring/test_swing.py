@@ -9,6 +9,7 @@ Setzung aus dem ADR treffen und dass die begrenzende Regel greift.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
@@ -25,8 +26,15 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestResult,
     HorizonMetrics,
 )
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
+    MetricThresholds,
     ScoreKind,
     ScoreResult,
     ScoreStatus,
@@ -158,12 +166,14 @@ def rechne(
     backtest: Sequence[BacktestResult] = _STANDARD,
     assessment: TechnicalAssessment | None = _STANDARD,
     analysts: AnalystRecommendations | None = _STANDARD,
+    options: OptionsAnalysis | None = None,
 ) -> ScoreResult:
     return compute_swing_score(
         ergebnis() if result is _STANDARD else result,
         backtest=(statistik(),) if backtest is _STANDARD else backtest,
         assessment=einordnung() if assessment is _STANDARD else assessment,
         analysts=voten(0.9) if analysts is _STANDARD else analysts,
+        options=options,
         parameters=params,
     )
 
@@ -561,6 +571,150 @@ class TestNewsUndEreignislage:
         )
         score = rechne(scoring_params, analysts=leer)
         assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
+
+
+OPTIONSSCHWELLEN = MetricThresholds(
+    boundaries=(0.10, 0.16, 0.24, 0.36), higher_is_better=True
+)
+"""Ein Satz Schwellen fuer die Tests. **Nicht** die spaeter gemessenen: Zum
+Zeitpunkt dieser Tests gibt es keinen Messlauf, und ausgeliefert wird
+deshalb ueberhaupt keiner (``options_annualized_return: None`)."""
+
+
+def optionen(annualisiert: float = 0.20, *, strategien: bool = True) -> OptionsAnalysis:
+    return OptionsAnalysis(
+        status=OptionsStatus.COMPLETED if strategien else OptionsStatus.INSUFFICIENT_DATA,
+        evaluated_at=JETZT,
+        underlying_price=100.0,
+        expiration=date(2026, 10, 2),
+        reason=None if strategien else "keine der 12 Notierungen lieferte ein Delta",
+        strategies=(
+            (
+                PutStrategy(
+                    expiration=date(2026, 10, 2),
+                    days_to_expiration=31,
+                    strike=92.0,
+                    distance_to_price_pct=0.08,
+                    premium=1.5,
+                    break_even=90.5,
+                    capital_at_risk=9200.0,
+                    simple_return=annualisiert * 31 / 365,
+                    annualized_return=annualisiert,
+                    liquidity=LiquidityGrade.GOOD,
+                ),
+            )
+            if strategien
+            else ()
+        ),
+    )
+
+
+class TestOptionsattraktivitaet:
+    """Die sechste Komponente (ADR 0048)."""
+
+    @pytest.fixture
+    def mit_schwellen(self, scoring_params: ScoringParameters) -> ScoringParameters:
+        """Die ausgelieferten Parameter, ergaenzt um die noch nicht
+        gemessenen Optionsschwellen -- der Zustand nach dem Messlauf."""
+        return replace(
+            scoring_params,
+            options_annualized_return=OPTIONSSCHWELLEN,
+            swing_version="1.2",
+        )
+
+    def test_ohne_gemessene_schwellen_entfaellt_die_komponente(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """So wird die Fassung ausgeliefert, bis der Messlauf gelaufen ist.
+
+        Vorlaeufige Schwellen waeren schlimmer als keine: Der Score truege
+        eine Zahl, die aussieht wie die gemessenen daneben, und die
+        Versionsnummer sagte nicht, dass sie es nicht ist.
+        """
+        score = rechne(scoring_params, options=optionen())
+
+        assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
+        assert score.coverage == pytest.approx(0.9)
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+        ]
+        assert komponente.reason == (
+            "die Schwellen der Optionsattraktivitaet sind noch nicht gemessen"
+        )
+
+    def test_mit_schwellen_deckt_der_score_alle_sechs_komponenten(
+        self, mit_schwellen: ScoringParameters
+    ) -> None:
+        score = rechne(mit_schwellen, options=optionen())
+
+        assert score.missing_components == ()
+        assert score.coverage == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        ("annualisiert", "erwartet"),
+        [(0.05, 2.0), (0.13, 4.0), (0.20, 6.0), (0.30, 8.0), (0.50, 10.0)],
+    )
+    def test_die_rendite_wird_ueber_die_schwellen_abgebildet(
+        self, mit_schwellen: ScoringParameters, annualisiert: float, erwartet: float
+    ) -> None:
+        score = rechne(mit_schwellen, options=optionen(annualisiert))
+
+        assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == erwartet
+
+    def test_der_bestbewertete_vorschlag_zaehlt(
+        self, mit_schwellen: ScoringParameters
+    ) -> None:
+        """Der erste der Liste, nicht der Mittelwert ueber alle drei.
+
+        Ein Mittelwert bezoege den weit aus dem Geld liegenden Vorschlag mit
+        ein, den niemand nehmen wuerde -- und senkte den Teilwert eines
+        Titels, nur weil er mehr Auswahl bietet.
+        """
+        analyse = optionen(0.50)
+        zweiter = replace(analyse.strategies[0], annualized_return=0.05, strike=84.0)
+        score = rechne(
+            mit_schwellen,
+            options=replace(analyse, strategies=(analyse.strategies[0], zweiter)),
+        )
+
+        assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == 10.0
+
+    def test_die_begruendung_nennt_strike_und_laufzeit(
+        self, mit_schwellen: ScoringParameters
+    ) -> None:
+        """Die Zahl allein sagt nicht, aus welchem Kontrakt sie stammt."""
+        score = rechne(mit_schwellen, options=optionen(0.24))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+        ]
+
+        assert komponente.reason == "24% annualisiert aus Strike 92 ueber 31 Tage"
+
+    def test_ohne_abruf_und_ohne_vorschlag_bleiben_zwei_verschiedene_gruende(
+        self, mit_schwellen: ScoringParameters
+    ) -> None:
+        """Der eine zeigt auf die TWS, der andere auf die Kette dieses Titels."""
+        ohne_abruf = rechne(mit_schwellen, options=None)
+        ohne_vorschlag = rechne(mit_schwellen, options=optionen(strategien=False))
+
+        gruende = [
+            next(
+                k.reason
+                for k in score.components
+                if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+            )
+            for score in (ohne_abruf, ohne_vorschlag)
+        ]
+        assert gruende[0] == "die Optionsdaten wurden nicht abgerufen"
+        assert gruende[1] == "kein Put-Vorschlag (keine der 12 Notierungen lieferte ein Delta)"
+
+    def test_ein_ausfall_der_optionsdaten_kostet_den_score_nicht(
+        self, mit_schwellen: ScoringParameters
+    ) -> None:
+        score = rechne(mit_schwellen, options=None)
+
+        assert score.status is ScoreStatus.COMPLETED
+        assert score.coverage == pytest.approx(0.9)
 
 
 class TestNochNichtGebauteKomponenten:

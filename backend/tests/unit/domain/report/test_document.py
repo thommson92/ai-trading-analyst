@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
+from ai_trading_analyst.domain.options import (
+    OPTIONS_ANALYSIS_VERSION,
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
@@ -295,6 +302,90 @@ class TestScoreImDokument:
 
     def test_das_dokument_bleibt_json(self) -> None:
         json.dumps(dokument(swing_score=self._score()))
+
+
+class TestPutStrategienImDokument:
+    """Punkt 13 traegt alle Ausgabegroessen aus Doc 10, Paragraph 6.10.
+
+    Das Dokument ist die verbindliche Fassung: Was hier nicht steht, laesst
+    sich spaeter nicht mehr ergaenzen -- die Notierung von 16:30 gibt es
+    morgen nicht noch einmal.
+    """
+
+    @staticmethod
+    def _analyse(**overrides: object) -> OptionsAnalysis:
+        vorgabe: dict = {  # type: ignore[type-arg]
+            "expiration": date(2026, 10, 2),
+            "days_to_expiration": 31,
+            "strike": 92.0,
+            "distance_to_price_pct": 0.08,
+            "premium": 1.5,
+            "break_even": 90.5,
+            "capital_at_risk": 9200.0,
+            "simple_return": 0.0163,
+            "annualized_return": 0.192,
+            "liquidity": LiquidityGrade.ACCEPTABLE,
+            "liquidity_warnings": ("Open Interest 30",),
+            "bid": 1.5,
+            "ask": 1.6,
+            "mid": 1.55,
+            "delta": 0.26,
+            "implied_volatility": 0.31,
+            "open_interest": 30,
+            "volume": 60,
+            "distance_to_support_pct": 0.03,
+            "earnings_within_term": False,
+        }
+        return OptionsAnalysis(
+            status=OptionsStatus.COMPLETED,
+            evaluated_at=ERSTELLT,
+            underlying_price=100.0,
+            expiration=date(2026, 10, 2),
+            strategies=(PutStrategy(**{**vorgabe, **overrides}),),
+        )
+
+    def _inhalt(self, analyse: OptionsAnalysis) -> dict:  # type: ignore[type-arg]
+        abschnitt = dokument(options=analyse)["abschnitte"][
+            ReportSection.PUT_STRATEGIEN.value
+        ]
+        inhalt: dict = abschnitt["inhalt"]  # type: ignore[type-arg]
+        return inhalt
+
+    def test_kurs_verfallstermin_und_version_stehen_am_abschnitt(self) -> None:
+        inhalt = self._inhalt(self._analyse())
+
+        assert inhalt["kurs"] == pytest.approx(100.0)
+        assert inhalt["verfallstermin"] == "2026-10-02"
+        assert inhalt["version"] == OPTIONS_ANALYSIS_VERSION
+
+    def test_jeder_vorschlag_traegt_seine_rohgroessen_neben_den_abgeleiteten(self) -> None:
+        """Wer ``annualisierte_rendite`` nicht glaubt, soll nachrechnen
+        koennen -- Praemie, Strike und Restlaufzeit stehen daneben."""
+        (vorschlag,) = self._inhalt(self._analyse())["vorschlaege"]
+
+        assert vorschlag["strike"] == pytest.approx(92.0)
+        assert vorschlag["premium"] == pytest.approx(1.5)
+        assert vorschlag["days_to_expiration"] == 31
+        assert vorschlag["annualized_return"] == pytest.approx(0.192)
+        assert vorschlag["break_even"] == pytest.approx(90.5)
+        assert vorschlag["liquidity"] == "ACCEPTABLE"
+        assert vorschlag["liquidity_warnings"] == ["Open Interest 30"]
+
+    def test_fehlende_nebenangaben_stehen_als_null_und_nicht_als_zahl(self) -> None:
+        """``null`` und ``0`` sind im Dokument verschiedene Aussagen: kein
+        Delta geliefert gegen ein Delta von null."""
+        (vorschlag,) = self._inhalt(
+            self._analyse(delta=None, distance_to_support_pct=None, open_interest=None)
+        )["vorschlaege"]
+
+        assert vorschlag["delta"] is None
+        assert vorschlag["distance_to_support_pct"] is None
+        assert vorschlag["open_interest"] is None
+
+    def test_ein_unbekannter_berichtstermin_ist_nicht_false(self) -> None:
+        (vorschlag,) = self._inhalt(self._analyse(earnings_within_term=None))["vorschlaege"]
+
+        assert vorschlag["earnings_within_term"] is None
 
 
 class TestEmpfehlungImDokument:

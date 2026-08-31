@@ -120,6 +120,15 @@ class ScoringParameters:
     recommendation: RecommendationParameters
     swing_version: str
     long_term_version: str
+    options_annualized_return: MetricThresholds | None = None
+    """Die Schwellen der Optionsattraktivitaet (ADR 0048) -- die
+    annualisierte Praemienrendite des bestbewerteten Put-Vorschlags.
+
+    **``None``, solange sie nicht gemessen sind.** Die Komponente entfaellt
+    dann mit benanntem Grund, der Swing-Score bleibt bei der Abdeckung ohne
+    sie. Ein vorlaeufiger Satz Schwellen waere schlimmer als keiner: Der
+    Score truege dann eine Zahl, die aussieht wie die gemessenen daneben, und
+    die Versionsnummer sagte nicht, dass sie es nicht ist."""
 
     def __post_init__(self) -> None:
         if self.normal_confidence_coverage < self.minimum_coverage:

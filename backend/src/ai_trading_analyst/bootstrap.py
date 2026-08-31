@@ -504,6 +504,14 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
             boundaries=config.scoring.analyst_buy_share.boundaries,
             higher_is_better=config.scoring.analyst_buy_share.higher_is_better,
         ),
+        options_annualized_return=(
+            None
+            if config.scoring.options_annualized_return is None
+            else MetricThresholds(
+                boundaries=config.scoring.options_annualized_return.boundaries,
+                higher_is_better=config.scoring.options_annualized_return.higher_is_better,
+            )
+        ),
         minimum_coverage=config.scoring.minimum_coverage,
         normal_confidence_coverage=config.scoring.normal_confidence_coverage,
         swing_version=config.scoring.swing_version,
