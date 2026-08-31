@@ -30,8 +30,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import statistics
 import sys
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
@@ -1817,6 +1819,111 @@ def command_fundamental(args: argparse.Namespace) -> int:
     return 1 if fehler else 0
 
 
+def quintilgrenzen(werte: Sequence[float]) -> tuple[float, ...]:
+    """Die vier Schnittpunkte der Fuenftel, aufsteigend.
+
+    Bewusst **verteilungsfrei**: Kein Mittelwert, keine Standardabweichung.
+    Die Verteilungen sind stark schief -- ein KGV von 4368 (CRWD) und eine
+    Eigenkapitalrendite von 13587 % (GDDY, Eigenkapital nahe null) verschoeben
+    jeden Mittelwert, lassen aber die Rangfolge unberuehrt.
+
+    ``statistics.quantiles`` mit ``method="inclusive"`` interpoliert zwischen
+    den Datenpunkten und behandelt die Stichprobe als Grundgesamtheit -- und
+    das ist sie hier: Die Watchliste ist nicht Stichprobe eines groesseren
+    Marktes, sie **ist** der Vergleichsraum (ADR 0032 L5).
+    """
+    if len(werte) < 5:
+        # Weniger als fuenf Werte koennen keine Fuenftel bilden. Kein
+        # Ersatzwert: Die Kennzahl bekommt in diesem Lauf keine Schwellen.
+        raise ValueError(f"Fuenftel brauchen mindestens fuenf Werte, gegeben sind {len(werte)}")
+    # Ohne eigenes sorted(): ``statistics.quantiles`` sortiert selbst. Der
+    # Test auf die Reihenfolgeunabhaengigkeit bleibt trotzdem stehen -- er
+    # haelt die Zusicherung fest, nicht ihre heutige Herkunft.
+    grenzen = statistics.quantiles(werte, n=5, method="inclusive")
+    return tuple(grenzen)
+
+
+def command_calibrate_scores(args: argparse.Namespace) -> int:
+    """Die Verteilung je Kennzahl ueber die Watchliste.
+
+    Das Muster von ``history-depth`` und ``calendar-reach``: messen, ausgeben,
+    nichts ablegen. Die Schwellen selbst entscheidet ein ADR -- dieses
+    Kommando liefert die Zahlen, auf denen es steht.
+    """
+    quelle = Path(args.input)
+    try:
+        zeilen = quelle.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        print(f"--input nicht lesbar: {error}", file=sys.stderr)
+        return 2
+
+    reader = csv.DictReader(zeilen)
+    werte: dict[str, list[float]] = defaultdict(list)
+    symbole: set[str] = set()
+    ohne_kennzahlen: set[str] = set()
+    for zeile in reader:
+        symbol = (zeile.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        symbole.add(symbol)
+        name = (zeile.get("kennzahl") or "").strip()
+        roh = (zeile.get("wert") or "").strip()
+        if not name or not roh:
+            # Eine Aktie ohne jede Kennzahl steht mit leeren Feldern in der
+            # CSV (INSUFFICIENT_DATA). Sie zaehlt bei der Abdeckung mit,
+            # liefert aber keinen Wert.
+            ohne_kennzahlen.add(symbol)
+            continue
+        try:
+            werte[name].append(float(roh))
+        except ValueError:
+            print(f"{symbol}/{name}: '{roh}' ist keine Zahl.", file=sys.stderr)
+
+    if not werte:
+        print(f"{quelle} enthaelt keine auswertbaren Kennzahlen.", file=sys.stderr)
+        return 2
+
+    _print_kalibrierung(werte, len(symbole), sorted(ohne_kennzahlen))
+    return 0
+
+
+def _print_kalibrierung(
+    werte: Mapping[str, Sequence[float]], aktien: int, ohne_kennzahlen: Sequence[str]
+) -> None:
+    """Je Kennzahl: Abdeckung, Fuenftelgrenzen, Spannweite.
+
+    Die Spannweite steht daneben, weil sie zeigt, **warum** die Grenzen aus
+    Quantilen kommen und nicht aus Mittelwerten.
+    """
+    print()
+    print(f"=== Verteilung ueber {aktien} Aktien ===")
+    if ohne_kennzahlen:
+        print(
+            f"Ohne jede Kennzahl: {len(ohne_kennzahlen)} "
+            f"({', '.join(ohne_kennzahlen)})"
+        )
+    print()
+    kopf = f"{'Kennzahl':30} {'n':>4} {'20%':>12} {'40%':>12} {'60%':>12} {'80%':>12}"
+    print(kopf)
+    print("-" * len(kopf))
+    for name in sorted(werte):
+        reihe = werte[name]
+        try:
+            grenzen = quintilgrenzen(reihe)
+        except ValueError:
+            print(f"{name:30} {len(reihe):>4}   zu wenige Werte fuer Fuenftel")
+            continue
+        spalten = " ".join(f"{grenze:>12.4f}" for grenze in grenzen)
+        print(f"{name:30} {len(reihe):>4} {spalten}")
+
+    print()
+    print(f"{'Kennzahl':30} {'n':>4} {'kleinster':>16} {'groesster':>16}")
+    print("-" * 70)
+    for name in sorted(werte):
+        reihe = sorted(werte[name])
+        print(f"{name:30} {len(reihe):>4} {reihe[0]:>16.4f} {reihe[-1]:>16.4f}")
+
+
 def _kurse_aus_dem_bestand(
     loaded: LoadedConfig, config: AppConfig, wanted: Sequence[str]
 ) -> tuple[dict[str, float], dict[str, datetime], list[tuple[str, str]]] | None:
@@ -2691,6 +2798,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     backfill.set_defaults(handler=command_backfill)
+
+    calibrate = subparsers.add_parser(
+        "calibrate-scores",
+        help=(
+            "Misst die Verteilung der Fundamentalkennzahlen ueber die Watchliste "
+            "(Grundlage der Score-Schwellen, ADR 0041). Liest die CSV von "
+            "'fundamental --output', legt nichts ab und braucht kein Netz."
+        ),
+    )
+    calibrate.add_argument(
+        "--input",
+        required=True,
+        help="Die CSV aus 'fundamental --watchlist --price-from-bars --output'.",
+    )
+    calibrate.set_defaults(handler=command_calibrate_scores)
 
     depth = subparsers.add_parser(
         "history-depth",
