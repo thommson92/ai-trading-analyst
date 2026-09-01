@@ -61,4 +61,6 @@ fortgeschrieben — auch sie ist dann Beleg.
 | 2026-08-23 | [Repository-Audit](2026-08-23-repository-audit.md) | `f61f316` (`dev`) | Vollständiger Ist-Soll-Abgleich über Code, Tests, alle 26 ADRs, Requirements und Dokumentation nach Abschluss des Technical Agent (PR #35) |
 | 2026-08-31 | [Repository-Audit 2](2026-08-31-repository-audit-2.md) | `1f65472` (`feature/optionsanalyse`) | Vollständige Neuuntersuchung nach Sprint 4/5 (Fundamentalanalyse, Report, Scoring, Optionsanalyse) samt verifizierender Reconciliation aller Befunde, Maßnahmen und Risiken aus dem Audit vom 2026-08-23 |
 
-Erledigungsstand: [Nachverfolgung zum Audit vom 2026-08-23](2026-08-23-nachverfolgung.md).
+Erledigungsstand: [Nachverfolgung zum Audit 2](2026-08-31-nachverfolgung.md)
+(laufend). Die [Nachverfolgung zum Audit vom 2026-08-23](2026-08-23-nachverfolgung.md)
+ist mit dessen Ablösung eingefroren.

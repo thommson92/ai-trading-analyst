@@ -137,8 +137,10 @@ Noch offen:
 | Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst; der Zugriff ist entschieden ([ADR 0049](docs/adr/0049-dashboard-mvp-nur-lan.md): nur eigenes Netz, keine Auth im MVP) |
 
 Der Erledigungsstand der Befunde aus dem
-[Repository-Audit](docs/audits/2026-08-23-repository-audit.md) wird in der
-[Nachverfolgung](docs/audits/2026-08-23-nachverfolgung.md) geführt.
+[Repository-Audit 2](docs/audits/2026-08-31-repository-audit-2.md) wird in
+dessen [Nachverfolgung](docs/audits/2026-08-31-nachverfolgung.md) geführt;
+das [Audit vom 2026-08-23](docs/audits/2026-08-23-repository-audit.md) ist
+damit abgelöst.
 
 ## Struktur
 
