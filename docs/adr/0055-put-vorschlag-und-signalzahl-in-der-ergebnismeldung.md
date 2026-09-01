@@ -84,8 +84,8 @@ Format hinfällig. Neu gemessen an dem, was tatsächlich versendet wird
 
 | Block | Kandidaten, die passen |
 |---|---|
-| voll (drei Zeilen: Stufe, Scores, Earnings-Hinweis, Put-Vorschlag) | — (Messung folgt mit der Umsetzung) |
-| kurz (zwei Zeilen: WATCH ohne Hinweise) | — (Messung folgt mit der Umsetzung) |
+| voll (drei Zeilen: Stufe, Scores, Earnings-Hinweis, Put-Vorschlag) | 23 |
+| kurz (zwei Zeilen: WATCH ohne Hinweise) | 82 |
 
 Beide Enden sind als Test festgehalten; wandern sie, gehört die Zahl hier
 nachgezogen.

@@ -70,10 +70,21 @@ def _gekuerzt(text: str) -> str:
 
     Die Kuerzung wird gekennzeichnet, weil eine stillschweigend abgeschnittene
     Liste aussaehe wie eine vollstaendige.
+
+    Geschnitten wird an der letzten **Blockgrenze** (Leerzeile) vor dem Limit
+    (ADR 0055): Seit die Meldung Bloecke traegt, saehe ein Schnitt mitten im
+    Wort nach einem Defekt aus, und ein halber Block behauptete Angaben, die
+    er nicht mehr enthaelt. ``Betreff\\n\\nText`` stellt die erste Blockgrenze
+    sicher; findet sich im Fenster dennoch keine (ein Text ohne Leerzeilen),
+    bleibt der harte Schnitt als Rueckfall.
     """
     if len(text) <= MAX_TEXT_ZEICHEN:
         return text
-    return text[: MAX_TEXT_ZEICHEN - len(_KUERZUNGSHINWEIS)] + _KUERZUNGSHINWEIS
+    grenze = MAX_TEXT_ZEICHEN - len(_KUERZUNGSHINWEIS)
+    schnitt = text.rfind("\n\n", 0, grenze + 1)
+    if schnitt <= 0:
+        return text[:grenze] + _KUERZUNGSHINWEIS
+    return text[:schnitt] + _KUERZUNGSHINWEIS
 
 
 class TelegramNotifier:
@@ -86,10 +97,10 @@ class TelegramNotifier:
 
     - Ein ausgefallener Lauf meldet Handelstag, Kerzenzeitpunkt und Ursache
       (ADR 0024).
-    - Ein erfolgreicher Lauf meldet Symbole, Signaltypen, das
-      Fehlsignalrisiko als Stufe und einen unbekannten Berichtstermin --
-      **keine Kurse, keine Kennzahlen, keinen Modell-Freitext**
-      (ADR 0040, das ADR 0024 an dieser Stelle bewusst lockert).
+    - Ein erfolgreicher Lauf meldet je Kandidat einen Block aus Symbol,
+      Stufe, Signalzahl, Scores und -- bei empfohlenen Stufen -- dem besten
+      Put-Vorschlag; **keinen Modell-Freitext** (ADR 0040/0047/0055, die
+      ADR 0024 an dieser Stelle bewusst lockern).
 
     ``sendMessage`` lehnt Texte ueber ``MAX_TEXT_ZEICHEN`` mit einem 400 ab.
     Der Adapter kuerzt deshalb selbst und kennzeichnet die Kuerzung: Eine zu
