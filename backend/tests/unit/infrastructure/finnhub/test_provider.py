@@ -11,8 +11,10 @@ Teststrategie, kein Mock der Bibliothek.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -169,3 +171,40 @@ class TestSchluesselLandetNichtImFehlertext:
 
         assert "test-key" not in str(fehler.value)
         assert "AAPL" in str(fehler.value)
+
+
+class TestEingefroreneAntwort:
+    """Gegenprobe an der echten Antwort vom 2026-09-01 (A2-M7).
+
+    Die Faelle oben pruefen je eine Regel an einer selbst geschriebenen
+    Antwort -- und genau das ist ihre Grenze: Benennt Finnhub morgen ein Feld
+    um, bleiben sie gruen, weil sie den alten Namen selbst hinschreiben. Erst
+    eine **fremde** Antwort kann diese Aenderung melden. Herkunft und
+    Neuaufzeichnung stehen in ``data/HERKUNFT.md``.
+    """
+
+    def test_die_echte_antwort_ergibt_denselben_termin(self) -> None:
+        pfad = Path(__file__).parent / "data" / "calendar-earnings-AAPL.json"
+        payload = json.loads(pfad.read_text(encoding="utf-8"))
+
+        termin = _provider(_json_transport(payload)).next_earnings_date(AAPL)
+
+        assert termin is not None
+        assert termin.date == date(2026, 10, 28)
+        assert termin.source == "finnhub"
+
+    def test_die_felder_daneben_stoeren_nicht(self) -> None:
+        """Finnhub liefert je Eintrag acht Felder; der Adapter liest eines.
+
+        Der Test steht hier, weil die selbst geschriebenen Antworten oben nur
+        ``date``, ``symbol`` und ``hour`` enthalten -- an ihnen laesst sich
+        nicht sehen, ob Schaetzwerte und Nullwerte danebenliegen duerfen.
+        """
+        pfad = Path(__file__).parent / "data" / "calendar-earnings-AAPL.json"
+        payload = json.loads(pfad.read_text(encoding="utf-8"))
+
+        (eintrag,) = payload["earningsCalendar"]
+        assert eintrag["epsActual"] is None, "ein zukuenftiger Termin, wie beabsichtigt"
+        assert "epsEstimate" in eintrag and "revenueEstimate" in eintrag
+
+        assert _provider(_json_transport(payload)).next_earnings_date(AAPL) is not None
