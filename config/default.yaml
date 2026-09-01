@@ -106,7 +106,18 @@ earnings_filter:
   # Abschnitt 'finnhub' gewandert, weil sie seither zwei Endpunkten gehoeren.
   # Der alte Schluesselort fuehrt zum Startfehler, nicht zu einem Default --
   # eine still uebergangene Umbenennung waere schlimmer als ein Abbruch.
-  lookahead_calendar_days: 30
+  #
+  # 120 statt der urspruenglichen 30 (Nachtrag zu ADR 0017): Der Termin hat
+  # seit ADR 0046/0048 drei Verbraucher, und nur der erste kam mit 30 aus --
+  # das Ausschlussfenster (10 Handelstage), die Kennzeichnung
+  # earnings_within_term der Optionsanalyse (Verfaelle bis 60 Tage voraus)
+  # und der Empfehlungsdeckel cap_earnings_unknown. Quartalsberichte kommen
+  # nur ~alle 90 Tage: Mit 30 Tagen war der Termin bei rund zwei Dritteln
+  # der Kandidaten "unbekannt", und deren Empfehlung blieb dauerhaft
+  # gedeckelt. 120 deckt einen vollen Quartalszyklus mit Reserve; der Spike
+  # mass ueber vier Monate 97 % Abdeckung. Ein groesseres Fenster ist ein
+  # reiner Query-Parameter -- es kostet keine zusaetzliche Anfrage.
+  lookahead_calendar_days: 120
 
 # Analystenempfehlungen (Doc 10, Paragraph 6.12 Punkt 9; ADR 0043).
 # Kursziele gibt es hier bewusst nicht: Der Endpunkt ist kostenpflichtig,

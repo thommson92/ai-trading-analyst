@@ -433,10 +433,14 @@ class EarningsFilterConfig(_Section):
     provider: Literal["fixture", "finnhub"] = "fixture"
     """Wie ``market_data.provider``: ``fixture`` bleibt Standard, damit Start
     und Tests ohne ``ATA_FINNHUB_API_KEY`` funktionieren."""
-    lookahead_calendar_days: PositiveInt = 30
-    """Kalendertage je Anfrage -- grosszuegig ueber dem groessten
-    konfigurierbaren Kerzenfenster (20 Kerzen / 2 je Tag = 10 Handelstage),
-    um Wochenenden abzudecken. Bleibt weit unter der 1500-Treffer-Kuerzung
+    lookahead_calendar_days: PositiveInt = 120
+    """Kalendertage je Anfrage -- ein voller Quartalszyklus mit Reserve
+    (Nachtrag zu ADR 0017). Der Termin hat drei Verbraucher: das
+    Ausschlussfenster (10 Handelstage), ``earnings_within_term`` der
+    Optionsanalyse (Verfaelle bis 60 Tage voraus, ADR 0048) und den
+    Empfehlungsdeckel ``cap_earnings_unknown`` (ADR 0046). Mit den
+    urspruenglichen 30 Tagen war der Termin bei rund zwei Dritteln der
+    Kandidaten "unbekannt". Bleibt weit unter der 1500-Treffer-Kuerzung
     aus ADR 0017 L4, da je Symbol angefragt wird.
 
     Stand bis ADR 0043 unter ``earnings_filter.finnhub``. Der Wert beschreibt
