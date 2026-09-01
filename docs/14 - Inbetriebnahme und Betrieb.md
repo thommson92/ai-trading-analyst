@@ -995,6 +995,11 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
    nirgends von allein auf.
 3. **Modell-Identifier** (`llm.research`, `llm.technical`, jeweils samt
    `fallback_model`) — gegen den dann aktuellen Katalog.
+4. **Gemeldete Schwachstellen in Abhängigkeiten.** Der Workflow
+   `.github/workflows/audit.yml` läuft wöchentlich und meldet, ohne zu
+   blockieren — ob ein Fund gefährlich ist, hängt daran, wie das Paket
+   genutzt wird. Die offenen Meldungen gehören einmal je Turnus angesehen
+   und beschieden: aktualisieren, oder mit Begründung stehen lassen.
 
 Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
 wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).

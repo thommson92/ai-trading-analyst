@@ -529,3 +529,12 @@ dabei *nicht* erzwungen wird, steht in
 
 Die dort beschriebene Interimsregel bleibt trotzdem sinnvoll: `gh pr checks
 <nummer>` zeigt einen Fehlschlag früher als ein blockierter Merge-Knopf.
+
+Daneben läuft wöchentlich `.github/workflows/audit.yml` und meldet bekannte
+Schwachstellen in den Abhängigkeiten (`pip-audit` gegen beide Lock-Dateien,
+`npm audit` fürs Frontend). Er blockiert bewusst nicht: Ob ein Fund
+gefährlich ist, hängt daran, wie das Paket genutzt wird — und das ist keine
+Frage, die einen Merge aufhalten sollte, bis anderswo eine Fassung
+erscheint. Die offenen Meldungen gehören in den Pflegeturnus
+([Doc 14](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md), Abschnitt
+„Pflege").
