@@ -83,8 +83,16 @@ class FixtureOptionsProvider:
             )
 
         evaluated_at = self._now()
+        # Mit ``next_earnings_date``, wie der IBKR-Anbieter: Ohne ihn entstuende
+        # hier ein Vorschlag mit ``earnings_within_term=True`` -- ein Zustand,
+        # den die Produktion nie erzeugt. Der Standardlauf von ``dispatch``
+        # steht auf diesem Anbieter und pruefte dann etwas anderes als das,
+        # was spaeter laeuft.
         termin = select_expiration(
-            _verfallstermine(as_of), as_of=as_of, parameters=self._parameters
+            _verfallstermine(as_of),
+            as_of=as_of,
+            parameters=self._parameters,
+            next_earnings_date=next_earnings_date,
         )
         if termin is None:
             return unzureichend(

@@ -100,6 +100,7 @@ class FakeIb:
         self._gelistet = gelistet if gelistet is not None else []
         self.market_data_types: list[int] = []
         self.qualifiziert: list[Any] = []
+        self.ticker_fehler: Exception | None = None
 
     def reqSecDefOptParams(self, *args: object) -> list[FakeKette]:  # noqa: N802
         return self._ketten
@@ -115,6 +116,8 @@ class FakeIb:
         return list(kontrakte)
 
     def reqTickers(self, *kontrakte: object) -> list[FakeTicker]:  # noqa: N802
+        if self.ticker_fehler is not None:
+            raise self.ticker_fehler
         return self._tickers
 
 
@@ -136,7 +139,7 @@ class TestKettenabruf:
         )
         struktur = quelle(ib).option_chain(AAPL)
         assert struktur.exchange == "SMART"
-        assert struktur.strikes == (90.0, 100.0)
+        assert struktur.expirations == (date(2026, 10, 2), date(2026, 10, 16))
 
     def test_unter_mehreren_smart_klassen_gewinnt_die_reichste(self) -> None:
         """Ein Basiswert kann mehrere Handelsklassen haben -- neben der
@@ -184,20 +187,38 @@ class TestKettenabruf:
 
 
 class TestNotierungen:
-    def test_der_marktdatenmodus_wird_gesetzt(self) -> None:
-        """Ohne ihn kaeme nach Boersenschluss nichts zurueck (ADR 0048)."""
+    def test_der_marktdatenmodus_wird_gesetzt_und_zurueckgestellt(self) -> None:
+        """Ohne ihn kaeme nach Boersenschluss nichts zurueck (ADR 0048).
+
+        Zurueckgestellt wird, weil der Modus fuer die **ganze** Verbindung
+        gilt und dieselbe den Kerzenabruf bedient: Bei
+        ``market_data.source: live`` verschraenken sich beide je Aktie, und
+        ein stehen gebliebenes "verzoegert" wirkte auf Anfragen, die mit
+        Optionen nichts zu tun haben.
+        """
         ib = FakeIb(tickers=[FakeTicker(90.0)])
-        quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
-        assert ib.market_data_types == [2]
+        quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
+        assert ib.market_data_types == [2, 1]
+
+    def test_zurueckgestellt_wird_auch_nach_einem_fehler(self) -> None:
+        """Sonst bliebe der Modus gerade dann stehen, wenn der Lauf
+        weiterlaeuft -- der Ausfall einer Kette kostet nur diese Aktie."""
+        ib = FakeIb(tickers=[FakeTicker(90.0)])
+        ib.ticker_fehler = RuntimeError("TWS weg")
+
+        with pytest.raises(IbkrBarSourceError):
+            quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
+
+        assert ib.market_data_types == [2, 1]
 
     def test_ohne_strikes_wird_gar_nicht_erst_gefragt(self) -> None:
         ib = FakeIb(tickers=[FakeTicker(90.0)])
-        assert quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [], 2) == ()
+        assert quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [], 2, "AAPL") == ()
         assert ib.market_data_types == []
 
     def test_die_greeks_werden_uebernommen(self) -> None:
         ib = FakeIb(tickers=[FakeTicker(90.0, delta=-0.27)])
-        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
+        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
         assert quote.delta == pytest.approx(-0.27)
         assert quote.implied_volatility == pytest.approx(0.31)
         assert quote.strike == pytest.approx(90.0)
@@ -210,13 +231,13 @@ class TestNotierungen:
         benanntem Grund.
         """
         ib = FakeIb(tickers=[FakeTicker(90.0, greeks=False)])
-        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
+        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
         assert quote.delta is None
         assert quote.bid == pytest.approx(2.0)
 
     def test_ein_nan_delta_ist_kein_delta(self) -> None:
         ib = FakeIb(tickers=[FakeTicker(90.0, delta=None)])
-        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
+        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
         assert quote.delta is None
 
     @pytest.mark.parametrize("kurs", [-1.0, 0.0])
@@ -227,14 +248,14 @@ class TestNotierungen:
         unsinnigen Mittelwert.
         """
         ib = FakeIb(tickers=[FakeTicker(90.0, bid=kurs, ask=kurs)])
-        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
+        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
         assert quote.bid is None
         assert quote.ask is None
         assert quote.mid is None
 
     def test_ein_fehlendes_open_interest_bleibt_leer(self) -> None:
         ib = FakeIb(tickers=[FakeTicker(90.0)])
-        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2)
+        (quote,) = quelle(ib).option_quotes(AAPL, date(2026, 10, 2), [90.0], 2, "AAPL")
         assert quote.open_interest is None
         assert quote.volume == 60
 
@@ -246,12 +267,13 @@ class FakeQuelle:
         self,
         struktur: OptionChainStructure,
         tickers: list[Any] | None = None,
-        gelistet: tuple[float, ...] | None = None,
+        gelistet: tuple[float, ...] = (80.0, 90.0, 95.0, 99.0, 105.0),
     ) -> None:
         self._struktur = struktur
         self._quotes = tickers if tickers is not None else []
         self._gelistet = gelistet
         self.angefragte_strikes: list[float] = []
+        self.handelsklassen: list[str] = []
         self.fehler: Exception | None = None
 
     def option_chain(self, contract: ContractSpec) -> OptionChainStructure:
@@ -260,11 +282,10 @@ class FakeQuelle:
         return self._struktur
 
     def option_strikes(
-        self, contract: ContractSpec, expiration: date
+        self, contract: ContractSpec, expiration: date, trading_class: str
     ) -> tuple[float, ...]:
-        """Ohne eigene Angabe dieselben wie in der Kette -- der Fall, in dem
-        Vereinigung und Terminliste zufaellig uebereinstimmen."""
-        return self._struktur.strikes if self._gelistet is None else self._gelistet
+        self.handelsklassen.append(trading_class)
+        return self._gelistet
 
     def option_quotes(
         self,
@@ -272,17 +293,19 @@ class FakeQuelle:
         expiration: date,
         strikes: Any,
         market_data_type: int,
+        trading_class: str,
     ) -> Any:
         self.angefragte_strikes = list(strikes)
+        self.handelsklassen.append(trading_class)
         return self._quotes
 
 
 def struktur(
     expirations: tuple[date, ...] = (date(2026, 10, 2),),
-    strikes: tuple[float, ...] = (80.0, 90.0, 95.0, 99.0, 105.0),
+    trading_class: str = "AAPL",
 ) -> OptionChainStructure:
     return OptionChainStructure(
-        expirations=expirations, strikes=strikes, trading_class="AAPL", exchange="SMART"
+        expirations=expirations, trading_class=trading_class, exchange="SMART"
     )
 
 
@@ -314,11 +337,26 @@ class TestAnbieter:
         assert quelle.angefragte_strikes == []
 
     def test_ohne_strike_im_band_wird_nicht_notiert(self) -> None:
-        quelle = FakeQuelle(struktur(strikes=(500.0, 600.0)))
+        quelle = FakeQuelle(struktur(), gelistet=(500.0, 600.0))
         analyse = provider(quelle).options(AKTIE, price=100.0, as_of=STICHTAG)
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
         assert "kein Strike" in (analyse.reason or "")
         assert quelle.angefragte_strikes == []
+
+    def test_die_handelsklasse_der_kette_gilt_fuer_beide_folgeabrufe(self) -> None:
+        """Sonst waere die Wahl in ``_bevorzugte_kette`` folgenlos.
+
+        Genau das Szenario, gegen das sie geschrieben wurde, traete eine
+        Stufe spaeter wieder ein: Ohne Handelsklasse saehen
+        ``reqContractDetails`` und ``qualifyContracts`` alle Klassen des
+        Basiswerts -- die Strike-Liste mischte zwei Raster, und mehrdeutige
+        Kontrakte liesse ``qualifyContracts`` stillschweigend weg.
+        """
+        quelle = FakeQuelle(struktur(trading_class="NFLX1"))
+
+        provider(quelle).options(AKTIE, price=100.0, as_of=STICHTAG)
+
+        assert quelle.handelsklassen == ["NFLX1", "NFLX1"]
 
     def test_ein_symbol_ausserhalb_der_watchliste_faellt_auf(self) -> None:
         fremd = Stock(id=uuid4(), symbol="MSFT", exchange="NASDAQ")
@@ -345,14 +383,15 @@ class TestGelisteteStrikes:
 
     def test_die_terminliste_kommt_aus_den_kontraktdetails(self) -> None:
         ib = FakeIb(gelistet=[295.0, 300.0, 305.0])
-        assert quelle(ib).option_strikes(AAPL, date(2026, 9, 25)) == (295.0, 300.0, 305.0)
+        assert quelle(ib).option_strikes(AAPL, date(2026, 9, 25), "AAPL") == (
+            295.0,
+            300.0,
+            305.0,
+        )
 
     def test_notiert_wird_nur_was_zu_diesem_termin_gelistet_ist(self) -> None:
         """Die Kette kennt 2,50er Schritte, der Termin nur 5,00er."""
-        vereinigung = (295.0, 297.5, 300.0, 302.5, 305.0)
-        quelle = FakeQuelle(
-            struktur(strikes=vereinigung), gelistet=(295.0, 300.0, 305.0)
-        )
+        quelle = FakeQuelle(struktur(), gelistet=(295.0, 300.0, 305.0))
 
         provider(quelle).options(AKTIE, price=309.42, as_of=STICHTAG)
 

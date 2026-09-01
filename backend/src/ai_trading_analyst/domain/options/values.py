@@ -149,6 +149,15 @@ class PutStrategy:
     bid: float | None = None
     ask: float | None = None
     mid: float | None = None
+    """Derselbe Wert wie ``premium`` -- und trotzdem ein eigenes Feld.
+
+    Doc 10, Paragraph 6.10 verlangt Geld, Brief, Mitte **und** eine
+    angenommene realistische Praemie als getrennte Angaben. Dass die
+    Entscheidung heute beide gleichsetzt (ADR 0048, Festlegung 5), ist eine
+    Festlegung und keine Eigenschaft der Groessen: Faellt sie einmal anders
+    aus -- ein Abschlag auf die Mitte etwa --, aendert sich ``premium``, und
+    ``mid`` bleibt, was der Markt stellte. Ein Feld, das die beiden
+    zusammenzoege, machte diese Aenderung zu einer Schemaaenderung."""
     delta: float | None = None
     """Der **Betrag** des vom Anbieter gelieferten Delta. Er dient zugleich
     als Naeherung der Andienungswahrscheinlichkeit -- als solche

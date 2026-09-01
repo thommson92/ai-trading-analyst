@@ -65,7 +65,7 @@ class OptionChainSource(Protocol):
     def option_chain(self, contract: ContractSpec) -> OptionChainStructure: ...
 
     def option_strikes(
-        self, contract: ContractSpec, expiration: date
+        self, contract: ContractSpec, expiration: date, trading_class: str
     ) -> tuple[float, ...]: ...
 
     def option_quotes(
@@ -74,6 +74,7 @@ class OptionChainSource(Protocol):
         expiration: date,
         strikes: Sequence[float],
         market_data_type: int,
+        trading_class: str,
     ) -> Sequence[OptionQuote]: ...
 
 
@@ -141,7 +142,12 @@ class IbkrOptionsProvider:
         # *diesem* Termin gelistet ist -- sonst gehen Anfragen an Kontrakte,
         # die es nicht gibt, und die Auswahl schrumpft still.
         try:
-            gelistet = self._source.option_strikes(contract, termin)
+            # Mit der Handelsklasse aus Schritt 1: Ohne sie saehe der Abruf
+            # wieder alle Klassen des Basiswerts, und die Wahl der reichsten
+            # Kette waere folgenlos.
+            gelistet = self._source.option_strikes(
+                contract, termin, struktur.trading_class
+            )
         except IbkrBarSourceError as error:
             raise OptionsDataProviderError(str(error)) from error
         if not gelistet:
@@ -167,7 +173,7 @@ class IbkrOptionsProvider:
 
         try:
             quotes = self._source.option_quotes(
-                contract, termin, strikes, self._market_data_type
+                contract, termin, strikes, self._market_data_type, struktur.trading_class
             )
         except IbkrBarSourceError as error:
             raise OptionsDataProviderError(str(error)) from error

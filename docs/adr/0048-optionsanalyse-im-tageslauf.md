@@ -47,6 +47,16 @@ Die Reihenfolge ist der Kern und keine Bequemlichkeit:
 | Gelistete Strikes zu **diesem** Termin | `reqContractDetails` | keine Marktdaten |
 | Bis zu 12 Strikes im Moneyness-Band | `reqTickers` | 12 Marktdatenzeilen |
 
+Die **Handelsklasse** der gewählten Kette geht in beide Folgeabrufe ein. Ohne
+sie wäre die Wahl der reichsten Kette folgenlos: `reqContractDetails` und
+`qualifyContracts` sähen wieder alle Klassen des Basiswerts — die Strike-Liste
+mischte zwei Raster, und mehrdeutige Kontrakte ließe `qualifyContracts`
+stillschweigend weg.
+
+Der Marktdatenmodus gilt für die **ganze** Verbindung, und dieselbe bedient
+den Kerzenabruf. Er wird nach jeder Notierung auf IBKRs Vorgabe
+zurückgestellt.
+
 Der dritte Schritt ist ein eigener Abruf, weil ein **gemessener** Befund ihn
 verlangt: `reqSecDefOptParams` liefert die *Vereinigung* aller Strikes über
 alle Termine, und Wochenoptionen haben engere Abstände als Monatstermine. Ohne
@@ -119,6 +129,14 @@ Rendite bei weitem Spread um zweistellige Prozentsätze. Fehlt eine der beiden
 Seiten, entsteht kein Vorschlag — ein halber Mittelwert ist keiner. Geld,
 Brief und Mid stehen ohnehin alle drei am Vorschlag.
 
+**Zwei Notierungen scheiden aus, die formal vollständig sind.** Eine Prämie
+von null ist keine — ein Verkauf, der nichts einbringt, hat keine Rendite,
+sondern nur Kapitalbindung. Und ein *gekreuzter* Markt (Brief unter Geld, bei
+dünnem Handel und im „frozen"-Modus möglich) ergäbe einen Mittelwert, zu dem
+nie gehandelt wurde. Beide fallen in der Domäne aus, nicht im Adapter: Die
+Bewertungsfunktion ist die Autorität, und der Fixture-Anbieter läuft ebenso
+durch sie.
+
 **Der Aktienkurs** ist der Schluss der letzten abgeschlossenen Kerze, dieselbe
 Grundlage wie bei Screening, Chartauswertung und Fundamentalbewertung. Er ist
 hier **nicht optional** — ohne ihn gibt es kein Strike-Band —, und er ist
@@ -181,6 +199,10 @@ Score, die aussähe wie die gemessenen daneben.
   Fundamentalkennzahlen quartalsweise bewegen. Eine unruhige Phase verschiebt
   die ganze Verteilung nach oben. Die Neumessung gehört zur Pflege, und hier
   häufiger.
+- **Der Verwerfungsgrund zählt, er kürt nicht.** Bei gemischten Gründen wäre
+  ein einzelner „häufigster" als Allaussage formuliert und dann falsch. Der
+  Satz landet in der Datenbank, im Bericht und in der Begründung der
+  Score-Komponente; er nennt deshalb jede Gruppe mit ihrer Anzahl.
 - **Sechs von 192 Titeln lieferten kein Delta** (ADM, ALGN, AME, COR, HRL,
   WST). Die Kette ist da, die Notierungen kommen, `modelGreeks` bleibt leer —
   dünn gehandelte Kontrakte. Die Analyse meldet dann `INSUFFICIENT_DATA` mit

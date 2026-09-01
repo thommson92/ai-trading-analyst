@@ -37,6 +37,7 @@ import threading
 import time
 import warnings
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -48,6 +49,11 @@ from ai_trading_analyst.domain.analysis import (
 from ai_trading_analyst.domain.options import OptionQuote
 from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.observability.logging_setup import get_logger
+
+_LIVE_MARKTDATEN = 1
+"""IBKRs Vorgabe fuer den Marktdatenmodus. Auf diesen Wert wird nach jeder
+Optionsnotierung zurueckgestellt -- der Modus gilt fuer die ganze Verbindung,
+und die Optionsanalyse ist die einzige Stelle, die ihn ueberhaupt aendert."""
 
 _logger = get_logger(__name__)
 
@@ -195,8 +201,11 @@ class OptionChainStructure:
     """
 
     expirations: tuple[date, ...]
-    strikes: tuple[float, ...]
     trading_class: str
+    """Die Handelsklasse der gewaehlten Kette. Sie wird an die beiden
+    folgenden Abrufe weitergereicht -- ohne sie waere die Wahl in
+    ``_bevorzugte_kette`` folgenlos, weil ``reqContractDetails`` und
+    ``qualifyContracts`` dann wieder alle Klassen des Basiswerts saehen."""
     exchange: str
 
 
@@ -241,7 +250,11 @@ def _verfallstermine(symbol: str, roh: Iterable[str]) -> tuple[date, ...]:
 
 
 def _put_schablone(
-    symbol: str, currency: str, expiration: date, strike: float | None = None
+    symbol: str,
+    currency: str,
+    expiration: date,
+    trading_class: str,
+    strike: float | None = None,
 ) -> Any:
     """Ein Put-Kontrakt fuer ``ib_async`` -- mit oder ohne Strike.
 
@@ -251,6 +264,15 @@ def _put_schablone(
     Ueber ``SMART``, wie bei den Aktien: Die Weiterleitung sucht die Boerse
     mit dem besten Preis. Eine feste Optionsboerse waere eine Annahme
     darueber, wo ein Kontrakt am liquidesten ist.
+
+    **Die Handelsklasse gehoert dazu.** ``_bevorzugte_kette`` waehlt sie mit
+    Bedacht -- ein Basiswert kann neben der regulaeren eine nach Split oder
+    Sonderdividende angepasste Klasse fuehren. Ohne sie im Kontrakt saehen
+    ``reqContractDetails`` und ``qualifyContracts`` wieder alle Klassen: Die
+    Strike-Liste mischte zwei Raster, und mehrdeutige Kontrakte liesse
+    ``qualifyContracts`` stillschweigend weg. Die sorgfaeltige Wahl eine
+    Zeile spaeter wieder wegzuwerfen ist schlimmer, als sie nie getroffen zu
+    haben.
     """
     from ib_async import Option
 
@@ -261,6 +283,7 @@ def _put_schablone(
         "P",
         exchange="SMART",
         currency=currency,
+        tradingClass=trading_class,
     )
 
 
@@ -421,14 +444,20 @@ class IbAsyncBarSource:
                 "Basiswert sind keine Optionen gelistet."
             )
         kette = _bevorzugte_kette(ketten)
+        # **Ohne** die Strikes: ``reqSecDefOptParams`` liefert deren
+        # Vereinigung ueber alle Termine, und die ist als Auswahlgrundlage
+        # unbrauchbar (siehe ``option_strikes``). Ein Feld, das man nicht
+        # benutzen darf, gehoert nicht ins Ergebnis -- es laedt zum
+        # Missgriff ein.
         return OptionChainStructure(
             expirations=_verfallstermine(contract.symbol, kette.expirations),
-            strikes=tuple(sorted(float(strike) for strike in kette.strikes)),
             trading_class=str(kette.tradingClass),
             exchange=str(kette.exchange),
         )
 
-    def option_strikes(self, contract: ContractSpec, expiration: date) -> tuple[float, ...]:
+    def option_strikes(
+        self, contract: ContractSpec, expiration: date, trading_class: str
+    ) -> tuple[float, ...]:
         """Die Strikes, die zu **diesem** Verfallstermin tatsaechlich gelistet sind.
 
         Ein eigener Aufruf, und zwar aus einem gemessenen Grund:
@@ -448,7 +477,9 @@ class IbAsyncBarSource:
                 ib = self._connection()
                 stock = self._qualified(ib, contract)
                 details = ib.reqContractDetails(
-                    _put_schablone(stock.symbol, contract.currency, expiration)
+                    _put_schablone(
+                        stock.symbol, contract.currency, expiration, trading_class
+                    )
                 )
             except IbkrBarSourceError:
                 raise
@@ -465,6 +496,7 @@ class IbAsyncBarSource:
         expiration: date,
         strikes: Sequence[float],
         market_data_type: int,
+        trading_class: str,
     ) -> Sequence[OptionQuote]:
         """Notierungen der genannten Put-Strikes zu einem Verfallstermin.
 
@@ -486,7 +518,9 @@ class IbAsyncBarSource:
                 ib = self._connection()
                 stock = self._qualified(ib, contract)
                 ib.reqMarketDataType(market_data_type)
-                kontrakte = self._qualifizierte_puts(ib, stock, contract, expiration, strikes)
+                kontrakte = self._qualifizierte_puts(
+                    ib, stock, contract, expiration, strikes, trading_class
+                )
                 if not kontrakte:
                     return ()
                 tickers = ib.reqTickers(*kontrakte)
@@ -496,6 +530,18 @@ class IbAsyncBarSource:
                 raise IbkrBarSourceError(
                     f"Optionsnotierungen fuer '{contract.symbol}' nicht abrufbar: {error}"
                 ) from error
+            finally:
+                # Der Modus gilt fuer die **ganze** Verbindung, und dieselbe
+                # bedient den Kerzenabruf. Bei 'market_data.source: live'
+                # verschraenken sich beide je Aktie; ein stehen gebliebenes
+                # "verzoegert" wirkte dann auf Anfragen, die mit Optionen
+                # nichts zu tun haben. Zurueck auf IBKRs Vorgabe.
+                #
+                # Unterdrueckt, weil dieser Schritt nichts beschaffen soll:
+                # Ein Fehler beim Zuruecksetzen darf keine gelungene
+                # Notierung verwerfen und keinen echten Fehler verdecken.
+                with suppress(Exception):
+                    self._connection().reqMarketDataType(_LIVE_MARKTDATEN)
         return tuple(_als_quote(ticker) for ticker in tickers if ticker.contract is not None)
 
     def _qualifizierte_puts(
@@ -505,9 +551,12 @@ class IbAsyncBarSource:
         contract: ContractSpec,
         expiration: date,
         strikes: Sequence[float],
+        trading_class: str,
     ) -> list[Any]:
         puts = [
-            _put_schablone(stock.symbol, contract.currency, expiration, strike)
+            _put_schablone(
+                stock.symbol, contract.currency, expiration, trading_class, strike
+            )
             for strike in strikes
         ]
         # ``qualifyContracts`` laesst nicht aufloesbare Kontrakte einfach weg

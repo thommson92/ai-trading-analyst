@@ -226,6 +226,8 @@ def unzureichend(
 _OHNE_DELTA = "ohne_delta"
 _DELTA_AUSSERHALB = "delta_ausserhalb"
 _OHNE_MITTELWERT = "ohne_mittelwert"
+_PRAEMIE_NULL = "praemie_null"
+_GEKREUZT = "gekreuzt"
 _ABGELAUFEN = "abgelaufen"
 
 
@@ -257,6 +259,27 @@ def _bewerte(
     praemie = quote.mid
     if praemie is None:
         verworfen.append(_OHNE_MITTELWERT)
+        return None
+    # Zwei Notierungen, die formal vollstaendig sind und trotzdem keinen
+    # Preis ergeben. Beide muessen **hier** ausscheiden und nicht erst im
+    # Adapter: Diese Funktion ist die Autoritaet ueber die Bewertung, und der
+    # Fixture-Anbieter wie jeder kuenftige laeuft ebenfalls durch sie.
+    #
+    # Eine Praemie von null ist keine Praemie -- ein Verkauf, der nichts
+    # einbringt, hat keine Rendite, sondern nur die Kapitalbindung. Ohne
+    # diese Pruefung entstuende ein Vorschlag mit 0 % Rendite und, weil auch
+    # die Spannenpruefung an einer Mitte von null nichts findet, mit der
+    # **besten** Liquiditaetsstufe.
+    if praemie <= 0:
+        verworfen.append(_PRAEMIE_NULL)
+        return None
+    # Ein gekreuzter Markt (Brief unter Geld) kommt bei duennem Handel und im
+    # "frozen"-Modus vor. Sein Mittelwert ist ein Kurs, zu dem nie gehandelt
+    # wurde -- ein erfundener Wert (CLAUDE.md). Die Spannenpruefung faengt
+    # ihn nicht: Die Spanne wird negativ und liegt damit unter jeder
+    # Obergrenze.
+    if quote.ask is not None and quote.bid is not None and quote.ask < quote.bid:
+        verworfen.append(_GEKREUZT)
         return None
     # Der Berichtstermin wirkt bereits bei der Wahl des Verfallstermins
     # (``select_expiration``). Hier bleibt er nur noch eine Angabe am
@@ -367,23 +390,37 @@ def _earnings_im_laufzeitfenster(
 def _verwerfungsgrund(
     anzahl: int, verworfen: Sequence[str], parameters: OptionsParameters
 ) -> str:
-    """Warum kein Vorschlag uebrig blieb -- benannt, nicht pauschal.
+    """Warum kein Vorschlag uebrig blieb -- gezaehlt, nicht pauschal.
 
-    Der Unterschied zaehlt: "keine Notierung lieferte ein Delta" ist ein
-    Befund ueber die Marktdatenberechtigung oder die Tageszeit, "keine lag im
-    Delta-Band" ist ein Befund ueber die Kette.
+    Der Unterschied zaehlt: "ohne Delta" ist ein Befund ueber die
+    Marktdatenberechtigung oder die Tageszeit, "ausserhalb des Delta-Bands"
+    einer ueber die Kette.
+
+    **Aufgezaehlt und nicht der haeufigste.** Ein einzelner Gewinner waere
+    als Allaussage formuliert und dann falsch, sobald die Gruende gemischt
+    sind: Bei zwei Notierungen ohne Delta und zwei ausserhalb des Bandes
+    stuende dort "keine der 4 lieferte ein Delta", obwohl zwei eines
+    lieferten. Der Satz landet in der Datenbank, im Bericht und in der
+    Begruendung der Score-Komponente -- er muss stimmen.
     """
     if anzahl == 0:
         return "der Anbieter lieferte zu den angefragten Strikes keine einzige Notierung"
-    gruende = {
-        _OHNE_DELTA: "lieferte ein Delta",
+    benennung = {
+        _OHNE_DELTA: "ohne Delta",
         _DELTA_AUSSERHALB: (
-            f"lag im Delta-Band {parameters.min_delta:.2f} bis {parameters.max_delta:.2f}"
+            f"ausserhalb des Delta-Bands {parameters.min_delta:.2f} bis "
+            f"{parameters.max_delta:.2f}"
         ),
-        _OHNE_MITTELWERT: "hatte Geld- und Briefkurs",
-        _ABGELAUFEN: "war noch nicht verfallen",
+        _OHNE_MITTELWERT: "ohne Geld- oder Briefkurs",
+        _PRAEMIE_NULL: "ohne Praemie ueber null",
+        _GEKREUZT: "mit gekreuztem Markt",
+        _ABGELAUFEN: "bereits verfallen",
     }
-    # Bei Gleichstand entscheidet die Reihenfolge in ``gruende`` und nicht die
-    # Laune der Mengeniteration -- derselbe Lauf soll denselben Satz ergeben.
-    haeufigster = max(gruende, key=lambda grund: verworfen.count(grund))
-    return f"keine der {anzahl} Notierungen {gruende[haeufigster]}"
+    # Die Reihenfolge ist die des Wortverzeichnisses und nicht die des
+    # Auftretens -- derselbe Lauf soll denselben Satz ergeben.
+    teile = [
+        f"{verworfen.count(grund)}x {text}"
+        for grund, text in benennung.items()
+        if verworfen.count(grund)
+    ]
+    return f"keine der {anzahl} Notierungen war brauchbar: " + ", ".join(teile)

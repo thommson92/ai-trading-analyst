@@ -706,15 +706,21 @@ class TestOptionsattraktivitaet:
         assert score.coverage == pytest.approx(0.9)
 
 
-class TestNochNichtGebauteKomponenten:
-    def test_die_optionsattraktivitaet_steht_als_luecke_in_der_liste(
+class TestFehlendeKomponenten:
+    """Der Klassenname stand frueher auf "noch nicht gebaut" -- seit ADR 0048
+    gibt es die Optionsattraktivitaet, sie kann nur ausfallen."""
+
+    def test_eine_fehlende_komponente_steht_als_luecke_in_der_liste(
         self, scoring_params: ScoringParameters
     ) -> None:
         """Sie mit 0 zu bewerten hiesse zu behaupten, sie sei geprueft und
-        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlt."""
+        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlt.
+
+        Ergaenzt ``TestOptionsattraktivitaet``: Dort steht die Abdeckung, hier
+        die **Benennung** der Luecke.
+        """
         score = rechne(scoring_params)
         assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
-        assert score.coverage == pytest.approx(0.9)
 
     def test_der_beste_kandidat_bekommt_trotzdem_einen_score(
         self, scoring_params: ScoringParameters

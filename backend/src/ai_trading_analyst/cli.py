@@ -2251,6 +2251,12 @@ def command_options(args: argparse.Namespace) -> int:
     Verfallsterminwahl, dasselbe Strike-Band, derselbe Delta-Filter, dieselbe
     Renditeformel. Zwei Formeln haetten Schwellen ergeben, die zu den
     gemessenen Werten nicht passen (die Lehre aus ADR 0046).
+
+    **Mit einer benannten Ausnahme:** Der Berichtstermin geht nicht ein, weil
+    dieses Kommando ihn nicht abruft. Im Tageslauf schliesst er Verfaelle
+    danach aus; hier sollen die Schwellen auf der unbeschraenkten Verteilung
+    stehen (ADR 0048, Konsequenzen). Aus demselben Grund fehlen die Zonen:
+    Sie fuellen ein Feld am Vorschlag und gehen in keine Kennzahl ein.
     """
     loaded = load_config(args.config)
     config = loaded.config

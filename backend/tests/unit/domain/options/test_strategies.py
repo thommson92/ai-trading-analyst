@@ -230,7 +230,7 @@ class TestDeltaFilter:
         """
         analyse = self.bewerte(None)
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
-        assert analyse.reason == "keine der 1 Notierungen lieferte ein Delta"
+        assert analyse.reason == "keine der 1 Notierungen war brauchbar: 1x ohne Delta"
 
 
 class TestPraemie:
@@ -251,7 +251,76 @@ class TestPraemie:
             parameters=PARAMETER,
         )
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
-        assert analyse.reason == "keine der 1 Notierungen hatte Geld- und Briefkurs"
+        assert analyse.reason == (
+            "keine der 1 Notierungen war brauchbar: 1x ohne Geld- oder Briefkurs"
+        )
+
+    def test_eine_praemie_von_null_ist_keine(self) -> None:
+        """Ein Verkauf, der nichts einbringt, hat keine Rendite -- nur die
+        Kapitalbindung.
+
+        Ohne diese Pruefung entstuende ein Vorschlag mit 0 % Rendite, und weil
+        die Spannenpruefung an einer Mitte von null nichts findet, traege er
+        die **beste** Liquiditaetsstufe.
+        """
+        analyse = build_options_analysis(
+            [notierung(90.0, bid=0.0, ask=0.0)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == (
+            "keine der 1 Notierungen war brauchbar: 1x ohne Praemie ueber null"
+        )
+
+    def test_ein_gekreuzter_markt_ergibt_keinen_kurs(self) -> None:
+        """Brief unter Geld -- bei duennem Handel und im "frozen"-Modus
+        moeglich.
+
+        Der Mittelwert waere ein Kurs, zu dem nie gehandelt wurde. Die
+        Spannenpruefung faengt ihn nicht: Die Spanne wird negativ und liegt
+        damit unter jeder Obergrenze.
+        """
+        analyse = build_options_analysis(
+            [notierung(90.0, bid=5.0, ask=1.0)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == (
+            "keine der 1 Notierungen war brauchbar: 1x mit gekreuztem Markt"
+        )
+
+    def test_gemischte_gruende_werden_gezaehlt_und_nicht_verrechnet(self) -> None:
+        """Ein einzelner "haeufigster" Grund waere eine Allaussage und damit
+        falsch: Hier lieferten zwei Notierungen sehr wohl ein Delta."""
+        analyse = build_options_analysis(
+            [
+                notierung(90.0, delta=None),
+                notierung(89.0, delta=None),
+                notierung(88.0, delta=-0.90),
+                notierung(87.0, delta=-0.80),
+            ],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.reason == (
+            "keine der 4 Notierungen war brauchbar: 2x ohne Delta, "
+            "2x ausserhalb des Delta-Bands 0.10 bis 0.40"
+        )
 
     def test_ohne_notierung_zeigt_der_grund_auf_den_anbieter(self) -> None:
         analyse = build_options_analysis(
