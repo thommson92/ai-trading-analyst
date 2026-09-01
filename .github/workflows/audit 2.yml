@@ -1,0 +1,77 @@
+name: Abhaengigkeiten
+
+# Bewusst eine eigene Datei und **nicht** Teil der CI: Eine Schwachstelle
+# entsteht ohne eigenes Zutun, oft lange nach dem letzten Commit. Ein Lauf,
+# der nur bei einem Push ausloest, faende sie erst beim naechsten Anfassen.
+#
+# Ebenso bewusst nicht blockierend (`continue-on-error`): Ob ein Fund
+# gefaehrlich ist, haengt daran, wie das Paket genutzt wird -- und die
+# Antwort darauf gehoert nicht in eine Bedingung, die jeden Merge aufhaelt,
+# bis irgendwo anders eine Fassung erscheint.
+on:
+  schedule:
+    # Montags früh; die Uhrzeit ist UTC und beliebig.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'backend/requirements*.lock.txt'
+      - 'backend/pyproject.toml'
+      - 'frontend/package-lock.json'
+      - 'frontend/package.json'
+      - '.github/workflows/audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  abhaengigkeiten:
+    name: Bekannte Schwachstellen
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # pip-audit ist ein Werkzeug der Werkbank, kein Bestandteil der
+      # Anwendung -- es gehoert deshalb nicht in die Lock-Datei.
+      - name: pip-audit installieren
+        run: pip install pip-audit
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # **Ein Schritt fuer beide Seiten, mit gesammeltem Rueckgabewert.** In
+      # zwei Schritten haette der erste Fund den zweiten verdeckt: Ein
+      # fehlgeschlagener Schritt bricht den Job ab, und die npm-Seite waere
+      # ungeprueft geblieben -- gemerkt beim ersten Lauf.
+      #
+      # Bei Python beide Lock-Dateien: Die produktive traegt, was auf dem
+      # Server laeuft, die Entwicklungsfassung zusaetzlich die Werkzeuge. Ein
+      # Fund in der zweiten ist nicht dasselbe wie einer in der ersten, aber
+      # wissen will man beides. `--disable-pip` haelt den Audit von der
+      # Aufloesung fern.
+      # **Die npm-Haelfte meldet derzeit bewusst rot.** `postcss` kommt
+      # transitiv ueber Next.js 15, und die Fassung dagegen ist Next 16.
+      # Der Punkt ist beschieden und steht mit Begruendung in Doc 14,
+      # Abschnitt "Pflege" -- er wird beim naechsten Turnus neu bewertet.
+      - name: Python und npm
+        run: |
+          stand=0
+          echo "::group::Python"
+          pip-audit --disable-pip \
+            -r backend/requirements.lock.txt \
+            -r backend/requirements-dev.lock.txt || stand=1
+          echo "::endgroup::"
+          echo "::group::npm"
+          (cd frontend && npm audit --audit-level=high) || stand=1
+          echo "::endgroup::"
+          exit $stand

@@ -401,7 +401,16 @@ in der Adresse — er landet damit **weder in der Datei noch in der
 Kommandohistorie der Shell**. `-o` statt einer Umleitung, damit die Bytes
 unverändert ankommen.
 
+> **Der Schlüssel steht in der `.env`, nicht in der Umgebung der Shell.** Die
+> Anwendung liest ihn über `Secrets`; `curl` tut das nicht. Ohne die erste
+> Zeile unten geht ein **leerer** Header hinaus, und Finnhub antwortet
+> `{"error":"Please use an API key."}` — in die Zieldatei, nicht auf den
+> Bildschirm. Am 2026-09-01 auf dem Server genau so passiert.
+
 ```powershell
+$env:ATA_FINNHUB_API_KEY = (Select-String -Path ..\.env `
+    -Pattern '^\s*ATA_FINNHUB_API_KEY\s*=\s*(.+)$').Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+
 $ziel = "tests\unit\infrastructure\finnhub\data"
 New-Item -ItemType Directory -Force -Path $ziel | Out-Null
 $von = (Get-Date).ToString("yyyy-MM-dd")
@@ -416,9 +425,11 @@ curl.exe -s -H "X-Finnhub-Token: $env:ATA_FINNHUB_API_KEY" `
     "https://finnhub.io/api/v1/stock/recommendation?symbol=AAPL"
 ```
 
-Beide Dateien vor dem Commit **ansehen**: Enthält der Kalender im gewählten
-Fenster keinen Termin, ist die Liste leer — dann ist die Aufzeichnung
-wertlos und das Fenster gehört verlängert oder ein anderes Symbol gewählt.
+Beide Dateien vor dem Commit **ansehen** (`Get-Content`): Enthält der Kalender
+im gewählten Fenster keinen Termin, ist die Liste leer — dann ist die
+Aufzeichnung wertlos und das Fenster gehört verlängert oder ein anderes Symbol
+gewählt. Und ein `-s`-`curl` schreibt auch eine Fehlerantwort klaglos in die
+Datei; sie fällt nur beim Hinsehen auf.
 
 ### Die IBKR-Optionskette
 
