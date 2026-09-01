@@ -88,6 +88,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0051](0051-research-im-dauerbetrieb-abgeschaltet.md) | Research Agent im Dauerbetrieb abgeschaltet — Provider-Wert `none` | Angenommen (Kostenentscheidung; löst nichts an ADR 0021/0023 ab — die Einzelprobe bleibt der Weg) |
 | [0052](0052-dashboard-als-statischer-export.md) | Dashboard als statischer Export, ausgeliefert von der API | Angenommen (beantwortet die von ADR 0036 an den Dashboard-Sprint vertagte Container-Frage: weiterhin kein Container, kein Reverse Proxy) |
 | [0053](0053-lese-api-kein-lauf-ueber-http.md) | Die Web-API ist lesend — kein Analyselauf über HTTP | Angenommen (entscheidet den MVP-Zuschnitt gegen Doc 10 §6.14; `POST /analysis-runs` entfällt, weil er auf dem Server einen Fixture-Lauf speichern würde) |
+| [0054](0054-wiederholsperre-im-tageslauf.md) | Wiederholsperre im Tageslauf — sieben Tage je voll analysiertem Symbol | Angenommen (jeder 2-aus-3-Treffer sperrt, auch WATCH; Ausschluss in der Application-Schicht, Bars laufen weiter) |
 
 ## Offene Entscheidungen
 
