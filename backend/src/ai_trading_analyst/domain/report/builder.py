@@ -12,6 +12,7 @@ from ai_trading_analyst.domain.analysis.models import StockScreeningOutcome
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
+from ai_trading_analyst.domain.options import OptionsStatus
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.scoring import (
     Recommendation,
@@ -30,8 +31,6 @@ from .values import (
     SourceKind,
     StockReport,
 )
-
-_OPTIONSANALYSE = "die Optionsanalyse ist noch nicht gebaut (ADR 0048)"
 
 _SCORE_ABSCHNITT = {
     ScoreKind.SWING: ReportSection.SWING_SCORE,
@@ -95,7 +94,7 @@ def build_report(
     _pruefe_risiken(outcome, luecken)
     _pruefe_fundamentaldaten(outcome, luecken)
 
-    luecken.fehlt(ReportSection.PUT_STRATEGIEN, _OPTIONSANALYSE)
+    _pruefe_optionen(outcome, luecken)
     _pruefe_score(outcome.swing_score, ScoreKind.SWING, luecken)
     _pruefe_score(outcome.investment_score, ScoreKind.LONG_TERM, luecken)
     _pruefe_empfehlung(outcome, luecken)
@@ -122,6 +121,7 @@ def build_report(
         research=outcome.research,
         fundamentals=outcome.fundamentals,
         analysts=outcome.analysts,
+        options=outcome.options,
         recommendation=outcome.recommendation,
         swing_score=outcome.swing_score,
         investment_score=outcome.investment_score,
@@ -296,6 +296,42 @@ def _pruefe_fundamentaldaten(outcome: StockScreeningOutcome, luecken: _Luecken) 
         luecken.eingeschraenkt(
             ReportSection.FUNDAMENTALE_BEWERTUNG,
             f"Abdeckung {fundamentals.coverage:.0%} -- ohne {fehlende}",
+        )
+
+
+def _pruefe_optionen(outcome: StockScreeningOutcome, luecken: _Luecken) -> None:
+    """Punkt 13 (Doc 10, Paragraph 6.10; ADR 0048).
+
+    Drei Faelle, drei verschiedene Aussagen: nicht abgerufen, abgerufen ohne
+    passenden Kontrakt, oder Vorschlaege mit unvollstaendiger Nebenangabe.
+
+    Der dritte ist **eingeschraenkt und nicht fehlend**: Der Abschnitt hat
+    Inhalt -- Strike, Praemie, Rendite, Break-even stehen alle darin --, ihm
+    fehlt nur der Abstand zur naechsten Unterstuetzung, weil die
+    Chartauswertung keine belastbare Zone geliefert hat. Ihn deshalb als
+    fehlend zu fuehren waere ein Widerspruch im Dokument, und die Kopplung
+    ist ausdruecklich nicht blockierend (CLAUDE.md).
+    """
+    optionen = outcome.options
+    if optionen is None:
+        luecken.fehlt(
+            ReportSection.PUT_STRATEGIEN,
+            "die Optionsanalyse lief nicht -- die Quelle war nicht erreichbar",
+        )
+        return
+    if optionen.status is not OptionsStatus.COMPLETED or not optionen.strategies:
+        luecken.fehlt(
+            ReportSection.PUT_STRATEGIEN,
+            optionen.reason or "kein Vorschlag im Zielfenster",
+        )
+        return
+    ohne_zone = [s for s in optionen.strategies if s.distance_to_support_pct is None]
+    if ohne_zone:
+        luecken.eingeschraenkt(
+            ReportSection.PUT_STRATEGIEN,
+            f"{len(ohne_zone)} von {len(optionen.strategies)} Vorschlaegen ohne Abstand "
+            "zur naechsten Unterstuetzung -- die Chartauswertung hat keine belastbare "
+            "Zone geliefert",
         )
 
 

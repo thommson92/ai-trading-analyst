@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from itertools import cycle
 
 import pytest
 
@@ -28,6 +30,7 @@ from ai_trading_analyst.domain.earnings import (
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
+from ai_trading_analyst.domain.options import OptionsStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
@@ -47,6 +50,7 @@ from tests.unit.application.conftest import (
     FakeEarningsProvider,
     FakeFundamentalDataProvider,
     FakeMarketDataProvider,
+    FakeOptionsDataProvider,
     FakeProcessingErrorRepository,
     FakeResearchProvider,
     FakeScreeningResultRepository,
@@ -105,6 +109,7 @@ def _build_use_case(
     technical_interpreter: FakeTechnicalInterpreter | None = None,
     fundamental_provider: FakeFundamentalDataProvider | None = None,
     ratings_provider: FakeAnalystRecommendationsProvider | None = None,
+    options_provider: FakeOptionsDataProvider | None = None,
     technical_params: TechnicalAnalysisParameters | None = None,
     agent_concurrency: AgentConcurrency | None = None,
     backtest_params: BacktestParameters | None = None,
@@ -133,6 +138,7 @@ def _build_use_case(
         technical_interpreter or FakeTechnicalInterpreter(),
         fundamental_provider or FakeFundamentalDataProvider(),
         ratings_provider or FakeAnalystRecommendationsProvider(),
+        options_provider or FakeOptionsDataProvider(),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -549,6 +555,178 @@ class TestAnalystenempfehlungenImTageslauf:
         assert ergebnis.earnings.status is EarningsFilterStatus.UNKNOWN
         assert ergebnis.analysts is not None
         assert ergebnis.analysts.status is AnalystRecommendationStatus.COMPLETED
+
+
+class TestOptionsanalyseImTageslauf:
+    """ADR 0048 -- Umfang, die beiden Eingaben und die Fehlerisolation.
+
+    Der Anwendungsfall ist die einzige Stelle, an der Kurs, Zonen und
+    Berichtstermin zusammenkommen. Ob die Optionsanalyse selbst richtig
+    rechnet, steht in ``tests/unit/domain/options``; hier zaehlt nur, **womit**
+    sie gerufen wird und was ihr Ausfall kostet.
+    """
+
+    def _kandidat(self) -> FakeMarketDataProvider:
+        stock = make_stock("FIXCAND")
+        return FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"FIXCAND": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+
+    def _kandidat_mit_zonen(self) -> FakeMarketDataProvider:
+        """Wie ``_kandidat``, aber mit einem Saegezahn statt einer Geraden.
+
+        Die flache Reihe des Standard-Doppels ergibt nie einen Wendepunkt und
+        damit nie eine Zone -- an ihr liesse sich die Weitergabe nicht
+        pruefen. Die Indikatoren bleiben unangetastet: Zonen entstehen aus
+        Preisen, Signale aus Indikatoren, und beides ist unabhaengig.
+        """
+        basis = make_series(_SERIES_LENGTH, candidate=True)
+        muster = (100.0, 101.0, 102.0, 103.0, 104.0, 103.0, 102.0, 101.0)
+        kerzen = tuple(
+            replace(kerze, open=preis, high=preis, low=preis, close=preis)
+            for kerze, preis in zip(basis.candles, cycle(muster), strict=False)
+        )
+        return FakeMarketDataProvider(
+            stocks=(make_stock("FIXCAND"),),
+            series_by_symbol={"FIXCAND": replace(basis, candles=kerzen)},
+        )
+
+    def test_laeuft_fuer_kandidaten(self) -> None:
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(self._kandidat(), options_provider=optionen)
+
+        summary = use_case.execute()
+
+        assert [aufruf[0] for aufruf in optionen.calls] == ["FIXCAND"]
+        analyse = summary.outcomes[0].options
+        assert analyse is not None
+        assert analyse.status is OptionsStatus.COMPLETED
+        assert analyse.strategies
+
+    def test_wer_kein_kandidat_ist_wird_nicht_abgefragt(self) -> None:
+        """Jede Kette kostet Marktdatenanfragen, und Put-Vorschlaege betreffen
+        nur Kandidaten (ADR 0048, Festlegung 2)."""
+        stock = make_stock("NOCAND")
+        provider = FakeMarketDataProvider(
+            stocks=(stock,),
+            series_by_symbol={"NOCAND": make_series(_SERIES_LENGTH, candidate=False)},
+        )
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(provider, options_provider=optionen)
+
+        summary = use_case.execute()
+
+        assert optionen.calls == []
+        assert summary.outcomes[0].options is None
+
+    def test_der_kurs_ist_der_schluss_der_letzten_abgeschlossenen_kerze(self) -> None:
+        """Derselbe Kurs, auf dem Screening und Chartauswertung stehen. Die
+        Optionsanalyse beschafft keinen eigenen -- ohne ihn gaebe es kein
+        Strike-Band, und eine zweite Quelle ergaebe ein zweites."""
+        provider = self._kandidat()
+        reihe = provider.get_candle_series(make_stock("FIXCAND"))
+        letzte = reihe.candle(len(reihe) - 1)
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(provider, options_provider=optionen)
+
+        use_case.execute()
+
+        (symbol, kurs, stichtag, _, _) = optionen.calls[0]
+        assert (symbol, kurs) == ("FIXCAND", letzte.close)
+        assert stichtag == letzte.timestamp.date()
+
+    def test_die_zonen_kommen_aus_der_chartauswertung(self) -> None:
+        """Die erste gerichtete Kopplung (CLAUDE.md): Die Optionsanalyse
+        leitet keine eigenen Zonen ab, sie bekommt die deterministisch
+        ermittelten gereicht."""
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(
+            self._kandidat_mit_zonen(), options_provider=optionen
+        )
+
+        summary = use_case.execute()
+
+        technisch = summary.outcomes[0].technical
+        assert technisch is not None
+        assert technisch.zones
+        assert optionen.calls[0][3] == len(technisch.zones)
+
+    def test_der_berichtstermin_kommt_aus_dem_earnings_filter(self) -> None:
+        """Die dritte gerichtete Kopplung (ADR 0048, Festlegung 4): Die
+        Optionsanalyse ermittelt keinen Termin selbst."""
+        termin = date(2026, 10, 20)
+        earnings_provider = FakeEarningsProvider(
+            next_by_symbol={
+                "FIXCAND": NextEarningsDate(
+                    date=termin, source="fake", retrieved_at=datetime.now(UTC)
+                )
+            }
+        )
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(
+            self._kandidat(),
+            earnings_provider=earnings_provider,
+            options_provider=optionen,
+        )
+
+        summary = use_case.execute()
+
+        earnings = summary.outcomes[0].earnings
+        assert earnings is not None
+        assert earnings.next_earnings_date == termin
+        assert optionen.calls[0][4] == termin
+
+    def test_ein_unbekannter_berichtstermin_haelt_nichts_auf(self) -> None:
+        """"Unbekannt" ist kein belegter Nichttermin -- er darf deshalb auch
+        nicht ausschliessen. Ohne Termin entstehen die Vorschlaege
+        vollstaendig (CLAUDE.md, dritte Kopplung, Bedingung 2)."""
+        earnings = FakeEarningsProvider(error_symbols=frozenset({"FIXCAND"}))
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(
+            self._kandidat(), earnings_provider=earnings, options_provider=optionen
+        )
+
+        summary = use_case.execute()
+
+        ergebnis = summary.outcomes[0]
+        assert ergebnis.earnings is not None
+        assert ergebnis.earnings.status is EarningsFilterStatus.UNKNOWN
+        assert optionen.calls[0][4] is None
+        analyse = ergebnis.options
+        assert analyse is not None
+        assert analyse.status is OptionsStatus.COMPLETED
+
+    def test_ein_ausfall_kostet_nur_punkt_dreizehn(self) -> None:
+        """Muster ``_evaluate_fundamentals``: Eine nicht angemeldete TWS ist
+        ein normaler Betriebszustand (ADR 0014, E2) und darf nicht die ganze
+        Aktie in einen StockProcessingError verschieben."""
+        optionen = FakeOptionsDataProvider(error_symbols=frozenset({"FIXCAND"}))
+        use_case, _, _, _, errors_repo = _build_use_case(
+            self._kandidat(), options_provider=optionen
+        )
+
+        summary = use_case.execute()
+
+        assert summary.errors == ()
+        assert errors_repo.added == []
+        ergebnis = summary.outcomes[0]
+        assert ergebnis.options is None
+        # Alles andere bleibt vollstaendig -- die Analysemodule sind entkoppelt.
+        assert ergebnis.technical is not None
+        assert ergebnis.earnings is not None
+        assert ergebnis.fundamentals is not None
+
+    def test_ein_vertragsbruch_bleibt_ein_fehler(self) -> None:
+        """Nur die Vertragsausnahme wird gefangen. Eine rohe RuntimeError ist
+        ein Programmfehler und soll sichtbar werden."""
+        optionen = FakeOptionsDataProvider(crash_symbols=frozenset({"FIXCAND"}))
+        use_case, *_ = _build_use_case(self._kandidat(), options_provider=optionen)
+
+        summary = use_case.execute()
+
+        assert summary.outcomes == ()
+        assert len(summary.errors) == 1
 
 
 class TestTechnischeChartauswertung:
@@ -1084,6 +1262,7 @@ class TestBacktestImTageslauf:
             FakeTechnicalInterpreter(),
             FakeFundamentalDataProvider(),
             FakeAnalystRecommendationsProvider(),
+            FakeOptionsDataProvider(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,
@@ -1158,6 +1337,7 @@ class TestBerichtImTageslauf:
             FakeTechnicalInterpreter(),
             FakeFundamentalDataProvider(),
             FakeAnalystRecommendationsProvider(),
+            FakeOptionsDataProvider(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,
@@ -1186,7 +1366,7 @@ class TestBerichtImTageslauf:
 
         assert bericht.swing_score is not None
         assert bericht.investment_score is not None
-        assert bericht.scoring_version == "swing-1.1+long_term-1.0"
+        assert bericht.scoring_version == "swing-1.2+long_term-1.0"
 
     def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
         """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die
@@ -1242,6 +1422,7 @@ class TestBerichtBleibtAbgeleitet:
             FakeTechnicalInterpreter(),
             FakeFundamentalDataProvider(),
             FakeAnalystRecommendationsProvider(),
+            FakeOptionsDataProvider(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,
@@ -1452,6 +1633,7 @@ class TestVeralteteDaten:
             FakeTechnicalInterpreter(),
             FakeFundamentalDataProvider(),
             FakeAnalystRecommendationsProvider(),
+            FakeOptionsDataProvider(),
             uow_factory,
             _PARAMS,
             _EARNINGS_PARAMS,

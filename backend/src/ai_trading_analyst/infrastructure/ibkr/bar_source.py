@@ -14,6 +14,13 @@ Zwei Dinge trennt dieses Modul bewusst:
 * ``IbAsyncBarSource`` ist die einzige Stelle im Produktivcode, die
   ``ib_async`` kennt.
 
+Bars sind das Hauptgeschaeft dieses Moduls, aber nicht sein einziges: Auch
+die Handelszeiten (``liquid_hours``, ADR 0019) und die Optionsketten
+(``option_chain``/``option_quotes``, ADR 0048) laufen hier durch. Der Grund
+ist in allen drei Faellen derselbe -- IBKR laesst je Client-ID genau eine
+Verbindung zu, und derselbe Lock serialisiert die Zugriffe. Ausgewertet wird
+das Geholte jeweils anderswo (``calendar.py``, ``option_chain.py``).
+
 Sicherheitsgrenze (ADR 0014, Dimension 1): Hier wird ausschliesslich gelesen.
 Es gibt in diesem Modul keinen ordererzeugenden Aufruf, und das ist die
 verbindliche Beschraenkung -- nicht der TWS-weite Schalter "Read-Only API",
@@ -25,20 +32,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 import warnings
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
     MarketDataProviderError,
 )
+from ai_trading_analyst.domain.options import OptionQuote
 from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.observability.logging_setup import get_logger
+
+_LIVE_MARKTDATEN = 1
+"""IBKRs Vorgabe fuer den Marktdatenmodus. Auf diesen Wert wird nach jeder
+Optionsnotierung zurueckgestellt -- der Modus gilt fuer die ganze Verbindung,
+und die Optionsanalyse ist die einzige Stelle, die ihn ueberhaupt aendert."""
 
 _logger = get_logger(__name__)
 
@@ -175,6 +190,158 @@ def duration_in_days(duration: str) -> int:
     return anzahl * _ZEITRAUMEINHEITEN[teile[1]]
 
 
+@dataclass(frozen=True, slots=True)
+class OptionChainStructure:
+    """Der Bauplan einer Optionskette: was gelistet ist, ohne jeden Preis.
+
+    Getrennt von den Notierungen, weil die Trennung eine Entscheidung ist:
+    Erst aus Verfallsterminen und Strikes waehlt die Domain aus, **was**
+    ueberhaupt notiert werden soll -- und jede Notierung kostet eine
+    Marktdatenanfrage (ADR 0048, Festlegung 5).
+    """
+
+    expirations: tuple[date, ...]
+    trading_class: str
+    """Die Handelsklasse der gewaehlten Kette. Sie wird an die beiden
+    folgenden Abrufe weitergereicht -- ohne sie waere die Wahl in
+    ``_bevorzugte_kette`` folgenlos, weil ``reqContractDetails`` und
+    ``qualifyContracts`` dann wieder alle Klassen des Basiswerts saehen."""
+    exchange: str
+
+
+def _bevorzugte_kette(ketten: Sequence[Any]) -> Any:
+    """Die reichste SMART-Kette, sonst die reichste ueberhaupt.
+
+    **Nicht die erste SMART-Kette:** ``reqSecDefOptParams`` liefert einen
+    Eintrag je Kombination aus Boerse und Handelsklasse, und ein Basiswert
+    kann mehrere Klassen haben -- neben der regulaeren etwa eine angepasste
+    nach einem Split oder einer Sonderdividende. Die angepasste fuehrt
+    typischerweise nur noch wenige Termine. Sie zu erwischen, weil sie
+    zufaellig zuerst kommt, sieht aus wie "dieser Titel hat keine
+    Wochenoptionen".
+    """
+    smart = [kette for kette in ketten if str(kette.exchange) == "SMART"]
+    return max(smart or ketten, key=lambda kette: len(kette.expirations))
+
+
+def _verfallstermine(symbol: str, roh: Iterable[str]) -> tuple[date, ...]:
+    """Uebersetzt IBKRs ``YYYYMMDD`` in Datumswerte, aufsteigend.
+
+    Ein Eintrag, der nicht diesem Format folgt, wird verworfen und
+    protokolliert -- nicht geraten. IBKR liefert fuer manche Basiswerte auch
+    Monatsangaben ohne Tag, und ein daraus ergaenzter Tag waere ein
+    erfundener Verfallstermin.
+    """
+    termine: list[date] = []
+    verworfen: list[str] = []
+    for eintrag in roh:
+        try:
+            termine.append(datetime.strptime(eintrag, "%Y%m%d").replace(tzinfo=UTC).date())
+        except ValueError:
+            verworfen.append(eintrag)
+    if verworfen:
+        _logger.warning(
+            "%s: %d Verfallstermine ohne Tagesangabe verworfen (%s)",
+            symbol,
+            len(verworfen),
+            ", ".join(verworfen[:5]),
+        )
+    return tuple(sorted(termine))
+
+
+def _put_schablone(
+    symbol: str,
+    currency: str,
+    expiration: date,
+    trading_class: str,
+    strike: float | None = None,
+) -> Any:
+    """Ein Put-Kontrakt fuer ``ib_async`` -- mit oder ohne Strike.
+
+    Ohne Strike ist er die Anfrage "alle Puts dieses Termins"
+    (``reqContractDetails``), mit Strike der konkrete Kontrakt.
+
+    Ueber ``SMART``, wie bei den Aktien: Die Weiterleitung sucht die Boerse
+    mit dem besten Preis. Eine feste Optionsboerse waere eine Annahme
+    darueber, wo ein Kontrakt am liquidesten ist.
+
+    **Die Handelsklasse gehoert dazu.** ``_bevorzugte_kette`` waehlt sie mit
+    Bedacht -- ein Basiswert kann neben der regulaeren eine nach Split oder
+    Sonderdividende angepasste Klasse fuehren. Ohne sie im Kontrakt saehen
+    ``reqContractDetails`` und ``qualifyContracts`` wieder alle Klassen: Die
+    Strike-Liste mischte zwei Raster, und mehrdeutige Kontrakte liesse
+    ``qualifyContracts`` stillschweigend weg. Die sorgfaeltige Wahl eine
+    Zeile spaeter wieder wegzuwerfen ist schlimmer, als sie nie getroffen zu
+    haben.
+    """
+    from ib_async import Option
+
+    return Option(
+        symbol,
+        expiration.strftime("%Y%m%d"),
+        strike if strike is not None else 0.0,
+        "P",
+        exchange="SMART",
+        currency=currency,
+        tradingClass=trading_class,
+    )
+
+
+def _zahl(wert: Any) -> float | None:
+    """``None`` fuer alles, was keine Zahl ist -- IBKRs ``nan`` eingeschlossen."""
+    if wert is None:
+        return None
+    try:
+        zahl = float(wert)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(zahl) else zahl
+
+
+def _preis(wert: Any) -> float | None:
+    """Wie ``_zahl``, aber ``None`` auch fuer IBKRs ``-1`` ("kein Kurs").
+
+    Ein Geld- oder Briefkurs von -1 ist keine Notierung, sondern IBKRs
+    Schreibweise fuer "es liegt keine vor". Als Zahl weitergereicht ergaebe
+    er eine negative Praemie und einen unsinnigen Mittelwert.
+    """
+    zahl = _zahl(wert)
+    return None if zahl is None or zahl <= 0 else zahl
+
+
+def _ganzzahl(wert: Any) -> int | None:
+    zahl = _zahl(wert)
+    return None if zahl is None or zahl < 0 else int(zahl)
+
+
+def _als_quote(ticker: Any) -> OptionQuote:
+    """Uebersetzt einen ``ib_async``-Ticker in die Notierung der Domain.
+
+    ``modelGreeks`` fehlt, solange die Optionsmarktdaten-Berechtigung fehlt
+    (Spike: ``Error 10091``) -- und moeglicherweise auch ausserhalb der
+    Handelszeiten. Das Delta bleibt dann leer, und die Domain verwirft den
+    Kontrakt mit benanntem Grund, statt eines zu schaetzen.
+    """
+    greeks = getattr(ticker, "modelGreeks", None)
+    return OptionQuote(
+        expiration=datetime.strptime(ticker.contract.lastTradeDateOrContractMonth, "%Y%m%d")
+        .replace(tzinfo=UTC)
+        .date(),
+        strike=float(ticker.contract.strike),
+        bid=_preis(getattr(ticker, "bid", None)),
+        ask=_preis(getattr(ticker, "ask", None)),
+        delta=None if greeks is None else _zahl(getattr(greeks, "delta", None)),
+        implied_volatility=(
+            None if greeks is None else _zahl(getattr(greeks, "impliedVol", None))
+        ),
+        # ``reqTickers`` fordert Open Interest nicht standardmaessig an; das
+        # Feld bleibt deshalb oft leer. Es erzeugt dann keine Warnung
+        # (CLAUDE.md: fehlende Werte bestrafen nicht) und fehlt sichtbar.
+        open_interest=_ganzzahl(getattr(ticker, "putOpenInterest", None)),
+        volume=_ganzzahl(getattr(ticker, "volume", None)),
+    )
+
+
 class IbAsyncBarSource:
     """``HistoricalBarSource`` gegen eine laufende TWS-Instanz.
 
@@ -242,6 +409,169 @@ class IbAsyncBarSource:
         """
         with self._lock:
             return self._fetch(contract, days, end=end)
+
+    def option_chain(self, contract: ContractSpec) -> OptionChainStructure:
+        """Verfallstermine und Strikes einer Aktie -- **ohne** Marktdaten.
+
+        Aus derselben Verbindung und unter demselben Lock wie die Bars, aus
+        dem Grund, den ``liquid_hours`` schon nennt: IBKR laesst je Client-ID
+        genau eine Verbindung zu.
+
+        ``reqSecDefOptParams`` kostet keine Marktdatenberechtigung -- der
+        Spike hat die Struktur schon vor der Abo-Aktivierung bekommen
+        (REPORT.md, Frage 6). Die 11-Sekunden-Drossel gilt hier **nicht**: Sie
+        deckt IBKRs Grenze fuer *historische* Anfragen ab, und die ist ein
+        eigener Zaehler.
+
+        IBKR antwortet mit einer Kette **je Boerse**. Genommen wird die von
+        ``SMART`` -- ueber diese Weiterleitung wird auch abgefragt --, sonst
+        die mit den meisten Verfallsterminen.
+        """
+        with self._lock:
+            try:
+                ib = self._connection()
+                stock = self._qualified(ib, contract)
+                ketten = ib.reqSecDefOptParams(stock.symbol, "", stock.secType, stock.conId)
+            except IbkrBarSourceError:
+                raise
+            except Exception as error:  # Systemgrenze: jede Bibliotheksausnahme
+                raise IbkrBarSourceError(
+                    f"Optionskette fuer '{contract.symbol}' nicht abrufbar: {error}"
+                ) from error
+        if not ketten:
+            raise IbkrBarSourceError(
+                f"IBKR liefert keine Optionskette fuer '{contract.symbol}' -- fuer diesen "
+                "Basiswert sind keine Optionen gelistet."
+            )
+        kette = _bevorzugte_kette(ketten)
+        # **Ohne** die Strikes: ``reqSecDefOptParams`` liefert deren
+        # Vereinigung ueber alle Termine, und die ist als Auswahlgrundlage
+        # unbrauchbar (siehe ``option_strikes``). Ein Feld, das man nicht
+        # benutzen darf, gehoert nicht ins Ergebnis -- es laedt zum
+        # Missgriff ein.
+        return OptionChainStructure(
+            expirations=_verfallstermine(contract.symbol, kette.expirations),
+            trading_class=str(kette.tradingClass),
+            exchange=str(kette.exchange),
+        )
+
+    def option_strikes(
+        self, contract: ContractSpec, expiration: date, trading_class: str
+    ) -> tuple[float, ...]:
+        """Die Strikes, die zu **diesem** Verfallstermin tatsaechlich gelistet sind.
+
+        Ein eigener Aufruf, und zwar aus einem gemessenen Grund:
+        ``reqSecDefOptParams`` liefert die **Vereinigung** aller Strikes ueber
+        alle Verfallstermine. Am 2026-08-31 hatte AAPL bei den Wochenoptionen
+        2,50er Abstaende, beim Termin am 25. September aber 5,00er -- von
+        zwoelf angefragten Kontrakten existierten sechs nicht (``Error 200``).
+        Die Auswahl halbierte sich, und jede vergebliche Anfrage kostete
+        trotzdem eine Marktdatenzeile.
+
+        ``reqContractDetails`` kostet **keine** Marktdatenberechtigung. Ein
+        Aufruf je Kandidat ist der Preis dafuer, dass danach jeder angefragte
+        Kontrakt auch existiert.
+        """
+        with self._lock:
+            try:
+                ib = self._connection()
+                stock = self._qualified(ib, contract)
+                details = ib.reqContractDetails(
+                    _put_schablone(
+                        stock.symbol, contract.currency, expiration, trading_class
+                    )
+                )
+            except IbkrBarSourceError:
+                raise
+            except Exception as error:  # Systemgrenze: jede Bibliotheksausnahme
+                raise IbkrBarSourceError(
+                    f"Gelistete Strikes fuer '{contract.symbol}' zum "
+                    f"{expiration.isoformat()} nicht abrufbar: {error}"
+                ) from error
+        return tuple(sorted({float(eintrag.contract.strike) for eintrag in details}))
+
+    def option_quotes(
+        self,
+        contract: ContractSpec,
+        expiration: date,
+        strikes: Sequence[float],
+        market_data_type: int,
+        trading_class: str,
+    ) -> Sequence[OptionQuote]:
+        """Notierungen der genannten Put-Strikes zu einem Verfallstermin.
+
+        ``market_data_type`` waehlt IBKRs Marktdatenmodus: ``1`` live,
+        ``2`` "frozen" (bei offener Boerse wie live, bei geschlossener der
+        letzte festgestellte Stand). Welcher gilt, steht in der Konfiguration
+        und nicht hier (ADR 0048) -- der Tageslauf laeuft im offenen Markt,
+        eine Einzelprobe am Abend nicht.
+
+        Ein Kontrakt, den IBKR nicht aufloest, faellt weg -- gelistete Strikes
+        gibt es nicht zu jedem Verfallstermin. Was fehlt, bleibt fehlend: An
+        keiner Stelle tritt hier ein Ersatzwert an die Stelle eines nicht
+        gelieferten Feldes.
+        """
+        if not strikes:
+            return ()
+        with self._lock:
+            try:
+                ib = self._connection()
+                stock = self._qualified(ib, contract)
+                ib.reqMarketDataType(market_data_type)
+                kontrakte = self._qualifizierte_puts(
+                    ib, stock, contract, expiration, strikes, trading_class
+                )
+                if not kontrakte:
+                    return ()
+                tickers = ib.reqTickers(*kontrakte)
+            except IbkrBarSourceError:
+                raise
+            except Exception as error:  # Systemgrenze: jede Bibliotheksausnahme
+                raise IbkrBarSourceError(
+                    f"Optionsnotierungen fuer '{contract.symbol}' nicht abrufbar: {error}"
+                ) from error
+            finally:
+                # Der Modus gilt fuer die **ganze** Verbindung, und dieselbe
+                # bedient den Kerzenabruf. Bei 'market_data.source: live'
+                # verschraenken sich beide je Aktie; ein stehen gebliebenes
+                # "verzoegert" wirkte dann auf Anfragen, die mit Optionen
+                # nichts zu tun haben. Zurueck auf IBKRs Vorgabe.
+                #
+                # Unterdrueckt, weil dieser Schritt nichts beschaffen soll:
+                # Ein Fehler beim Zuruecksetzen darf keine gelungene
+                # Notierung verwerfen und keinen echten Fehler verdecken.
+                with suppress(Exception):
+                    self._connection().reqMarketDataType(_LIVE_MARKTDATEN)
+        return tuple(_als_quote(ticker) for ticker in tickers if ticker.contract is not None)
+
+    def _qualifizierte_puts(
+        self,
+        ib: Any,
+        stock: Any,
+        contract: ContractSpec,
+        expiration: date,
+        strikes: Sequence[float],
+        trading_class: str,
+    ) -> list[Any]:
+        puts = [
+            _put_schablone(
+                stock.symbol, contract.currency, expiration, trading_class, strike
+            )
+            for strike in strikes
+        ]
+        # ``qualifyContracts`` laesst nicht aufloesbare Kontrakte einfach weg
+        # und protokolliert sie -- genau das gewuenschte Verhalten: Ein
+        # Strike, den es zu diesem Verfallstermin nicht gibt, ist kein Fehler.
+        aufgeloest: list[Any] = list(ib.qualifyContracts(*puts))
+        if len(aufgeloest) < len(puts):
+            _logger.info(
+                "%s: %d von %d Put-Kontrakten zum %s nicht gelistet",
+                contract.symbol,
+                len(puts) - len(aufgeloest),
+                len(puts),
+                expiration.isoformat(),
+            )
+        return aufgeloest
 
     def liquid_hours(self, contract: ContractSpec) -> tuple[str, str]:
         """Handelszeiten der regulaeren Sitzung und die Zeitzone der Boerse.

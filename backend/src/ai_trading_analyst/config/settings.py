@@ -337,6 +337,93 @@ class FundamentalsConfig(_Section):
     Wachstumsraten nicht, statt sie ueber eine andere Spanne zu rechnen."""
 
 
+class OptionsConfig(_Section):
+    """Optionsanalyse: Cash Secured Puts (Doc 10, Paragraph 6.10; ADR 0048)."""
+
+    provider: Literal["fixture", "ibkr"] = "fixture"
+    """Wie ``fundamentals.provider``: ``fixture`` bleibt Standard, damit Start
+    und Tests ohne laufende TWS und ohne Optionsmarktdaten-Abo funktionieren."""
+    market_data_type: Literal[1, 2, 3, 4] = 2
+    """IBKRs Marktdatenmodus: ``1`` live, ``2`` "frozen", ``3`` verzoegert,
+    ``4`` verzoegert und "frozen".
+
+    Der Tageslauf steht auf der **ersten** 195-Minuten-Kerze
+    (``market.daily_candle_index``), die um 12:45 New Yorker Zeit schliesst.
+    Der Optionsmarkt ist waehrend des gesamten Laufzeitfensters offen --
+    einschliesslich der zweistuendigen Nachholfrist.
+
+    Vorgabe ``2`` trotzdem: "frozen" verhaelt sich bei offener Boerse wie
+    live und liefert bei geschlossener den letzten festgestellten Stand statt
+    nichts. Das kostet im Regelfall nichts und macht eine Einzelprobe am
+    Abend brauchbar."""
+    min_days_to_expiration: PositiveInt = 21
+    max_days_to_expiration: PositiveInt = 60
+    """Zielfenster der Restlaufzeit in Kalendertagen -- was **zulaessig** ist.
+
+    Die Obergrenze ist gerechnet, nicht gewaehlt: Zwei aufeinander folgende
+    dritte Freitage liegen 28 oder 35 Tage auseinander, ein schmaleres
+    Fenster als 35 Tage kann also zwischen zwei Monatsverfaelle fallen. Beim
+    Messlauf am 2026-08-31 traf das 77 von 192 Titeln (ADR 0048)."""
+    target_days_to_expiration: PositiveInt = 35
+    """Die bevorzugte Restlaufzeit **innerhalb** des Fensters -- was
+    **gewaehlt** wird.
+
+    Getrennt von den Grenzen, damit eine Verbreiterung des Fensters nicht
+    zugleich die uebliche Laufzeit verschiebt."""
+    min_delta: NonNegativeFloat = 0.10
+    max_delta: NonNegativeFloat = 0.40
+    """Zielband des Delta-**Betrags**, angewandt erst **nach** dem Abruf: Vor
+    der Notierung ist das Delta nicht bekannt."""
+    min_moneyness: NonNegativeFloat = 0.80
+    max_moneyness: NonNegativeFloat = 0.99
+    """Vorauswahl der Strikes als Anteil des Kurses. Begrenzt nur, wie viele
+    Kontrakte ueberhaupt notiert werden -- entschieden wird ueber das
+    Delta-Band."""
+    max_strikes: PositiveInt = 12
+    max_suggestions: PositiveInt = 3
+    max_relative_spread: NonNegativeFloat = 0.10
+    min_open_interest: PositiveInt = 100
+    min_volume: PositiveInt = 10
+    """Liquiditaetsschwellen. **Gesetzt, nicht gemessen** (ADR 0048): Sie
+    tragen keinen Teilwert, sondern erzeugen Warnungen. Doc 10 verlangt
+    genau das -- unzureichende Liquiditaet wird nicht verschwiegen, steht
+    aber nie an erster Stelle."""
+
+    @model_validator(mode="after")
+    def _baender_muessen_aufsteigen(self) -> OptionsConfig:
+        if self.min_days_to_expiration > self.max_days_to_expiration:
+            raise ValueError(
+                f"min_days_to_expiration ({self.min_days_to_expiration}) darf nicht groesser "
+                f"als max_days_to_expiration ({self.max_days_to_expiration}) sein"
+            )
+        if not (
+            self.min_days_to_expiration
+            <= self.target_days_to_expiration
+            <= self.max_days_to_expiration
+        ):
+            raise ValueError(
+                f"target_days_to_expiration ({self.target_days_to_expiration}) muss zwischen "
+                f"min_days_to_expiration ({self.min_days_to_expiration}) und "
+                f"max_days_to_expiration ({self.max_days_to_expiration}) liegen"
+            )
+        if self.min_delta > self.max_delta:
+            raise ValueError(
+                f"min_delta ({self.min_delta}) darf nicht groesser als max_delta "
+                f"({self.max_delta}) sein"
+            )
+        if self.min_moneyness > self.max_moneyness:
+            raise ValueError(
+                f"min_moneyness ({self.min_moneyness}) darf nicht groesser als max_moneyness "
+                f"({self.max_moneyness}) sein"
+            )
+        if self.max_moneyness > 1.0:
+            raise ValueError(
+                "max_moneyness ueber 1.0 waere ein Put im Geld -- die Optionsanalyse "
+                "bewertet ausschliesslich Cash Secured Puts aus dem Geld (Doc 08)"
+            )
+        return self
+
+
 class EarningsFilterConfig(_Section):
     """Ausschlussfenster vor Quartalszahlen (Doc 10, Paragraph 6.5)."""
 
@@ -844,11 +931,12 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.1"
-    """``1.1`` gegenueber ``1.0``: Die News- und Ereignislage rechnet mit
-    (ADR 0046). Der Score steht damit auf 90 statt 80 Prozent Abdeckung --
+    swing_version: str = "1.2"
+    """``1.2`` gegenueber ``1.1``: Die Optionsattraktivitaet rechnet mit
+    (ADR 0048). Der Score steht damit auf 100 statt 90 Prozent Abdeckung --
     dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
-    deshalb steigt die Nummer."""
+    deshalb steigt die Nummer. ``1.1`` gegenueber ``1.0`` war aus demselben
+    Grund die News- und Ereignislage (ADR 0046)."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern
@@ -872,6 +960,16 @@ class ScoringConfig(_Section):
     """Die Schwellen der News-Komponente (ADR 0046) -- an 187 Titeln der
     Watchliste gemessen. Ein eigenes Feld und kein Eintrag in ``thresholds``:
     Der Kauf-Anteil ist keine Kennzahl aus einer SEC-Einreichung."""
+    options_annualized_return: MetricThresholdConfig | None = None
+    """Die Schwellen der Optionsattraktivitaet (ADR 0048) -- die annualisierte
+    Praemienrendite des bestbewerteten Put-Vorschlags.
+
+    **Ohne Eintrag entfaellt die Komponente** mit benanntem Grund, und der
+    Swing-Score bleibt bei der Abdeckung ohne sie. Das ist Absicht: Ein
+    vorlaeufiger Satz Schwellen truege eine Zahl in den Score, die aussieht
+    wie die gemessenen daneben. Gefuellt wird das Feld nach dem Messlauf
+    ueber die Watchliste (``cli options --watchlist --output``), und dann
+    steigt ``swing_version``."""
     thresholds: dict[str, MetricThresholdConfig] = {}
     """Die Schwellen je Kennzahl, Schluessel ist der Name aus ``MetricName``.
 
@@ -914,6 +1012,7 @@ class AppConfig(_Section):
     research: ResearchConfig = ResearchConfig()
     technical_agent: TechnicalAgentConfig = TechnicalAgentConfig()
     fundamentals: FundamentalsConfig = FundamentalsConfig()
+    options: OptionsConfig = OptionsConfig()
     data_availability: DataAvailabilityConfig = DataAvailabilityConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     notifications: NotificationsConfig = NotificationsConfig()

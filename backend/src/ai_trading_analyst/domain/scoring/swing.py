@@ -1,10 +1,10 @@
 """Der Swing Trade Score (Doc 09; ADR 0041, ADR 0045).
 
-Sechs Komponenten, davon zwei heute noch nicht berechenbar: Die News- und
-Ereignislage folgt mit ADR 0046, die Optionsattraktivitaet mit ADR 0048. Sie
-stehen trotzdem in der Liste -- als ausgewiesene Luecke, nicht als Null. Sie
-mit 0 zu bewerten hiesse zu behaupten, sie seien geprueft und schlecht
-(Doc 09).
+Sechs Komponenten. Faellt eine aus -- keine Analystenvoten, keine
+KI-Einordnung, keine Optionskette --, steht sie als ausgewiesene Luecke in
+der Liste, nicht als Null. Sie mit 0 zu bewerten hiesse zu behaupten, sie
+sei geprueft und schlecht (Doc 09); umgewichtet wird stattdessen im
+Aggregator.
 
 **Alle Abbildungen dieses Moduls sind Setzungen**, keine Messung: Es gibt
 bislang keinen produktiven Tageslauf, aus dem sich eine Verteilung ergaebe
@@ -22,6 +22,7 @@ from ai_trading_analyst.domain.analysts import (
     AnalystRecommendationStatus,
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence, BacktestResult
+from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.screening import ScreeningResult
 from ai_trading_analyst.domain.technical import (
     BreakoutQuality,
@@ -147,6 +148,7 @@ def compute_swing_score(
     backtest: Sequence[BacktestResult],
     assessment: TechnicalAssessment | None,
     analysts: AnalystRecommendations | None,
+    options: OptionsAnalysis | None,
     parameters: ScoringParameters,
 ) -> ScoreResult:
     """Der Swing-Score einer bereits qualifizierten Aktie."""
@@ -157,11 +159,7 @@ def compute_swing_score(
         _chart_setup(assessment, parameters),
         _chance_risiko(assessment, parameters),
         _news_und_ereignisse(analysts, parameters),
-        ScoreComponent(
-            name=ComponentName.OPTIONS_ATTRACTIVENESS,
-            weight=parameters.swing_weights[ComponentName.OPTIONS_ATTRACTIVENESS],
-            reason="die Optionsanalyse ist noch nicht gebaut (ADR 0048)",
-        ),
+        _optionsattraktivitaet(options, parameters),
     ]
     return aggregate(
         kind=ScoreKind.SWING,
@@ -171,6 +169,66 @@ def compute_swing_score(
         normal_confidence_coverage=parameters.normal_confidence_coverage,
         limiting_risks=begrenzungen,
     )
+
+
+def _optionsattraktivitaet(
+    options: OptionsAnalysis | None, parameters: ScoringParameters
+) -> ScoreComponent:
+    """Die Optionsattraktivitaet aus der annualisierten Praemienrendite (ADR 0048).
+
+    Bewertet wird der **bestbewertete** Vorschlag -- der erste der Liste. Das
+    hat eine Folge, die benannt gehoert: Innerhalb eines Verfallstermins
+    steigt die annualisierte Rendite nahezu monoton mit dem Delta, der erste
+    Vorschlag liegt deshalb fast immer am oberen Rand des Delta-Bandes. Die
+    Komponente misst damit im Kern das **Praemienniveau** des Titels -- und
+    genau das ist gemeint, wenn ein Cash Secured Put als Alternative zum
+    Direkteinstieg attraktiv sein soll.
+
+    Nicht bewertet werden Liquiditaet und Abstand zur Unterstuetzung. Beide
+    stehen an jedem Vorschlag, aber ihre Gewichtung gegen die Rendite waere
+    frei gewaehlt -- und ein illiquider Vorschlag steht ohnehin nie an erster
+    Stelle.
+    """
+    gewicht = parameters.swing_weights[ComponentName.OPTIONS_ATTRACTIVENESS]
+    schwellen = parameters.options_annualized_return
+    if schwellen is None:
+        return ScoreComponent(
+            name=ComponentName.OPTIONS_ATTRACTIVENESS,
+            weight=gewicht,
+            reason="die Schwellen der Optionsattraktivitaet sind noch nicht gemessen",
+        )
+    beste = options.strategies[0] if options is not None and options.strategies else None
+    if beste is None:
+        return ScoreComponent(
+            name=ComponentName.OPTIONS_ATTRACTIVENESS,
+            weight=gewicht,
+            reason=_ohne_optionsgrundlage(options),
+        )
+    return ScoreComponent(
+        name=ComponentName.OPTIONS_ATTRACTIVENESS,
+        weight=gewicht,
+        value=schwellen.score(beste.annualized_return),
+        # Rendite **und** Strike und Laufzeit: 24 Prozent annualisiert aus
+        # einem 30-Tage-Kontrakt dicht am Geld ist etwas anderes als
+        # dieselben 24 Prozent aus einem weit entfernten -- und die Zahl
+        # allein sagt nicht, welcher von beiden gemeint ist.
+        reason=(
+            f"{beste.annualized_return:.0%} annualisiert aus Strike {beste.strike:g} "
+            f"ueber {beste.days_to_expiration} Tage"
+        ),
+    )
+
+
+def _ohne_optionsgrundlage(options: OptionsAnalysis | None) -> str:
+    """Warum es keinen Vorschlag gibt -- die zwei Faelle auseinandergehalten.
+
+    "nicht abgerufen" und "abgerufen, nichts Passendes gefunden" sind
+    verschiedene Befunde: Der erste zeigt auf die TWS, der zweite auf die
+    Optionskette dieses Titels.
+    """
+    if options is None:
+        return "die Optionsdaten wurden nicht abgerufen"
+    return f"kein Put-Vorschlag ({options.reason or options.status.value})"
 
 
 def _news_und_ereignisse(

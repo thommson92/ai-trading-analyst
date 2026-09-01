@@ -33,6 +33,7 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProvider,
     HistoricalBarSource,
     MarketDataProvider,
+    OptionsDataProvider,
     ResearchProvider,
     TechnicalInterpreter,
     UnitOfWork,
@@ -40,6 +41,7 @@ from ai_trading_analyst.domain.analysis import (
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.fundamentals import FundamentalParameters, MetricName
+from ai_trading_analyst.domain.options import OptionsParameters
 from ai_trading_analyst.domain.scoring import (
     SCORED_METRICS,
     SIGNAL_TEILWERTE,
@@ -84,6 +86,7 @@ from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.options_provider import FixtureOptionsProvider
 from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.fixtures.technical_interpreter import (
     FixtureTechnicalInterpreter,
@@ -93,6 +96,8 @@ from ai_trading_analyst.infrastructure.ibkr import (
     IbAsyncBarSource,
     IbkrConnectionSettings,
     IbkrMarketDataProvider,
+    IbkrOptionsProvider,
+    OptionChainSource,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
     build_engine,
@@ -346,6 +351,52 @@ def build_fundamental_data_provider(
     )
 
 
+def build_options_params(config: AppConfig) -> OptionsParameters:
+    """Aus ``OptionsConfig`` die Auswahlparameter der Domain (ADR 0048)."""
+    section = config.options
+    return OptionsParameters(
+        min_days_to_expiration=section.min_days_to_expiration,
+        max_days_to_expiration=section.max_days_to_expiration,
+        target_days_to_expiration=section.target_days_to_expiration,
+        min_delta=section.min_delta,
+        max_delta=section.max_delta,
+        min_moneyness=section.min_moneyness,
+        max_moneyness=section.max_moneyness,
+        max_strikes=section.max_strikes,
+        max_suggestions=section.max_suggestions,
+        max_relative_spread=section.max_relative_spread,
+        min_open_interest=section.min_open_interest,
+        min_volume=section.min_volume,
+    )
+
+
+def build_options_provider(
+    config: AppConfig, root: Path, bar_source: OptionChainSource | None = None
+) -> OptionsDataProvider:
+    """Waehlt den Optionsdaten-Anbieter anhand der Konfiguration (ADR 0048).
+
+    ``bar_source`` ist die **bereits bestehende** TWS-Anbindung. Sie wird
+    hereingereicht und nicht hier gebaut: IBKR laesst je Client-ID genau eine
+    Verbindung zu, und eine zweite verdraengte die erste mitten im Lauf. Ohne
+    sie bleibt nur der Fixture-Anbieter -- der Weg fuer einen Lauf ohne TWS.
+    """
+    parameters = build_options_params(config)
+    if config.options.provider == "fixture":
+        return FixtureOptionsProvider(parameters)
+    if bar_source is None:
+        raise ValueError(
+            "options.provider steht auf 'ibkr', es wurde aber keine TWS-Anbindung "
+            "uebergeben. Die Optionskette laeuft ueber dieselbe Verbindung wie die "
+            "Kerzen -- IBKR laesst je Client-ID nur eine zu."
+        )
+    return IbkrOptionsProvider(
+        bar_source,
+        watchlist=build_watchlist(config, root),
+        parameters=parameters,
+        market_data_type=config.options.market_data_type,
+    )
+
+
 def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProvider:
     """Waehlt den Research-Anbieter anhand der Konfiguration.
 
@@ -454,6 +505,14 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
             boundaries=config.scoring.analyst_buy_share.boundaries,
             higher_is_better=config.scoring.analyst_buy_share.higher_is_better,
         ),
+        options_annualized_return=(
+            None
+            if config.scoring.options_annualized_return is None
+            else MetricThresholds(
+                boundaries=config.scoring.options_annualized_return.boundaries,
+                higher_is_better=config.scoring.options_annualized_return.higher_is_better,
+            )
+        ),
         minimum_coverage=config.scoring.minimum_coverage,
         normal_confidence_coverage=config.scoring.normal_confidence_coverage,
         swing_version=config.scoring.swing_version,
@@ -519,8 +578,22 @@ def build_app() -> FastAPI:
         signal_lookback_previous_candles=loaded.config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
+    # Einmal gebaut und an beide gereicht: IBKR laesst je Client-ID genau
+    # eine Verbindung zu. Der Aufbau selbst kostet nichts -- ``IbAsyncBarSource``
+    # verbindet erst beim ersten Abruf.
+    ibkr_quelle = (
+        build_ibkr_bar_source(loaded.config)
+        if "ibkr" in (loaded.config.market_data.provider, loaded.config.options.provider)
+        else None
+    )
     market_data_provider = build_market_data_provider(
-        loaded.config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+        loaded.config,
+        indicators,
+        project_root(loaded.source_path),
+        bar_source=(
+            ibkr_quelle if loaded.config.market_data.source == "live" else None
+        ),
+        uow_factory=uow_factory,
     )
     earnings_provider = build_earnings_provider(loaded.config, secrets)
     earnings_filter_params = build_earnings_filter_params(loaded.config)
@@ -533,6 +606,7 @@ def build_app() -> FastAPI:
         technical_interpreter,
         build_fundamental_data_provider(loaded.config, secrets),
         build_analyst_recommendations_provider(loaded.config, secrets),
+        build_options_provider(loaded.config, project_root(loaded.source_path), ibkr_quelle),
         uow_factory,
         candidate_rule_params,
         earnings_filter_params,

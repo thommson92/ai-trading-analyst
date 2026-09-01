@@ -715,17 +715,22 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 ### In die Aufgabenplanung übernehmen
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --options-provider ibkr --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
 
 Zwei Arten von Meldungen kommen künftig an:
 
 - **Ausgefallener Lauf** — Handelstag, Kerzenzeitpunkt, Ursache. Keine Kurse,
   keine Analyseergebnisse (ADR 0024).
-- **Erfolgreicher Lauf** — Anzahl der Kandidaten, je Kandidat Symbol und
-  Signaltypen, das Fehlsignalrisiko als Stufe und der Hinweis auf einen
-  unbekannten Berichtstermin. **Keine Kurse, keine Kennzahlen, kein Link**
-  ([ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md)).
+- **Erfolgreicher Lauf** — Anzahl der Kandidaten, je Kandidat Symbol,
+  Signaltypen, **beide Scores und die Empfehlungsstufe**, das
+  Fehlsignalrisiko als Stufe und der Hinweis auf einen unbekannten
+  Berichtstermin. Sortiert nach Swing-Score absteigend, damit bei einer
+  Kürzung die besten Kandidaten stehen bleiben.
+  **Keine Kurse, keine Kennzahlen, kein Freitext, kein Link**
+  ([ADR 0047](adr/0047-scores-in-der-ergebnismeldung.md), das
+  [ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md) in genau diesem Punkt
+  ablöst).
 
 Ein Lauf ohne Kandidaten meldet sich nicht, solange
 `notifications.send_when_no_candidates` auf `false` steht.

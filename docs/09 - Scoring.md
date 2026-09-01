@@ -241,12 +241,31 @@ Zwei Änderungen sind bereits absehbar:
 
 | Anlass | Wirkung |
 |---|---|
-| Optionsanalyse wird angeschlossen | Swing-Score rechnet erstmals auf 100 % statt 90 % Abdeckung (`swing-1.2`) |
+| Schwellen der Optionsattraktivität sind gemessen | Swing-Score rechnet erstmals auf 100 % statt 90 % Abdeckung (`swing-1.2`) |
 | KI-Hälfte der Fundamentalanalyse | Investment-Score bekommt die heute unbewerteten Bereiche |
 
 Bis dahin rechnet der Swing-Score auf **90 %** Abdeckung — es fehlt allein
 die Optionsattraktivität. Das ist ausgewiesen; es heißt aber, dass die ersten
 Scores mit späteren nicht unmittelbar vergleichbar sind.
+
+**Die Optionsanalyse selbst ist gebaut** ([ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)),
+Berichtspunkt 13 ist gefüllt. Was der Komponente fehlt, ist allein die
+Vergleichsgruppe: Ohne einen Messlauf über die Watchliste gäbe es keine
+Schwellen, mit denen sich eine annualisierte Prämienrendite von 19 % in einen
+Teilwert übersetzen ließe. Solange `scoring.options_annualized_return` leer
+ist, entfällt die Komponente mit benanntem Grund — **vorläufige Schwellen
+wären schlimmer als keine.** Der Score trüge dann eine Zahl, die aussieht wie
+die gemessenen daneben, und die Versionsnummer sagte nicht, dass sie es nicht
+ist.
+
+Bewertet wird die annualisierte Rendite des **bestbewerteten** Vorschlags.
+Weil sie innerhalb eines Verfallstermins nahezu monoton mit dem Delta steigt,
+misst die Komponente im Kern das Prämienniveau des Titels — und genau das ist
+gemeint, wenn ein Cash Secured Put eine attraktive Alternative zum
+Direkteinstieg sein soll. Liquidität und Abstand zur Unterstützung stehen an
+jedem Vorschlag, tragen aber **keinen** Teilwert: Ihre Gewichtung gegen die
+Rendite wäre frei gewählt, und ein illiquider Vorschlag steht ohnehin nie an
+erster Stelle.
 
 **Ein Ausfall der KI-Einordnung kostet 30 Prozentpunkte auf einmal:**
 Chart-Setup und Chance-Risiko-Verhältnis stehen beide an ihr. Übrig bleiben

@@ -41,6 +41,12 @@ from ai_trading_analyst.domain.fundamentals import (
     SourceRef,
     TagConflict,
 )
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import (
     Citation,
@@ -514,6 +520,120 @@ def _fundamentals_columns(snapshot: FundamentalSnapshot | None) -> dict[str, Any
     }
 
 
+_OPTIONS_FIELDS = (
+    "status",
+    "analysis_version",
+    "evaluated_at",
+    "reason",
+    "underlying_price",
+    "expiration",
+    "strategies",
+)
+"""Die ``options_``-Spalten ohne Praefix (Muster ``_FUNDAMENTALS_FIELDS``).
+Einmal geschrieben, damit die beiden Zweige des Mappers nicht auseinander
+laufen koennen."""
+
+
+def _options_columns(analyse: OptionsAnalysis | None) -> dict[str, Any]:
+    """Spalten der Optionsanalyse, ``options_``-praefigiert (ADR 0048).
+
+    Die Auswahlparameter werden **nicht** mitgeschrieben: Sie stehen fuer
+    jeden Vorschlag desselben Laufs gleich, und ``options_analysis_version``
+    zusammen mit der Konfiguration des Laufs belegt sie. Anders als bei der
+    Chartauswertung fordert Doc 14 hier keine Feineinstellung je Aktie.
+    """
+    if analyse is None:
+        return {f"options_{name}": None for name in _OPTIONS_FIELDS}
+    return {
+        "options_status": analyse.status,
+        "options_analysis_version": analyse.analysis_version,
+        "options_evaluated_at": analyse.evaluated_at,
+        "options_reason": analyse.reason,
+        "options_underlying_price": analyse.underlying_price,
+        "options_expiration": analyse.expiration,
+        "options_strategies": [_strategie_als_json(s) for s in analyse.strategies],
+    }
+
+
+def _strategie_als_json(strategie: PutStrategy) -> dict[str, Any]:
+    return {
+        "verfall": strategie.expiration.isoformat(),
+        "restlaufzeit": strategie.days_to_expiration,
+        "strike": strategie.strike,
+        "abstand_zum_kurs": strategie.distance_to_price_pct,
+        "praemie": strategie.premium,
+        "break_even": strategie.break_even,
+        "kapitalbindung": strategie.capital_at_risk,
+        "einfache_rendite": strategie.simple_return,
+        "annualisierte_rendite": strategie.annualized_return,
+        "liquiditaet": strategie.liquidity.value,
+        "liquiditaetswarnungen": list(strategie.liquidity_warnings),
+        "geld": strategie.bid,
+        "brief": strategie.ask,
+        "mitte": strategie.mid,
+        "delta": strategie.delta,
+        "implizite_volatilitaet": strategie.implied_volatility,
+        "open_interest": strategie.open_interest,
+        "volumen": strategie.volume,
+        "abstand_zur_unterstuetzung": strategie.distance_to_support_pct,
+        "earnings_im_laufzeitfenster": strategie.earnings_within_term,
+    }
+
+
+def _options_from_row(row: ScreeningResultOrm) -> OptionsAnalysis | None:
+    """Die Optionsanalyse aus ihren sieben Spalten -- **streng gelesen**.
+
+    Wie ``_score_from_row``: Geschrieben wird die Liste immer zusammen mit
+    dem Status. Fehlt hier ein Feld, ist die Zeile beschaedigt, und das soll
+    man sehen -- statt einen Vorschlag ohne Praemie durchzulassen.
+    """
+    if row.options_status is None or row.options_evaluated_at is None:
+        return None
+    return OptionsAnalysis(
+        status=OptionsStatus(row.options_status),
+        evaluated_at=row.options_evaluated_at,
+        analysis_version=row.options_analysis_version or "",
+        underlying_price=row.options_underlying_price,
+        expiration=row.options_expiration,
+        strategies=tuple(
+            _strategie_aus_json(eintrag) for eintrag in row.options_strategies or ()
+        ),
+        reason=row.options_reason,
+    )
+
+
+def _strategie_aus_json(eintrag: dict[str, Any]) -> PutStrategy:
+    return PutStrategy(
+        expiration=date.fromisoformat(str(eintrag["verfall"])),
+        days_to_expiration=int(eintrag["restlaufzeit"]),
+        strike=float(eintrag["strike"]),
+        distance_to_price_pct=float(eintrag["abstand_zum_kurs"]),
+        premium=float(eintrag["praemie"]),
+        break_even=float(eintrag["break_even"]),
+        capital_at_risk=float(eintrag["kapitalbindung"]),
+        simple_return=float(eintrag["einfache_rendite"]),
+        annualized_return=float(eintrag["annualisierte_rendite"]),
+        liquidity=LiquidityGrade(eintrag["liquiditaet"]),
+        liquidity_warnings=tuple(eintrag["liquiditaetswarnungen"]),
+        bid=_zahl_oder_none(eintrag["geld"]),
+        ask=_zahl_oder_none(eintrag["brief"]),
+        mid=_zahl_oder_none(eintrag["mitte"]),
+        delta=_zahl_oder_none(eintrag["delta"]),
+        implied_volatility=_zahl_oder_none(eintrag["implizite_volatilitaet"]),
+        open_interest=(
+            None if eintrag["open_interest"] is None else int(eintrag["open_interest"])
+        ),
+        volume=None if eintrag["volumen"] is None else int(eintrag["volumen"]),
+        distance_to_support_pct=_zahl_oder_none(eintrag["abstand_zur_unterstuetzung"]),
+        earnings_within_term=eintrag["earnings_im_laufzeitfenster"],
+    )
+
+
+def _zahl_oder_none(wert: Any) -> float | None:
+    """``None`` bleibt ``None`` -- ein fehlender Wert wird nicht zur Null."""
+    return None if wert is None else float(wert)
+
+
 _ANALYST_FIELDS = (
     "status",
     "analysis_version",
@@ -845,6 +965,7 @@ def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
         swing_score=_score_from_row(row, "swing", ScoreKind.SWING),
         investment_score=_score_from_row(row, "long_term", ScoreKind.LONG_TERM),
         recommendation=_recommendation_from_row(row),
+        options=_options_from_row(row),
     )
 
 
@@ -899,6 +1020,7 @@ class SqlAlchemyScreeningResultRepository:
             **_score_columns("swing", outcome.swing_score),
             **_score_columns("long_term", outcome.investment_score),
             **_recommendation_columns(outcome.recommendation),
+            **_options_columns(outcome.options),
         )
         row.signal_events = [
             SignalEventOrm(

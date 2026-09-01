@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -30,6 +31,12 @@ from ai_trading_analyst.domain.backtesting import (
     HorizonMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.report import (
     REPORT_SCHEMA_VERSION,
     ReportSection,
@@ -1794,3 +1801,142 @@ class TestEmpfehlung:
         persisted = self._rundlauf(uow_factory, "EMPFOFF", None)
 
         assert persisted.recommendation is None
+
+
+class TestOptionsanalyse:
+    """Die Put-Vorschlaege durch PostgreSQL und zurueck (ADR 0048).
+
+    Neunzehn Felder je Vorschlag, davon acht, die fehlen duerfen. Genau die
+    sind der Grund fuer diesen Rundlauf: Ein ``None``, das als ``0.0``
+    zurueckkommt, saehe im Bericht aus wie eine gemessene Null -- ein Delta
+    von null, ein Abstand zur Unterstuetzung von null.
+    """
+
+    @staticmethod
+    def _strategie(**kwargs: Any) -> PutStrategy:
+        vorgabe: dict[str, Any] = {
+            "expiration": date(2026, 10, 2),
+            "days_to_expiration": 31,
+            "strike": 90.0,
+            "distance_to_price_pct": 0.10,
+            "premium": 1.80,
+            "break_even": 88.20,
+            "capital_at_risk": 9000.0,
+            "simple_return": 0.02,
+            "annualized_return": 0.2355,
+            "liquidity": LiquidityGrade.ACCEPTABLE,
+            "liquidity_warnings": ("Open Interest 30",),
+            "bid": 1.80,
+            "ask": 1.90,
+            "mid": 1.85,
+            "delta": 0.25,
+            "implied_volatility": 0.31,
+            "open_interest": 30,
+            "volume": 60,
+            "distance_to_support_pct": 0.044,
+            "earnings_within_term": True,
+        }
+        return PutStrategy(**{**vorgabe, **kwargs})
+
+    def _analyse(self, *strategien: PutStrategy, reason: str | None = None) -> OptionsAnalysis:
+        return OptionsAnalysis(
+            status=(
+                OptionsStatus.COMPLETED if strategien else OptionsStatus.INSUFFICIENT_DATA
+            ),
+            evaluated_at=datetime.now(UTC),
+            underlying_price=100.0,
+            expiration=date(2026, 10, 2) if strategien else None,
+            strategies=strategien,
+            reason=reason,
+        )
+
+    def _rundlauf(
+        self, uow_factory: UowFactory, symbol: str, analyse: OptionsAnalysis | None
+    ) -> StockScreeningOutcome:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            options=analyse,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        return persisted
+
+    def test_ein_vollstaendiger_vorschlag_kommt_unveraendert_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        analyse = self._analyse(self._strategie())
+
+        persisted = self._rundlauf(uow_factory, "OPTVOLL", analyse)
+
+        assert persisted.options == analyse
+
+    def test_die_rangfolge_bleibt_erhalten(self, uow_factory: UowFactory) -> None:
+        """JSONB ist eine Liste, keine Menge -- und die Reihenfolge **ist**
+        die Aussage: Der erste Vorschlag ist der bestbewertete."""
+        analyse = self._analyse(
+            self._strategie(strike=96.0, annualized_return=0.31),
+            self._strategie(strike=92.0, annualized_return=0.24),
+            self._strategie(strike=88.0, annualized_return=0.17),
+        )
+
+        persisted = self._rundlauf(uow_factory, "OPTRANG", analyse)
+
+        assert persisted.options is not None
+        assert [s.strike for s in persisted.options.strategies] == [96.0, 92.0, 88.0]
+
+    def test_fehlende_felder_kommen_als_fehlend_zurueck_nicht_als_null(
+        self, uow_factory: UowFactory
+    ) -> None:
+        analyse = self._analyse(
+            self._strategie(
+                delta=None,
+                implied_volatility=None,
+                open_interest=None,
+                volume=None,
+                distance_to_support_pct=None,
+                earnings_within_term=None,
+            )
+        )
+
+        persisted = self._rundlauf(uow_factory, "OPTLEER", analyse)
+
+        assert persisted.options is not None
+        (strategie,) = persisted.options.strategies
+        assert strategie.delta is None
+        assert strategie.open_interest is None
+        assert strategie.distance_to_support_pct is None
+        # ``None`` und ``False`` sind verschiedene Aussagen ueber den
+        # Berichtstermin -- die Datenbank darf sie nicht zusammenwerfen.
+        assert strategie.earnings_within_term is None
+
+    def test_ein_ergebnis_ohne_vorschlag_behaelt_seinen_grund(
+        self, uow_factory: UowFactory
+    ) -> None:
+        analyse = self._analyse(reason="keine der 12 Notierungen lieferte ein Delta")
+
+        persisted = self._rundlauf(uow_factory, "OPTOHNE", analyse)
+
+        assert persisted.options is not None
+        assert persisted.options.status is OptionsStatus.INSUFFICIENT_DATA
+        assert persisted.options.reason == "keine der 12 Notierungen lieferte ein Delta"
+        # Der Kurs bleibt: Er belegt, worauf die Strike-Auswahl stand.
+        assert persisted.options.underlying_price == pytest.approx(100.0)
+
+    def test_ohne_optionsanalyse_bleiben_die_spalten_leer(
+        self, uow_factory: UowFactory
+    ) -> None:
+        persisted = self._rundlauf(uow_factory, "OPTAUS", None)
+
+        assert persisted.options is None

@@ -82,6 +82,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041) |
 | [0046](0046-empfehlungsstufe-aus-beiden-scores.md) | Empfehlungsstufe aus beiden Scores | Angenommen (füllt Berichtspunkt 16 und die News-Komponente; erledigt den offenen Befund aus ADR 0045) |
 | [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8) |
+| [0048](0048-optionsanalyse-im-tageslauf.md) | Cash Secured Puts aus der IBKR-Optionskette | Angenommen (füllt Berichtspunkt 13 und die sechste Score-Komponente; führt die dritte gerichtete Kopplung ein) |
 
 ## Offene Entscheidungen
 
@@ -187,4 +188,10 @@ ADR, sobald die nötigen Informationen vorliegen:
   Empfehlungsstufe gehen hinaus, sortiert nach Swing-Score. Siehe
   [ADR 0047](0047-scores-in-der-ergebnismeldung.md), das ADR 0040 in genau
   diesem Punkt ablöst und Finnhubs Einschränkung L8 dazu entscheidet.
+- Optionsstrategien im Tageslauf (F9) — **entschieden.** Cash Secured Puts
+  aus der IBKR-Optionskette, ein Verfallstermin je Kandidat, drei Vorschläge
+  nach annualisierter Prämienrendite; der Berichtstermin schließt Verfälle
+  danach aus. Siehe [ADR 0048](0048-optionsanalyse-im-tageslauf.md), das
+  zugleich die Schwellen der Optionsattraktivität nach dem Muster von
+  [ADR 0045](0045-schwellen-der-score-teilwerte.md) misst.
 - Externer Zugriff auf das Dashboard (F12)

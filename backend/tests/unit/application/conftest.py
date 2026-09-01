@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
 from typing import Self
 
@@ -23,6 +23,7 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
+    OptionsDataProviderError,
     ProcessingErrorRepository,
     ResearchProviderError,
     ScreeningResultRepository,
@@ -37,6 +38,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
 from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.screening import (
@@ -46,6 +48,7 @@ from ai_trading_analyst.domain.screening import (
     IntradayBar,
 )
 from ai_trading_analyst.domain.technical import (
+    PriceZone,
     TechnicalAssessment,
     TechnicalAssessmentStatus,
     TechnicalSnapshot,
@@ -58,6 +61,7 @@ from ai_trading_analyst.infrastructure.fixtures.analyst_recommendations_provider
 from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
     FixtureFundamentalDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.options_provider import FixtureOptionsProvider
 
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
 _TIMEFRAME = timedelta(minutes=195)
@@ -177,6 +181,46 @@ class FakeFundamentalDataProvider:
         if stock.symbol in self._crash_symbols:
             raise RuntimeError(f"Vertragsbruch fuer {stock.symbol}")
         return FixtureFundamentalDataProvider().fundamentals(stock, price=price)
+
+
+class FakeOptionsDataProvider:
+    """Testdoppel der Optionsdatenquelle (Muster ``FakeFundamentalDataProvider``).
+
+    ``error_symbols`` wirft die Vertragsausnahme, ``crash_symbols`` eine rohe
+    ``RuntimeError`` -- also einen Vertragsbruch. Das erste darf nur Punkt 13
+    und die Optionsattraktivitaet kosten, das zweite die Aktie (ADR 0048).
+    """
+
+    def __init__(
+        self,
+        error_symbols: frozenset[str] = frozenset(),
+        crash_symbols: frozenset[str] = frozenset(),
+    ) -> None:
+        self._error_symbols = error_symbols
+        self._crash_symbols = crash_symbols
+        self.calls: list[tuple[str, float, date, int, date | None]] = []
+
+    def options(
+        self,
+        stock: Stock,
+        *,
+        price: float,
+        as_of: date,
+        zones: Sequence[PriceZone] = (),
+        next_earnings_date: date | None = None,
+    ) -> OptionsAnalysis:
+        self.calls.append((stock.symbol, price, as_of, len(zones), next_earnings_date))
+        if stock.symbol in self._error_symbols:
+            raise OptionsDataProviderError(f"Simulierter Providerfehler fuer {stock.symbol}")
+        if stock.symbol in self._crash_symbols:
+            raise RuntimeError(f"Vertragsbruch fuer {stock.symbol}")
+        return FixtureOptionsProvider(OptionsParameters()).options(
+            stock,
+            price=price,
+            as_of=as_of,
+            zones=zones,
+            next_earnings_date=next_earnings_date,
+        )
 
 
 class FakeAnalystRecommendationsProvider:

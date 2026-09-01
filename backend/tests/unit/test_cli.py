@@ -1254,15 +1254,21 @@ class TestDispatchAnbieterUebersteuerung:
         assert abbruch.value.code == 2
 
     @staticmethod
-    def _spione_alle_fuenf(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-        """Wie ``_spione``, aber der Abbruch liegt am **letzten** der fuenf
-        Anbieter.
+    def _spione_alle_sechs(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+        """Wie ``_spione``, aber der Abbruch liegt am **letzten** Anbieter,
+        der vor dem Lauf gebaut wird.
 
-        Nur so werden alle fuenf sichtbar: ``command_dispatch`` baut sie in
-        fester Reihenfolge, und ``_spione`` steigt bereits beim Research Agent
-        aus -- die drei danach kaemen dort nie an. Kommt ein sechster Anbieter
-        hinzu, muss der Abbruch mitwandern, sonst prueft dieser Helfer den
-        neuen stillschweigend nicht mit.
+        Nur so werden alle sichtbar: ``command_dispatch`` baut sie in fester
+        Reihenfolge, und ``_spione`` steigt bereits beim Research Agent aus --
+        die danach kaemen dort nie an. Kommt ein weiterer Anbieter hinzu, muss
+        der Abbruch mitwandern, sonst prueft dieser Helfer den neuen
+        stillschweigend nicht mit.
+
+        Der Optionsanbieter ist die Ausnahme: Er entsteht erst im Lauf, weil
+        er die bereits offene TWS-Anbindung braucht. Geprueft wird er
+        deshalb an derselben Konfiguration, aus der auch die uebrigen fuenf
+        gebaut werden -- das ist genau, was die Schleife der Uebersteuerungen
+        zu leisten hat.
         """
         gesehen: dict[str, str] = {}
 
@@ -1292,6 +1298,7 @@ class TestDispatchAnbieterUebersteuerung:
 
         def ratings(config: AppConfig, secrets: Secrets) -> AnalystRecommendationsProvider:
             gesehen["analyst_ratings"] = config.analyst_ratings.provider
+            gesehen["options"] = config.options.provider
             raise MissingSecretError("Abbruch fuer den Test")
 
         monkeypatch.setattr(
@@ -1309,7 +1316,7 @@ class TestDispatchAnbieterUebersteuerung:
     ) -> None:
         """Der ausgelieferte Zustand: kein Zugangsdatum noetig, nichts kostet
         Geld -- und nichts davon ist ein Ergebnis."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert main(["--config", str(config), "dispatch"]) == 2
@@ -1320,16 +1327,17 @@ class TestDispatchAnbieterUebersteuerung:
             "technical_agent": "fixture",
             "fundamentals": "fixture",
             "analyst_ratings": "fixture",
+            "options": "fixture",
         }
 
-    def test_die_argumente_uebersteuern_alle_fuenf_anbieter(
+    def test_die_argumente_uebersteuern_alle_anbieter(
         self, projekt: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Ohne einen Schalter je Anbieter bliebe sein Abschnitt im Bericht auf
         den Fixture-Werten stehen -- und die sehen dort wie ein Ergebnis aus,
         nicht wie eine Luecke. Der Ausweg waere, config/default.yaml auf dem
         Server zu editieren; genau das schliesst Doc 14 aus."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert (
@@ -1348,6 +1356,8 @@ class TestDispatchAnbieterUebersteuerung:
                     "anthropic",
                     "--ratings-provider",
                     "finnhub",
+                    "--options-provider",
+                    "ibkr",
                 ]
             )
             == 2
@@ -1359,6 +1369,7 @@ class TestDispatchAnbieterUebersteuerung:
             "technical_agent": "anthropic",
             "fundamentals": "edgar",
             "analyst_ratings": "finnhub",
+            "options": "ibkr",
         }
 
     @pytest.mark.parametrize(
@@ -1369,6 +1380,7 @@ class TestDispatchAnbieterUebersteuerung:
             ("--technical-agent-provider", "anthropic", "technical_agent"),
             ("--fundamentals-provider", "edgar", "fundamentals"),
             ("--ratings-provider", "finnhub", "analyst_ratings"),
+            ("--options-provider", "ibkr", "options"),
         ],
     )
     def test_jeder_schalter_wirkt_fuer_sich(
@@ -1381,13 +1393,20 @@ class TestDispatchAnbieterUebersteuerung:
     ) -> None:
         """Ein Schalter darf die uebrigen Abschnitte nicht mitverstellen --
         ``model_copy`` je Abschnitt, nicht ein gemeinsames Update."""
-        gesehen = self._spione_alle_fuenf(monkeypatch)
+        gesehen = self._spione_alle_sechs(monkeypatch)
         config = write_config(projekt, provider="ibkr")
 
         assert main(["--config", str(config), "dispatch", schalter, wert]) == 2
 
         erwartet = dict.fromkeys(
-            ("earnings", "research", "technical_agent", "fundamentals", "analyst_ratings"),
+            (
+                "earnings",
+                "research",
+                "technical_agent",
+                "fundamentals",
+                "analyst_ratings",
+                "options",
+            ),
             "fixture",
         )
         erwartet[abschnitt] = wert
@@ -1400,14 +1419,15 @@ class TestDispatchAnbieterUebersteuerung:
             ("--technical-agent-provider", "edgar"),
             ("--ratings-provider", "edgar"),
             ("--earnings-provider", "anthropic"),
+            ("--options-provider", "finnhub"),
         ],
     )
     def test_ein_anbieter_aus_dem_falschen_abschnitt_wird_abgewiesen(
         self, projekt: Path, schalter: str, wert: str
     ) -> None:
-        """Fuenf Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
-        zweien, 'anthropic' zu zweien. Ein Vertauschen faellt beim Argument
-        auf, nicht erst am Anbieter."""
+        """Sechs Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
+        zweien, 'anthropic' zu zweien, 'ibkr' zu keinem anderen. Ein
+        Vertauschen faellt beim Argument auf, nicht erst am Anbieter."""
         config = write_config(projekt, provider="ibkr")
 
         with pytest.raises(SystemExit) as abbruch:
@@ -2136,7 +2156,13 @@ class TestFundamentalKommando:
             ["fundamental", "--symbols", "AAPL", "--price-from-bars"]
         )
         assert cli.command_fundamental(args) == 2
-        assert "braucht den ueber IBKR gefuellten Bestand" in capsys.readouterr().err
+        fehler = capsys.readouterr().err
+        assert "aus dem ueber IBKR gefuellten Bestand" in fehler
+        # Der Hinweis nennt den Schalter **dieses** Befehls -- dieselbe
+        # Funktion bedient auch 'options', und dort hiesse er anders.
+        assert "'--provider' uebersteuert bei diesem Unterbefehl die Fundamentalquelle" in (
+            fehler
+        )
 
     def test_ohne_den_schalter_wird_der_bestand_nicht_angefasst(
         self, monkeypatch: pytest.MonkeyPatch
@@ -3262,3 +3288,127 @@ class TestKalibrierung:
         ausgabe = capsys.readouterr().out
         assert "kleinster" in ausgabe
         assert "4368.0000" in ausgabe
+
+
+class TestOptionsKommando:
+    """``cli options`` -- Einzelprobe und Messlauf (ADR 0048).
+
+    Die Einzelprobe ist der Grund, warum es diesen Befehl gibt: Ob IBKR nach
+    Boersenschluss noch modellierte Greeks liefert, laesst sich nicht
+    herleiten, nur messen. Sie muss deshalb auch ohne gefuellten Bestand
+    laufen -- daher ``--price``.
+    """
+
+    def test_die_einzelprobe_laeuft_ohne_datenbank(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--symbol", "AAPL", "--price", "200"]
+        )
+
+        assert exit_code == 0
+        ausgabe = capsys.readouterr().out
+        assert "COMPLETED" in ausgabe
+        # Delta und implizite Volatilitaet gehoeren in die Ausgabe: Genau sie
+        # sind das Ergebnis der Probe.
+        assert "Delta" in ausgabe
+        assert "annualisiert" in ausgabe
+
+    def test_symbol_und_watchlist_schliessen_sich_aus(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--symbol", "AAPL", "--watchlist"]
+        )
+
+        assert exit_code == 2
+        assert "nicht beides" in capsys.readouterr().err
+
+    def test_ein_kurs_von_hand_gilt_nur_fuer_ein_symbol(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Auf zweihundert Titel angewandt bewertete er jeden zum Kurs des
+        ersten -- und der Befehl existiert gerade zum Gegenpruefen."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "options", "--watchlist", "--price", "200"]
+        )
+
+        assert exit_code == 2
+        assert "--price gilt fuer ein Symbol" in capsys.readouterr().err
+
+    def test_ohne_bestand_zeigt_der_hinweis_auf_die_marktdatenquelle(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Hinweis stammt aus einer Funktion, die auch 'fundamental'
+        benutzt -- er darf deshalb nicht auf deren Schalter zeigen."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "options", "--watchlist"])
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "--market-data-provider ibkr" in fehler
+        assert "--price-from-bars" not in fehler, "der Hinweis stammt vom falschen Befehl"
+
+    def test_die_csv_traegt_die_spalten_die_calibrate_scores_liest(
+        self, projekt: Path, tmp_path: Path
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "optionen.messlauf.csv"
+
+        main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--symbol",
+                "AAPL",
+                "--price",
+                "200",
+                "--output",
+                str(ziel),
+            ]
+        )
+
+        (zeile,) = list(csv.DictReader(ziel.read_text(encoding="utf-8").splitlines()))
+        assert zeile["symbol"] == "AAPL"
+        assert zeile["kennzahl"] == "OPTIONS_ANNUALIZED_RETURN"
+        assert float(zeile["wert"]) > 0
+        # Strike und Laufzeit stehen daneben, damit sich ein auffaelliger Wert
+        # nachvollziehen laesst, ohne den Lauf zu wiederholen.
+        assert zeile["strike"]
+        assert zeile["verfall"]
+
+    def test_die_datei_laesst_sich_ohne_umweg_kalibrieren(
+        self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Derselbe Zweck wie bei 'ratings': Die Messung geht direkt in
+        'calibrate-scores'. Ein abweichender Spaltenname faellt sonst erst auf
+        dem Server auf, nach zweihundert Abrufen."""
+        config = write_config(projekt, provider="fixture")
+        ziel = tmp_path / "optionen.messlauf.csv"
+        main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--symbol",
+                "AAPL",
+                "--price",
+                "200",
+                "--output",
+                str(ziel),
+            ]
+        )
+        capsys.readouterr()
+
+        exit_code = main(["--config", str(config), "calibrate-scores", "--input", str(ziel)])
+
+        assert exit_code == 0
+        assert "OPTIONS_ANNUALIZED_RETURN" in capsys.readouterr().out

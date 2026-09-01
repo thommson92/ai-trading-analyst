@@ -9,6 +9,7 @@ Setzung aus dem ADR treffen und dass die begrenzende Regel greift.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,12 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
     HorizonMetrics,
+)
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
 )
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
@@ -158,12 +165,14 @@ def rechne(
     backtest: Sequence[BacktestResult] = _STANDARD,
     assessment: TechnicalAssessment | None = _STANDARD,
     analysts: AnalystRecommendations | None = _STANDARD,
+    options: OptionsAnalysis | None = None,
 ) -> ScoreResult:
     return compute_swing_score(
         ergebnis() if result is _STANDARD else result,
         backtest=(statistik(),) if backtest is _STANDARD else backtest,
         assessment=einordnung() if assessment is _STANDARD else assessment,
         analysts=voten(0.9) if analysts is _STANDARD else analysts,
+        options=options,
         parameters=params,
     )
 
@@ -563,15 +572,155 @@ class TestNewsUndEreignislage:
         assert teilwert(score, ComponentName.NEWS_AND_EVENTS) is None
 
 
-class TestNochNichtGebauteKomponenten:
-    def test_die_optionsattraktivitaet_steht_als_luecke_in_der_liste(
+def optionen(annualisiert: float = 0.20, *, strategien: bool = True) -> OptionsAnalysis:
+    return OptionsAnalysis(
+        status=OptionsStatus.COMPLETED if strategien else OptionsStatus.INSUFFICIENT_DATA,
+        evaluated_at=JETZT,
+        underlying_price=100.0,
+        expiration=date(2026, 10, 2),
+        reason=None if strategien else "keine der 12 Notierungen lieferte ein Delta",
+        strategies=(
+            (
+                PutStrategy(
+                    expiration=date(2026, 10, 2),
+                    days_to_expiration=31,
+                    strike=92.0,
+                    distance_to_price_pct=0.08,
+                    premium=1.5,
+                    break_even=90.5,
+                    capital_at_risk=9200.0,
+                    simple_return=annualisiert * 31 / 365,
+                    annualized_return=annualisiert,
+                    liquidity=LiquidityGrade.GOOD,
+                ),
+            )
+            if strategien
+            else ()
+        ),
+    )
+
+
+class TestOptionsattraktivitaet:
+    """Die sechste Komponente (ADR 0048)."""
+
+    @pytest.fixture
+    def ohne_schwellen(self, scoring_params: ScoringParameters) -> ScoringParameters:
+        """Die ausgelieferten Parameter ohne die gemessenen Optionsschwellen.
+
+        Der Zustand vor dem Messlauf vom 2026-08-31, und der Zustand jeder
+        Konfiguration, die den Block weglaesst. Er bleibt vorgesehen: Ein
+        vorlaeufiger Satz Schwellen truege eine Zahl in den Score, die
+        aussieht wie die gemessenen daneben, und die Versionsnummer sagte
+        nicht, dass sie es nicht ist.
+        """
+        return replace(
+            scoring_params, options_annualized_return=None, swing_version="1.1"
+        )
+
+    def test_ohne_gemessene_schwellen_entfaellt_die_komponente(
+        self, ohne_schwellen: ScoringParameters
+    ) -> None:
+        score = rechne(ohne_schwellen, options=optionen())
+
+        assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
+        assert score.coverage == pytest.approx(0.9)
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+        ]
+        assert komponente.reason == (
+            "die Schwellen der Optionsattraktivitaet sind noch nicht gemessen"
+        )
+
+    def test_scoring_params_deckt_der_score_alle_sechs_komponenten(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        score = rechne(scoring_params, options=optionen())
+
+        assert score.missing_components == ()
+        assert score.coverage == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        ("annualisiert", "erwartet"),
+        [(0.10, 2.0), (0.15, 4.0), (0.22, 6.0), (0.28, 8.0), (0.50, 10.0)],
+    )
+    def test_die_rendite_wird_ueber_die_schwellen_abgebildet(
+        self, scoring_params: ScoringParameters, annualisiert: float, erwartet: float
+    ) -> None:
+        score = rechne(scoring_params, options=optionen(annualisiert))
+
+        assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == erwartet
+
+    def test_der_bestbewertete_vorschlag_zaehlt(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der erste der Liste, nicht der Mittelwert ueber alle drei.
+
+        Ein Mittelwert bezoege den weit aus dem Geld liegenden Vorschlag mit
+        ein, den niemand nehmen wuerde -- und senkte den Teilwert eines
+        Titels, nur weil er mehr Auswahl bietet.
+        """
+        analyse = optionen(0.50)
+        zweiter = replace(analyse.strategies[0], annualized_return=0.05, strike=84.0)
+        score = rechne(
+            scoring_params,
+            options=replace(analyse, strategies=(analyse.strategies[0], zweiter)),
+        )
+
+        assert teilwert(score, ComponentName.OPTIONS_ATTRACTIVENESS) == 10.0
+
+    def test_die_begruendung_nennt_strike_und_laufzeit(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Die Zahl allein sagt nicht, aus welchem Kontrakt sie stammt."""
+        score = rechne(scoring_params, options=optionen(0.24))
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+        ]
+
+        assert komponente.reason == "24% annualisiert aus Strike 92 ueber 31 Tage"
+
+    def test_ohne_abruf_und_ohne_vorschlag_bleiben_zwei_verschiedene_gruende(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Der eine zeigt auf die TWS, der andere auf die Kette dieses Titels."""
+        ohne_abruf = rechne(scoring_params, options=None)
+        ohne_vorschlag = rechne(scoring_params, options=optionen(strategien=False))
+
+        gruende = [
+            next(
+                k.reason
+                for k in score.components
+                if k.name is ComponentName.OPTIONS_ATTRACTIVENESS
+            )
+            for score in (ohne_abruf, ohne_vorschlag)
+        ]
+        assert gruende[0] == "die Optionsdaten wurden nicht abgerufen"
+        assert gruende[1] == "kein Put-Vorschlag (keine der 12 Notierungen lieferte ein Delta)"
+
+    def test_ein_ausfall_der_optionsdaten_kostet_den_score_nicht(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        score = rechne(scoring_params, options=None)
+
+        assert score.status is ScoreStatus.COMPLETED
+        assert score.coverage == pytest.approx(0.9)
+
+
+class TestFehlendeKomponenten:
+    """Der Klassenname stand frueher auf "noch nicht gebaut" -- seit ADR 0048
+    gibt es die Optionsattraktivitaet, sie kann nur ausfallen."""
+
+    def test_eine_fehlende_komponente_steht_als_luecke_in_der_liste(
         self, scoring_params: ScoringParameters
     ) -> None:
         """Sie mit 0 zu bewerten hiesse zu behaupten, sie sei geprueft und
-        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlt."""
+        schlecht (Doc 09). Sie wegzulassen verschwiege, dass sie fehlt.
+
+        Ergaenzt ``TestOptionsattraktivitaet``: Dort steht die Abdeckung, hier
+        die **Benennung** der Luecke.
+        """
         score = rechne(scoring_params)
         assert score.missing_components == (ComponentName.OPTIONS_ATTRACTIVENESS,)
-        assert score.coverage == pytest.approx(0.9)
 
     def test_der_beste_kandidat_bekommt_trotzdem_einen_score(
         self, scoring_params: ScoringParameters

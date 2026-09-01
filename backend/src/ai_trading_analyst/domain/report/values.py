@@ -18,6 +18,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
+from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scoring import RecommendationResult, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalEvent
@@ -185,6 +186,8 @@ class StockReport:
     research: ResearchReport | None = None
     fundamentals: FundamentalSnapshot | None = None
     analysts: AnalystRecommendations | None = None
+    options: OptionsAnalysis | None = None
+    """Punkt 13 -- die bewerteten Cash-Secured-Put-Vorschlaege (ADR 0048)."""
 
     swing_score: ScoreResult | None = None
     """Der vollstaendige Score und nicht nur seine Zahl.

@@ -19,6 +19,7 @@ from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters, EarningsFilterStatus
+from ai_trading_analyst.domain.options import OptionsParameters
 from ai_trading_analyst.domain.research import ResearchStatus
 from ai_trading_analyst.domain.scoring import ScoringParameters
 from ai_trading_analyst.domain.screening import (
@@ -41,6 +42,7 @@ from ai_trading_analyst.infrastructure.fixtures.fundamental_provider import (
 from ai_trading_analyst.infrastructure.fixtures.market_data_provider import (
     FixtureMarketDataProvider,
 )
+from ai_trading_analyst.infrastructure.fixtures.options_provider import FixtureOptionsProvider
 from ai_trading_analyst.infrastructure.fixtures.research_provider import FixtureResearchProvider
 from ai_trading_analyst.infrastructure.fixtures.technical_interpreter import (
     FixtureTechnicalInterpreter,
@@ -93,6 +95,7 @@ def test_vollstaendiger_fixture_basierter_lauf_ist_teilweise_erfolgreich(
         FixtureTechnicalInterpreter(),
         FixtureFundamentalDataProvider(),
         FixtureAnalystRecommendationsProvider(),
+        FixtureOptionsProvider(OptionsParameters()),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,
@@ -179,6 +182,7 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         FixtureTechnicalInterpreter(),
         FixtureFundamentalDataProvider(),
         FixtureAnalystRecommendationsProvider(),
+        FixtureOptionsProvider(OptionsParameters()),
         uow_factory,
         _PARAMS,
         _EARNINGS_PARAMS,

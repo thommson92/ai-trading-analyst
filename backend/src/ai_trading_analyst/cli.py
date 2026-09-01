@@ -33,7 +33,7 @@ import json
 import statistics
 import sys
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
@@ -79,6 +79,7 @@ from ai_trading_analyst.bootstrap import (
     build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
+    build_options_provider,
     build_research_provider,
     build_scoring_params,
     build_session_parameters,
@@ -101,6 +102,7 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProviderError,
     MarketDataProvider,
     MarketDataProviderError,
+    OptionsDataProviderError,
     ResearchProviderError,
     Stock,
     TechnicalInterpreter,
@@ -116,6 +118,7 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricName,
     MetricUnit,
 )
+from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
@@ -1927,7 +1930,15 @@ def _print_kalibrierung(
 
 
 def _kurse_aus_dem_bestand(
-    loaded: LoadedConfig, config: AppConfig, wanted: Sequence[str]
+    loaded: LoadedConfig,
+    config: AppConfig,
+    wanted: Sequence[str],
+    *,
+    abhilfe: str = (
+        "Entweder '--market-data-provider ibkr' setzen oder den Schalter weglassen. "
+        "'--provider' uebersteuert bei diesem Unterbefehl die Fundamentalquelle, "
+        "nicht die Marktdatenquelle."
+    ),
 ) -> tuple[dict[str, float], dict[str, datetime], list[tuple[str, str]]] | None:
     """Schlusskurse der letzten abgeschlossenen Kerze je Symbol.
 
@@ -1946,11 +1957,9 @@ def _kurse_aus_dem_bestand(
         # echte Symbol "keine Kerzen im Bestand" -- eine Meldung, die auf den
         # Bestand zeigt, waehrend der Anbieter das Problem ist.
         print(
-            "--price-from-bars braucht den ueber IBKR gefuellten Bestand, "
+            "Die Kurse kommen aus dem ueber IBKR gefuellten Bestand, "
             f"market_data.provider steht aber auf '{config.market_data.provider}'. "
-            "Entweder '--market-data-provider ibkr' setzen oder den Schalter "
-            "weglassen. '--provider' uebersteuert bei diesem Unterbefehl die "
-            "Fundamentalquelle, nicht die Marktdatenquelle.",
+            + abhilfe,
             file=sys.stderr,
         )
         return None
@@ -2220,6 +2229,305 @@ def _format_metric(metric: Metric) -> str:
     if metric.unit is MetricUnit.SHARES:
         return f"{metric.value:,.0f}"
     return f"{metric.value:.2f}"
+
+
+def command_options(args: argparse.Namespace) -> int:
+    """Optionsanalyse -- Einzelprobe oder Messlauf ueber die Watchliste (ADR 0048).
+
+    Die Einzelprobe beantwortet die Frage, an der die ganze Stufe haengt:
+    Liefert IBKR **nach Boersenschluss** noch modellierte Greeks? Der
+    Tageslauf beginnt mit dem Schluss der zweiten 195-Minuten-Kerze -- also
+    zum Boersenschluss -- und erreicht die Optionen erst nach dem
+    Kerzen-Backfill. Der Marktdatenmodus steht deshalb in der Konfiguration
+    (``options.market_data_type``) und laesst sich hier uebersteuern.
+
+    ``--watchlist --output`` liefert die Verteilung der annualisierten Rendite
+    ueber die volle Watchliste. Die Datei traegt dieselben Spalten wie die der
+    Fundamentalanalyse und laesst sich deshalb **ohne neuen Auswertebefehl**
+    an 'calibrate-scores' weiterreichen (Muster ADR 0045: messen, dann
+    festlegen).
+
+    Gerechnet wird ueber **denselben Codepfad wie im Tageslauf** -- dieselbe
+    Verfallsterminwahl, dasselbe Strike-Band, derselbe Delta-Filter, dieselbe
+    Renditeformel. Zwei Formeln haetten Schwellen ergeben, die zu den
+    gemessenen Werten nicht passen (die Lehre aus ADR 0046).
+
+    **Mit einer benannten Ausnahme:** Der Berichtstermin geht nicht ein, weil
+    dieses Kommando ihn nicht abruft. Im Tageslauf schliesst er Verfaelle
+    danach aus; hier sollen die Schwellen auf der unbeschraenkten Verteilung
+    stehen (ADR 0048, Konsequenzen). Aus demselben Grund fehlen die Zonen:
+    Sie fuellen ein Feld am Vorschlag und gehen in keine Kennzahl ein.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    ueberschreibungen: dict[str, object] = {}
+    if args.provider is not None:
+        ueberschreibungen["provider"] = args.provider
+    if args.market_data_type is not None:
+        ueberschreibungen["market_data_type"] = args.market_data_type
+    if ueberschreibungen:
+        config = config.model_copy(
+            update={"options": config.options.model_copy(update=ueberschreibungen)}
+        )
+
+    if bool(args.watchlist) == bool(args.symbol):
+        print(
+            "Entweder --symbol oder --watchlist angeben, nicht beides und nicht keines.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.watchlist:
+        vertraege = build_watchlist(config, project_root(loaded.source_path))
+        wanted = sorted({vertrag.symbol for vertrag in vertraege})
+        if not wanted:
+            print("Die Watchlist ist leer.", file=sys.stderr)
+            return 2
+    else:
+        wanted = [args.symbol.upper()]
+
+    if args.price is not None and len(wanted) > 1:
+        print(
+            f"--price gilt fuer ein Symbol, angegeben sind {len(wanted)}. "
+            "Ohne den Schalter kommt der Kurs aus dem Bestand -- derselbe "
+            "Schlusskurs, auf dem auch der Tageslauf rechnet.",
+            file=sys.stderr,
+        )
+        return 2
+
+    ziel = Path(args.output) if args.output is not None else None
+    if ziel is not None:
+        # Vor dem ersten Abruf, nicht nach dem letzten -- dieselbe Lehre wie
+        # bei 'fundamental' und 'ratings'.
+        try:
+            ziel.parent.mkdir(parents=True, exist_ok=True)
+            ziel.touch()
+        except OSError as error:
+            print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
+    kurse: dict[str, float] = {}
+    stichtage: dict[str, date] = {}
+    if args.price is not None:
+        kurse[wanted[0]] = args.price
+        # Ohne Kerze gibt es keinen Kerzentag. Der heutige Handelstag in
+        # Boersenzeit ist die einzige ehrliche Naeherung -- und sie steht in
+        # der Ausgabe, damit niemand sie fuer einen Kerzenzeitpunkt haelt.
+        stichtage[wanted[0]] = datetime.now(ZoneInfo(config.market.timezone)).date()
+    else:
+        if args.market_data_provider is not None:
+            config = config.model_copy(
+                update={
+                    "market_data": config.market_data.model_copy(
+                        update={"provider": args.market_data_provider}
+                    )
+                }
+            )
+        ergebnis = _kurse_aus_dem_bestand(
+            loaded,
+            config,
+            wanted,
+            abhilfe=(
+                "Entweder '--market-data-provider ibkr' setzen oder mit '--price' einen "
+                "Kurs von Hand uebergeben. '--provider' uebersteuert bei diesem "
+                "Unterbefehl die Optionsquelle, nicht die Marktdatenquelle."
+            ),
+        )
+        if ergebnis is None:
+            return 2
+        kurse, kurs_stempel, ohne_bestand = ergebnis
+        stichtage = {symbol: stempel.date() for symbol, stempel in kurs_stempel.items()}
+        for symbol, grund in ohne_bestand:
+            # Anders als bei der Fundamentalanalyse ist der Kurs hier
+            # **blockierend**: Ohne ihn gibt es kein Strike-Band, also nichts
+            # abzufragen (ADR 0048).
+            print(f"{symbol}: {grund}, ohne Kurs keine Optionsauswahl.", file=sys.stderr)
+        _print_kursherkunft(kurs_stempel, len(wanted))
+
+    quelle = build_ibkr_bar_source(config) if config.options.provider == "ibkr" else None
+    try:
+        provider = build_options_provider(config, project_root(loaded.source_path), quelle)
+    except ValueError as error:
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
+
+    ergebnisse: list[tuple[str, OptionsAnalysis]] = []
+    fehler: list[tuple[str, str]] = []
+    try:
+        for symbol in wanted:
+            kurs = kurse.get(symbol)
+            if kurs is None:
+                continue
+            stock = Stock(id=uuid4(), symbol=symbol, exchange=args.exchange)
+            try:
+                analyse = provider.options(
+                    stock, price=kurs, as_of=stichtage[symbol]
+                )
+            except OptionsDataProviderError as error:
+                # Ein Ausfall bei einer Aktie kostet nicht den Messlauf.
+                fehler.append((symbol, str(error)))
+                print(f"{symbol}: {error}", file=sys.stderr)
+                continue
+            ergebnisse.append((symbol, analyse))
+            if len(wanted) == 1:
+                _print_options_analysis(symbol, analyse)
+            else:
+                _print_options_summary_line(symbol, analyse)
+    finally:
+        if quelle is not None:
+            quelle.close()
+
+    if ziel is not None:
+        _write_options_csv(ziel, ergebnisse)
+        print(f"\nCSV geschrieben: {ziel}")
+    if len(wanted) > 1:
+        _print_options_uebersicht(ergebnisse, fehler, len(wanted))
+
+    if not ergebnisse:
+        return 2
+    return 0
+
+
+def _print_options_analysis(symbol: str, analyse: OptionsAnalysis) -> None:
+    """Der volle Block fuer die Einzelprobe -- samt der Rohwerte.
+
+    Bewusst ausfuehrlich: Dieses Kommando existiert zum Gegenpruefen. Wer
+    wissen will, ob nach Boersenschluss noch Greeks kommen, muss Delta und
+    implizite Volatilitaet sehen und nicht nur ein Ergebnis, das sie
+    voraussetzt.
+    """
+    print(f"\n{symbol}  {analyse.status.value}  ({analyse.analysis_version})")
+    print(f"  Kurs:            {_options_zahl(analyse.underlying_price)}")
+    print(f"  Verfallstermin:  {analyse.expiration.isoformat() if analyse.expiration else '--'}")
+    if analyse.reason is not None:
+        print(f"  Grund:           {analyse.reason}")
+    for rang, strategie in enumerate(analyse.strategies, start=1):
+        print(
+            f"\n  {rang}. Strike {strategie.strike:g}  "
+            f"({strategie.days_to_expiration} Tage, "
+            f"{strategie.distance_to_price_pct:.1%} unter dem Kurs)"
+        )
+        print(
+            f"     Delta {_options_zahl(strategie.delta, 4)}"
+            f"   IV {_options_zahl(strategie.implied_volatility, 4)}"
+            f"   Bid {_options_zahl(strategie.bid)}"
+            f"   Ask {_options_zahl(strategie.ask)}"
+            f"   Mid {_options_zahl(strategie.mid)}"
+        )
+        print(
+            f"     Praemie {strategie.premium:.2f}"
+            f"   Break-even {strategie.break_even:.2f}"
+            f"   Kapital {strategie.capital_at_risk:.0f}"
+        )
+        print(
+            f"     Rendite {strategie.simple_return:.2%}"
+            f"   annualisiert {strategie.annualized_return:.2%}"
+        )
+        print(
+            f"     Liquiditaet {strategie.liquidity.value}"
+            f"   OI {strategie.open_interest if strategie.open_interest is not None else '--'}"
+            f"   Volumen {strategie.volume if strategie.volume is not None else '--'}"
+        )
+        if strategie.liquidity_warnings:
+            print(f"     Warnungen: {', '.join(strategie.liquidity_warnings)}")
+
+
+def _options_zahl(wert: float | None, stellen: int = 2) -> str:
+    """``--`` statt ``0.00``: Ein fehlender Wert ist keine Null."""
+    return "--" if wert is None else f"{wert:.{stellen}f}"
+
+
+def _print_options_summary_line(symbol: str, analyse: OptionsAnalysis) -> None:
+    """Eine Zeile je Aktie -- der volle Block laeuft bei zweihundert Titeln
+    aus dem Terminalpuffer (Muster ``_print_analyst_summary_line``)."""
+    beste = analyse.strategies[0] if analyse.strategies else None
+    print(
+        f"  {symbol:<8}{analyse.status.value:<20}"
+        f"{(f'{beste.annualized_return:.1%}' if beste is not None else '--'):>9}"
+        f"{(f'{beste.delta:.2f}' if beste is not None and beste.delta is not None else '--'):>7}"
+        f"  {analyse.expiration.isoformat() if analyse.expiration else ''}"
+    )
+
+
+_OPTIONS_KENNZAHL = "OPTIONS_ANNUALIZED_RETURN"
+"""Der Name, unter dem die annualisierte Rendite in der Mess-CSV steht --
+derselbe, den ``ComponentName.OPTIONS_ATTRACTIVENESS`` spaeter bewertet."""
+
+
+def _write_options_csv(pfad: Path, ergebnisse: Sequence[tuple[str, OptionsAnalysis]]) -> None:
+    """Die Verteilung der annualisierten Rendite als CSV.
+
+    Die ersten vier Spalten sind die, die 'calibrate-scores' liest. Der Rest
+    steht daneben, damit sich ein auffaelliger Wert nachvollziehen laesst,
+    ohne den Lauf zu wiederholen -- eine Rendite von 300 Prozent ist eher ein
+    Kontrakt mit einem Geldkurs von einem Cent als eine Gelegenheit.
+
+    Eine Aktie ohne Vorschlag steht mit leeren Feldern in der Datei: Sie
+    zaehlt bei der Abdeckung mit und liefert keinen Wert.
+    """
+    with pfad.open("w", encoding="utf-8", newline="") as datei:
+        writer = csv.writer(datei)
+        writer.writerow(
+            [
+                "symbol",
+                "status",
+                "kennzahl",
+                "wert",
+                "verfall",
+                "strike",
+                "delta",
+                "praemie",
+                "liquiditaet",
+                "abgerufen",
+            ]
+        )
+        for symbol, analyse in ergebnisse:
+            beste = analyse.strategies[0] if analyse.strategies else None
+            if beste is None:
+                writer.writerow(
+                    [symbol, analyse.status.value, "", "", "", "", "", "", "", ""]
+                )
+                continue
+            writer.writerow(
+                [
+                    symbol,
+                    analyse.status.value,
+                    _OPTIONS_KENNZAHL,
+                    f"{beste.annualized_return:.6f}",
+                    beste.expiration.isoformat(),
+                    f"{beste.strike:g}",
+                    "" if beste.delta is None else f"{beste.delta:.4f}",
+                    f"{beste.premium:.2f}",
+                    beste.liquidity.value,
+                    analyse.evaluated_at.isoformat(),
+                ]
+            )
+
+
+def _print_options_uebersicht(
+    ergebnisse: Sequence[tuple[str, OptionsAnalysis]],
+    fehler: Sequence[tuple[str, str]],
+    angefragt: int,
+) -> None:
+    mit_vorschlag = [analyse for _, analyse in ergebnisse if analyse.strategies]
+    print(f"\n{angefragt} Aktien angefragt, {len(mit_vorschlag)} mit mindestens einem Vorschlag.")
+    if fehler:
+        print(f"{len(fehler)} Anbieterfehler: {', '.join(symbol for symbol, _ in fehler)}")
+    ohne = [
+        (symbol, analyse.reason or "ohne Grund")
+        for symbol, analyse in ergebnisse
+        if not analyse.strategies
+    ]
+    if ohne:
+        # Die Gruende zaehlen, nicht auflisten: Bei zweihundert Titeln ist
+        # "keine Notierung lieferte ein Delta, 190-mal" die Aussage, und
+        # zweihundert Einzelzeilen verdecken sie.
+        haeufigkeit = Counter(grund for _, grund in ohne)
+        print(f"{len(ohne)} ohne Vorschlag:")
+        for grund, anzahl in haeufigkeit.most_common():
+            print(f"  {anzahl:>4}x  {grund}")
 
 
 def command_report(args: argparse.Namespace) -> int:
@@ -2623,14 +2931,14 @@ def command_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
-    # Alle vier Analyseanbieter stehen ausgeliefert auf 'fixture', damit Start
+    # Alle sechs Analyseanbieter stehen ausgeliefert auf 'fixture', damit Start
     # und Tests ohne Zugangsdaten auskommen. Der produktive Schalter gehoert
     # deshalb hierher und nicht in config/default.yaml: Die Aufgabenplanung
     # traegt ihn in ihren Argumenten, und ein 'git pull' auf dem Server findet
     # keinen lokalen Diff vor -- dieselbe Begruendung wie bei '--provider
     # ibkr'.
     #
-    # Es muessen **alle vier** sein. Fehlte auch nur einer, bliebe sein
+    # Es muessen **alle sechs** sein. Fehlte auch nur einer, bliebe sein
     # Abschnitt im Bericht bei den Fixture-Werten stehen -- und die sehen dort
     # wie ein Ergebnis aus, nicht wie eine Luecke. Der Ausweg waere dann, die
     # ausgelieferte Konfiguration auf dem Server zu editieren; genau das
@@ -2641,6 +2949,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         (args.fundamentals_provider, "fundamentals"),
         (args.ratings_provider, "analyst_ratings"),
         (args.technical_agent_provider, "technical_agent"),
+        (args.options_provider, "options"),
     ):
         if argument is None:
             continue
@@ -2742,6 +3051,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             technical_interpreter,
             fundamental_provider,
             ratings_provider,
+            # Dieselbe TWS-Anbindung wie der Backfill -- IBKR laesst je
+            # Client-ID nur eine Verbindung zu (ADR 0048).
+            build_options_provider(config, project_root(loaded.source_path), bar_source),
             uow_factory,
             rule,
             build_earnings_filter_params(config),
@@ -3181,6 +3493,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     dispatch.add_argument(
+        "--options-provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert options.provider nur fuer diesen Lauf. 'ibkr' fuellt "
+            "Berichtspunkt 13 mit Put-Vorschlaegen aus der echten Optionskette "
+            "und braucht ein Optionsmarktdaten-Abo; ohne den Schalter bleibt er "
+            "auf den Fixture-Werten stehen."
+        ),
+    )
+    dispatch.add_argument(
         "--notification-channel",
         choices=("dry_run", "telegram"),
         default=None,
@@ -3439,6 +3762,78 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ratings.set_defaults(handler=command_ratings)
+
+    options = subparsers.add_parser(
+        "options",
+        help="Cash-Secured-Put-Vorschlaege eines Symbols oder der Watchliste (ADR 0048).",
+    )
+    options.add_argument(
+        "--config",
+        default=argparse.SUPPRESS,
+        help="Pfad zur Konfigurationsdatei. Auch vor dem Unterbefehl zulaessig.",
+    )
+    options.add_argument(
+        "--symbol", default=None, help="Ein Symbol, z. B. 'AAPL'. Alternativ --watchlist."
+    )
+    options.add_argument(
+        "--watchlist",
+        action="store_true",
+        help=(
+            "Fragt jedes Symbol der Watchlist ab -- der Messlauf fuer die Schwellen "
+            "der Optionsattraktivitaet."
+        ),
+    )
+    options.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "Schreibt die annualisierte Rendite je Aktie als CSV. Die Datei traegt "
+            "die Spalten, die 'calibrate-scores' liest."
+        ),
+    )
+    options.add_argument(
+        "--price",
+        type=float,
+        default=None,
+        help=(
+            "Kurs von Hand statt aus dem Bestand -- fuer eine Probe ohne gefuellte "
+            "Datenbank. Gilt nur zusammen mit --symbol."
+        ),
+    )
+    options.add_argument(
+        "--exchange",
+        default="NASDAQ",
+        help="Nur fuer die Bildung des Symbols relevant; der Kontrakt kommt aus der Watchliste.",
+    )
+    options.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert options.provider nur fuer diesen Aufruf. 'ibkr' braucht eine "
+            "laufende TWS und das Optionsmarktdaten-Abo."
+        ),
+    )
+    options.add_argument(
+        "--market-data-provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help=(
+            "Uebersteuert market_data.provider -- die Quelle des **Kurses**, nicht der "
+            "Optionskette. Ohne 'ibkr' ist der Bestand leer und es gibt kein Strike-Band."
+        ),
+    )
+    options.add_argument(
+        "--market-data-type",
+        type=int,
+        choices=(1, 2, 3, 4),
+        default=None,
+        help=(
+            "Uebersteuert options.market_data_type: 1 live, 2 'frozen', 3 verzoegert, "
+            "4 verzoegert und 'frozen'. Nach Boersenschluss liefert 1 nichts mehr."
+        ),
+    )
+    options.set_defaults(handler=command_options)
 
     report = subparsers.add_parser(
         "report",
