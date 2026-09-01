@@ -19,9 +19,20 @@ Aufzeichnung und einer Versionsnummer einhergeht.
 
     ATA_GOLDEN_MASTER_RECORD=1 .venv/bin/python -m pytest tests/golden
 
-Laeuft ohne Netz, ohne Datenbank und ohne TWS. Zur Herkunft der Daten siehe
-``generate_bars.py`` -- sie sind erzeugt, nicht gemessen, und der Modulkopf
-dort sagt, was daraus folgt.
+Laeuft ohne Netz, ohne Datenbank und ohne TWS.
+
+**Zur Herkunft der Daten -- seit dem 2026-09-01 zweierlei:**
+
+- ``synthetic-trend`` und ``synthetic-range`` sind **erzeugt**. Der Modulkopf
+  von ``generate_bars.py`` sagt, warum und was daraus folgt.
+- ``aapl`` und ``msft`` sind **gemessen**: echte 195-Minuten-Kerzen ab dem
+  2025-01-02 aus dem Bestand des Servers, gezogen mit ``cli export-bars``
+  (Doc 14, Zwischenschritt Golden Master). Sie schliessen die Luecke, die die
+  erzeugten Faelle offen lassen mussten -- eine erzeugte Reihe kann nur
+  bestaetigen, was ihr Erzeuger fuer moeglich hielt.
+
+Wer eine weitere ``*.bars.csv`` in ``data/`` legt, bekommt sie ohne
+Codeaenderung als zusaetzlichen Fall.
 """
 
 from __future__ import annotations
