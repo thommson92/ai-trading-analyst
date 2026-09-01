@@ -1,0 +1,119 @@
+/* Ein Stylesheet, keine Bibliothek: Das Dashboard hat drei Ansichten und
+   einen Leser (ADR 0049). Responsiv ueber Fluss und Grid, wie Doc 10,
+   Paragraph 6.15 es verlangt. */
+
+:root {
+  --grund: #ffffff;
+  --schrift: #1c1c1c;
+  --gedaempft: #5c5c5c;
+  --linie: #d9d9d9;
+  --flaeche: #f6f6f6;
+  --warnung: #8a4b00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --grund: #16181c;
+    --schrift: #e9e9e9;
+    --gedaempft: #a2a2a2;
+    --linie: #33363c;
+    --flaeche: #1f2228;
+    --warnung: #f0b26b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem 1rem 4rem;
+  background: var(--grund);
+  color: var(--schrift);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 60rem;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 1.5rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 2rem 0 0.75rem;
+}
+
+a {
+  color: inherit;
+}
+
+.kennzahlen {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  margin: 0;
+}
+
+.kennzahlen > div {
+  background: var(--flaeche);
+  border: 1px solid var(--linie);
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.kennzahlen dt {
+  color: var(--gedaempft);
+  font-size: 0.8rem;
+}
+
+.kennzahlen dd {
+  font-size: 1.15rem;
+  margin: 0.15rem 0 0;
+}
+
+.warnungen {
+  color: var(--warnung);
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.warnungen .keine {
+  color: var(--gedaempft);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--linie);
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+}
+
+th {
+  color: var(--gedaempft);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+td.zahl,
+th.zahl {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+p[role='alert'] {
+  border-left: 3px solid var(--warnung);
+  color: var(--warnung);
+  padding-left: 0.8rem;
+}
