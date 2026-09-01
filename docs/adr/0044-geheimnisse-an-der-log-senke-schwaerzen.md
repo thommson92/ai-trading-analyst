@@ -140,3 +140,27 @@ Zwei Änderungen daraus:
    zeichengenau wieder.
 
 Der betroffene Schlüssel wurde erneuert.
+
+## Nachtrag vom 2026-09-01: der Wurzelfix ist umgesetzt
+
+Der als besser, aber ungegangen benannte Weg ist gegangen: Der
+Finnhub-Adapter schickt den Schlüssel als `X-Finnhub-Token`-Header
+(`infrastructure/finnhub/auth.py`), nicht mehr als Query-Parameter. Damit
+steht er in keiner URL — und die drei Kanäle aus dem Kontext (Fehlertext,
+`httpx`-Zugriffsprotokoll, Ausnahmekette) sind an der Quelle trocken.
+
+Das Repository-Audit vom 2026-08-23 hat diesen offenen Rest als
+Prozessbefund geführt („Symptom statt Ursache?"), das
+[Audit 2](../audits/2026-08-31-repository-audit-2.md) als Maßnahme A2-M10.
+
+**Die Schwärzung bleibt.** Sie war nie nur eine Notlösung für Finnhub: Sie
+wirkt für jedes registrierte Geheimnis und für Texte, die das System nicht
+selbst formuliert hat. Die Entscheidung dieses ADR — Schwärzung an der
+Senke statt an der einzelnen Meldung — ist unverändert gültig.
+
+**Zu bestätigen bleibt der erste Abruf gegen den echten Dienst.** Die
+Adaptertests prüfen mit `httpx.MockTransport`, dass der Header gesetzt und
+die URL sauber ist; dass Finnhub den Header auf beiden genutzten Endpunkten
+akzeptiert, ist dokumentiert, aber hier nicht gemessen. Eine Einzelprobe
+(`cli ratings --provider finnhub --symbols AAPL`) auf dem Server beweist es
+in einem Aufruf.

@@ -13,6 +13,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from ai_trading_analyst.config import NotificationsConfig, Secrets, TelegramConfig
 from ai_trading_analyst.domain.report import render_notification
@@ -56,13 +57,12 @@ class TestAuswahl:
         with pytest.raises(Exception, match="ATA_NOTIFICATION_TOKEN"):
             build_notifier(config, _secrets(token=None))
 
-    def test_pushover_ist_weiterhin_nicht_gebaut(self) -> None:
-        """Ein nicht gebauter Kanal faellt beim Start auf, nicht erst
-        abends, wenn die Meldung ausbleibt."""
-        config = NotificationsConfig(channel="pushover")
-
-        with pytest.raises(NotificationChannelNotConfiguredError, match="ADR 0024"):
-            build_notifier(config, _secrets())
+    def test_pushover_nimmt_die_konfiguration_nicht_mehr_an(self) -> None:
+        """Der nie gebaute Kanal ist aus dem Schema verschwunden (ADR 0024,
+        Nachtrag). Vorher nahm die Konfiguration ihn an und die Anwendung
+        wies ihn zurueck -- ein Versprechen ohne Deckung."""
+        with pytest.raises(ValidationError):
+            NotificationsConfig(channel="pushover")
 
 
 class TestProtokollierenderAusgang:
