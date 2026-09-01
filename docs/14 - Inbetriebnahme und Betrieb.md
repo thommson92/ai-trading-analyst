@@ -833,6 +833,84 @@ Die TWS von Hand starten und anmelden. Ohne angemeldete Sitzung entscheidet der
 Dispatcher nicht einmal, ob heute ein Handelstag ist — er meldet Rückgabewert 1
 und versucht es beim nächsten Start erneut, bis die Nachholfrist abläuft.
 
+## Sicherung
+
+Doc 10 §15 fordert ein tägliches Datenbank-Backup mit Restore-Test. Das
+MVP setzt davon die einfache Stufe um: **ein täglicher `pg_dump` über die
+Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
+
+> **Bewusste Einschränkung** (Beschluss vom 2026-09-01): Die Ablage liegt
+> *nicht* außerhalb des primären Datenvolumes, wie Doc 10 §15 es als
+> Zielbild nennt. Sie schützt gegen Softwarefehler, Fehlbedienung und eine
+> kaputte Migration — **nicht** gegen den Ausfall der Platte selbst. Neu zu
+> bewerten nach stabilem Betrieb, zusammen mit der Expositionsfrage aus
+> [ADR 0049](adr/0049-dashboard-mvp-nur-lan.md).
+
+Das Skript liegt **außerhalb des Repositories** (wie die `.env`), etwa als
+`C:\...\backup-ata.ps1`:
+
+```powershell
+$stamp = Get-Date -Format yyyy-MM-dd
+pg_dump -Fc -U ata -d ai_trading_analyst `
+    -f "C:\...\backups\ata\ai_trading_analyst-$stamp.dump"
+Get-ChildItem "C:\...\backups\ata\*.dump" |
+    Where-Object LastWriteTime -lt (Get-Date).AddDays(-14) | Remove-Item
+```
+
+Vierzehn Tage rollierend: lang genug, um einen erst spät bemerkten Fehler
+zu überleben, kurz genug, dass der Ordner nicht wächst. Das **Passwort
+steht nie in den Task-Argumenten**, sondern in
+`%APPDATA%\postgresql\pgpass.conf` (eine Zeile:
+`localhost:5432:*:ata:<passwort>`) — Task-Argumente sind im
+Aufgabenplaner für jeden lesbar, der den Rechner sieht.
+
+| Feld | Wert |
+|---|---|
+| Trigger | Täglich, Beginn **22:00** (nach dem Dispatch-Fenster 17:30–21:30) |
+| Programm | `powershell.exe` |
+| Argumente | `-NoProfile -File C:\...\backup-ata.ps1` |
+
+**Restore-Probe** — einmal bei der Einrichtung und danach bei jedem
+Pflegetermin, **niemals in die Produktivdatenbank**:
+
+```powershell
+psql -U ata -d postgres -c "CREATE DATABASE ata_restore_test OWNER ata;"
+pg_restore -U ata -d ata_restore_test "C:\...\backups\ata\<juengster>.dump"
+psql -U ata -d ata_restore_test -c "SELECT count(*) FROM intraday_bars;"
+psql -U ata -d ata_restore_test -c "SELECT count(*) FROM analysis_runs;"
+psql -U ata -d postgres -c "DROP DATABASE ata_restore_test;"
+```
+
+Die Zählwerte müssen zu den Produktivzahlen des Sicherungstages passen.
+**Abnahmekriterium:** ein automatisch entstandener Dump und eine
+durchgespielte Zählprobe.
+
+## Pflege
+
+Gemessene Zahlen altern genauso still wie geratene — nur mit besserem
+Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
+2026-12-01.** Drei Gruppen:
+
+1. **Gemessene Schwellen** in `config/default.yaml` (`scoring.thresholds`,
+   `analyst_buy_share`, `options_annualized_return`): Messläufe
+   `cli ratings --watchlist --output ...` und
+   `cli options --provider ibkr --watchlist --output ...`, Auswertung mit
+   `cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
+   festlegen" ([ADR 0045](adr/0045-schwellen-der-score-teilwerte.md),
+   [ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)). Die
+   **Options-Schwellen** haben einen Zusatzanlass außer der Reihe: eine
+   unruhige Marktphase verschiebt die ganze Prämienverteilung (ADR 0048 —
+   „kurzlebiger als die übrigen").
+2. **LLM-Preislisten** (`research.pricing`, `technical_agent.pricing`) —
+   von Hand gepflegt, gegen den aktuellen Anthropic-Katalog prüfen. Sie
+   speisen nur die Kostenschätzung im Protokoll; ein veralteter Wert fällt
+   nirgends von allein auf.
+3. **Modell-Identifier** (`llm.research`, `llm.technical`, jeweils samt
+   `fallback_model`) — gegen den dann aktuellen Katalog.
+
+Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
+wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).
+
 ## Wenn ein Tageslauf ausbleibt
 
 Überschreitet ein unerledigter Lauf die Nachholfrist
