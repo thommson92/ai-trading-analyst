@@ -44,24 +44,24 @@ c604da93d4f0ec1d713843eb1211f90c893b70bec206d39e02c18b4f79d87cd3  msft.bars.csv
 Nachprüfen: `shasum -a 256 aapl.bars.csv msft.bars.csv` (macOS/Linux),
 `Get-FileHash aapl.bars.csv -Algorithm SHA256` (Windows).
 
-## Offen: die Weitergabefrage zu den IBKR-Bars
+## Zur Weitergabefrage bei den IBKR-Bars
 
-**Dieser Punkt ist nicht entschieden und gehört vor den nächsten Merge
-geklärt.**
-
-Für die eingefrorenen Finnhub-Antworten ist die Frage durchgespielt
+Aufgeworfen von der unabhängigen Review am 2026-09-01: Für die eingefrorenen
+Finnhub-Antworten ist die Frage ausdrücklich durchgespielt
 ([ADR 0017](../../../../../docs/adr/0017-finnhub-fuer-earnings-und-ratings.md)
-L8 untersagt die Weitergabe an Dritte; zwei Antworten zu einem allgemein
-bekannten Symbol sind ein Formatbeleg, kein Datenbestand — siehe
-`../../unit/infrastructure/finnhub/data/HERKUNFT.md`). Für die 21.588 Bars
-hier steht dieselbe Frage **ungestellt**, obwohl es um die um Größenordnungen
-umfangreichere Menge geht und dieses Repository öffentlich ist.
+L8 untersagt die Weitergabe an Dritte — siehe
+`../../unit/infrastructure/finnhub/data/HERKUNFT.md`), für die um
+Größenordnungen umfangreicheren Bars hier stand sie ungestellt.
 
-IBKRs Marktdatenvereinbarungen sind bei der Weiterverbreitung historischer
-Daten üblicherweise deutlicher formuliert als Finnhubs. Das Projekt hat mit
+**Entscheidung des Projektinhabers vom 2026-09-01: Die Bars bleiben.**
+Begründung: eigene, über den eigenen Zugang bezogene Daten, ein kleiner
+Ausschnitt zweier allgemein bekannter Titel, ausschließlich als
+Testdatensatz.
+
+Das ist eine Abwägung, keine juristische Prüfung — niemand hat IBKRs
+Marktdatenvereinbarung daraufhin gelesen. Wer den Umfang hier ausweitet
+(weitere Titel, längere Zeiträume, andere Datenarten), sollte das nicht als
+Präzedenzfall nehmen, sondern die Frage neu stellen. Das Projekt hat mit
 [ADR 0012](../../../../../docs/adr/0012-gate-g3-strang-a-no-go-non-display-nutzung.md)
 schon einmal eine ganze Datenquelle an einer Nutzungsbedingung scheitern
-lassen — dieselbe Sorgfalt ist hier angebracht.
-
-Aufgeworfen von der unabhängigen Review am 2026-09-01. Ein Verstoß ist damit
-**nicht** belegt; belegt ist nur, dass niemand nachgesehen hat.
+lassen.
