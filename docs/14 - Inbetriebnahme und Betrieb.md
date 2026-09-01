@@ -908,16 +908,39 @@ Berichte, es erzeugt keine. Es ist **ausschließlich im eigenen Netz
 erreichbar** — keine Portweiterleitung am Router, keine Anmeldung
 ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)).
 
-## Schritt 1 — Node prüfen
+## Schritt 1 — Node prüfen oder installieren
 
 ```powershell
 node --version
+npm --version
 ```
 
 Node wird **nur zum Bauen** gebraucht, nicht zur Laufzeit
-([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Fehlt es, die
-aktuelle LTS-Fassung installieren; ohne Node gibt es keinen Export und damit
-kein Dashboard — die API und der Tageslauf laufen aber weiter.
+([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Ohne Node gibt es
+keinen Export und damit kein Dashboard — die API und der Tageslauf laufen aber
+weiter.
+
+**Gebraucht wird Node 22 (LTS) — dieselbe Hauptversion, mit der die CI baut**
+(`.github/workflows/ci.yml`, Job „Frontend"; `@types/node` im
+`package.json` steht ebenfalls auf 22). Mit einer anderen Hauptversion zu
+bauen hieße, einen Export auszuliefern, den die CI nie geprüft hat.
+
+Fehlt Node, holt das folgende die jüngste 22er-LTS-Fassung und installiert
+sie still:
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+$ziel = "$env:TEMP\node-installer.msi"
+
+$index = Invoke-RestMethod https://nodejs.org/dist/index.json -UseBasicParsing
+$fassung = ($index | Where-Object { $_.version -like 'v22.*' -and $_.lts })[0].version
+Invoke-WebRequest "https://nodejs.org/dist/$fassung/node-$fassung-x64.msi" `
+    -OutFile $ziel -UseBasicParsing
+Start-Process msiexec.exe -Wait -ArgumentList "/i `"$ziel`" /qn /norestart"
+```
+
+**Danach ein neues PowerShell-Fenster öffnen:** Der Installer setzt `PATH`,
+und die laufende Sitzung kennt ihn nicht.
 
 ## Schritt 2 — Export bauen
 
