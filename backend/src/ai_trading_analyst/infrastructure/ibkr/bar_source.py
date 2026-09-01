@@ -372,7 +372,18 @@ class IbAsyncBarSource:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        on_option_tickers: Callable[[Sequence[Any]], None] | None = None,
     ) -> None:
+        self._on_option_tickers = on_option_tickers
+        """Beobachter der **unuebersetzten** Optionsnotierungen, aufgerufen
+        bevor ``_als_quote`` sie in die Domaene bringt.
+
+        Der einzige Punkt, an dem sich das Drahtformat der TWS abgreifen
+        laesst -- danach ist es Domaenenwert und eine Umbenennung auf
+        Anbieterseite nicht mehr sichtbar. Gebraucht vom Mitschnitt
+        (``chain_recorder``); im Regelbetrieb ``None`` und damit folgenlos.
+        Er bekommt nur zu sehen und darf nichts zurueckgeben: Ein Beobachter,
+        der das Ergebnis aendern koennte, waere kein Beobachter."""
         self._settings = settings
         self._bar_size = ibkr_bar_size(native_bar_minutes)
         self._bar_minutes = native_bar_minutes
@@ -542,7 +553,13 @@ class IbAsyncBarSource:
                 # Notierung verwerfen und keinen echten Fehler verdecken.
                 with suppress(Exception):
                     self._connection().reqMarketDataType(_LIVE_MARKTDATEN)
-        return tuple(_als_quote(ticker) for ticker in tickers if ticker.contract is not None)
+        gueltig = tuple(ticker for ticker in tickers if ticker.contract is not None)
+        if self._on_option_tickers is not None:
+            # Vor der Uebersetzung und ausserhalb des Locks: Der Beobachter
+            # schreibt eine Datei, und das gehoert nicht in den Abschnitt, der
+            # die einzige TWS-Verbindung haelt.
+            self._on_option_tickers(gueltig)
+        return tuple(_als_quote(ticker) for ticker in gueltig)
 
     def _qualifizierte_puts(
         self,

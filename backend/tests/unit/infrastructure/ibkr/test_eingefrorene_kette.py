@@ -28,9 +28,11 @@ Herkunft und Neuaufzeichnung stehen in ``data/HERKUNFT.md``.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -47,6 +49,8 @@ from ai_trading_analyst.infrastructure.ibkr import (
     IbkrOptionsProvider,
     OptionChainStructure,
 )
+from ai_trading_analyst.infrastructure.ibkr.bar_source import _als_quote
+from ai_trading_analyst.infrastructure.ibkr.chain_recorder import NICHT_ENDLICH
 
 AAPL = ContractSpec(symbol="AAPL", exchange="SMART", currency="USD", primary_exchange="NASDAQ")
 AKTIE = Stock(id=uuid4(), symbol="AAPL", exchange="NASDAQ")
@@ -245,3 +249,81 @@ class TestDieKetteAnEchtenAntworten:
         bester = analyse.strategies[0]
         assert bester.distance_to_support_pct is None
         assert bester.earnings_within_term is None
+
+
+def _als_ticker(roh: dict[str, Any]) -> Any:
+    """Baut aus dem Rohabschnitt wieder das, was ``ib_async`` geliefert hat.
+
+    ``"nan"`` wird zurueck zu ``float('nan')`` -- die Aufzeichnung haelt es
+    als Zeichenkette fest, weil JSON den Wert nicht kennt.
+    """
+
+    def zahl(wert: Any) -> Any:
+        return math.nan if wert == NICHT_ENDLICH else wert
+
+    greeks = roh["modelGreeks"]
+    return SimpleNamespace(
+        contract=SimpleNamespace(
+            lastTradeDateOrContractMonth=roh["contract"]["lastTradeDateOrContractMonth"],
+            strike=zahl(roh["contract"]["strike"]),
+            tradingClass=roh["contract"]["tradingClass"],
+            conId=roh["contract"]["conId"],
+        ),
+        bid=zahl(roh["bid"]),
+        ask=zahl(roh["ask"]),
+        volume=zahl(roh["volume"]),
+        putOpenInterest=zahl(roh["putOpenInterest"]),
+        modelGreeks=None
+        if greeks is None
+        else SimpleNamespace(delta=zahl(greeks["delta"]), impliedVol=zahl(greeks["impliedVol"])),
+    )
+
+
+class TestDieUebersetzungAmDrahtformat:
+    """Die Ebene, die der Kette darueber fehlt (Review vom 2026-09-01).
+
+    Hier laeuft ``_als_quote`` ueber die **unuebersetzten** Felder, wie die
+    TWS sie stellte. Benennt IBKR eines um oder wechselt es von ``NaN`` auf
+    ``-1``, bricht dieser Test -- und nur dieser kann das.
+    """
+
+    def _rohe(self) -> list[dict[str, Any]]:
+        daten = _aufzeichnung()
+        rohe = daten.get("rohe_notierungen")
+        if not rohe:
+            pytest.skip(
+                "Die eingefrorene Kette stammt aus Dateiformat 1 und hat keinen "
+                "Rohabschnitt. Neu aufzeichnen mit 'cli options --record' bei "
+                "laufender TWS und offenem Markt (Doc 14, Zwischenschritt "
+                "'Contract-Antworten einfrieren')."
+            )
+        eintraege: list[dict[str, Any]] = rohe
+        return eintraege
+
+    def test_die_uebersetzung_ergibt_die_aufgezeichneten_notierungen(self) -> None:
+        """Roh und uebersetzt stehen beide in der Datei. Dass sie
+        zusammenpassen, ist die Zusage von ``_als_quote`` -- und sie wird hier
+        nachgerechnet statt geglaubt."""
+        erwartet = _aufzeichnung()["option_quotes"]["quotes"]
+
+        gerechnet = [_als_quote(_als_ticker(roh)) for roh in self._rohe()]
+
+        assert len(gerechnet) == len(erwartet)
+        for quote, soll in zip(gerechnet, erwartet, strict=True):
+            assert quote.strike == soll["strike"]
+            assert quote.bid == soll["bid"]
+            assert quote.ask == soll["ask"]
+            assert quote.delta == soll["delta"]
+            assert quote.implied_volatility == soll["implied_volatility"]
+            assert quote.open_interest == soll["open_interest"]
+            assert quote.volume == soll["volume"]
+
+    def test_ein_nicht_gestelltes_feld_kam_als_nan_und_nicht_als_null(self) -> None:
+        """Der Punkt, an dem die Review meine Formulierung korrigiert hat:
+        Ob das leere Open Interest von der TWS kam oder von der Uebersetzung,
+        liess sich aus der alten Aufzeichnung nicht ablesen. Aus dieser
+        schon."""
+        rohe = self._rohe()
+
+        assert all(roh["putOpenInterest"] == NICHT_ENDLICH for roh in rohe)
+        assert all(_als_quote(_als_ticker(roh)).open_interest is None for roh in rohe)

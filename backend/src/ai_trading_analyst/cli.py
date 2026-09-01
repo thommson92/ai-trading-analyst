@@ -150,7 +150,10 @@ from ai_trading_analyst.infrastructure.ibkr import (
     duration_in_days,
 )
 from ai_trading_analyst.infrastructure.ibkr.calendar import IbkrTradingCalendar
-from ai_trading_analyst.infrastructure.ibkr.chain_recorder import RecordingOptionChainSource
+from ai_trading_analyst.infrastructure.ibkr.chain_recorder import (
+    RecordingOptionChainSource,
+    RohNotierungenSammler,
+)
 from ai_trading_analyst.infrastructure.ibkr.option_chain import OptionChainSource
 from ai_trading_analyst.infrastructure.notifications import (
     NotificationChannelNotConfiguredError,
@@ -2394,7 +2397,16 @@ def command_options(args: argparse.Namespace) -> int:
             print(f"{symbol}: {grund}, ohne Kurs keine Optionsauswahl.", file=sys.stderr)
         _print_kursherkunft(kurs_stempel, len(wanted))
 
-    quelle = build_ibkr_bar_source(config) if config.options.provider == "ibkr" else None
+    # Der Sammler entsteht **vor** der Quelle, die Quelle vor dem Mitschnitt:
+    # Der Mitschnitt umschliesst die Quelle, und die Quelle braucht den
+    # Sammler. Umgekehrt waere es ein Kreis.
+    aufzeichnen = mitschnittsziel is not None and config.options.provider == "ibkr"
+    rohe = RohNotierungenSammler() if aufzeichnen else None
+    quelle = (
+        build_ibkr_bar_source(config, on_option_tickers=rohe)
+        if config.options.provider == "ibkr"
+        else None
+    )
 
     # Der Mitschnitt haengt sich **zwischen** Adapter und TWS, nicht hinter das
     # Ergebnis: Aufgehoben wird, was der Anbieter geantwortet hat, nicht was
@@ -2408,6 +2420,7 @@ def command_options(args: argparse.Namespace) -> int:
             price=kurse[wanted[0]],
             as_of=stichtage[wanted[0]],
             market_data_type=config.options.market_data_type,
+            rohe=rohe,
         )
         kette = mitschnitt
 

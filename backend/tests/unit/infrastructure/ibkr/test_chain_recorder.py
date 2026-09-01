@@ -8,6 +8,7 @@ mittendrin endet.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Sequence
 from dataclasses import fields
 from datetime import UTC, date, datetime
@@ -22,7 +23,9 @@ from ai_trading_analyst.infrastructure.ibkr import (
 )
 from ai_trading_analyst.infrastructure.ibkr.chain_recorder import (
     DATEIFORMAT,
+    NICHT_ENDLICH,
     RecordingOptionChainSource,
+    RohNotierungenSammler,
 )
 
 AAPL = ContractSpec(symbol="AAPL", exchange="SMART", currency="USD", primary_exchange="NASDAQ")
@@ -235,3 +238,122 @@ class TestAbgebrochenerLauf:
         kette.write()
 
         assert ziel.is_file()
+
+
+class FakeGreeks:
+    def __init__(self, delta: float, implied_vol: float) -> None:
+        self.delta = delta
+        self.impliedVol = implied_vol
+
+
+class FakeKontrakt:
+    def __init__(self, strike: float) -> None:
+        self.strike = strike
+        self.lastTradeDateOrContractMonth = "20261016"
+        self.tradingClass = "AAPL"
+        self.conId = 700000001
+
+
+class FakeTicker:
+    """Ein Doppel dessen, was ``ib_async`` aus ``reqTickers`` zurueckgibt."""
+
+    def __init__(
+        self,
+        strike: float,
+        *,
+        bid: float = 3.0,
+        ask: float = 3.4,
+        volume: float = 84.0,
+        open_interest: float = math.nan,
+        greeks: FakeGreeks | None = None,
+    ) -> None:
+        self.contract = FakeKontrakt(strike)
+        self.bid = bid
+        self.ask = ask
+        self.volume = volume
+        self.putOpenInterest = open_interest
+        self.modelGreeks: FakeGreeks | None = (
+            FakeGreeks(-0.25, 0.31) if greeks is None else greeks
+        )
+
+
+class TestRohNotierungen:
+    """Der Sammler eine Ebene unter dem Mitschnitt.
+
+    Er entstand aus einem Review-Befund: Am Protokoll ``OptionChainSource``
+    ist die Uebersetzung ``_als_quote`` bereits gelaufen, und eine
+    Umbenennung auf Anbieterseite waere danach unsichtbar.
+    """
+
+    def test_er_haelt_die_felder_fest_die_die_uebersetzung_liest(self) -> None:
+        sammler = RohNotierungenSammler()
+
+        sammler([FakeTicker(210.0)])
+
+        (roh,) = sammler.eintraege
+        assert roh["contract"]["lastTradeDateOrContractMonth"] == "20261016"
+        assert roh["contract"]["strike"] == 210.0
+        assert roh["contract"]["tradingClass"] == "AAPL"
+        assert roh["bid"] == 3.0
+        assert roh["ask"] == 3.4
+        assert roh["modelGreeks"] == {"delta": -0.25, "impliedVol": 0.31}
+
+    def test_ein_nan_bleibt_ein_nan_und_wird_nicht_zu_null(self) -> None:
+        """**Der Kern der ganzen Ebene.** IBKR schreibt fehlende Zahlen als
+        ``NaN``; ob daraus ``None`` wird, entscheidet ``_als_quote``. Stuende
+        in der Datei schon ``null``, waere genau diese Entscheidung
+        eingefroren statt geprueft."""
+        sammler = RohNotierungenSammler()
+
+        sammler([FakeTicker(210.0, open_interest=math.nan)])
+
+        (roh,) = sammler.eintraege
+        assert roh["putOpenInterest"] == NICHT_ENDLICH
+        assert roh["putOpenInterest"] is not None
+
+    def test_fehlende_greeks_sind_von_leeren_greeks_zu_unterscheiden(self) -> None:
+        """Ohne Optionsmarktdaten-Berechtigung fehlt ``modelGreeks`` ganz
+        (Fehler 10091). Das ist etwas anderes als ein Delta, das nicht
+        gestellt wurde."""
+        ticker = FakeTicker(210.0)
+        ticker.modelGreeks = None
+        sammler = RohNotierungenSammler()
+
+        sammler([ticker, FakeTicker(215.0, greeks=FakeGreeks(math.nan, math.nan))])
+
+        ohne, leer = sammler.eintraege
+        assert ohne["modelGreeks"] is None
+        assert leer["modelGreeks"] == {"delta": NICHT_ENDLICH, "impliedVol": NICHT_ENDLICH}
+
+    def test_die_datei_traegt_die_rohen_neben_den_uebersetzten(self, tmp_path: Path) -> None:
+        ziel = tmp_path / "kette.json"
+        sammler = RohNotierungenSammler()
+        kette = RecordingOptionChainSource(
+            FakeQuelle(quotes=[_quote(210.0)]),
+            ziel,
+            price=232.14,
+            as_of=STICHTAG,
+            market_data_type=2,
+            now=lambda: AUFGEZEICHNET_AM,
+            rohe=sammler,
+        )
+        sammler([FakeTicker(210.0)])
+
+        _provider(kette).options(AKTIE, price=232.14, as_of=STICHTAG)
+        kette.write()
+
+        datei = json.loads(ziel.read_text(encoding="utf-8"))
+        assert datei["dateiformat"] == 2
+        assert len(datei["rohe_notierungen"]) == 1
+        assert datei["option_quotes"]["quotes"], "die uebersetzten bleiben daneben stehen"
+
+    def test_ohne_sammler_entsteht_der_abschnitt_nicht(self, tmp_path: Path) -> None:
+        """Eine Aufzeichnung ohne TWS -- etwa gegen den Fixture-Anbieter --
+        soll keinen leeren Rohabschnitt vortaeuschen."""
+        ziel = tmp_path / "kette.json"
+        kette = _mitschnitt(FakeQuelle(quotes=[_quote(210.0)]), ziel)
+
+        _provider(kette).options(AKTIE, price=232.14, as_of=STICHTAG)
+        kette.write()
+
+        assert "rohe_notierungen" not in json.loads(ziel.read_text(encoding="utf-8"))

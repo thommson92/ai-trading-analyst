@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from functools import cache
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -119,8 +120,16 @@ def project_root(config_path: Path) -> Path:
     return config_path.resolve().parent.parent
 
 
-def build_ibkr_bar_source(config: AppConfig) -> IbAsyncBarSource:
-    """Die Verbindung zur TWS -- einmal gebaut, von Backfill und Provider genutzt."""
+def build_ibkr_bar_source(
+    config: AppConfig,
+    on_option_tickers: Callable[[Sequence[Any]], None] | None = None,
+) -> IbAsyncBarSource:
+    """Die Verbindung zur TWS -- einmal gebaut, von Backfill und Provider genutzt.
+
+    ``on_option_tickers`` sieht die Optionsnotierungen, bevor sie uebersetzt
+    werden. Gebraucht vom Mitschnitt (``cli options --record``); sonst
+    ``None`` und damit folgenlos.
+    """
     ibkr = config.market_data.ibkr
     return IbAsyncBarSource(
         IbkrConnectionSettings(
@@ -132,6 +141,7 @@ def build_ibkr_bar_source(config: AppConfig) -> IbAsyncBarSource:
         native_bar_minutes=ibkr.native_bar_minutes,
         duration=ibkr.history_duration,
         minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
+        on_option_tickers=on_option_tickers,
     )
 
 
