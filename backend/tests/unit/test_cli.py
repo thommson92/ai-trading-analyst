@@ -3407,6 +3407,49 @@ class TestOptionsKommando:
         assert zeile["strike"]
         assert zeile["verfall"]
 
+    def test_der_mitschnitt_braucht_eine_echte_tws(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Fixture-Anbieter erzeugt seine Kette selbst. Sie aufzuzeichnen
+        ergaebe einen Contract-Test gegen den eigenen Code (A2-M7)."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--symbol",
+                "AAPL",
+                "--price",
+                "200",
+                "--record",
+                str(projekt / "kette.json"),
+            ]
+        )
+
+        assert exit_code == 2
+        assert "--provider ibkr" in capsys.readouterr().err
+
+    def test_der_mitschnitt_gilt_nicht_fuer_die_watchliste(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            [
+                "--config",
+                str(config),
+                "options",
+                "--watchlist",
+                "--record",
+                str(projekt / "kette.json"),
+            ]
+        )
+
+        assert exit_code == 2
+        assert "--symbol" in capsys.readouterr().err
+
     def test_die_datei_laesst_sich_ohne_umweg_kalibrieren(
         self, projekt: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

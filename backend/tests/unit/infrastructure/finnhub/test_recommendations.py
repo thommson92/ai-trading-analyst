@@ -8,8 +8,10 @@ einen tatsaechlich unbesetzten lokalen Port geprueft.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -289,3 +291,57 @@ class TestDrosselung:
         provider.recommendations(AAPL)
 
         assert gewartet == []
+
+
+class TestEingefroreneAntwort:
+    """Gegenprobe an der echten Antwort vom 2026-09-01 (A2-M7).
+
+    Die Faelle oben schreiben ihre Antwort selbst hin und koennen deshalb
+    keine Umbenennung auf Anbieterseite bemerken. Herkunft und
+    Neuaufzeichnung stehen in ``data/HERKUNFT.md``.
+    """
+
+    def _payload(self) -> list[dict[str, object]]:
+        pfad = Path(__file__).parent / "data" / "recommendation-AAPL.json"
+        eintraege: list[dict[str, object]] = json.loads(pfad.read_text(encoding="utf-8"))
+        return eintraege
+
+    def test_die_echte_antwort_ergibt_vier_monatsstaende(self) -> None:
+        ergebnis = _provider(_json_transport(self._payload())).recommendations(AAPL)
+
+        assert ergebnis.status is AnalystRecommendationStatus.COMPLETED
+        assert len(ergebnis.periods) == 4
+
+    def test_der_neueste_stand_steht_vorn(self) -> None:
+        """Die Antwort kommt bereits absteigend; verlassen wird sich darauf
+        nicht -- die Reihenfolge ist eine Zusage des Wertobjekts, nicht des
+        Anbieters."""
+        ergebnis = _provider(_json_transport(self._payload())).recommendations(AAPL)
+
+        assert [stand.period for stand in ergebnis.periods] == sorted(
+            (stand.period for stand in ergebnis.periods), reverse=True
+        )
+        neuester = ergebnis.latest
+        assert neuester is not None
+        assert neuester.period == date(2026, 8, 1)
+
+    def test_die_fuenf_klassen_kommen_unveraendert_an(self) -> None:
+        """54 Voten in fuenf Klassen. Eine Vertauschung von ``buy`` und
+        ``hold`` faellt an diesen Zahlen auf -- sie sind alle verschieden."""
+        neuester = _provider(_json_transport(self._payload())).recommendations(AAPL).latest
+
+        assert neuester is not None
+        assert (neuester.strong_buy, neuester.buy, neuester.hold) == (13, 24, 14)
+        assert (neuester.sell, neuester.strong_sell) == (3, 0)
+        assert neuester.total == 54
+
+    def test_eine_echte_null_bleibt_eine_null(self) -> None:
+        """``strongSell`` ist in allen vier Staenden 0 -- und zwar
+        **gemeldet**, nicht fehlend. Wuerde der Adapter fehlende Felder
+        stillschweigend auf 0 setzen, waeren die beiden Faelle in der
+        Auswertung nicht mehr zu trennen (CLAUDE.md: was fehlt, bleibt
+        fehlend)."""
+        ergebnis = _provider(_json_transport(self._payload())).recommendations(AAPL)
+
+        assert all(stand.strong_sell == 0 for stand in ergebnis.periods)
+        assert all("strongSell" in eintrag for eintrag in self._payload())

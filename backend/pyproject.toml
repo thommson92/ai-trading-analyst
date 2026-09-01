@@ -111,3 +111,34 @@ addopts = "-q --strict-markers"
 markers = [
     "architecture: prueft die Schichtgrenzen aus Doc 10 Paragraph 9",
 ]
+# Eine Warnung ist ein Befund, kein Rauschen. Der Auditbericht vom 2026-08-31
+# fuehrte die eine bestehende als "vorbestehend, harmlos" -- und genau so
+# unauffaellig waere die naechste untergegangen. Deshalb bricht jede Warnung
+# den Lauf, und was stehen bleiben soll, steht hier mit Grund und Ablaufdatum.
+filterwarnings = [
+    "error",
+    # starlette.testclient meldet die Umstellung auf httpx2. Ausgeloest beim
+    # blossen Import von fastapi.testclient, also von keiner eigenen Zeile
+    # erreichbar; sie verschwindet, wenn FastAPI nachzieht. Bis dahin: bekannt,
+    # benannt, nicht blockierend. Naechste Pruefung im Pflegeturnus (Doc 14).
+    # Die Klasse steht ausgeschrieben da, weil sie **nicht** von
+    # DeprecationWarning erbt -- mit der Oberklasse griff der Filter nicht.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+    # Warnungen aus dem Aufraeumer. Sie entstehen, wann die
+    # Speicherbereinigung laeuft, und werden deshalb einem beliebigen gerade
+    # laufenden Test angelastet -- ueber zwei Laeufe hinweg jedes Mal einem
+    # anderen. Als Fehler waeren sie kein Befund, sondern eine Wackelquelle.
+    #
+    # **Was hier stehen bleibt, ist ein offener Punkt und kein Testartefakt.**
+    # Der verbliebene Verursacher ist Produktivcode:
+    # ``_ensure_event_loop_exists`` (ibkr/bar_source.py) legt je Thread einen
+    # Event-Loop an, und ``close()`` trennt nur die TWS-Verbindung, schliesst
+    # ihn aber nicht. Unter FastAPI, wo synchrone Endpunkte in wechselnden
+    # Worker-Threads laufen, bleibt so je Thread ein Loop liegen. Vorbestehend,
+    # durch die Zahl der Worker begrenzt und deshalb nicht dringend -- aber
+    # nicht abgestellt. Wer diesen Filter entfernen will, faengt dort an.
+    #
+    # Der grosse Verursacher davor **ist** abgestellt: nicht geschlossene
+    # Datenbank-Engines; ``main`` schliesst sie jetzt selbst.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]

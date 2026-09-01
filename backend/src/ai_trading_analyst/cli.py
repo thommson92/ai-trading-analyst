@@ -35,6 +35,7 @@ import sys
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -149,6 +150,8 @@ from ai_trading_analyst.infrastructure.ibkr import (
     duration_in_days,
 )
 from ai_trading_analyst.infrastructure.ibkr.calendar import IbkrTradingCalendar
+from ai_trading_analyst.infrastructure.ibkr.chain_recorder import RecordingOptionChainSource
+from ai_trading_analyst.infrastructure.ibkr.option_chain import OptionChainSource
 from ai_trading_analyst.infrastructure.notifications import (
     NotificationChannelNotConfiguredError,
     build_notifier,
@@ -365,6 +368,25 @@ def _print_backfill_progress(index: int, total: int, ergebnis: SymbolBackfill) -
     )
 
 
+_offene_engines: list[Engine] = []
+"""Die in diesem Aufruf geoeffneten Engines, damit ``main`` sie wieder
+schliessen kann.
+
+Neun Kommandos oeffnen eine Datenbankverbindung, und ihre Rumpfe haben je ein
+Dutzend Ruecksprungpunkte -- ein ``with`` je Kommando haette jeden davon
+umschliessen muessen. Das Ende des Kommandos ist die eine Stelle, an der die
+Verbindung sicher nicht mehr gebraucht wird.
+
+Im echten Aufruf loest das Prozessende das ohnehin. Bemerkbar wird es dort,
+wo viele Kommandos in **einem** Interpreter laufen: in der Testsuite, die
+seit dem strengen Warnungsfilter genau darueber stolpert."""
+
+
+def _alle_engines_schliessen() -> None:
+    while _offene_engines:
+        _offene_engines.pop().dispose()
+
+
 def _open_database() -> Engine | None:
     """Engine samt Anklopfversuch.
 
@@ -393,6 +415,7 @@ def _open_database() -> Engine | None:
             file=sys.stderr,
         )
         return None
+    _offene_engines.append(engine)
     return engine
 
 
@@ -2288,6 +2311,22 @@ def command_options(args: argparse.Namespace) -> int:
     else:
         wanted = [args.symbol.upper()]
 
+    if args.record is not None:
+        if args.watchlist:
+            print(
+                "--record zeichnet eine Kette auf, nicht die ganze Watchliste. "
+                "Mit --symbol aufrufen.",
+                file=sys.stderr,
+            )
+            return 2
+        if config.options.provider != "ibkr":
+            print(
+                "--record braucht '--provider ibkr': Der Fixture-Anbieter hat keine "
+                "TWS-Antwort, die sich aufzeichnen liesse.",
+                file=sys.stderr,
+            )
+            return 2
+
     if args.price is not None and len(wanted) > 1:
         print(
             f"--price gilt fuer ein Symbol, angegeben sind {len(wanted)}. "
@@ -2306,6 +2345,15 @@ def command_options(args: argparse.Namespace) -> int:
             ziel.touch()
         except OSError as error:
             print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
+    mitschnittsziel = Path(args.record) if args.record is not None else None
+    if mitschnittsziel is not None:
+        try:
+            mitschnittsziel.parent.mkdir(parents=True, exist_ok=True)
+            mitschnittsziel.touch()
+        except OSError as error:
+            print(f"--record nicht beschreibbar: {error}", file=sys.stderr)
             return 2
 
     kurse: dict[str, float] = {}
@@ -2347,8 +2395,24 @@ def command_options(args: argparse.Namespace) -> int:
         _print_kursherkunft(kurs_stempel, len(wanted))
 
     quelle = build_ibkr_bar_source(config) if config.options.provider == "ibkr" else None
+
+    # Der Mitschnitt haengt sich **zwischen** Adapter und TWS, nicht hinter das
+    # Ergebnis: Aufgehoben wird, was der Anbieter geantwortet hat, nicht was
+    # daraus wurde (A2-M7).
+    mitschnitt: RecordingOptionChainSource | None = None
+    kette: OptionChainSource | None = quelle
+    if mitschnittsziel is not None and quelle is not None and wanted[0] in kurse:
+        mitschnitt = RecordingOptionChainSource(
+            quelle,
+            mitschnittsziel,
+            price=kurse[wanted[0]],
+            as_of=stichtage[wanted[0]],
+            market_data_type=config.options.market_data_type,
+        )
+        kette = mitschnitt
+
     try:
-        provider = build_options_provider(config, project_root(loaded.source_path), quelle)
+        provider = build_options_provider(config, project_root(loaded.source_path), kette)
     except ValueError as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -2376,8 +2440,36 @@ def command_options(args: argparse.Namespace) -> int:
             else:
                 _print_options_summary_line(symbol, analyse)
     finally:
-        if quelle is not None:
-            quelle.close()
+        # Erst schreiben, dann die Verbindung schliessen -- und auch dann,
+        # wenn der Abruf mittendrin abgebrochen ist: Eine halbe Aufzeichnung
+        # sagt, wie weit es kam.
+        #
+        # Das Schreiben steht in einem eigenen ``try``: Scheitert es (Ziel
+        # entfernt, Laufwerk voll), darf das nicht das Trennen der Verbindung
+        # verhindern -- IBKR laesst je Client-ID nur eine, und eine offen
+        # gebliebene kostet den naechsten Lauf.
+        try:
+            if mitschnitt is not None:
+                mitschnitt.write()
+                print(f"\nMitschnitt der Optionskette geschrieben: {mitschnittsziel}")
+        except OSError as error:
+            print(f"Mitschnitt nicht geschrieben: {error}", file=sys.stderr)
+        finally:
+            if quelle is not None:
+                quelle.close()
+
+        # Ohne Mitschnitt bleibt sonst die leere Datei aus dem
+        # Beschreibbarkeitstest liegen -- und sieht im Verzeichnis aus wie
+        # eine frische Aufzeichnung.
+        if mitschnitt is None and mitschnittsziel is not None:
+            with suppress(OSError):
+                if mitschnittsziel.stat().st_size == 0:
+                    mitschnittsziel.unlink()
+            print(
+                "Kein Mitschnitt entstanden -- ohne Kurs gibt es keine Abfrage, "
+                "die sich aufzeichnen liesse.",
+                file=sys.stderr,
+            )
 
     if ziel is not None:
         _write_options_csv(ziel, ergebnisse)
@@ -3845,6 +3937,15 @@ def build_parser() -> argparse.ArgumentParser:
             "4 verzoegert und 'frozen'. Nach Boersenschluss liefert 1 nichts mehr."
         ),
     )
+    options.add_argument(
+        "--record",
+        default=None,
+        help=(
+            "Schreibt die Rohantworten der TWS zur Optionskette als JSON mit -- die "
+            "Vorlage fuer den Contract-Test (A2-M7). Nur mit --symbol und "
+            "'--provider ibkr'; am Ergebnis aendert der Schalter nichts."
+        ),
+    )
     options.set_defaults(handler=command_options)
 
     report = subparsers.add_parser(
@@ -3886,6 +3987,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except WatchlistError as error:
         print(f"Watchlist: {error}", file=sys.stderr)
         return 2
+    finally:
+        # Auch nach einem Abbruch: Eine Verbindung, die niemand mehr braucht,
+        # gehoert geschlossen und nicht dem Aufraeumer ueberlassen.
+        _alle_engines_schliessen()
     return exit_code
 
 

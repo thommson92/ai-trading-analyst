@@ -107,6 +107,30 @@ def tws(
 Einsetzen = Callable[[Sequence[IntradayBar] | BaseException], FakeTws]
 
 
+class TestDatenbankverbindung:
+    def test_das_kommandoende_schliesst_die_engine(
+        self, konfiguriert: Path, tws: Einsetzen
+    ) -> None:
+        """Sonst haelt jeder Aufruf eine Verbindung offen, bis die
+        Speicherbereinigung vorbeikommt. Im Prozess der Kommandozeile faellt
+        das nie auf -- in einer Suite, die 'main' hundertfach aufruft, schon.
+        """
+        tws(bars(20))
+
+        assert main(["--config", str(konfiguriert), "backfill", "--provider", "ibkr"]) == 0
+
+        assert cli._offene_engines == []
+
+    def test_auch_ein_abgebrochener_lauf_schliesst_sie(
+        self, konfiguriert: Path, tws: Einsetzen
+    ) -> None:
+        tws(KeyboardInterrupt())
+
+        main(["--config", str(konfiguriert), "backfill", "--provider", "ibkr"])
+
+        assert cli._offene_engines == []
+
+
 class TestErfolgreicherLauf:
     def test_der_bericht_nennt_empfangene_und_neue_bars(
         self, konfiguriert: Path, tws: Einsetzen, capsys: pytest.CaptureFixture[str]

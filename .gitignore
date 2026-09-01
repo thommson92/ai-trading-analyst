@@ -40,6 +40,12 @@ out/
 /backups/
 
 # --- Betriebssystem / Editor ---
+# Dateien wie "strategies 2.py": Doppelgaenger, die macOS beim Synchronisieren
+# neben das Original legt. Sie sind zweimal aufgetreten -- einmal unter
+# frontend/.next, wo sie die Typpruefung brachen, und einmal als 41 mitcommittete
+# Kopien von Domaenencode, Migrationen und ADRs. Die Migrationskopie war die
+# gefaehrlichste: 'alembic heads' meldete denselben Kopf zweimal.
+* [0-9].*
 .DS_Store
 Thumbs.db
 .idea/

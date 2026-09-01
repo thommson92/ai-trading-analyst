@@ -1472,6 +1472,16 @@ existiert nicht.
 
 ## 15. Backup und Wiederherstellung
 
+> **Umsetzungsstand:** Der Abschnitt „Sicherung" in
+> [Doc 14](14%20-%20Inbetriebnahme%20und%20Betrieb.md) setzt die einfache
+> Stufe davon um — täglicher `pg_dump` über die Aufgabenplanung, vierzehn
+> Tage rollierend, mit durchgespielter Wiederherstellung. **Eine der fünf
+> Mindestanforderungen bleibt bewusst offen:** Die Ablage liegt auf demselben
+> Laufwerk, schützt also gegen Fehlbedienung und kaputte Migration, nicht
+> gegen den Ausfall der Platte. Neu zu bewerten nach stabilem Betrieb. Das
+> Zielbild unten bleibt unverändert stehen — es ist der Maßstab, an dem diese
+> Einschränkung eine Einschränkung ist.
+
 ### Zu sichernde Daten
 
 - PostgreSQL-Datenbank,

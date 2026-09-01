@@ -378,6 +378,83 @@ Die Reihe muss über 250 Kerzen hinausreichen — darunter antwortet die
 Kandidatenprüfung ausnahmslos mit `UNKNOWN_DATA_INCOMPLETE`, und die
 Aufzeichnung enthielte nichts. Ein Test hält das fest.
 
+## Zwischenschritt: Contract-Antworten einfrieren (einmalig, A2-M7)
+
+Ebenfalls kein Abnahmekriterium — aber der Schritt, der eine ganze
+Fehlerklasse abdeckt, die heute niemand bemerken würde: **die stille
+Formatänderung eines Anbieters.** Alle Adaptertests laufen gegen
+selbstgeschriebene Antworten. Benennt Finnhub morgen ein Feld um, sind sie
+weiterhin grün, und der Tageslauf liefert `INSUFFICIENT_DATA`. Für EDGAR ist
+je eine echte Antwort eingefroren
+(`backend/tests/unit/infrastructure/edgar/data/`); für Finnhub und die
+IBKR-Optionskette fehlt sie.
+
+Die Dateien werden hier auf dem Server gezogen, weil hier die Zugänge liegen
+— und wie beim Golden Master **auf einem kleinen Branch mit Pull Request**,
+nicht direkt auf `dev` ([ADR 0031](adr/0031-merge-schutz-aktiv.md)).
+
+### Die beiden Finnhub-Antworten
+
+Reines HTTP, also genügt `curl.exe`. Der Schlüssel steht seit
+[ADR 0044](adr/0044-geheimnisse-an-der-log-senke-schwaerzen.md) im Kopf, nicht
+in der Adresse — er landet damit **weder in der Datei noch in der
+Kommandohistorie der Shell**. `-o` statt einer Umleitung, damit die Bytes
+unverändert ankommen.
+
+> **Der Schlüssel steht in der `.env`, nicht in der Umgebung der Shell.** Die
+> Anwendung liest ihn über `Secrets`; `curl` tut das nicht. Ohne die erste
+> Zeile unten geht ein **leerer** Header hinaus, und Finnhub antwortet
+> `{"error":"Please use an API key."}` — in die Zieldatei, nicht auf den
+> Bildschirm. Am 2026-09-01 auf dem Server genau so passiert.
+
+```powershell
+$env:ATA_FINNHUB_API_KEY = (Select-String -Path ..\.env `
+    -Pattern '^\s*ATA_FINNHUB_API_KEY\s*=\s*(.+)$').Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+
+$ziel = "tests\unit\infrastructure\finnhub\data"
+New-Item -ItemType Directory -Force -Path $ziel | Out-Null
+$von = (Get-Date).ToString("yyyy-MM-dd")
+$bis = (Get-Date).AddDays(90).ToString("yyyy-MM-dd")
+
+curl.exe -s -H "X-Finnhub-Token: $env:ATA_FINNHUB_API_KEY" `
+    -o "$ziel\calendar-earnings-AAPL.json" `
+    "https://finnhub.io/api/v1/calendar/earnings?symbol=AAPL&from=$von&to=$bis"
+
+curl.exe -s -H "X-Finnhub-Token: $env:ATA_FINNHUB_API_KEY" `
+    -o "$ziel\recommendation-AAPL.json" `
+    "https://finnhub.io/api/v1/stock/recommendation?symbol=AAPL"
+```
+
+Beide Dateien vor dem Commit **ansehen** (`Get-Content`): Enthält der Kalender
+im gewählten Fenster keinen Termin, ist die Liste leer — dann ist die
+Aufzeichnung wertlos und das Fenster gehört verlängert oder ein anderes Symbol
+gewählt. Und ein `-s`-`curl` schreibt auch eine Fehlerantwort klaglos in die
+Datei; sie fällt nur beim Hinsehen auf.
+
+### Die IBKR-Optionskette
+
+Für die TWS gibt es kein `curl`. Der Mitschnitt hängt deshalb im Programm
+zwischen Adapter und Schnittstelle und schreibt weg, was auf die drei Abrufe
+zurückkam. Er ist **passiv**: Ein Lauf mit `--record` und einer ohne liefern
+dieselbe Analyse.
+
+Bei laufender TWS, im Fenster zwischen 12:50 und 14:50 New Yorker Zeit —
+außerhalb liefert der Live-Modus keine Greeks mehr:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli options --symbol AAPL `
+    --provider ibkr --market-data-provider ibkr `
+    --record tests\unit\infrastructure\ibkr\data\optionskette-AAPL.json
+```
+
+Bricht der Lauf ab, weil kein Verfallstermin im Fenster liegt, entsteht die
+Datei trotzdem — dann mit der Terminliste und ohne Notierungen. Auch das ist
+ein brauchbarer Fall, aber kein vollständiger: Für den Contract-Test wird
+eine Aufzeichnung **mit** `option_quotes` gebraucht.
+
+Die Datei enthält Kurse und Kontraktdaten eines öffentlich gehandelten
+Papiers — nichts Kontobezogenes, keine Zugangsdaten, keine Order.
+
 ## Zwischenschritt: Reichweite des Handelskalenders messen (optional)
 
 Kein Abnahmekriterium, sondern die Messung, die die Entscheidung E4 getragen
@@ -831,16 +908,39 @@ Berichte, es erzeugt keine. Es ist **ausschließlich im eigenen Netz
 erreichbar** — keine Portweiterleitung am Router, keine Anmeldung
 ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)).
 
-## Schritt 1 — Node prüfen
+## Schritt 1 — Node prüfen oder installieren
 
 ```powershell
 node --version
+npm --version
 ```
 
 Node wird **nur zum Bauen** gebraucht, nicht zur Laufzeit
-([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Fehlt es, die
-aktuelle LTS-Fassung installieren; ohne Node gibt es keinen Export und damit
-kein Dashboard — die API und der Tageslauf laufen aber weiter.
+([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Ohne Node gibt es
+keinen Export und damit kein Dashboard — die API und der Tageslauf laufen aber
+weiter.
+
+**Gebraucht wird Node 22 (LTS) — dieselbe Hauptversion, mit der die CI baut**
+(`.github/workflows/ci.yml`, Job „Frontend"; `@types/node` im
+`package.json` steht ebenfalls auf 22). Mit einer anderen Hauptversion zu
+bauen hieße, einen Export auszuliefern, den die CI nie geprüft hat.
+
+Fehlt Node, holt das folgende die jüngste 22er-LTS-Fassung und installiert
+sie still:
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+$ziel = "$env:TEMP\node-installer.msi"
+
+$index = Invoke-RestMethod https://nodejs.org/dist/index.json -UseBasicParsing
+$fassung = ($index | Where-Object { $_.version -like 'v22.*' -and $_.lts })[0].version
+Invoke-WebRequest "https://nodejs.org/dist/$fassung/node-$fassung-x64.msi" `
+    -OutFile $ziel -UseBasicParsing
+Start-Process msiexec.exe -Wait -ArgumentList "/i `"$ziel`" /qn /norestart"
+```
+
+**Danach ein neues PowerShell-Fenster öffnen:** Der Installer setzt `PATH`,
+und die laufende Sitzung kennt ihn nicht.
 
 ## Schritt 2 — Export bauen
 
@@ -853,6 +953,15 @@ npm run build
 Ergebnis ist der Ordner `frontend\out`. Er ist nicht eingecheckt und
 entsteht auf jedem Rechner neu.
 
+> **`index.html` nicht per Doppelklick öffnen.** Der Browser lädt sie dann
+> als `file://`, und die Seite verweist auf ihre JavaScript-Bündel unter
+> `/_next/static/…` — absolute Pfade, die dort ins Leere zeigen. React startet
+> nie, und die Seite bleibt **dauerhaft** bei „Wird geladen …" stehen, ohne
+> Fehlermeldung: Was zu sehen ist, ist der vorgerenderte Ausgangszustand. Es
+> lädt nicht lange, es lädt gar nicht. Auch die API wäre von dort nicht
+> erreichbar — es gibt keine Herkunft, die auf sie zeigt. Der Export gehört
+> hinter den Dienst aus Schritt 3.
+
 ## Schritt 3 — Dienst zur Probe starten
 
 ```powershell
@@ -860,9 +969,15 @@ cd C:\...\backend
 .venv\Scripts\python.exe -m uvicorn ai_trading_analyst.main:app --host 0.0.0.0 --port 8000
 ```
 
+`ai_trading_analyst.main:app` ist der richtige Einstiegspunkt und nicht
+`presentation.api.app:create_app`: Nur der Weg über `build_app()` verdrahtet
+Datenbank **und** Dashboard-Ordner. Die Fabrik direkt gestartet, liefert eine
+API ohne beides.
+
 Dann lokal `http://127.0.0.1:8000/` öffnen. Die Tagesübersicht muss den
 letzten Lauf zeigen; `http://127.0.0.1:8000/api/v1/system/readiness` muss
-`ready` melden.
+`ready` melden. Bleibt die Seite leer, sagt die Readiness, auf welcher Seite
+es klemmt.
 
 > `--host 0.0.0.0` bindet an **alle** Schnittstellen. Das ist der Preis
 > dafür, dass die Adresse des Servers per DHCP wechseln darf; abgeschirmt

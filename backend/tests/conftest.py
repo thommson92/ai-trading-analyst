@@ -1,6 +1,6 @@
 """Gemeinsame Testvorbereitung.
 
-Beide Fixtures isolieren globalen Zustand. Ohne sie haengt das Ergebnis der
+Die Fixtures hier isolieren globalen Zustand. Ohne sie haengt das Ergebnis der
 Test-Suite davon ab, welche Umgebungsvariablen auf dem ausfuehrenden Rechner
 gesetzt sind und in welcher Reihenfolge die Tests laufen -- beides sind
 Fehlerquellen, die sich erfahrungsgemaess erst in der CI zeigen.
@@ -14,6 +14,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from ai_trading_analyst import cli
 from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config import Secrets
 from ai_trading_analyst.config.loader import load_config
@@ -72,3 +73,28 @@ def scoring_params() -> ScoringParameters:
     ausgelieferten Datei keine Schwelle mehr hat.
     """
     return build_scoring_params(load_config().config)
+
+
+@pytest.fixture(autouse=True)
+def keine_offenen_engines() -> Iterator[None]:
+    """Haelt die Liste der offenen Datenbank-Engines je Test sauber.
+
+    ``cli._offene_engines`` ist globaler Zustand: ``_open_database`` traegt
+    jede geoeffnete Engine ein, ``main`` schliesst sie am Kommandoende. Rund
+    vierzig Tests rufen ``cli.command_*`` **direkt** auf und gehen damit an
+    ``main`` vorbei -- ihr Eintrag bliebe stehen, und ein spaeteres ``main``
+    schloesse eine fremde, moeglicherweise noch benutzte Engine.
+
+    Die Fixture leert vorher und prueft nachher. Damit ist die Zusage
+    nachweislich eingehalten, statt heute zufaellig zu stimmen.
+    """
+    cli._offene_engines.clear()
+    yield
+    offen = list(cli._offene_engines)
+    cli._offene_engines.clear()
+    for engine in offen:
+        engine.dispose()
+    assert not offen, (
+        f"{len(offen)} Datenbank-Engine(s) blieben offen. Wer 'cli.command_*' "
+        "direkt aufruft, geht an 'main' vorbei und muss selbst schliessen."
+    )
