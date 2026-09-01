@@ -105,3 +105,23 @@ Backfill beginnt. Dasselbe Muster wie bei den Anbieter-Geheimnissen.
   entscheiden.
 - **Prioritäten, Wiederholungen, Quittierung.** Eine Meldung je überfälligem
   Lauf genügt; alles Weitere wäre Aufwand für einen Fall, der selten eintritt.
+
+## Nachtrag vom 2026-09-01: `pushover` ist aus dem Schema entfernt
+
+Die Zusicherung oben — „bleibt im Schema und weiterhin unumgesetzt; wer es
+einstellt, bekommt weiter einen klaren Fehler" — wird zurückgenommen. Der
+Wert ist aus `NotificationsConfig.channel` gestrichen; die Konfiguration
+nimmt ihn nicht mehr an.
+
+Das Repository-Audit vom 2026-08-23 führte den Zustand als Risiko R10 und
+das [Audit 2](../audits/2026-08-31-repository-audit-2.md) als Maßnahme
+A2-M10. Der Grund ist einfach: Eine Einstellung, die das Schema erlaubt und
+die Anwendung anschließend zurückweist, ist ein Versprechen ohne Deckung.
+Ein klarer Fehler zur Startzeit ist besser als ein später Ausfall, aber
+kein Fehler ist besser als beides — und ein zweiter Kanal wird nicht
+gebraucht: Telegram trägt seit dem 2026-09-01 den Dauerbetrieb.
+
+Der Absicherungstest, der die Nichtumsetzung festhielt, prüft jetzt das
+Gegenstück: Die Konfiguration lehnt den Wert ab. Doc 10 §6.13 nennt Pushover
+weiterhin als einen der zwei geprüften Kandidaten — als Auswahlprotokoll ist
+das richtig und bleibt stehen.

@@ -1,8 +1,9 @@
 """Geheimnisse aus allem entfernen, was das System nach aussen schreibt.
 
-**Der gemessene Befund.** Finnhub nimmt den Zugangsschluessel als
-Query-Parameter ``token``. Damit steht er in der URL -- und die URL steht an
-mindestens drei Stellen, an denen niemand ein Geheimnis vermutet:
+**Der gemessene Befund.** Finnhub nahm den Zugangsschluessel als
+Query-Parameter ``token`` entgegen, und genau so hat ihn dieses System
+geschickt. Damit stand er in der URL -- und die URL steht an mindestens drei
+Stellen, an denen niemand ein Geheimnis vermutet:
 
 1. Im Text jeder ``httpx``-Ausnahme::
 
@@ -29,13 +30,14 @@ durch ``redact_registered`` laufen -- Meldung, Traceback und Zusatzfelder
 gleichermassen. Was das System nicht selbst formuliert hat, ist damit
 genauso abgedeckt wie die eigenen Meldungen.
 
-**Warum nicht stattdessen der Header?** Finnhub akzeptiert den Schluessel
-auch als ``X-Finnhub-Token``; dann stuende er in keiner URL und alle drei
-Kanaele waeren an der Wurzel trocken. Das ist der bessere Weg, aber es ist
-eine Aenderung an der Authentisierung einer laufenden produktiven Anbindung,
-die sich nur gegen den echten Dienst pruefen laesst. Beides schliesst sich
-nicht aus: Diese Schwaerzung wirkt fuer **jedes** Geheimnis und jeden
-Anbieter und bleibt auch nach einem Wechsel auf den Header sinnvoll.
+**Der Header ist inzwischen der Weg.** Seit dem 2026-09-01 schickt der
+Finnhub-Adapter den Schluessel als ``X-Finnhub-Token``
+(``infrastructure/finnhub/auth.py``); in der URL steht er nicht mehr, und
+damit sind alle drei Kanaele an der Wurzel trocken.
+
+Diese Schwaerzung bleibt trotzdem und ist keine Doppelung: Sie wirkt fuer
+**jedes** Geheimnis und jeden Anbieter -- auch fuer den naechsten Parameter,
+den jemand ergaenzt, ohne diesen Absatz gelesen zu haben.
 """
 
 from __future__ import annotations

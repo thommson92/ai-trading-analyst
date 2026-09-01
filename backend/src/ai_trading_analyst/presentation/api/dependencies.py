@@ -9,12 +9,12 @@ from collections.abc import Callable
 
 from fastapi import Request
 
-from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
+from ai_trading_analyst.application.read_run_overview import ReadRunOverviewUseCase
 from ai_trading_analyst.domain.analysis import UnitOfWork
 
 
-def get_run_analysis_use_case(request: Request) -> RunAnalysisUseCase:
-    use_case: RunAnalysisUseCase = request.app.state.run_analysis_use_case
+def get_run_overview_use_case(request: Request) -> ReadRunOverviewUseCase:
+    use_case: ReadRunOverviewUseCase = request.app.state.run_overview_use_case
     return use_case
 
 

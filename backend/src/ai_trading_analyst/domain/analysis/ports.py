@@ -8,7 +8,7 @@ Paragraph 9).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from types import TracebackType
 from typing import Protocol
@@ -16,7 +16,7 @@ from uuid import UUID
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
-from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis
 
@@ -38,6 +38,7 @@ from ai_trading_analyst.domain.technical import (
 from .models import (
     AnalysisRun,
     ContractSpec,
+    RunStatus,
     Stock,
     StockProcessingError,
     StockScreeningOutcome,
@@ -395,18 +396,58 @@ class StockRepository(Protocol):
 class AnalysisRunRepository(Protocol):
     def add(self, run: AnalysisRun) -> None: ...
     def get(self, run_id: UUID) -> AnalysisRun | None: ...
-    def list_all(self) -> Sequence[AnalysisRun]: ...
     def update(self, run: AnalysisRun) -> None: ...
+
+    def list_recent(
+        self, *, limit: int, offset: int, status: Sequence[RunStatus] | None = None
+    ) -> Sequence[AnalysisRun]:
+        """Laeufe, neueste zuerst, seitenweise.
+
+        ``status`` nimmt **mehrere** Werte. Das ist kein Komfort: "Der letzte
+        erfolgreiche Lauf" umfasst ``COMPLETED`` **und**
+        ``PARTIALLY_COMPLETED`` -- ein Lauf, bei dem eine von zweihundert
+        Aktien an einem isolierten Modulfehler haengen blieb, ist
+        abgeschlossen und seine Ergebnisse sind gueltig (Doc 10, Paragraph
+        11). Mit nur einem Wert muesste der Aufrufer zwei Antworten
+        vergleichen und damit selbst entscheiden, was "erfolgreich" heisst.
+
+        Es gibt bewusst kein ``list_all``: Die Zahl der Laeufe waechst mit
+        jedem Handelstag, und eine Liste ohne Grenze waere eine Zusage, die
+        nach einem Jahr nicht mehr gilt.
+        """
+        ...
+
+    def count(self, *, status: Sequence[RunStatus] | None = None) -> int:
+        """Wie viele Laeufe es insgesamt gibt -- ohne sie zu laden.
+
+        Die Seitenanzeige braucht die Gesamtzahl, sonst weiss sie nicht, ob
+        eine weitere Seite existiert.
+        """
+        ...
 
 
 class ScreeningResultRepository(Protocol):
     def add(self, outcome: StockScreeningOutcome) -> None: ...
     def list_for_run(self, run_id: UUID) -> Sequence[StockScreeningOutcome]: ...
 
+    def count_by_earnings_status(self, run_id: UUID) -> Mapping[EarningsFilterStatus, int]:
+        """Wie oft der Earnings-Filter je Ergebnis entschieden hat.
+
+        Gezaehlt statt geladen: Fuer die Tagesuebersicht ist die Zahl gefragt,
+        nicht das Ergebnis -- und ein Lauf ueber die volle Watchliste in
+        Domain-Objekte zu wandeln, um sie danach zu zaehlen, waere Aufwand
+        ohne Ertrag. Nicht genannte Status kommen nicht vor.
+        """
+        ...
+
 
 class ProcessingErrorRepository(Protocol):
     def add(self, error: StockProcessingError) -> None: ...
     def list_for_run(self, run_id: UUID) -> Sequence[StockProcessingError]: ...
+
+    def count_for_run(self, run_id: UUID) -> int:
+        """Wie viele Aktien dieses Laufs an einem Modulfehler haengen blieben."""
+        ...
 
 
 class StockReportRepository(Protocol):
@@ -424,7 +465,33 @@ class StockReportRepository(Protocol):
         Kein ``StockReport``: Das gespeicherte Dokument ist die verbindliche
         Fassung, und es beim Lesen erneut zu erzeugen hiesse, einen
         abgeschlossenen Bericht durch heutigen Code zu schicken.
+
+        Ohne Seitengrenze, anders als die beiden Listen unten: Ein Bericht
+        entsteht nur fuer einen Kandidaten, und deren Zahl steht am Lauf.
+
+        **Nach Swing-Score geordnet**, fehlender Score zuletzt, bei
+        Gleichstand nach Symbol -- dieselbe Rangfolge wie in der
+        Ergebnismeldung (``domain/report/notification.py``). Sie gehoert
+        hierher und nicht in die jeweilige Anzeige: Zwei Umsetzungen
+        derselben Regel laufen auseinander, und dann steht dieselbe Liste in
+        Telegram anders als im Dashboard.
         """
+        ...
+
+    def get(self, report_id: UUID) -> StoredReport | None:
+        """Ein einzelner Bericht."""
+        ...
+
+    def list_for_symbol(self, symbol: str, *, limit: int, offset: int) -> Sequence[StoredReport]:
+        """Die Berichte einer Aktie ueber alle Laeufe, neueste zuerst.
+
+        Das ist die Analysehistorie aus US-010. Sie waechst mit jedem Lauf,
+        an dem die Aktie Kandidat war, und ist deshalb seitenweise.
+        """
+        ...
+
+    def count_for_symbol(self, symbol: str) -> int:
+        """Wie viele Berichte es zu dieser Aktie gibt."""
         ...
 
 

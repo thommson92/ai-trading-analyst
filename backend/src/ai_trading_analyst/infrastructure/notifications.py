@@ -145,29 +145,25 @@ def build_notifier(config: NotificationsConfig, secrets: Secrets) -> Notifier:
     hinterlassen hat, soll das sofort erfahren -- nicht abends daran merken,
     dass eine Meldung ausgeblieben ist.
 
-    ``pushover`` steht weiterhin im Schema und ist weiterhin nicht gebaut
-    (ADR 0024).
+    Es gibt genau zwei Kanaele. ``pushover`` stand bis 2026-09-01 im Schema,
+    ohne je gebaut zu sein; die Konfiguration nimmt den Wert nicht mehr an
+    (ADR 0024, Nachtrag). Damit faellt hier auch der Zweig weg, der einen
+    eingestellten Kanal wieder zurueckweisen musste.
     """
     if config.channel == "dry_run":
         return LoggingNotifier()
 
-    if config.channel == "telegram":
-        if config.telegram.chat_id is None:
-            raise NotificationChannelNotConfiguredError(
-                "notifications.channel steht auf 'telegram', aber "
-                "notifications.telegram.chat_id ist nicht gesetzt. Ohne Empfaenger "
-                "gibt es niemanden zu benachrichtigen."
-            )
-        return TelegramNotifier(
-            TelegramSettings(
-                token=secrets.require("notification_token"),
-                chat_id=config.telegram.chat_id,
-                base_url=config.telegram.base_url,
-                request_timeout_seconds=config.telegram.request_timeout_seconds,
-            )
+    if config.telegram.chat_id is None:
+        raise NotificationChannelNotConfiguredError(
+            "notifications.channel steht auf 'telegram', aber "
+            "notifications.telegram.chat_id ist nicht gesetzt. Ohne Empfaenger "
+            "gibt es niemanden zu benachrichtigen."
         )
-
-    raise NotificationChannelNotConfiguredError(
-        f"notifications.channel steht auf '{config.channel}', dieser Kanal ist aber "
-        "nicht umgesetzt (ADR 0024). Zulaessig sind 'dry_run' und 'telegram'."
+    return TelegramNotifier(
+        TelegramSettings(
+            token=secrets.require("notification_token"),
+            chat_id=config.telegram.chat_id,
+            base_url=config.telegram.base_url,
+            request_timeout_seconds=config.telegram.request_timeout_seconds,
+        )
     )

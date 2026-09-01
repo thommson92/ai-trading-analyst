@@ -196,28 +196,31 @@ class TestEchterNetzwerkfehler:
 
 
 class TestAnfrage:
-    def test_symbol_und_schluessel_gehen_mit(self) -> None:
-        gesehen: list[httpx.URL] = []
+    def test_symbol_geht_mit_und_der_schluessel_im_header(self) -> None:
+        """Der Schluessel steht im Header (A2-M10) und damit nicht in der
+        URL, die ``httpx`` in seine Fehlertexte schreibt."""
+        gesehen: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
-            gesehen.append(request.url)
+            gesehen.append(request)
             return httpx.Response(200, json=[])
 
         _provider(httpx.MockTransport(handler)).recommendations(AAPL)
 
-        (url,) = gesehen
-        assert url.path.endswith("/stock/recommendation")
-        assert url.params["symbol"] == "AAPL"
-        assert url.params["token"] == "test-key"
+        (anfrage,) = gesehen
+        assert anfrage.url.path.endswith("/stock/recommendation")
+        assert anfrage.url.params["symbol"] == "AAPL"
+        assert anfrage.headers["X-Finnhub-Token"] == "test-key"
+        assert "test-key" not in str(anfrage.url)
 
 
 class TestSchluesselLandetNichtImFehlertext:
-    """Der Schluessel steht als Query-Parameter in der URL, und ``httpx``
-    schreibt die vollstaendige URL in seine Ausnahmetexte.
+    """Der Schluessel steht seit A2-M10 im Header und damit nicht mehr in der
+    URL, die ``httpx`` in seine Ausnahmetexte schreibt.
 
-    Ohne Schwaerzung stuende das Geheimnis auf ``stderr`` und in jedem
-    Protokoll, das den Fehler festhaelt -- und in jedem Ticket, in das jemand
-    die Meldung kopiert.
+    Die Schwaerzung bleibt trotzdem geprueft: Sie ist die zweite Reihe. Wer
+    kuenftig einen Parameter ergaenzt, soll nicht darauf angewiesen sein,
+    diesen Wechsel zu kennen.
     """
 
     def test_ein_http_fehler_verraet_den_schluessel_nicht(self) -> None:

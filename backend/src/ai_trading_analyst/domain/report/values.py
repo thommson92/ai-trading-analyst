@@ -20,7 +20,7 @@ from ai_trading_analyst.domain.earnings import EarningsFilterResult
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis
 from ai_trading_analyst.domain.research import ResearchReport
-from ai_trading_analyst.domain.scoring import RecommendationResult, ScoreResult
+from ai_trading_analyst.domain.scoring import Recommendation, RecommendationResult, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalEvent
 from ai_trading_analyst.domain.technical import TechnicalAssessment, TechnicalSnapshot
 
@@ -152,10 +152,19 @@ class StoredReport:
     die man das Dokument nicht oeffnen muss.
     """
 
+    id: uuid.UUID
+    """Die Kennung, unter der dieser Bericht abrufbar ist. Ein Bericht je Lauf
+    und Aktie -- ``(analysis_run_id, stock_id)`` waere ebenso eindeutig, aber
+    die Kennung ist der Weg, auf dem eine Liste in ihre Einzelsicht fuehrt."""
     symbol: str
     created_at: datetime
     report_schema_version: str
     app_version: str
+    recommendation: Recommendation | None
+    swing_score: float | None
+    investment_score: float | None
+    """Die drei Werte, nach denen eine Liste gelesen wird. Leer, wenn kein
+    Score entstand (``INSUFFICIENT_DATA``) -- kein Ersatzwert, keine Null."""
     document: Mapping[str, Any]
 
 

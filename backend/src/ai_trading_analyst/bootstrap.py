@@ -19,7 +19,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
+from ai_trading_analyst.application.read_run_overview import ReadRunOverviewUseCase
+from ai_trading_analyst.application.run_analysis import AgentConcurrency
 from ai_trading_analyst.config.loader import load_config, load_secrets
 from ai_trading_analyst.config.settings import (
     AppConfig,
@@ -52,7 +53,6 @@ from ai_trading_analyst.domain.scoring import (
     ScoringParameters,
 )
 from ai_trading_analyst.domain.screening import (
-    CandidateRuleParameters,
     IndicatorParameters,
     SessionParameters,
     SignalType,
@@ -576,60 +576,26 @@ def build_backtest_params(config: AppConfig) -> BacktestParameters:
 
 
 def build_app() -> FastAPI:
+    """Die Web-Anwendung: Datenbank, sonst nichts.
+
+    Sie baut **keinen einzigen Anbieter** -- die API ist lesend (ADR 0053).
+    Das ist kein Sparen, sondern eine Zusage: Ein dauerhaft laufender
+    Webdienst, der die TWS-Client-ID belegte oder auf Zuruf einen Lauf mit
+    Fixture-Daten in die Produktivdatenbank schriebe, waere gefaehrlicher als
+    kein Dashboard.
+    """
     loaded = load_config()
     secrets = load_secrets()
-    indicators = loaded.config.require_indicators()
+    # Auch ohne Anbieter: Fehlt der Indikatorblock, ist die Konfiguration
+    # unvollstaendig, und das soll beim Start auffallen und nicht erst beim
+    # naechsten Lauf (``GateNotClearedError``).
+    loaded.config.require_indicators()
 
     engine = build_engine(secrets.require("database_url"))
     session_factory = build_session_factory(engine)
 
     def uow_factory() -> UnitOfWork:
         return SqlAlchemyUnitOfWork(session_factory)
-
-    candidate_rule_params = CandidateRuleParameters(
-        required_signal_count=loaded.config.screening.required_signal_count,
-        signal_lookback_previous_candles=loaded.config.screening.signal_lookback_previous_candles,
-        warmup_candles=indicators.warmup_candles,
-    )
-    # Einmal gebaut und an beide gereicht: IBKR laesst je Client-ID genau
-    # eine Verbindung zu. Der Aufbau selbst kostet nichts -- ``IbAsyncBarSource``
-    # verbindet erst beim ersten Abruf.
-    ibkr_quelle = (
-        build_ibkr_bar_source(loaded.config)
-        if "ibkr" in (loaded.config.market_data.provider, loaded.config.options.provider)
-        else None
-    )
-    market_data_provider = build_market_data_provider(
-        loaded.config,
-        indicators,
-        project_root(loaded.source_path),
-        bar_source=(
-            ibkr_quelle if loaded.config.market_data.source == "live" else None
-        ),
-        uow_factory=uow_factory,
-    )
-    earnings_provider = build_earnings_provider(loaded.config, secrets)
-    earnings_filter_params = build_earnings_filter_params(loaded.config)
-    research_provider = build_research_provider(loaded.config, secrets)
-    technical_interpreter = build_technical_interpreter(loaded.config, secrets)
-    use_case = RunAnalysisUseCase(
-        market_data_provider,
-        earnings_provider,
-        research_provider,
-        technical_interpreter,
-        build_fundamental_data_provider(loaded.config, secrets),
-        build_analyst_recommendations_provider(loaded.config, secrets),
-        build_options_provider(loaded.config, project_root(loaded.source_path), ibkr_quelle),
-        uow_factory,
-        candidate_rule_params,
-        earnings_filter_params,
-        build_technical_analysis_params(loaded.config),
-        build_backtest_params(loaded.config),
-        build_scoring_params(loaded.config),
-        agent_concurrency=build_agent_concurrency(loaded.config),
-        app_version=app_version(),
-        market_timezone=loaded.config.market.timezone,
-    )
 
     def check_database_ready() -> bool:
         try:
@@ -639,21 +605,13 @@ def build_app() -> FastAPI:
             return False
         return True
 
-    app = create_app()
-    app.state.run_analysis_use_case = use_case
+    # Der Export liegt neben ``config/`` im Projekt und wandert mit ihm; ein
+    # eigener Konfigurationswert waere eine Einstellung, die nie jemand
+    # anders setzt (ADR 0052).
+    app = create_app(project_root(loaded.source_path) / "frontend" / "out")
     app.state.uow_factory = uow_factory
+    app.state.run_overview_use_case = ReadRunOverviewUseCase(uow_factory)
     app.state.check_database_ready = check_database_ready
-
-    if isinstance(market_data_provider, IbkrMarketDataProvider):
-        # Die TWS laesst je Client-ID nur eine Verbindung zu. Wird sie beim
-        # Herunterfahren nicht getrennt, blockiert sie den naechsten Start bis
-        # zum Timeout der Gegenstelle.
-        app.router.on_shutdown.append(bar_source_closer(market_data_provider))
     return app
 
 
-def bar_source_closer(provider: IbkrMarketDataProvider) -> Callable[[], None]:
-    def close_bar_source() -> None:
-        provider.close()
-
-    return close_bar_source

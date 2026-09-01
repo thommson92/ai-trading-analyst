@@ -129,3 +129,18 @@ Link.
 ADR 0047 holt außerdem zwei Dinge nach, die hier offen blieben: Finnhubs
 Einschränkung L8, die dieses ADR nicht erwähnt, und der Beleg für die
 Kürzungsgrenze, die hier mit „etwa 65 Kandidaten" geschätzt war.
+
+## Nachtrag vom 2026-09-01: es bleibt beim fehlenden Link
+
+Die Begründung „es gibt kein Dashboard" trägt nicht mehr — mit Sprint 6 gibt
+es eines. Der Link kommt trotzdem nicht: Das Dashboard ist ausschließlich im
+eigenen Netz erreichbar ([ADR 0049](0049-dashboard-mvp-nur-lan.md)), und die
+Meldung wird gerade dann gelesen, wenn man nicht dort ist. Ein Link, der
+unterwegs ins Leere läuft, ist schlechter als keiner: Er verspricht einen Weg,
+den es in dem Moment nicht gibt.
+
+Damit bleibt Doc 10 §6.13 in diesem Punkt bewusst unerfüllt — nicht mehr
+mangels Dashboard, sondern mangels Erreichbarkeit. Mit der Neubewertung der
+Exposition (ADR 0049) ist auch der Link wieder zu prüfen; bis dahin bleibt
+die Lauf-ID der Verweis, und sie zeigt jetzt nicht mehr nur auf `cli report`,
+sondern auch auf die Detailansicht.

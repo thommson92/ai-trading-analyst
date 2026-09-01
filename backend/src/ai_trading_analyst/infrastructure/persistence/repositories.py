@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, nullslast, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -146,6 +146,17 @@ def _run_from_row(row: AnalysisRunOrm) -> AnalysisRun:
     )
 
 
+def _mit_status(abfrage: Select[Any], status: Sequence[RunStatus] | None) -> Select[Any]:
+    """Schraenkt eine Laufabfrage auf die genannten Status ein.
+
+    Eine leere Folge ist nicht dasselbe wie ``None``: Wer ausdruecklich
+    keinen Status zulaesst, bekommt nichts -- und nicht alles.
+    """
+    if status is None:
+        return abfrage
+    return abfrage.where(AnalysisRunOrm.status.in_(tuple(status)))
+
+
 class SqlAlchemyAnalysisRunRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -167,13 +178,26 @@ class SqlAlchemyAnalysisRunRepository:
         row = self._session.get(AnalysisRunOrm, run_id)
         return None if row is None else _run_from_row(row)
 
-    def list_all(self) -> Sequence[AnalysisRun]:
-        rows = (
-            self._session.execute(select(AnalysisRunOrm).order_by(AnalysisRunOrm.started_at))
-            .scalars()
-            .all()
+    def list_recent(
+        self, *, limit: int, offset: int, status: Sequence[RunStatus] | None = None
+    ) -> Sequence[AnalysisRun]:
+        abfrage = select(AnalysisRunOrm).order_by(
+            AnalysisRunOrm.started_at.desc(),
+            # Zweites Merkmal, damit die Reihenfolge bei gleichem Zeitstempel
+            # feststeht: Ohne sie koennte derselbe Lauf ueber eine
+            # Seitengrenze hinweg zweimal oder gar nicht erscheinen.
+            AnalysisRunOrm.id,
         )
+        abfrage = _mit_status(abfrage, status)
+        rows = self._session.execute(abfrage.limit(limit).offset(offset)).scalars().all()
         return tuple(_run_from_row(row) for row in rows)
+
+    def count(self, *, status: Sequence[RunStatus] | None = None) -> int:
+        abfrage = _mit_status(select(func.count()).select_from(AnalysisRunOrm), status)
+        # ``int(...)``, weil ``_mit_status`` die Spaltentypen der Abfrage nicht
+        # weiterreicht -- eine Zaehlung ist eine Zahl, und das soll auch der
+        # Typ sagen.
+        return int(self._session.execute(abfrage).scalar_one())
 
     def update(self, run: AnalysisRun) -> None:
         row = self._session.get(AnalysisRunOrm, run.id)
@@ -1092,6 +1116,20 @@ class SqlAlchemyScreeningResultRepository:
         )
         return tuple(_outcome_from_row(row) for row in rows)
 
+    def count_by_earnings_status(self, run_id: uuid.UUID) -> Mapping[EarningsFilterStatus, int]:
+        rows = self._session.execute(
+            select(ScreeningResultOrm.earnings_status, func.count())
+            .where(
+                ScreeningResultOrm.analysis_run_id == run_id,
+                # Die Spalte ist nur bei Kandidaten gesetzt; ohne diese
+                # Bedingung zaehlte eine NULL-Gruppe mit, die keinen Status
+                # bedeutet, sondern eine nicht gestellte Frage.
+                ScreeningResultOrm.earnings_status.is_not(None),
+            )
+            .group_by(ScreeningResultOrm.earnings_status)
+        ).all()
+        return {EarningsFilterStatus(status): anzahl for status, anzahl in rows}
+
 
 class SqlAlchemyProcessingErrorRepository:
     def __init__(self, session: Session) -> None:
@@ -1125,6 +1163,13 @@ class SqlAlchemyProcessingErrorRepository:
             )
             for row in rows
         )
+
+    def count_for_run(self, run_id: uuid.UUID) -> int:
+        return self._session.execute(
+            select(func.count())
+            .select_from(ProcessingErrorOrm)
+            .where(ProcessingErrorOrm.analysis_run_id == run_id)
+        ).scalar_one()
 
 
 BARS_JE_INSERT = 1_000
@@ -1302,6 +1347,20 @@ def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[Backtes
     return tuple(results)
 
 
+def _stored_report_from_row(row: StockReportOrm) -> StoredReport:
+    return StoredReport(
+        id=row.id,
+        symbol=row.stock.symbol,
+        created_at=row.created_at,
+        report_schema_version=row.report_schema_version,
+        app_version=row.app_version,
+        recommendation=row.recommendation,
+        swing_score=row.swing_score,
+        investment_score=row.investment_score,
+        document=row.document,
+    )
+
+
 class SqlAlchemyStockReportRepository:
     """Berichte schreiben und je Lauf wieder lesen (ADR 0039).
 
@@ -1346,22 +1405,52 @@ class SqlAlchemyStockReportRepository:
         rows = (
             self._session.execute(
                 select(StockReportOrm)
+                .options(selectinload(StockReportOrm.stock))
+                # Der Verbund traegt die Sortierung nach Symbol; geladen wird
+                # die Aktie ueber ``selectinload``, sonst holte sie jede Zeile
+                # einzeln nach.
+                .join(StockReportOrm.stock)
                 .where(StockReportOrm.analysis_run_id == analysis_run_id)
-                .order_by(StockReportOrm.created_at)
+                # Dieselbe Rangfolge wie in der Ergebnismeldung: bester
+                # Swing-Score zuerst, fehlender zuletzt, bei Gleichstand nach
+                # Symbol (``domain/report/notification.py``). Zwei Umsetzungen
+                # derselben Regel liefen frueher oder spaeter auseinander.
+                .order_by(nullslast(StockReportOrm.swing_score.desc()), StockOrm.symbol)
             )
             .scalars()
             .all()
         )
-        return [
-            StoredReport(
-                symbol=row.stock.symbol,
-                created_at=row.created_at,
-                report_schema_version=row.report_schema_version,
-                app_version=row.app_version,
-                document=row.document,
+        return [_stored_report_from_row(row) for row in rows]
+
+    def get(self, report_id: uuid.UUID) -> StoredReport | None:
+        row = self._session.get(StockReportOrm, report_id)
+        return None if row is None else _stored_report_from_row(row)
+
+    def list_for_symbol(
+        self, symbol: str, *, limit: int, offset: int
+    ) -> Sequence[StoredReport]:
+        rows = (
+            self._session.execute(
+                select(StockReportOrm)
+                .options(selectinload(StockReportOrm.stock))
+                .join(StockReportOrm.stock)
+                .where(StockOrm.symbol == symbol)
+                .order_by(StockReportOrm.created_at.desc(), StockReportOrm.id)
+                .limit(limit)
+                .offset(offset)
             )
-            for row in rows
-        ]
+            .scalars()
+            .all()
+        )
+        return [_stored_report_from_row(row) for row in rows]
+
+    def count_for_symbol(self, symbol: str) -> int:
+        return self._session.execute(
+            select(func.count())
+            .select_from(StockReportOrm)
+            .join(StockReportOrm.stock)
+            .where(StockOrm.symbol == symbol)
+        ).scalar_one()
 
 
 class SqlAlchemyBacktestResultRepository:

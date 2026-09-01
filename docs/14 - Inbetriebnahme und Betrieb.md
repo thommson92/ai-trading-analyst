@@ -147,30 +147,41 @@ aus `watchlists/`:
 .venv\Scripts\python.exe -m ai_trading_analyst.cli watchlist
 ```
 
-Dann ein vollständiger Analyse-Lauf ohne externe Abhängigkeit. Der Weg dahin
-führt über die API, nicht über die Kommandozeile: `cli screen` ist das
-IBKR-Kommando und weist einen Lauf mit `fixture` ausdrücklich ab
-(Rückgabewert 2), weil es sonst mit dem ausgelieferten Standard eine
-TWS-Verbindung aufbaute. `POST /api/v1/analysis-runs` dagegen läuft mit den
-Anbietern aus der Konfiguration — ausgeliefert also `fixture` — und legt das
-Ergebnis in PostgreSQL ab.
+Dann die Datenbank durch die Anwendung hindurch:
 
 ```powershell
 # In einem ersten Fenster:
-.venv\Scripts\uvicorn.exe ai_trading_analyst.main:app
+.venv\Scripts\python.exe -m uvicorn ai_trading_analyst.main:app
 
 # In einem zweiten:
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/system/readiness
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/analysis-runs
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/analysis-runs
 ```
 
 `readiness` muss `ready` und `ok` melden — damit ist die Datenbank
-nachgewiesen erreichbar. Der `POST` liefert den angelegten Lauf zurück, der
-abschließende `GET` zeigt ihn in der Liste.
+nachgewiesen über die Anwendung erreichbar, nicht nur über `psql`. Der `GET`
+antwortet auf einer frischen Installation mit einer leeren Seite
+(`total: 0`); das ist der Beweis, dass der Lesepfad steht.
 
-**Abbruch, wenn:** die Watchlist leer ist, `readiness` nicht `ready` meldet oder
-der `POST` keinen Analyse-Lauf zurückgibt.
+> **Diese Stufe erzeugt seit dem 2026-09-01 keinen Analyse-Lauf mehr.** Sie
+> tat es über `POST /api/v1/analysis-runs`, und diesen Endpunkt gibt es nicht
+> mehr: Er lief mit den Anbietern aus der Konfiguration — auf dem Server also
+> den Fixtures — und hätte einen Lauf aus erfundenen Werten in die
+> Produktivdatenbank geschrieben, ununterscheidbar von einem echten
+> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Über die
+> Kommandozeile geht es nicht: `cli screen` und `cli dispatch` sind
+> IBKR-Kommandos und weisen einen Lauf mit `fixture` ausdrücklich ab
+> (Rückgabewert 2).
+>
+> Die Kette Konfiguration → Watchlist → Domain → PostgreSQL ist damit auf
+> diesem Rechner nicht mehr *vor* der TWS bewiesen, sondern erst in Stufe F.
+> Geprüft ist sie weiterhin — `backend/tests/integration/test_full_run.py`
+> fährt genau diese Kette mit Fixtures gegen ein echtes PostgreSQL, in jedem
+> CI-Lauf. Wer den Beweis auch auf dem Server will, braucht dafür ein eigenes
+> Kommando; es gibt bewusst keines.
+
+**Abbruch, wenn:** die Watchlist leer ist oder `readiness` nicht `ready`
+meldet.
 
 ---
 
@@ -795,9 +806,11 @@ vollständige Bericht aus Doc 10, Paragraph 6.12, kein Auszug.
 
 Worauf beim ersten Mal zu achten ist:
 
-- **Alle achtzehn Punkte müssen erscheinen**, durchnummeriert. Vier davon
-  stehen als `NICHT VERFUEGBAR` da (Put-Strategien, beide Scores, Empfehlung)
-  — das ist richtig so, sie gehören zu Sprint 5.
+- **Alle achtzehn Punkte müssen erscheinen**, durchnummeriert. Seit Sprint 5
+  sind auch Put-Strategien, beide Scores und die Empfehlung gefüllt; im
+  Dauerbetrieb steht dafür Punkt 8 (Nachrichten) als gekennzeichnete Lücke
+  mit Grund `provider_disabled` — die Recherche läuft bewusst abgeschaltet
+  ([ADR 0051](adr/0051-research-im-dauerbetrieb-abgeschaltet.md)).
 - **Punkt 5 muss eine Signalstatistik tragen.** Ist er leer, reichte die
   Historie im Betrachtungsfenster nicht — dann fehlt ein Backfill.
 - **Punkt 1 sollte den Unternehmensnamen nennen.** Fehlt er, führt das
@@ -808,6 +821,86 @@ Worauf beim ersten Mal zu achten ist:
 **Abbruch, wenn:** der Befehl „Kein Lauf mit der ID …" meldet — dann ist die
 ID falsch. „Keine Berichte zu Lauf … — 0 Kandidaten" ist dagegen kein Fehler,
 sondern ein Lauf ohne Treffer.
+
+---
+
+# Stufe J — Das Dashboard
+
+Erst wenn Stufe I trägt: Das Dashboard zeigt gespeicherte Läufe und
+Berichte, es erzeugt keine. Es ist **ausschließlich im eigenen Netz
+erreichbar** — keine Portweiterleitung am Router, keine Anmeldung
+([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)).
+
+## Schritt 1 — Node prüfen
+
+```powershell
+node --version
+```
+
+Node wird **nur zum Bauen** gebraucht, nicht zur Laufzeit
+([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Fehlt es, die
+aktuelle LTS-Fassung installieren; ohne Node gibt es keinen Export und damit
+kein Dashboard — die API und der Tageslauf laufen aber weiter.
+
+## Schritt 2 — Export bauen
+
+```powershell
+cd C:\...\frontend
+npm ci
+npm run build
+```
+
+Ergebnis ist der Ordner `frontend\out`. Er ist nicht eingecheckt und
+entsteht auf jedem Rechner neu.
+
+## Schritt 3 — Dienst zur Probe starten
+
+```powershell
+cd C:\...\backend
+.venv\Scripts\python.exe -m uvicorn ai_trading_analyst.main:app --host 0.0.0.0 --port 8000
+```
+
+Dann lokal `http://127.0.0.1:8000/` öffnen. Die Tagesübersicht muss den
+letzten Lauf zeigen; `http://127.0.0.1:8000/api/v1/system/readiness` muss
+`ready` melden.
+
+> `--host 0.0.0.0` bindet an **alle** Schnittstellen. Das ist der Preis
+> dafür, dass die Adresse des Servers per DHCP wechseln darf; abgeschirmt
+> wird über die Firewallregel aus Schritt 4 und darüber, dass am Router kein
+> Port weitergeleitet ist. Wer eine feste Adresse hat, darf sie hier
+> stattdessen eintragen.
+
+## Schritt 4 — Firewall nur für das eigene Netz öffnen
+
+In einer PowerShell **als Administrator**:
+
+```powershell
+New-NetFirewallRule -DisplayName "AI Trading Analyst Dashboard" `
+  -Direction Inbound -Protocol TCP -LocalPort 8000 -Profile Private -Action Allow
+```
+
+`-Profile Private` ist die eigentliche Absicherung: Die Regel gilt nur im
+als privat eingestuften Netz. Steht das Serviernetz auf „Öffentlich", greift
+sie nicht — dann ist die Netzwerkeinstufung zu korrigieren und **nicht** das
+Profil zu erweitern.
+
+## Schritt 5 — Autostart
+
+| Feld | Wert |
+|---|---|
+| Trigger | **Bei Systemstart** |
+| Programm | `C:\...\backend\.venv\Scripts\python.exe` |
+| Argumente | `-m uvicorn ai_trading_analyst.main:app --host 0.0.0.0 --port 8000` |
+| Starten in | `C:\...\backend` |
+| Einstellungen | „Task beenden, falls er länger läuft als" **deaktivieren** |
+
+Anders als der Dispatcher ist das ein **Dauerprozess** — der erste des
+Systems. Er braucht keine TWS und keine angemeldete Sitzung; fällt er aus,
+fehlt nur die Anzeige, nicht die Analyse.
+
+**Abnahmekriterium:** Von einem anderen Gerät im eigenen Netz zeigt
+`http://<server>:8000/` die Tagesübersicht des letzten Laufs — und aus dem
+Mobilfunknetz (WLAN aus) ist die Adresse **nicht** erreichbar.
 
 ---
 
@@ -827,6 +920,11 @@ Maßgeblich ist der Argumentstring des Aufgabenplanungs-Eintrags auf dem
 Server — dieser Absatz beschreibt ihn nur. Ändert sich der geschaltete
 Stand, wird er hier nachgeführt; vor dem 2026-09-01 gab es keinen
 automatischen Tageslauf, nur manuell gestartete.
+
+**Der Dashboard-Dienst läuft noch nicht.** Er ist gebaut und beschrieben
+(Stufe J), auf dem Server aber noch nicht eingerichtet. Diese Zeile wird
+umgeschrieben, sobald er dort steht — bis dahin gibt es genau einen
+geplanten Vorgang, den Tageslauf.
 
 ## Nach jedem Serverneustart
 
@@ -908,6 +1006,31 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
    nirgends von allein auf.
 3. **Modell-Identifier** (`llm.research`, `llm.technical`, jeweils samt
    `fallback_model`) — gegen den dann aktuellen Katalog.
+4. **Gemeldete Schwachstellen in Abhängigkeiten.** Der Workflow
+   `.github/workflows/audit.yml` läuft wöchentlich und meldet, ohne zu
+   blockieren — ob ein Fund gefährlich ist, hängt daran, wie das Paket
+   genutzt wird. Die offenen Meldungen gehören einmal je Turnus angesehen
+   und beschieden: aktualisieren, oder mit Begründung stehen lassen.
+
+   **Offen stehen gelassen (Stand 2026-09-01):** `postcss` bis
+   einschließlich 8.5.22, vier Advisories (XSS über unmaskiertes `</style>`
+   und dreimal Dateizugriff über eine `sourceMappingURL` in
+   CSS-Kommentaren), transitiv über Next.js 15. Die Fassung dagegen ist
+   **Next 16** und damit ein Bruch.
+
+   Warum das vertretbar ist: `postcss` läuft ausschließlich zur Bauzeit und
+   ausschließlich über **eigenes** CSS (`src/app/globals.css`). Alle vier
+   Advisories setzen voraus, dass ein Angreifer die verarbeitete CSS-Quelle
+   beeinflusst. Träte das ein, hätte er bereits Schreibzugriff auf das
+   Repository — dann ist `postcss` das kleinste Problem.
+
+   **Solange der Punkt steht, meldet die npm-Hälfte der Prüfung dauerhaft
+   rot** — wer sie ansieht, muss wissen, dass das dieser eine bekannte Fund
+   ist und nicht ein neuer. Beim nächsten Turnus neu zu bewerten, dann
+   zusammen mit dem Sprung auf Next 16.
+
+   *`sharp` und `nanoid` standen hier ebenfalls; beide sind am 2026-09-01
+   ohne Bruch gehoben worden (`npm audit fix`).*
 
 Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
 wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).
@@ -944,7 +1067,18 @@ git pull
 .venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.lock.txt
 .venv\Scripts\python.exe -m pip install --no-deps -e .
 .venv\Scripts\python.exe -m alembic upgrade head
+
+# Nur wenn sich unter frontend\ etwas geändert hat:
+cd ..\frontend
+npm ci
+npm run build
+cd ..\backend
 ```
 
 Findet `git pull` einen lokalen Diff in `config/default.yaml`, wurde auf dem
 Server konfiguriert statt in der Aufgabenplanung — siehe Stufe G.
+
+Ein neuer Export wird ohne Neustart ausgeliefert — der Dienst liest die
+Dateien bei jeder Anfrage. Neu starten muss man ihn nur, wenn `frontend\out`
+beim Start des Dienstes noch **gar nicht** existierte: Dann ist das
+Dashboard nicht eingehängt, und die API antwortet allein.

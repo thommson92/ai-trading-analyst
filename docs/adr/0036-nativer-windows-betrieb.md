@@ -126,3 +126,22 @@ gestellt und ehrlicher zu beantworten.
 - **Ein Backup-Verfahren ist damit nicht beschlossen.** Doc 13 nennt
   Datenbank, Berichte und Konfiguration als zu sichern; wie gesichert wird,
   bleibt außerhalb dieses ADR und ist weiterhin offen.
+
+### Nachtrag 2026-09-01: die vertagte Container-Frage ist beantwortet
+
+Der Anlass für die Neubewertung ist eingetreten — mit Sprint 6 entsteht das
+Frontend, das ausgeliefert werden muss. Das Ergebnis ist dasselbe wie hier:
+**kein Container, kein Reverse Proxy.** Das Dashboard wird als statischer
+Export gebaut und von derselben FastAPI-Anwendung mit ausgeliefert, die die
+API bereitstellt; Node bleibt Bauwerkzeug und wird keine Laufzeit auf dem
+Server. Siehe [ADR 0052](0052-dashboard-als-statischer-export.md).
+
+Punkt 5 der Entscheidung — „kein Frontend-Deployment im MVP" — ist damit
+überholt: Es gibt eines, und es kostet keinen zweiten Dienst. Neu hinzu kommt
+allerdings der **erste Dauerprozess** des Systems (`uvicorn` als
+Autostart-Eintrag der Aufgabenplanung), was Punkt 3 nicht aufhebt: Der
+Auslöser der Analyse bleibt allein die Aufgabenplanung, und die API kann
+keinen Lauf starten ([ADR 0053](0053-lese-api-kein-lauf-ueber-http.md)).
+
+Auch das Backup ist inzwischen beschlossen, außerhalb dieses ADR: Doc 14,
+Abschnitt „Sicherung".

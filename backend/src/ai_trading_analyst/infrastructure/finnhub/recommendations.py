@@ -38,6 +38,8 @@ from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
+from .auth import authentifizierung
+
 _logger = get_logger(__name__)
 
 _SOURCE_NAME = "finnhub"
@@ -116,7 +118,8 @@ class FinnhubAnalystRecommendationsProvider:
             ) as client:
                 response = client.get(
                     f"{self._settings.base_url}/stock/recommendation",
-                    params={"symbol": symbol, "token": self._settings.api_key},
+                    params={"symbol": symbol},
+                    headers=authentifizierung(self._settings.api_key),
                 )
             response.raise_for_status()
             payload = response.json()

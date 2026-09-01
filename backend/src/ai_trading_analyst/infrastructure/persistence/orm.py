@@ -587,7 +587,10 @@ class StockReportOrm(Base):
     analysis_run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("analysis_runs.id"), index=True
     )
-    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"), index=True)
+    """Eigener Index, obwohl die Spalte im Eindeutigkeits-Constraint steht:
+    Dort ist sie die zweite und damit nicht fuehrend -- die Historie einer
+    Aktie filtert aber genau auf sie."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     report_schema_version: Mapped[str]
@@ -625,7 +628,11 @@ class ProcessingErrorOrm(Base):
     __tablename__ = "analysis_run_errors"
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    analysis_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("analysis_runs.id"))
+    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analysis_runs.id"), index=True
+    )
+    """Indiziert: Die Laufdetailansicht zaehlt bei jedem Aufruf die Fehler
+    eines Laufs, und die Tabelle waechst mit jedem Handelstag."""
     stock_symbol: Mapped[str]
     message: Mapped[str]
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

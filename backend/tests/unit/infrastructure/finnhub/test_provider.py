@@ -84,7 +84,22 @@ class TestErfolgreicheAntwort:
         assert gesehen["symbol"] == "AAPL"
         assert gesehen["from"] == "2026-08-17"
         assert gesehen["to"] == "2026-09-16"
-        assert gesehen["token"] == "test-key"
+
+    def test_der_schluessel_steht_im_header_und_nicht_in_der_url(self) -> None:
+        """ADR 0044 hat den Weg benannt, A2-M10 geht ihn: Was nicht in der
+        URL steht, kann auch nicht in einem Fehlertext auftauchen."""
+        gesehen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesehen.append(request)
+            return httpx.Response(200, json={"earningsCalendar": []})
+
+        _provider(httpx.MockTransport(handler)).next_earnings_date(AAPL)
+
+        (anfrage,) = gesehen
+        assert anfrage.headers["X-Finnhub-Token"] == "test-key"
+        assert "token" not in anfrage.url.params
+        assert "test-key" not in str(anfrage.url)
 
 
 class TestFehlerhafteAntwort:
@@ -137,11 +152,13 @@ class TestEchterNetzwerkfehler:
 
 
 class TestSchluesselLandetNichtImFehlertext:
-    """Derselbe Mangel bestand hier seit dem ersten Tag.
+    """Derselbe Mangel bestand hier seit dem ersten Tag: ``httpx`` schreibt
+    die vollstaendige URL in seine Ausnahmetexte, und der Schluessel stand
+    darin als Query-Parameter.
 
-    ``httpx`` schreibt die vollstaendige URL in seine Ausnahmetexte, und der
-    Schluessel steht darin als Query-Parameter. Die Meldung ging bis hierher
-    ungefiltert auf ``stderr``.
+    Seit A2-M10 steht er im Header. Die Schwaerzung bleibt als zweite Reihe
+    geprueft -- der naechste ergaenzte Parameter soll nicht darauf angewiesen
+    sein, dass jemand diesen Wechsel kennt.
     """
 
     def test_ein_http_fehler_verraet_den_schluessel_nicht(self) -> None:

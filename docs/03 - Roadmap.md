@@ -176,9 +176,36 @@ Analystenempfehlungen, die ADR 0017 mitentschied und die nie gebaut wurden.
 
 Dashboard & Benachrichtigung
 
-- Webinterface
-- Smartphone Push
-- Analysehistorie
+Zwei der drei Punkte sind kleiner, als die Überschrift vermuten lässt: Die
+**Smartphone-Benachrichtigung existiert** seit Sprint 4 über Telegram
+([ADR 0024](adr/0024-benachrichtigungskanal-telegram.md),
+[ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md),
+[ADR 0047](adr/0047-scores-in-der-ergebnismeldung.md)) und ist seit dem
+2026-09-01 scharf; offen ist dort nur noch der ungebaute Kanal `pushover`
+im Konfigurationsschema. Und die **Analysehistorie ist gespeichert** — jeder
+Bericht liegt unveränderlich in `stock_reports`. Was fehlt, ist die Ansicht
+darauf.
+
+- **Webinterface** — Tagesübersicht, Berichtsdetail über alle achtzehn
+  Punkte und Historie je Aktie. Drei der zehn Ansichten aus Doc 10 §6.15;
+  die übrigen bleiben Zielbild
+  ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Das Dashboard ist
+  ausschließlich aus dem eigenen Netz erreichbar, ohne eigene
+  Authentifizierung ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md))
+- **Lese-API** — paginierte Endpunkte für Läufe, Berichte und Historie
+  (Doc 11). Sie ist lesend: `POST /analysis-runs` entfällt, weil er auf dem
+  Server einen Lauf aus Fixture-Werten in die Produktivdatenbank schriebe
+  (ADR 0053)
+- **Auslieferung** — statischer Export, von derselben FastAPI-Anwendung
+  ausgeliefert; kein Container, kein Reverse Proxy, kein Node zur Laufzeit
+  ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Das ist die
+  Neubewertung, die [ADR 0036](adr/0036-nativer-windows-betrieb.md) an
+  diesen Sprint vertagt hatte
+- **Aus dem Repository-Audit 2 mitgenommen** — Contract-Antworten der
+  Anbieter einfrieren (A2-M7), `pushover` streichen und den Finnhub-Token in
+  den Header verlegen (A2-M10), eine automatische Abhängigkeitsprüfung, und
+  nach ein bis zwei Wochen Betrieb die Entscheidung E9 zum
+  Wendepunkt-Filter
 
 
 ---

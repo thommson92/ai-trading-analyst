@@ -829,7 +829,10 @@ class NotificationsConfig(_Section):
     """Benachrichtigungsverhalten (Doc 10, Paragraph 6.13)."""
 
     send_when_no_candidates: bool = False
-    channel: Literal["dry_run", "telegram", "pushover"] = "dry_run"
+    channel: Literal["dry_run", "telegram"] = "dry_run"
+    """``pushover`` stand hier bis 2026-09-01 und war nie gebaut (ADR 0024,
+    Nachtrag). Ein Wert, den die Konfiguration annimmt und die Anwendung
+    ablehnt, ist ein Versprechen ohne Deckung."""
     telegram: TelegramConfig = TelegramConfig()
 
 

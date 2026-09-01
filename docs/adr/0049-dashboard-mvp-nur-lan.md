@@ -71,3 +71,21 @@ Handgriff.
   zwei Fundamental-Fragen (Vergleichsgruppe, Stichtagsbindung aus
   [ADR 0034](0034-fundamentaldaten-nach-dem-watchlist-lauf.md) L3) — beide
   blockieren nichts.
+
+## Nachtrag vom 2026-09-01: „lokale Schnittstellen" heißt LAN
+
+Die Konsequenz oben — „die API bindet weiterhin nur an lokale
+Schnittstellen" — liest sich enger, als sie gemeint war, und widerspräche
+der Betriebsanweisung: Doc 14, Stufe J bindet den Dienst mit
+`--host 0.0.0.0`, sonst wäre er vom Tablet im selben WLAN nicht erreichbar
+— und genau das ist der Zweck der Entscheidung.
+
+Maßgeblich ist die Formulierung in
+[ADR 0052](0052-dashboard-als-statischer-export.md), Punkt 3: erreichbar im
+eigenen Netz, nicht darüber hinaus. Abgeschirmt wird nicht durch die
+Bindung, sondern durch die Firewallregel **nur im privaten Profil** und
+dadurch, dass am Router kein Port weitergeleitet ist. Wer eine feste
+Serveradresse hat, darf statt `0.0.0.0` diese eintragen; nötig ist es nicht.
+
+An der Entscheidung selbst ändert das nichts: keine Exposition ins Internet,
+keine eigene Authentifizierung.

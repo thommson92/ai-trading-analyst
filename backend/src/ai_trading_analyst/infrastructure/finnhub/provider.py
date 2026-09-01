@@ -27,6 +27,8 @@ from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
+from .auth import authentifizierung
+
 _logger = get_logger(__name__)
 
 _SOURCE_NAME = "finnhub"
@@ -90,8 +92,8 @@ class FinnhubEarningsProvider:
                         "symbol": symbol,
                         "from": today.isoformat(),
                         "to": window_end.isoformat(),
-                        "token": self._settings.api_key,
                     },
+                    headers=authentifizierung(self._settings.api_key),
                 )
             response.raise_for_status()
             payload = response.json()
