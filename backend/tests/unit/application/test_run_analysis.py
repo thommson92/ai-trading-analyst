@@ -299,7 +299,9 @@ class TestEarningsFilter:
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "no_coverage"
 
-    def test_providerausfall_ergibt_unknown_und_bleibt_kein_processing_error(self) -> None:
+    def test_providerausfall_ergibt_unknown_und_bleibt_kein_processing_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         stock = make_stock("CAND")
         provider = FakeMarketDataProvider(
             stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
@@ -307,7 +309,8 @@ class TestEarningsFilter:
         earnings_provider = FakeEarningsProvider(error_symbols=frozenset({"CAND"}))
         use_case, _, _, _, errors_repo = _build_use_case(provider, earnings_provider)
 
-        summary = use_case.execute()
+        with caplog.at_level("WARNING"):
+            summary = use_case.execute()
 
         assert summary.run.status == RunStatus.COMPLETED
         assert not summary.errors
@@ -316,6 +319,9 @@ class TestEarningsFilter:
         assert earnings is not None
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "provider_error"
+        # Der Ausfall war bislang stumm -- im Log war provider_error nicht
+        # von no_coverage zu unterscheiden. Jetzt steht er mit Symbol drin.
+        assert "Earnings-Termin fuer CAND nicht verfuegbar" in caplog.text
 
     def test_unplausibler_termin_ergibt_unknown_und_bleibt_kein_processing_error(self) -> None:
         """Der Anbieter ist erreichbar, seine Antwort aber nicht plausibel

@@ -802,7 +802,8 @@ class RunAnalysisUseCase:
         """
         try:
             next_earnings = self._earnings_provider.next_earnings_date(stock)
-        except EarningsProviderError:
+        except EarningsProviderError as error:
+            _logger.warning("Earnings-Termin fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return EarningsFilterResult(
                 status=EarningsFilterStatus.UNKNOWN,
                 evaluated_at=evaluated_at,
