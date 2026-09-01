@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { Tagesuebersicht } from '@/components/Tagesuebersicht';
 import {
+  ERFOLGREICH,
   getRun,
   listRunReports,
   listRuns,
@@ -32,7 +33,7 @@ async function ladeUebersicht(): Promise<Uebersicht | null> {
   // wurde. Doc 10, Paragraph 6.15 verlangt beides.
   const [lauf, erfolgreiche, kandidaten] = await Promise.all([
     getRun(neuester.id),
-    listRuns({ limit: 1, status: 'COMPLETED' }),
+    listRuns({ limit: 1, status: ERFOLGREICH }),
     listRunReports(neuester.id),
   ]);
   return { lauf, letzterErfolg: erfolgreiche.items[0] ?? null, kandidaten };

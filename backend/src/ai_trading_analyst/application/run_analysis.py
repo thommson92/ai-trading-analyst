@@ -88,6 +88,7 @@ from ai_trading_analyst.domain.technical import (
     compute_technical_snapshot,
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
+from ai_trading_analyst.observability.secret_redaction import redact_registered
 
 _logger = get_logger(__name__)
 
@@ -273,7 +274,11 @@ class RunAnalysisUseCase:
         except MarketDataProviderError as exc:
             run.status = RunStatus.FAILED
             run.completed_at = datetime.now(UTC)
-            run.error_message = str(exc)
+            # Geschwaerzt schon beim Speichern und nicht erst im Protokoll:
+            # Dieses Feld verlaesst das System ueber die Web-API und steht
+            # damit jedem im eigenen Netz offen (ADR 0044, ADR 0053). Die
+            # Senke faengt nur, was protokolliert wird.
+            run.error_message = redact_registered(str(exc))
             with self._uow_factory() as uow:
                 uow.analysis_runs.update(run)
                 uow.commit()
@@ -645,7 +650,7 @@ class RunAnalysisUseCase:
         error = StockProcessingError(
             analysis_run_id=run.id,
             stock_symbol=stock.symbol,
-            message=str(exc),
+            message=redact_registered(str(exc)),
             occurred_at=datetime.now(UTC),
         )
         with self._uow_factory() as uow:

@@ -8,9 +8,9 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, nullslast, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -146,6 +146,17 @@ def _run_from_row(row: AnalysisRunOrm) -> AnalysisRun:
     )
 
 
+def _mit_status(abfrage: Select[Any], status: Sequence[RunStatus] | None) -> Select[Any]:
+    """Schraenkt eine Laufabfrage auf die genannten Status ein.
+
+    Eine leere Folge ist nicht dasselbe wie ``None``: Wer ausdruecklich
+    keinen Status zulaesst, bekommt nichts -- und nicht alles.
+    """
+    if status is None:
+        return abfrage
+    return abfrage.where(AnalysisRunOrm.status.in_(tuple(status)))
+
+
 class SqlAlchemyAnalysisRunRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -168,19 +179,25 @@ class SqlAlchemyAnalysisRunRepository:
         return None if row is None else _run_from_row(row)
 
     def list_recent(
-        self, *, limit: int, offset: int, status: RunStatus | None = None
+        self, *, limit: int, offset: int, status: Sequence[RunStatus] | None = None
     ) -> Sequence[AnalysisRun]:
-        abfrage = select(AnalysisRunOrm).order_by(AnalysisRunOrm.started_at.desc())
-        if status is not None:
-            abfrage = abfrage.where(AnalysisRunOrm.status == status)
+        abfrage = select(AnalysisRunOrm).order_by(
+            AnalysisRunOrm.started_at.desc(),
+            # Zweites Merkmal, damit die Reihenfolge bei gleichem Zeitstempel
+            # feststeht: Ohne sie koennte derselbe Lauf ueber eine
+            # Seitengrenze hinweg zweimal oder gar nicht erscheinen.
+            AnalysisRunOrm.id,
+        )
+        abfrage = _mit_status(abfrage, status)
         rows = self._session.execute(abfrage.limit(limit).offset(offset)).scalars().all()
         return tuple(_run_from_row(row) for row in rows)
 
-    def count(self, *, status: RunStatus | None = None) -> int:
-        abfrage = select(func.count()).select_from(AnalysisRunOrm)
-        if status is not None:
-            abfrage = abfrage.where(AnalysisRunOrm.status == status)
-        return self._session.execute(abfrage).scalar_one()
+    def count(self, *, status: Sequence[RunStatus] | None = None) -> int:
+        abfrage = _mit_status(select(func.count()).select_from(AnalysisRunOrm), status)
+        # ``int(...)``, weil ``_mit_status`` die Spaltentypen der Abfrage nicht
+        # weiterreicht -- eine Zaehlung ist eine Zahl, und das soll auch der
+        # Typ sagen.
+        return int(self._session.execute(abfrage).scalar_one())
 
     def update(self, run: AnalysisRun) -> None:
         row = self._session.get(AnalysisRunOrm, run.id)
@@ -1388,8 +1405,17 @@ class SqlAlchemyStockReportRepository:
         rows = (
             self._session.execute(
                 select(StockReportOrm)
+                .options(selectinload(StockReportOrm.stock))
+                # Der Verbund traegt die Sortierung nach Symbol; geladen wird
+                # die Aktie ueber ``selectinload``, sonst holte sie jede Zeile
+                # einzeln nach.
+                .join(StockReportOrm.stock)
                 .where(StockReportOrm.analysis_run_id == analysis_run_id)
-                .order_by(StockReportOrm.created_at)
+                # Dieselbe Rangfolge wie in der Ergebnismeldung: bester
+                # Swing-Score zuerst, fehlender zuletzt, bei Gleichstand nach
+                # Symbol (``domain/report/notification.py``). Zwei Umsetzungen
+                # derselben Regel liefen frueher oder spaeter auseinander.
+                .order_by(nullslast(StockReportOrm.swing_score.desc()), StockOrm.symbol)
             )
             .scalars()
             .all()
@@ -1406,9 +1432,10 @@ class SqlAlchemyStockReportRepository:
         rows = (
             self._session.execute(
                 select(StockReportOrm)
+                .options(selectinload(StockReportOrm.stock))
                 .join(StockReportOrm.stock)
                 .where(StockOrm.symbol == symbol)
-                .order_by(StockReportOrm.created_at.desc())
+                .order_by(StockReportOrm.created_at.desc(), StockReportOrm.id)
                 .limit(limit)
                 .offset(offset)
             )

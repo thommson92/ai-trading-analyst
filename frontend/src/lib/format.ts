@@ -3,7 +3,7 @@
 // Keine Fachlogik (Doc 12): Hier wird nichts gerechnet, nichts eingestuft
 // und nichts ergaenzt. Was fehlt, bleibt fehlend und bekommt einen Strich.
 
-import type { Recommendation, ReportSummary, RunStatus } from '@/lib/api';
+import type { Recommendation, RunStatus } from '@/lib/api';
 
 export const LAUFSTATUS_TEXT: Record<RunStatus, string> = {
   SCHEDULED: 'eingeplant',
@@ -66,17 +66,4 @@ export function formatScore(wert: number | null): string {
 
 export function formatEmpfehlung(stufe: Recommendation | null): string {
   return stufe === null ? '–' : EMPFEHLUNG_TEXT[stufe];
-}
-
-export function sortiereNachSwingScore(berichte: readonly ReportSummary[]): ReportSummary[] {
-  // Ohne Score ans Ende, nicht als Null nach vorne: Ein Kandidat mit
-  // INSUFFICIENT_DATA ist nicht der schlechteste, sondern der unbekannte.
-  return [...berichte].sort((links, rechts) => {
-    if (links.swing_score === null && rechts.swing_score === null) {
-      return links.symbol.localeCompare(rechts.symbol);
-    }
-    if (links.swing_score === null) return 1;
-    if (rechts.swing_score === null) return -1;
-    return rechts.swing_score - links.swing_score;
-  });
 }

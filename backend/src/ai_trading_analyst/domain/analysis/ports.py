@@ -399,9 +399,17 @@ class AnalysisRunRepository(Protocol):
     def update(self, run: AnalysisRun) -> None: ...
 
     def list_recent(
-        self, *, limit: int, offset: int, status: RunStatus | None = None
+        self, *, limit: int, offset: int, status: Sequence[RunStatus] | None = None
     ) -> Sequence[AnalysisRun]:
         """Laeufe, neueste zuerst, seitenweise.
+
+        ``status`` nimmt **mehrere** Werte. Das ist kein Komfort: "Der letzte
+        erfolgreiche Lauf" umfasst ``COMPLETED`` **und**
+        ``PARTIALLY_COMPLETED`` -- ein Lauf, bei dem eine von zweihundert
+        Aktien an einem isolierten Modulfehler haengen blieb, ist
+        abgeschlossen und seine Ergebnisse sind gueltig (Doc 10, Paragraph
+        11). Mit nur einem Wert muesste der Aufrufer zwei Antworten
+        vergleichen und damit selbst entscheiden, was "erfolgreich" heisst.
 
         Es gibt bewusst kein ``list_all``: Die Zahl der Laeufe waechst mit
         jedem Handelstag, und eine Liste ohne Grenze waere eine Zusage, die
@@ -409,7 +417,7 @@ class AnalysisRunRepository(Protocol):
         """
         ...
 
-    def count(self, *, status: RunStatus | None = None) -> int:
+    def count(self, *, status: Sequence[RunStatus] | None = None) -> int:
         """Wie viele Laeufe es insgesamt gibt -- ohne sie zu laden.
 
         Die Seitenanzeige braucht die Gesamtzahl, sonst weiss sie nicht, ob
@@ -460,6 +468,13 @@ class StockReportRepository(Protocol):
 
         Ohne Seitengrenze, anders als die beiden Listen unten: Ein Bericht
         entsteht nur fuer einen Kandidaten, und deren Zahl steht am Lauf.
+
+        **Nach Swing-Score geordnet**, fehlender Score zuletzt, bei
+        Gleichstand nach Symbol -- dieselbe Rangfolge wie in der
+        Ergebnismeldung (``domain/report/notification.py``). Sie gehoert
+        hierher und nicht in die jeweilige Anzeige: Zwei Umsetzungen
+        derselben Regel laufen auseinander, und dann steht dieselbe Liste in
+        Telegram anders als im Dashboard.
         """
         ...
 

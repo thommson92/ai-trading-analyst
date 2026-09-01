@@ -359,14 +359,14 @@ class FakeAnalysisRunRepository:
         return self._runs.get(run_id)
 
     def list_recent(
-        self, *, limit: int, offset: int, status: RunStatus | None = None
+        self, *, limit: int, offset: int, status: Sequence[RunStatus] | None = None
     ) -> tuple[AnalysisRun, ...]:
-        passend = [run for run in self._runs.values() if status is None or run.status == status]
+        passend = [run for run in self._runs.values() if status is None or run.status in status]
         passend.sort(key=lambda run: run.started_at, reverse=True)
         return tuple(passend[offset : offset + limit])
 
-    def count(self, *, status: RunStatus | None = None) -> int:
-        return sum(1 for run in self._runs.values() if status is None or run.status == status)
+    def count(self, *, status: Sequence[RunStatus] | None = None) -> int:
+        return sum(1 for run in self._runs.values() if status is None or run.status in status)
 
     def update(self, run: AnalysisRun) -> None:
         self._runs[run.id] = run

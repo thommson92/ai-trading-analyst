@@ -37,9 +37,15 @@ function Wert({ wert }: { wert: JsonWert }): ReactNode {
       </ul>
     );
   }
+  const felder = Object.entries(wert);
+  if (felder.length === 0) {
+    // Wie bei der leeren Liste: Ein Objekt ohne Felder waere sonst gar nichts
+    // zu sehen -- und "nichts zu sehen" liest sich wie "nicht vorhanden".
+    return <span className="fehlt">leer</span>;
+  }
   return (
     <dl className="felder">
-      {Object.entries(wert).map(([schluessel, inhalt]) => (
+      {felder.map(([schluessel, inhalt]) => (
         <div key={schluessel}>
           <dt>{beschrifte(schluessel)}</dt>
           <dd>

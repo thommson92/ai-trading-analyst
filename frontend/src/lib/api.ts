@@ -112,15 +112,23 @@ async function holen<T>(pfad: string): Promise<T> {
 }
 
 export function listRuns(
-  optionen: { limit?: number; offset?: number; status?: RunStatus } = {},
+  optionen: { limit?: number; offset?: number; status?: readonly RunStatus[] } = {},
 ): Promise<Page<AnalysisRun>> {
   const suche = new URLSearchParams();
   if (optionen.limit !== undefined) suche.set('limit', String(optionen.limit));
   if (optionen.offset !== undefined) suche.set('offset', String(optionen.offset));
-  if (optionen.status !== undefined) suche.set('status', optionen.status);
+  // Mehrfach derselbe Name: So nimmt die API eine Liste von Status entgegen.
+  for (const status of optionen.status ?? []) suche.append('status', status);
   const anhang = suche.size > 0 ? `?${suche.toString()}` : '';
   return holen<Page<AnalysisRun>>(`/api/v1/analysis-runs${anhang}`);
 }
+
+// Was "erfolgreich" heisst, entscheidet nicht die Oberflaeche: Ein Lauf, bei
+// dem eine von zweihundert Aktien an einem isolierten Modulfehler haengen
+// blieb, ist PARTIALLY_COMPLETED -- abgeschlossen, mit gueltigen Ergebnissen
+// (Doc 10, Paragraph 11). Nur COMPLETED zu zaehlen hiesse, nach einem
+// einzigen Anbieterfehler dauerhaft "noch keiner" anzuzeigen.
+export const ERFOLGREICH: readonly RunStatus[] = ['COMPLETED', 'PARTIALLY_COMPLETED'];
 
 export function getRun(runId: string): Promise<AnalysisRunDetail> {
   return holen<AnalysisRunDetail>(`/api/v1/analysis-runs/${runId}`);

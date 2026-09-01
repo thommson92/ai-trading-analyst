@@ -147,30 +147,41 @@ aus `watchlists/`:
 .venv\Scripts\python.exe -m ai_trading_analyst.cli watchlist
 ```
 
-Dann ein vollständiger Analyse-Lauf ohne externe Abhängigkeit. Der Weg dahin
-führt über die API, nicht über die Kommandozeile: `cli screen` ist das
-IBKR-Kommando und weist einen Lauf mit `fixture` ausdrücklich ab
-(Rückgabewert 2), weil es sonst mit dem ausgelieferten Standard eine
-TWS-Verbindung aufbaute. `POST /api/v1/analysis-runs` dagegen läuft mit den
-Anbietern aus der Konfiguration — ausgeliefert also `fixture` — und legt das
-Ergebnis in PostgreSQL ab.
+Dann die Datenbank durch die Anwendung hindurch:
 
 ```powershell
 # In einem ersten Fenster:
-.venv\Scripts\uvicorn.exe ai_trading_analyst.main:app
+.venv\Scripts\python.exe -m uvicorn ai_trading_analyst.main:app
 
 # In einem zweiten:
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/system/readiness
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/analysis-runs
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/api/v1/analysis-runs
 ```
 
 `readiness` muss `ready` und `ok` melden — damit ist die Datenbank
-nachgewiesen erreichbar. Der `POST` liefert den angelegten Lauf zurück, der
-abschließende `GET` zeigt ihn in der Liste.
+nachgewiesen über die Anwendung erreichbar, nicht nur über `psql`. Der `GET`
+antwortet auf einer frischen Installation mit einer leeren Seite
+(`total: 0`); das ist der Beweis, dass der Lesepfad steht.
 
-**Abbruch, wenn:** die Watchlist leer ist, `readiness` nicht `ready` meldet oder
-der `POST` keinen Analyse-Lauf zurückgibt.
+> **Diese Stufe erzeugt seit dem 2026-09-01 keinen Analyse-Lauf mehr.** Sie
+> tat es über `POST /api/v1/analysis-runs`, und diesen Endpunkt gibt es nicht
+> mehr: Er lief mit den Anbietern aus der Konfiguration — auf dem Server also
+> den Fixtures — und hätte einen Lauf aus erfundenen Werten in die
+> Produktivdatenbank geschrieben, ununterscheidbar von einem echten
+> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Über die
+> Kommandozeile geht es nicht: `cli screen` und `cli dispatch` sind
+> IBKR-Kommandos und weisen einen Lauf mit `fixture` ausdrücklich ab
+> (Rückgabewert 2).
+>
+> Die Kette Konfiguration → Watchlist → Domain → PostgreSQL ist damit auf
+> diesem Rechner nicht mehr *vor* der TWS bewiesen, sondern erst in Stufe F.
+> Geprüft ist sie weiterhin — `backend/tests/integration/test_full_run.py`
+> fährt genau diese Kette mit Fixtures gegen ein echtes PostgreSQL, in jedem
+> CI-Lauf. Wer den Beweis auch auf dem Server will, braucht dafür ein eigenes
+> Kommando; es gibt bewusst keines.
+
+**Abbruch, wenn:** die Watchlist leer ist oder `readiness` nicht `ready`
+meldet.
 
 ---
 

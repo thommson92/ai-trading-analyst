@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 import { Berichtsliste } from '@/components/Berichtsliste';
 import type { AnalysisRun, AnalysisRunDetail, ReportSummary } from '@/lib/api';
-import { formatZeitpunkt, LAUFSTATUS_TEXT, sortiereNachSwingScore } from '@/lib/format';
+import { formatZeitpunkt, LAUFSTATUS_TEXT } from '@/lib/format';
 
 export interface TagesuebersichtProps {
   lauf: AnalysisRunDetail;
@@ -20,7 +20,6 @@ export function Tagesuebersicht({
   letzterErfolg,
   kandidaten,
 }: TagesuebersichtProps): ReactNode {
-  const sortiert = sortiereNachSwingScore(kandidaten);
   return (
     <>
       <section aria-labelledby="lauf-titel">
@@ -78,10 +77,10 @@ export function Tagesuebersicht({
 
       <section aria-labelledby="kandidaten-titel">
         <h2 id="kandidaten-titel">Kandidaten nach Swing-Score</h2>
-        {sortiert.length === 0 ? (
+        {kandidaten.length === 0 ? (
           <p>Dieser Lauf hat keinen Kandidaten hervorgebracht.</p>
         ) : (
-          <Berichtsliste berichte={sortiert} />
+          <Berichtsliste berichte={kandidaten} />
         )}
       </section>
     </>

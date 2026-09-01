@@ -82,6 +82,7 @@ def _outcome(
     status: ScreeningStatus = ScreeningStatus.CANDIDATE,
     earnings: EarningsFilterStatus | None = None,
     mit_scores: bool = False,
+    swing: float = 7.4,
 ) -> StockScreeningOutcome:
     return StockScreeningOutcome(
         analysis_run_id=run.id,
@@ -95,7 +96,7 @@ def _outcome(
             if earnings is None
             else EarningsFilterResult(status=earnings, evaluated_at=datetime.now(UTC))
         ),
-        swing_score=_score(ScoreKind.SWING, 7.4) if mit_scores else None,
+        swing_score=_score(ScoreKind.SWING, swing) if mit_scores else None,
         investment_score=_score(ScoreKind.LONG_TERM, 5.1) if mit_scores else None,
         recommendation=(
             RecommendationResult(
@@ -116,6 +117,8 @@ def _speichere(
     run: AnalysisRun,
     outcomes: tuple[StockScreeningOutcome, ...] = (),
     mit_bericht: bool = False,
+    mit_scores: bool = True,
+    swing: float = 7.4,
     fehler: int = 0,
     bericht_erstellt_am: datetime | None = None,
 ) -> None:
@@ -127,7 +130,7 @@ def _speichere(
         if mit_bericht:
             uow.stock_reports.add(
                 build_report(
-                    _outcome(stock, run, mit_scores=True),
+                    _outcome(stock, run, mit_scores=mit_scores, swing=swing),
                     created_at=bericht_erstellt_am or datetime.now(UTC),
                     app_version="0.1.0",
                 )
@@ -204,6 +207,56 @@ class TestLaufliste:
         assert seite["total"] == 1
         assert [eintrag["status"] for eintrag in seite["items"]] == ["FAILED"]
 
+    def test_mehrere_status_gehen_gemeinsam(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        """"Der letzte erfolgreiche Lauf" ist COMPLETED **oder**
+        PARTIALLY_COMPLETED: Ein Lauf, bei dem eine von zweihundert Aktien an
+        einem isolierten Modulfehler haengen blieb, ist abgeschlossen
+        (Doc 10, Paragraph 11). Mit nur einem Wert je Abfrage stuende in der
+        Tagesuebersicht nach einem einzigen Anbieterfehler dauerhaft
+        "noch keiner"."""
+        with uow_factory() as uow:
+            uow.analysis_runs.add(make_run(status=RunStatus.COMPLETED))
+            uow.analysis_runs.add(make_run(status=RunStatus.PARTIALLY_COMPLETED))
+            uow.analysis_runs.add(make_run(status=RunStatus.FAILED))
+            uow.commit()
+
+        seite = client.get(
+            "/api/v1/analysis-runs",
+            params=[("status", "COMPLETED"), ("status", "PARTIALLY_COMPLETED")],
+        ).json()
+
+        assert seite["total"] == 2
+        assert {eintrag["status"] for eintrag in seite["items"]} == {
+            "COMPLETED",
+            "PARTIALLY_COMPLETED",
+        }
+
+    def test_offset_blaettert_weiter(self, client: TestClient, uow_factory: UowFactory) -> None:
+        """Gegen echtes SQL: ``.limit().offset()`` mit fester Reihenfolge."""
+        jetzt = datetime.now(UTC)
+        with uow_factory() as uow:
+            for stunden in range(3):
+                run = make_run(status=RunStatus.COMPLETED)
+                uow.analysis_runs.add(
+                    AnalysisRun(
+                        id=run.id,
+                        status=run.status,
+                        started_at=jetzt - timedelta(hours=stunden),
+                    )
+                )
+            uow.commit()
+
+        erste = client.get("/api/v1/analysis-runs", params={"limit": 2}).json()
+        zweite = client.get("/api/v1/analysis-runs", params={"limit": 2, "offset": 2}).json()
+
+        assert len(erste["items"]) == 2
+        assert len(zweite["items"]) == 1
+        assert zweite["total"] == 3 and zweite["offset"] == 2
+        # Keine Ueberschneidung: Was auf Seite eins stand, steht nicht auf zwei.
+        assert {e["id"] for e in erste["items"]}.isdisjoint({e["id"] for e in zweite["items"]})
+
     def test_limit_ueber_der_obergrenze_wird_abgewiesen(self, client: TestClient) -> None:
         assert client.get("/api/v1/analysis-runs", params={"limit": 500}).status_code == 422
 
@@ -272,6 +325,41 @@ class TestBerichte:
         assert eintrag["swing_score"] == 7.4
         assert eintrag["investment_score"] == 5.1
 
+    def test_kurzliste_folgt_der_rangfolge_der_meldung(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        """Bester Swing-Score zuerst, fehlender zuletzt, bei Gleichstand nach
+        Symbol -- dieselbe Rangfolge wie in der Telegram-Meldung. Sortiert
+        die API nicht, sondern jede Anzeige fuer sich, steht dieselbe Liste
+        an zwei Stellen verschieden."""
+        run = make_run(status=RunStatus.COMPLETED)
+        _speichere(uow_factory, stock=make_stock("MITTE"), run=run, mit_bericht=True, swing=7.4)
+        for symbol, swing, scores in (
+            ("BESTE", 9.1, True),
+            ("GLEICH", 7.4, True),
+            ("OHNE", 0.0, False),
+        ):
+            with uow_factory() as uow:
+                aktie = make_stock(symbol)
+                uow.stocks.add(aktie)
+                uow.stock_reports.add(
+                    build_report(
+                        _outcome(aktie, run, mit_scores=scores, swing=swing),
+                        created_at=datetime.now(UTC),
+                        app_version="0.1.0",
+                    )
+                )
+                uow.commit()
+
+        eintraege = client.get(f"/api/v1/analysis-runs/{run.id}/reports").json()
+
+        assert [eintrag["symbol"] for eintrag in eintraege] == [
+            "BESTE",
+            "GLEICH",
+            "MITTE",
+            "OHNE",
+        ]
+
     def test_berichte_eines_unbekannten_laufs_liefern_404(self, client: TestClient) -> None:
         assert client.get(f"/api/v1/analysis-runs/{uuid.uuid4()}/reports").status_code == 404
 
@@ -336,6 +424,33 @@ class TestHistorieJeAktie:
 
         assert seite["total"] == 0
         assert seite["items"] == []
+
+    def test_offset_und_obergrenze_gelten_auch_hier(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("BLAETTER")
+        jetzt = datetime.now(UTC)
+        for tage in range(3):
+            _speichere(
+                uow_factory,
+                stock=stock,
+                run=make_run(status=RunStatus.COMPLETED),
+                mit_bericht=True,
+                bericht_erstellt_am=jetzt - timedelta(days=tage),
+            )
+
+        zweite = client.get(
+            "/api/v1/stocks/BLAETTER/reports", params={"limit": 2, "offset": 2}
+        ).json()
+
+        assert zweite["total"] == 3
+        assert len(zweite["items"]) == 1
+        assert (
+            client.get(
+                "/api/v1/stocks/BLAETTER/reports", params={"limit": 500}
+            ).status_code
+            == 422
+        )
 
     def test_unbekannte_aktie_liefert_404(self, client: TestClient) -> None:
         assert client.get("/api/v1/stocks/GIBTESNICHT/reports").status_code == 404

@@ -66,14 +66,17 @@ describe('Tagesuebersicht', () => {
     expect(screen.getByText('Keine.')).not.toBeNull();
   });
 
-  it('sortiert die Kandidaten nach Swing-Score und zeigt fehlende Werte als Strich', () => {
+  it('zeigt fehlende Werte als Strich und uebernimmt die Reihenfolge der API', () => {
+    // Sortiert wird im Backend (dieselbe Rangfolge wie in der Meldung); die
+    // Komponente stellt dar, was sie bekommt.
+
     render(
       <Tagesuebersicht
         lauf={LAUF}
         letzterErfolg={null}
         kandidaten={[
-          bericht({ report_id: 'r1', symbol: 'OHNE', swing_score: null, recommendation: null }),
           bericht({ report_id: 'r2', symbol: 'STARK', swing_score: 8.2 }),
+          bericht({ report_id: 'r1', symbol: 'OHNE', swing_score: null, recommendation: null }),
         ]}
       />,
     );
