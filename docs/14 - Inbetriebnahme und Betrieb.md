@@ -1060,42 +1060,89 @@ Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
 > bewerten nach stabilem Betrieb, zusammen mit der Expositionsfrage aus
 > [ADR 0049](adr/0049-dashboard-mvp-nur-lan.md).
 
-Das Skript liegt **außerhalb des Repositories** (wie die `.env`), etwa als
-`C:\...\backup-ata.ps1`:
+### Das Passwort zuerst
 
-```powershell
-$stamp = Get-Date -Format yyyy-MM-dd
-pg_dump -Fc -U ata -d ai_trading_analyst `
-    -f "C:\...\backups\ata\ai_trading_analyst-$stamp.dump"
-Get-ChildItem "C:\...\backups\ata\*.dump" |
-    Where-Object LastWriteTime -lt (Get-Date).AddDays(-14) | Remove-Item
+`%APPDATA%\postgresql\pgpass.conf` anlegen, eine Zeile:
+
+```
+localhost:5432:*:ata:<passwort>
 ```
 
-Vierzehn Tage rollierend: lang genug, um einen erst spät bemerkten Fehler
-zu überleben, kurz genug, dass der Ordner nicht wächst. Das **Passwort
-steht nie in den Task-Argumenten**, sondern in
-`%APPDATA%\postgresql\pgpass.conf` (eine Zeile:
-`localhost:5432:*:ata:<passwort>`) — Task-Argumente sind im
-Aufgabenplaner für jeden lesbar, der den Rechner sieht.
+**Nie in die Task-Argumente.** Die sind im Aufgabenplaner für jeden lesbar,
+der den Rechner sieht.
+
+### Die beiden Skripte
+
+Sie liegen **im Repository** unter `scripts\` und wandern damit mit `git
+pull` mit. Anders als die `.env` enthalten sie kein Geheimnis — das Passwort
+steht in der `pgpass.conf`, nicht im Skript. Ein Sicherungsskript, das nur
+auf einem Rechner existiert und nirgends versioniert ist, wäre selbst ein
+Ausfallrisiko.
+
+| Skript | Zweck |
+|---|---|
+| `scripts\sicherung.ps1` | täglicher Dump, Lesbarkeitsprüfung, Aufräumen alter Stände |
+| `scripts\sicherung-probe.ps1` | Zählprobe: Wiederherstellung in eine Wegwerfdatenbank |
+
+Erster Lauf von Hand, um zu sehen, dass er trägt:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel D:\backups\ata
+echo $LASTEXITCODE
+```
+
+Erwartet: `0`, eine Zeile „Sicherung erfolgreich" mit Größenangabe, und eine
+`.dump`-Datei im Zielordner. **Rückgabewert 2 heißt: keine brauchbare
+Sicherung** — der Grund steht darüber und zusätzlich in
+`sicherung.log` neben den Dumps.
+
+Zwei Eigenschaften des Skripts, die den Unterschied machen:
+
+- Es **prüft den Dump auf Lesbarkeit** (`pg_restore --list`), nicht nur auf
+  Vorhandensein. Ein abgebrochener Schreibvorgang hinterlässt ebenfalls eine
+  Datei.
+- Es **räumt erst nach einer erfolgreichen Sicherung auf.** Umgekehrt
+  löschte ein fehlgeschlagener Lauf die letzten funktionierenden Stände.
+
+### In die Aufgabenplanung
 
 | Feld | Wert |
 |---|---|
+| Name | `AI Trading Analyst — Sicherung` |
 | Trigger | Täglich, Beginn **22:00** (nach dem Dispatch-Fenster 17:30–21:30) |
 | Programm | `powershell.exe` |
-| Argumente | `-NoProfile -File C:\...\backup-ata.ps1` |
+| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel D:\backups\ata` |
 
-**Restore-Probe** — einmal bei der Einrichtung und danach bei jedem
-Pflegetermin, **niemals in die Produktivdatenbank**:
+Anders als der Tageslauf braucht diese Aufgabe **keine** angemeldete Sitzung
+— sie spricht nur PostgreSQL an, nicht die TWS. „Unabhängig von der
+Benutzeranmeldung ausführen" ist hier richtig.
+
+Die Spalte **„Letztes Ausführungsergebnis"** im Aufgabenplaner ist das
+einzige Signal, das ohne Zutun sichtbar wird. Sie zeigt genau den
+Rückgabewert des Skripts; deshalb meldet es einen Fehlschlag als 2 und nicht
+als 0.
+
+### Zählprobe
+
+Einmal bei der Einrichtung, danach bei jedem Pflegetermin:
 
 ```powershell
-psql -U ata -d postgres -c "CREATE DATABASE ata_restore_test OWNER ata;"
-pg_restore -U ata -d ata_restore_test "C:\...\backups\ata\<juengster>.dump"
-psql -U ata -d ata_restore_test -c "SELECT count(*) FROM intraday_bars;"
-psql -U ata -d ata_restore_test -c "SELECT count(*) FROM analysis_runs;"
-psql -U ata -d postgres -c "DROP DATABASE ata_restore_test;"
+powershell.exe -NoProfile -File scripts\sicherung-probe.ps1 -Quelle D:\backups\ata
 ```
 
-Die Zählwerte müssen zu den Produktivzahlen des Sicherungstages passen.
+Das Skript stellt den jüngsten Dump in die Wegwerfdatenbank
+`ata_restore_probe` wieder her, zählt `intraday_bars`, `analysis_runs`,
+`stock_reports` und `stocks`, stellt die Produktivzahlen daneben und wirft
+die Wegwerfdatenbank wieder weg — auch nach einem Abbruch.
+
+**Die Produktivdatenbank wird nie beschrieben.** Der Zielname steht fest im
+Skript und ist kein Parameter: Ein Parameter ließe sich mit dem
+Produktivnamen belegen, und das Skript löscht seine Zieldatenbank am Ende.
+
+Seither hinzugekommene Läufe erklären eine Differenz zwischen beiden Spalten.
+Eine Null erklärt nichts.
+
 **Abnahmekriterium:** ein automatisch entstandener Dump und eine
 durchgespielte Zählprobe.
 

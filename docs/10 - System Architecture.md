@@ -1475,7 +1475,8 @@ existiert nicht.
 > **Umsetzungsstand:** Der Abschnitt „Sicherung" in
 > [Doc 14](14%20-%20Inbetriebnahme%20und%20Betrieb.md) setzt die einfache
 > Stufe davon um — täglicher `pg_dump` über die Aufgabenplanung, vierzehn
-> Tage rollierend, mit durchgespielter Wiederherstellung. **Eine der fünf
+> Tage rollierend, mit Lesbarkeitsprüfung und durchgespielter
+> Wiederherstellung (`scripts/sicherung.ps1`, `scripts/sicherung-probe.ps1`). **Eine der fünf
 > Mindestanforderungen bleibt bewusst offen:** Die Ablage liegt auf demselben
 > Laufwerk, schützt also gegen Fehlbedienung und kaputte Migration, nicht
 > gegen den Ausfall der Platte. Neu zu bewerten nach stabilem Betrieb. Das
