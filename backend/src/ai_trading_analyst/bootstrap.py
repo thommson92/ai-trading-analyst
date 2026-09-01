@@ -605,7 +605,10 @@ def build_app() -> FastAPI:
             return False
         return True
 
-    app = create_app()
+    # Der Export liegt neben ``config/`` im Projekt und wandert mit ihm; ein
+    # eigener Konfigurationswert waere eine Einstellung, die nie jemand
+    # anders setzt (ADR 0052).
+    app = create_app(project_root(loaded.source_path) / "frontend" / "out")
     app.state.uow_factory = uow_factory
     app.state.run_overview_use_case = ReadRunOverviewUseCase(uow_factory)
     app.state.check_database_ready = check_database_ready

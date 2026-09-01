@@ -134,7 +134,7 @@ Noch offen:
 |---|---|
 | Fundamental Agent, KI-Hälfte | Sprint 4 — die deterministischen Kennzahlen stehen ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md), [ADR 0033](docs/adr/0033-zwoelfmonatswerte-statt-jahresabschluss.md)), die Einordnung folgt |
 | Report Generator, KI-Hälfte | Sprint 4 — der deterministische Bericht steht ([ADR 0039](docs/adr/0039-report-generator.md)), die Formulierung folgt |
-| Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst; der Zugriff ist entschieden ([ADR 0049](docs/adr/0049-dashboard-mvp-nur-lan.md): nur eigenes Netz, keine Auth im MVP) |
+| Dashboard am Server einrichten | Sprint 6 — Lese-API und drei Ansichten (Tagesübersicht, Berichtsdetail, Historie je Aktie) sind gebaut; die Auslieferung auf dem Windows-Server steht aus ([Doc 14, Stufe J](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md)) |
 
 Der Erledigungsstand der Befunde aus dem
 [Repository-Audit 2](docs/audits/2026-08-31-repository-audit-2.md) wird in
@@ -410,7 +410,7 @@ einer deutschen Uhrzeit** und steht deshalb nicht im Code, sondern in der
 Betriebsdokumentation: **[Doc 14 — Inbetriebnahme und
 Betrieb](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md)**.
 
-Dort stehen auch die Abnahme in neun Stufen (A–I), die Rückgabewerte, mit
+Dort stehen auch die Abnahme in zehn Stufen (A–J), die Rückgabewerte, mit
 denen die Aufgabenplanung nur meldet was wirklich schiefging, und das
 Vorgehen im laufenden Betrieb samt Sicherung und Pflegeturnus.
 
@@ -439,8 +439,25 @@ cd backend
 cd frontend
 npm run lint
 npm run typecheck
-npm run build
+npm test                                # Vitest + Testing Library
+npm run build                           # statischer Export nach frontend/out
 ```
+
+### Dashboard lokal ansehen
+
+Im Betrieb liefert die API den gebauten Export unter `/` mit aus — ein
+Prozess, ein Port ([ADR 0052](docs/adr/0052-dashboard-als-statischer-export.md)):
+
+```bash
+cd frontend && npm run build && cd ../backend
+ATA_DATABASE_URL=postgresql+psycopg://… .venv/bin/python -m uvicorn ai_trading_analyst.main:app
+```
+
+Zum Entwickeln laufen beide getrennt (`npm run dev` auf Port 3000, `uvicorn`
+auf 8000). Damit das Frontend die API findet, braucht es dann
+`frontend/.env.local` mit `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000` —
+im gebauten Stand bleibt die Variable leer, weil beides von derselben
+Herkunft kommt.
 
 ### Tests mit echtem PostgreSQL
 

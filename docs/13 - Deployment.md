@@ -28,7 +28,7 @@ neu bewertet, wenn erstmals etwas entsteht, das ausgeliefert werden muss.
 | Backend | virtuelle Python-Umgebung unter `backend\.venv` |
 | Datenbank | lokal installiertes PostgreSQL |
 | Auslösung | ein Eintrag in der Windows-Aufgabenplanung |
-| Frontend | **noch nicht ausgeliefert** — beschlossen ist die Form, siehe unten |
+| Frontend | statischer Export, von der API mit ausgeliefert — siehe unten |
 
 Es gibt keinen Worker-Dienst und keinen Reverse Proxy. Der Dispatcher ist ein
 idempotenter Einzelstart, kein Dauerprozess
@@ -37,13 +37,18 @@ Zugriff voraus, und der findet nicht statt
 ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md): Das Dashboard bleibt im
 eigenen Netz).
 
-**Wie das Frontend ausgeliefert wird, ist entschieden, aber noch nicht
-gebaut** ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)): als
-statischer Export, den dieselbe FastAPI-Anwendung mit ausliefert, die die
-Lese-API bereitstellt. Kein Container, kein Node zur Laufzeit — `npm` baut,
-mehr nicht. Dazu kommt mit `uvicorn` der erste Dauerprozess des Systems, als
-Autostart-Eintrag der Aufgabenplanung, gebunden ans eigene Netz. Diese Zeile
-wird erst umgeschrieben, wenn es tatsächlich so läuft.
+**Das Frontend ist ein statischer Export**
+([ADR 0052](adr/0052-dashboard-als-statischer-export.md)), den dieselbe
+FastAPI-Anwendung mit ausliefert, die die Lese-API bereitstellt: ein
+Prozess, ein Port, gleiche Herkunft. Kein Container, kein Node zur Laufzeit
+— `npm` baut, mehr nicht. Fehlt der Export, läuft die Anwendung ohne ihn.
+
+Damit bekommt das System mit `uvicorn` seinen **ersten Dauerprozess**,
+gestartet bei Systemstart, erreichbar nur im eigenen Netz
+([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)). Der Analyselauf hängt nicht
+an ihm, und er kann keinen auslösen
+([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Die Einrichtung auf
+dem Server beschreibt Doc 14, Stufe J; sie steht noch aus.
 
 Redis ist durch [ADR 0006](adr/0006-kein-redis-im-mvp.md) ausgeschlossen.
 Koordiniert wird über PostgreSQL.
