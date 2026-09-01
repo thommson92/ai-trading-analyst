@@ -2943,6 +2943,10 @@ def command_dispatch(args: argparse.Namespace) -> int:
     # wie ein Ergebnis aus, nicht wie eine Luecke. Der Ausweg waere dann, die
     # ausgelieferte Konfiguration auf dem Server zu editieren; genau das
     # schliesst Doc 14 aus.
+    #
+    # Fuer die zwei LLM-Agenten gibt es als dritten Wert 'none': der ehrliche
+    # Aus-Schalter fuer einen Scharfbetrieb, der den Agenten nicht bezahlen
+    # will -- UNAVAILABLE mit Grund statt eines Fixture-Schein-Ergebnisses.
     for argument, abschnitt in (
         (args.earnings_provider, "earnings_filter"),
         (args.research_provider, "research"),
@@ -3451,12 +3455,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dispatch.add_argument(
         "--research-provider",
-        choices=("fixture", "anthropic"),
+        choices=("fixture", "anthropic", "none"),
         default=None,
         help=(
             "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' braucht "
             "ATA_LLM_API_KEY und loest je Kandidat einen echten, kostenpflichtigen "
-            "API-Aufruf aus."
+            "API-Aufruf aus. 'none' schaltet den Agenten bewusst ab: Der "
+            "Berichtspunkt erscheint als gekennzeichnete Luecke (provider_disabled) "
+            "statt als Fixture-Schein-Ergebnis; kostet nichts, braucht keinen "
+            "Schluessel."
         ),
     )
     dispatch.add_argument(
@@ -3482,14 +3489,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dispatch.add_argument(
         "--technical-agent-provider",
-        choices=("fixture", "anthropic"),
+        choices=("fixture", "anthropic", "none"),
         default=None,
         help=(
             "Uebersteuert technical_agent.provider nur fuer diesen Lauf. 'anthropic' "
             "braucht ATA_LLM_API_KEY und loest je Kandidat einen kostenpflichtigen "
-            "Modellaufruf aus (rund 0,005 USD). Bewusst getrennt von "
-            "'--research-provider': Beide Agenten sind entkoppelt und haben eigene "
-            "Pools (ADR 0037)."
+            "Modellaufruf aus (rund 0,005 USD). 'none' schaltet den Agenten bewusst "
+            "ab (gekennzeichnete Luecke statt Fixture-Einstufungen). Bewusst "
+            "getrennt von '--research-provider': Beide Agenten sind entkoppelt und "
+            "haben eigene Pools (ADR 0037)."
         ),
     )
     dispatch.add_argument(
@@ -3583,12 +3591,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     technical.add_argument(
         "--agent-provider",
-        choices=("fixture", "anthropic"),
+        choices=("fixture", "anthropic", "none"),
         default=None,
         help=(
             "Uebersteuert technical_agent.provider nur fuer diesen Lauf. "
-            "'anthropic' loest je Symbol einen kostenpflichtigen Modellaufruf aus. "
-            "Bewusst getrennt von '--provider', das die Marktdaten steuert."
+            "'anthropic' loest je Symbol einen kostenpflichtigen Modellaufruf aus, "
+            "'none' schaltet den Agenten bewusst ab (UNAVAILABLE statt "
+            "Fixture-Einstufungen). Bewusst getrennt von '--provider', das die "
+            "Marktdaten steuert."
         ),
     )
     technical.add_argument(
@@ -3684,11 +3694,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research.add_argument(
         "--provider",
-        choices=("fixture", "anthropic"),
+        choices=("fixture", "anthropic", "none"),
         default=None,
         help=(
             "Uebersteuert research.provider nur fuer diesen Lauf. 'anthropic' loest "
-            "einen echten, kostenpflichtigen API-Aufruf aus."
+            "einen echten, kostenpflichtigen API-Aufruf aus. 'none' liefert die "
+            "gekennzeichnete Luecke (provider_disabled) -- die Einzelprobe des "
+            "abgeschalteten Zustands."
         ),
     )
     research.add_argument("--symbol", required=True, help="Das zu recherchierende Symbol.")
