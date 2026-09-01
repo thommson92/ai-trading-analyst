@@ -59,11 +59,10 @@ jobs:
       # Fund in der zweiten ist nicht dasselbe wie einer in der ersten, aber
       # wissen will man beides. `--disable-pip` haelt den Audit von der
       # Aufloesung fern.
-      # **Die npm-Haelfte meldet derzeit bewusst rot.** `sharp` unterhalb
-      # 0.35 kommt transitiv und optional ueber Next.js 15; die Fassung
-      # dagegen waere Next 16. Der Punkt ist beschieden und steht mit
-      # Begruendung in Doc 14, Abschnitt "Pflege" -- er wird beim naechsten
-      # Turnus neu bewertet.
+      # **Die npm-Haelfte meldet derzeit bewusst rot.** `postcss` kommt
+      # transitiv ueber Next.js 15, und die Fassung dagegen ist Next 16.
+      # Der Punkt ist beschieden und steht mit Begruendung in Doc 14,
+      # Abschnitt "Pflege" -- er wird beim naechsten Turnus neu bewertet.
       - name: Python und npm
         run: |
           stand=0
