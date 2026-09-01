@@ -43,22 +43,31 @@ jobs:
       - name: pip-audit installieren
         run: pip install pip-audit
 
-      # Beide Lock-Dateien: Die produktive traegt, was auf dem Server laeuft,
-      # die Entwicklungsfassung zusaetzlich die Werkzeuge. Ein Fund in der
-      # zweiten ist nicht dasselbe wie einer in der ersten, aber wissen will
-      # man beides. `--disable-pip` haelt den Audit von der Aufloesung fern.
-      - name: Python-Abhaengigkeiten
-        run: |
-          pip-audit --disable-pip \
-            -r backend/requirements.lock.txt \
-            -r backend/requirements-dev.lock.txt
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: npm-Abhaengigkeiten
-        working-directory: frontend
-        run: npm audit --audit-level=high
+      # **Ein Schritt fuer beide Seiten, mit gesammeltem Rueckgabewert.** In
+      # zwei Schritten haette der erste Fund den zweiten verdeckt: Ein
+      # fehlgeschlagener Schritt bricht den Job ab, und die npm-Seite waere
+      # ungeprueft geblieben -- gemerkt beim ersten Lauf.
+      #
+      # Bei Python beide Lock-Dateien: Die produktive traegt, was auf dem
+      # Server laeuft, die Entwicklungsfassung zusaetzlich die Werkzeuge. Ein
+      # Fund in der zweiten ist nicht dasselbe wie einer in der ersten, aber
+      # wissen will man beides. `--disable-pip` haelt den Audit von der
+      # Aufloesung fern.
+      - name: Python und npm
+        run: |
+          stand=0
+          echo "::group::Python"
+          pip-audit --disable-pip \
+            -r backend/requirements.lock.txt \
+            -r backend/requirements-dev.lock.txt || stand=1
+          echo "::endgroup::"
+          echo "::group::npm"
+          (cd frontend && npm audit --audit-level=high) || stand=1
+          echo "::endgroup::"
+          exit $stand
