@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Literal
@@ -29,6 +29,7 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProviderError,
     OptionsDataProvider,
     OptionsDataProviderError,
+    RepeatSuppressionParameters,
     ResearchProvider,
     ResearchProviderError,
     RunStatus,
@@ -38,6 +39,7 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreter,
     TechnicalInterpreterError,
     UnitOfWork,
+    suppression_cutoff,
 )
 from ai_trading_analyst.domain.analysts import (
     AnalystRecommendations,
@@ -216,6 +218,7 @@ class RunAnalysisUseCase:
         notifier: Notifier | None = None,
         notify_without_candidates: bool = False,
         market_timezone: str = "America/New_York",
+        repeat_suppression: RepeatSuppressionParameters | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -236,6 +239,10 @@ class RunAnalysisUseCase:
         self._notifier = notifier
         self._notify_without_candidates = notify_without_candidates
         self._market_timezone = market_timezone
+        self._repeat_suppression = repeat_suppression
+        """``None`` heisst Sperre aus -- fuer manuelle Aufrufer und Tests,
+        die keinen Bestand kennen. Der Tageslauf reicht die konfigurierten
+        Parameter herein (ADR 0054)."""
 
     def _require_expected_candle(self, series: CandleSeries, decision_index: int) -> None:
         """Ist die juengste Kerze die, um die es geht?
@@ -263,6 +270,51 @@ class RunAnalysisUseCase:
                 "die Daten des laufenden Handelstages."
             )
 
+    def _ohne_kuerzlich_analysierte(self, stocks: Sequence[Stock]) -> Sequence[Stock]:
+        """Die Wiederholsperre (ADR 0054): kuerzlich voll analysierte Symbole
+        verlassen den Lauf, bevor irgendetwas fuer sie gerechnet wird.
+
+        Der Anker ist die letzte volle Analyse; ein hier unterdruecktes
+        Wiederauftreten erzeugt keine neue Analysezeile und verlaengert die
+        Sperre deshalb nicht. Die Bars gesperrter Titel fuehrt der Backfill
+        weiter nach -- der Ausschluss sitzt bewusst hier und nicht an der
+        Watchlist.
+        """
+        if self._repeat_suppression is None:
+            return stocks
+        cutoff = suppression_cutoff(datetime.now(UTC), self._repeat_suppression)
+        if cutoff is None:
+            return stocks
+
+        with self._uow_factory() as uow:
+            juengste = uow.screening_results.latest_candidate_analyses(
+                since=cutoff,
+                recommendation_levels=self._repeat_suppression.recommendation_levels,
+            )
+        if not juengste:
+            return stocks
+
+        verbleibend: list[Stock] = []
+        for stock in stocks:
+            zuletzt = juengste.get(stock.symbol)
+            if zuletzt is None:
+                verbleibend.append(stock)
+                continue
+            _logger.info(
+                "Wiederholsperre: %s wird uebersprungen -- zuletzt voll analysiert am %s",
+                stock.symbol,
+                zuletzt.isoformat(),
+            )
+        gesperrt = len(stocks) - len(verbleibend)
+        if gesperrt:
+            _logger.info(
+                "Wiederholsperre: %d von %d Symbolen uebersprungen (Fenster %d Tage)",
+                gesperrt,
+                len(stocks),
+                self._repeat_suppression.window_days,
+            )
+        return verbleibend
+
     def execute(self) -> AnalysisRunSummary:
         run = AnalysisRun(id=uuid4(), status=RunStatus.RUNNING, started_at=datetime.now(UTC))
         with self._uow_factory() as uow:
@@ -284,6 +336,11 @@ class RunAnalysisUseCase:
                 uow.commit()
             return AnalysisRunSummary(run=run)
 
+        stocks = self._ohne_kuerzlich_analysierte(stocks)
+
+        # Die GEFILTERTE Zahl (ADR 0054): Der Laufdatensatz beschreibt, was
+        # der Lauf gerechnet hat -- completion_ratio, Meldungstext und die
+        # Zeilenzahl in screening_results bleiben damit konsistent.
         run.number_of_stocks = len(stocks)
         run.status = RunStatus.SCREENING
         with self._uow_factory() as uow:

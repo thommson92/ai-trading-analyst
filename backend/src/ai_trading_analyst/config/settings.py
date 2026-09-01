@@ -244,6 +244,15 @@ class ScreeningConfig(_Section):
     direction: Literal["LONG", "SHORT"] = "LONG"
 
 
+class RepeatSuppressionConfig(_Section):
+    """Wiederholsperre des Tageslaufs (ADR 0054)."""
+
+    window_days: NonNegativeInt = 7
+    """Kalendertage, in denen ein voll analysiertes Symbol den Lauf
+    komplett auslaesst. ``0`` schaltet die Sperre ab -- deshalb
+    ``NonNegativeInt`` und nicht ``PositiveInt``."""
+
+
 class BacktestingConfig(_Section):
     """Historische Signalbewertung (Doc 10, Paragraph 6.6)."""
 
@@ -1018,6 +1027,7 @@ class AppConfig(_Section):
     market: MarketConfig = MarketConfig()
     market_data: MarketDataConfig = MarketDataConfig()
     screening: ScreeningConfig = ScreeningConfig()
+    repeat_suppression: RepeatSuppressionConfig = RepeatSuppressionConfig()
     backtesting: BacktestingConfig = BacktestingConfig()
     earnings_filter: EarningsFilterConfig = EarningsFilterConfig()
     analyst_ratings: AnalystRatingsConfig = AnalystRatingsConfig()

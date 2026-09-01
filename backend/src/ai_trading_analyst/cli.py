@@ -81,6 +81,7 @@ from ai_trading_analyst.bootstrap import (
     build_ibkr_bar_source,
     build_market_data_provider,
     build_options_provider,
+    build_repeat_suppression_params,
     build_research_provider,
     build_scoring_params,
     build_session_parameters,
@@ -3177,6 +3178,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             notifier=notifier,
             notify_without_candidates=config.notifications.send_when_no_candidates,
             market_timezone=config.market.timezone,
+            # Nur im Tageslauf: Ein manueller 'screen' kennt keine Sperre --
+            # dort entscheidet der Mensch, was er sehen will (ADR 0054).
+            repeat_suppression=build_repeat_suppression_params(config),
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
