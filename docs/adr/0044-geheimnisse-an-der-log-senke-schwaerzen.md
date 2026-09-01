@@ -158,9 +158,15 @@ wirkt für jedes registrierte Geheimnis und für Texte, die das System nicht
 selbst formuliert hat. Die Entscheidung dieses ADR — Schwärzung an der
 Senke statt an der einzelnen Meldung — ist unverändert gültig.
 
-**Zu bestätigen bleibt der erste Abruf gegen den echten Dienst.** Die
-Adaptertests prüfen mit `httpx.MockTransport`, dass der Header gesetzt und
-die URL sauber ist; dass Finnhub den Header auf beiden genutzten Endpunkten
-akzeptiert, ist dokumentiert, aber hier nicht gemessen. Eine Einzelprobe
-(`cli ratings --symbol AAPL --provider finnhub`) auf dem Server beweist es
-in einem Aufruf.
+**Am echten Dienst bestätigt** (Server, 2026-09-01, 14:33 UTC):
+`cli ratings --symbol AAPL --provider finnhub` liefert
+`COMPLETED` mit vier Monatsständen. Die Zugriffszeile, die `httpx` selbst
+auf `INFO` schreibt, lautet dabei:
+
+```text
+HTTP Request: GET https://finnhub.io/api/v1/stock/recommendation?symbol=AAPL "HTTP/1.1 200 OK"
+```
+
+Genau das war der Punkt: **kein `token=` mehr in der URL** — und damit in
+keiner der drei Stellen aus dem Kontext. Vorher stand der Schlüssel hier bei
+jedem Abruf, rund zweihundertmal je Tageslauf.

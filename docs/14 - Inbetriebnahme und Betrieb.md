@@ -1012,6 +1012,17 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
    genutzt wird. Die offenen Meldungen gehören einmal je Turnus angesehen
    und beschieden: aktualisieren, oder mit Begründung stehen lassen.
 
+   **Offen stehen gelassen (Stand 2026-09-01):** `sharp` unterhalb 0.35.0
+   mit vier libvips-CVEs, transitiv über Next.js 15. Die Fassung dagegen
+   wäre Next 16 und damit ein Bruch; `sharp` ist bei Next eine *optionale*
+   Abhängigkeit für die Bildoptimierung, die ein statischer Export nicht
+   ausführt und die dieses Frontend nirgends benutzt. **Solange der Punkt
+   steht, meldet die npm-Hälfte der Prüfung dauerhaft rot** — wer sie
+   ansieht, muss wissen, dass das dieser eine bekannte Fund ist und nicht
+   ein neuer. Beim nächsten Turnus neu zu bewerten; billiger als Next 16
+   wären ein `overrides`-Eintrag auf `sharp ^0.35` oder der Verzicht auf
+   optionale Abhängigkeiten in der Prüfung.
+
 Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
 wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).
 
