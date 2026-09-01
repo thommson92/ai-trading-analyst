@@ -56,8 +56,9 @@ market_data:
     native_bar_minutes: 15
     # Zeitraum je Abruf in IBKR-Schreibweise. Muss den Warm-up von 250 Kerzen
     # (= 125 Handelstage) abdecken, sonst bleibt jede Aktie dauerhaft
-    # UNKNOWN_DATA_INCOMPLETE. Der 5-Jahres-Backfill laeuft spaeter als
-    # eigener Batch-Job mit Chunking (ADR 0014, E3).
+    # UNKNOWN_DATA_INCOMPLETE. Fuer die volle Tiefe gibt es den einmaligen
+    # Tiefen-Backfill 'cli deepen-history' (ADR 0028); dieser Wert hier
+    # steuert nur den regelmaessigen Lueckenschluss.
     history_duration: 1 Y
     # Verzeichnis mit den exportierten Watchlisten (*.txt), relativ zum
     # Projektwurzelverzeichnis. Alle Dateien darin werden eingelesen,

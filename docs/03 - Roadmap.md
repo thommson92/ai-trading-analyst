@@ -144,24 +144,28 @@ Generators. Beide Modellprofile stehen konfiguriert bereit.
 
 Optionen & Scoring
 
-- **Scoring Engine** — Komponenten und Gewichte sind entschieden
-  ([ADR 0041](adr/0041-score-komponenten-und-gewichte.md)): sechs Komponenten
-  für den Swing-Score, vier für den Investment-Score. Fehlende Komponenten
-  werden umgewichtet; unterhalb von 60 % Abdeckung entsteht kein Score,
-  sondern `INSUFFICIENT_DATA`.
-  **Voraussetzung, kein Restposten:** Die Schwellen (Kennzahl → Teilwert 0–10)
-  werden zuerst an einem Lauf über die volle Watchliste kalibriert. Ein
-  geratener Teilwert ist eine erfundene Zahl
-- **Empfehlung** (Berichtspunkt 16) — die Ableitung aus beiden Scores und die
-  Regel für begrenzende Risiken. Damit kann auch die Ergebnismeldung erstmals
-  ein Ergebnis nennen
-- **Optionsanalyse** — Cash Secured Puts über die IBKR-Optionskette. Die
-  Machbarkeit ist gemessen (Spike vom 2026-08-11: Greeks nach Aktivierung des
-  Optionsmarktdaten-Abos). Neu ist die Laufzeitabhängigkeit von der TWS: Der
-  Tageslauf liest heute aus dem eigenen Bestand, Optionsquotes gibt es nur
-  live. Zum Analysezeitpunkt (12:50 New Yorker Zeit) ist der Markt offen
-- **Optionsattraktivität in den Swing-Score** — die letzte der sechs
-  Komponenten, hebt `swing_version`
+- **Scoring Engine** — **umgesetzt** (PR #58): sechs Komponenten für den
+  Swing-Score, vier für den Investment-Score
+  ([ADR 0041](adr/0041-score-komponenten-und-gewichte.md)). Fehlende
+  Komponenten werden umgewichtet; unterhalb von 60 % Abdeckung entsteht
+  `INSUFFICIENT_DATA`. Die Schwellen sind an der vollen Watchliste
+  **gemessen**, nicht gesetzt
+  ([ADR 0045](adr/0045-schwellen-der-score-teilwerte.md))
+- **Empfehlung** (Berichtspunkt 16) — **umgesetzt** (PR #59): Der Swing-Score
+  führt, der Investment-Score korrigiert um höchstens eine Stufe,
+  begrenzende Risiken deckeln
+  ([ADR 0046](adr/0046-empfehlungsstufe-aus-beiden-scores.md)); beide Scores
+  und die Stufe gehen in die Ergebnismeldung
+  ([ADR 0047](adr/0047-scores-in-der-ergebnismeldung.md))
+- **Optionsanalyse** — **umgesetzt** (PR #60): Cash Secured Puts über die
+  IBKR-Optionskette, ein Verfallstermin je Kandidat, drei Vorschläge nach
+  annualisierter Prämienrendite; der Berichtstermin schließt Verfälle danach
+  aus — die dritte gerichtete Kopplung
+  ([ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)). Der Tageslauf fällt
+  in den offenen Markt (12:50 New Yorker Zeit)
+- **Optionsattraktivität in den Swing-Score** — **umgesetzt** (PR #60): die
+  sechste Komponente, `swing_version` 1.2, Schwellen aus dem Messlauf vom
+  2026-08-31 (ADR 0048)
 
 Vorbereitet in Stufe 0: ADR 0041 bis 0043, Doc 09 neu geschrieben, und die
 Analystenempfehlungen, die ADR 0017 mitentschied und die nie gebaut wurden.
