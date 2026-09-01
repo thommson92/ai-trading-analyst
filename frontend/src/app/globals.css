@@ -112,6 +112,76 @@ th.zahl {
   font-variant-numeric: tabular-nums;
 }
 
+.herkunft {
+  color: var(--gedaempft);
+  font-size: 0.85rem;
+}
+
+.abschnitt {
+  border-top: 1px solid var(--linie);
+  padding-top: 0.75rem;
+}
+
+.abschnitt h3 {
+  font-size: 0.95rem;
+  margin: 0.5rem 0;
+}
+
+.fehlt {
+  color: var(--gedaempft);
+}
+
+.vorbehalt {
+  color: var(--warnung);
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+}
+
+.felder {
+  display: grid;
+  gap: 0.25rem 1rem;
+  grid-template-columns: minmax(10rem, 16rem) 1fr;
+  margin: 0;
+}
+
+.felder > div {
+  display: contents;
+}
+
+.felder dt {
+  color: var(--gedaempft);
+  font-size: 0.85rem;
+}
+
+.felder dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Verschachtelte Felder ruecken ein, damit die Ebene erkennbar bleibt. */
+.felder .felder,
+.liste .felder {
+  border-left: 2px solid var(--linie);
+  padding-left: 0.6rem;
+}
+
+.liste {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+@media (max-width: 40rem) {
+  .felder {
+    grid-template-columns: 1fr;
+  }
+
+  .felder > div {
+    display: block;
+    margin-bottom: 0.4rem;
+  }
+}
+
 p[role='alert'] {
   border-left: 3px solid var(--warnung);
   color: var(--warnung);

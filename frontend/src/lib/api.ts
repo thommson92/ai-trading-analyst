@@ -56,6 +56,40 @@ export interface ReportSummary {
   investment_score: number | null;
 }
 
+export type JsonWert =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonWert[]
+  | { [schluessel: string]: JsonWert };
+
+export interface Vorbehalt {
+  art: string;
+  grund: string;
+}
+
+export interface Berichtsabschnitt {
+  nummer: number;
+  verfuegbar: boolean;
+  inhalt: JsonWert;
+  vorbehalte: Vorbehalt[];
+}
+
+export interface ReportDocument {
+  berichtsschema_version: string;
+  anwendungsversion: string;
+  scoring_version: string | null;
+  signalregel_version: string;
+  lauf_id: string;
+  aktie_id: string;
+  erstellt_am: string;
+  // Die Schluessel sind die achtzehn Abschnittsnamen. Bewusst als offene
+  // Zuordnung: Kaeme ein neuer Abschnitt hinzu, soll ihn die Oberflaeche
+  // anzeigen und nicht verschlucken.
+  abschnitte: Record<string, Berichtsabschnitt>;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -94,4 +128,21 @@ export function getRun(runId: string): Promise<AnalysisRunDetail> {
 
 export function listRunReports(runId: string): Promise<ReportSummary[]> {
   return holen<ReportSummary[]>(`/api/v1/analysis-runs/${runId}/reports`);
+}
+
+export function getReport(reportId: string): Promise<ReportDocument> {
+  return holen<ReportDocument>(`/api/v1/reports/${reportId}`);
+}
+
+export function listStockReports(
+  symbol: string,
+  optionen: { limit?: number; offset?: number } = {},
+): Promise<Page<ReportSummary>> {
+  const suche = new URLSearchParams();
+  if (optionen.limit !== undefined) suche.set('limit', String(optionen.limit));
+  if (optionen.offset !== undefined) suche.set('offset', String(optionen.offset));
+  const anhang = suche.size > 0 ? `?${suche.toString()}` : '';
+  return holen<Page<ReportSummary>>(
+    `/api/v1/stocks/${encodeURIComponent(symbol)}/reports${anhang}`,
+  );
 }

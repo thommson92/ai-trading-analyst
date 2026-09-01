@@ -5,14 +5,9 @@
 
 import type { ReactNode } from 'react';
 
+import { Berichtsliste } from '@/components/Berichtsliste';
 import type { AnalysisRun, AnalysisRunDetail, ReportSummary } from '@/lib/api';
-import {
-  formatEmpfehlung,
-  formatScore,
-  formatZeitpunkt,
-  LAUFSTATUS_TEXT,
-  sortiereNachSwingScore,
-} from '@/lib/format';
+import { formatZeitpunkt, LAUFSTATUS_TEXT, sortiereNachSwingScore } from '@/lib/format';
 
 export interface TagesuebersichtProps {
   lauf: AnalysisRunDetail;
@@ -86,26 +81,7 @@ export function Tagesuebersicht({
         {sortiert.length === 0 ? (
           <p>Dieser Lauf hat keinen Kandidaten hervorgebracht.</p>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Symbol</th>
-                <th scope="col">Empfehlung</th>
-                <th scope="col">Swing</th>
-                <th scope="col">Investment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortiert.map((bericht) => (
-                <tr key={bericht.report_id}>
-                  <td>{bericht.symbol}</td>
-                  <td>{formatEmpfehlung(bericht.recommendation)}</td>
-                  <td className="zahl">{formatScore(bericht.swing_score)}</td>
-                  <td className="zahl">{formatScore(bericht.investment_score)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Berichtsliste berichte={sortiert} />
         )}
       </section>
     </>
