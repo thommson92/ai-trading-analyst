@@ -149,6 +149,8 @@ from ai_trading_analyst.infrastructure.ibkr import (
     duration_in_days,
 )
 from ai_trading_analyst.infrastructure.ibkr.calendar import IbkrTradingCalendar
+from ai_trading_analyst.infrastructure.ibkr.chain_recorder import RecordingOptionChainSource
+from ai_trading_analyst.infrastructure.ibkr.option_chain import OptionChainSource
 from ai_trading_analyst.infrastructure.notifications import (
     NotificationChannelNotConfiguredError,
     build_notifier,
@@ -2288,6 +2290,22 @@ def command_options(args: argparse.Namespace) -> int:
     else:
         wanted = [args.symbol.upper()]
 
+    if args.record is not None:
+        if args.watchlist:
+            print(
+                "--record zeichnet eine Kette auf, nicht die ganze Watchliste. "
+                "Mit --symbol aufrufen.",
+                file=sys.stderr,
+            )
+            return 2
+        if config.options.provider != "ibkr":
+            print(
+                "--record braucht '--provider ibkr': Der Fixture-Anbieter hat keine "
+                "TWS-Antwort, die sich aufzeichnen liesse.",
+                file=sys.stderr,
+            )
+            return 2
+
     if args.price is not None and len(wanted) > 1:
         print(
             f"--price gilt fuer ein Symbol, angegeben sind {len(wanted)}. "
@@ -2306,6 +2324,15 @@ def command_options(args: argparse.Namespace) -> int:
             ziel.touch()
         except OSError as error:
             print(f"--output nicht beschreibbar: {error}", file=sys.stderr)
+            return 2
+
+    mitschnittsziel = Path(args.record) if args.record is not None else None
+    if mitschnittsziel is not None:
+        try:
+            mitschnittsziel.parent.mkdir(parents=True, exist_ok=True)
+            mitschnittsziel.touch()
+        except OSError as error:
+            print(f"--record nicht beschreibbar: {error}", file=sys.stderr)
             return 2
 
     kurse: dict[str, float] = {}
@@ -2347,8 +2374,24 @@ def command_options(args: argparse.Namespace) -> int:
         _print_kursherkunft(kurs_stempel, len(wanted))
 
     quelle = build_ibkr_bar_source(config) if config.options.provider == "ibkr" else None
+
+    # Der Mitschnitt haengt sich **zwischen** Adapter und TWS, nicht hinter das
+    # Ergebnis: Aufgehoben wird, was der Anbieter geantwortet hat, nicht was
+    # daraus wurde (A2-M7).
+    mitschnitt: RecordingOptionChainSource | None = None
+    kette: OptionChainSource | None = quelle
+    if mitschnittsziel is not None and quelle is not None and wanted[0] in kurse:
+        mitschnitt = RecordingOptionChainSource(
+            quelle,
+            mitschnittsziel,
+            price=kurse[wanted[0]],
+            as_of=stichtage[wanted[0]],
+            market_data_type=config.options.market_data_type,
+        )
+        kette = mitschnitt
+
     try:
-        provider = build_options_provider(config, project_root(loaded.source_path), quelle)
+        provider = build_options_provider(config, project_root(loaded.source_path), kette)
     except ValueError as error:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
@@ -2376,6 +2419,12 @@ def command_options(args: argparse.Namespace) -> int:
             else:
                 _print_options_summary_line(symbol, analyse)
     finally:
+        # Erst schreiben, dann die Verbindung schliessen -- und auch dann,
+        # wenn der Abruf mittendrin abgebrochen ist: Eine halbe Aufzeichnung
+        # sagt, wie weit es kam.
+        if mitschnitt is not None:
+            mitschnitt.write()
+            print(f"\nMitschnitt der Optionskette geschrieben: {mitschnittsziel}")
         if quelle is not None:
             quelle.close()
 
@@ -3843,6 +3892,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Uebersteuert options.market_data_type: 1 live, 2 'frozen', 3 verzoegert, "
             "4 verzoegert und 'frozen'. Nach Boersenschluss liefert 1 nichts mehr."
+        ),
+    )
+    options.add_argument(
+        "--record",
+        default=None,
+        help=(
+            "Schreibt die Rohantworten der TWS zur Optionskette als JSON mit -- die "
+            "Vorlage fuer den Contract-Test (A2-M7). Nur mit --symbol und "
+            "'--provider ibkr'; am Ergebnis aendert der Schalter nichts."
         ),
     )
     options.set_defaults(handler=command_options)

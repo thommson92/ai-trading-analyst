@@ -378,6 +378,72 @@ Die Reihe muss über 250 Kerzen hinausreichen — darunter antwortet die
 Kandidatenprüfung ausnahmslos mit `UNKNOWN_DATA_INCOMPLETE`, und die
 Aufzeichnung enthielte nichts. Ein Test hält das fest.
 
+## Zwischenschritt: Contract-Antworten einfrieren (einmalig, A2-M7)
+
+Ebenfalls kein Abnahmekriterium — aber der Schritt, der eine ganze
+Fehlerklasse abdeckt, die heute niemand bemerken würde: **die stille
+Formatänderung eines Anbieters.** Alle Adaptertests laufen gegen
+selbstgeschriebene Antworten. Benennt Finnhub morgen ein Feld um, sind sie
+weiterhin grün, und der Tageslauf liefert `INSUFFICIENT_DATA`. Für EDGAR ist
+je eine echte Antwort eingefroren
+(`backend/tests/unit/infrastructure/edgar/data/`); für Finnhub und die
+IBKR-Optionskette fehlt sie.
+
+Die Dateien werden hier auf dem Server gezogen, weil hier die Zugänge liegen
+— und wie beim Golden Master **auf einem kleinen Branch mit Pull Request**,
+nicht direkt auf `dev` ([ADR 0031](adr/0031-merge-schutz-aktiv.md)).
+
+### Die beiden Finnhub-Antworten
+
+Reines HTTP, also genügt `curl.exe`. Der Schlüssel steht seit
+[ADR 0044](adr/0044-geheimnisse-an-der-log-senke-schwaerzen.md) im Kopf, nicht
+in der Adresse — er landet damit **weder in der Datei noch in der
+Kommandohistorie der Shell**. `-o` statt einer Umleitung, damit die Bytes
+unverändert ankommen.
+
+```powershell
+$ziel = "tests\unit\infrastructure\finnhub\data"
+New-Item -ItemType Directory -Force -Path $ziel | Out-Null
+$von = (Get-Date).ToString("yyyy-MM-dd")
+$bis = (Get-Date).AddDays(90).ToString("yyyy-MM-dd")
+
+curl.exe -s -H "X-Finnhub-Token: $env:ATA_FINNHUB_API_KEY" `
+    -o "$ziel\calendar-earnings-AAPL.json" `
+    "https://finnhub.io/api/v1/calendar/earnings?symbol=AAPL&from=$von&to=$bis"
+
+curl.exe -s -H "X-Finnhub-Token: $env:ATA_FINNHUB_API_KEY" `
+    -o "$ziel\recommendation-AAPL.json" `
+    "https://finnhub.io/api/v1/stock/recommendation?symbol=AAPL"
+```
+
+Beide Dateien vor dem Commit **ansehen**: Enthält der Kalender im gewählten
+Fenster keinen Termin, ist die Liste leer — dann ist die Aufzeichnung
+wertlos und das Fenster gehört verlängert oder ein anderes Symbol gewählt.
+
+### Die IBKR-Optionskette
+
+Für die TWS gibt es kein `curl`. Der Mitschnitt hängt deshalb im Programm
+zwischen Adapter und Schnittstelle und schreibt weg, was auf die drei Abrufe
+zurückkam. Er ist **passiv**: Ein Lauf mit `--record` und einer ohne liefern
+dieselbe Analyse.
+
+Bei laufender TWS, im Fenster zwischen 12:50 und 14:50 New Yorker Zeit —
+außerhalb liefert der Live-Modus keine Greeks mehr:
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli options --symbol AAPL `
+    --provider ibkr --market-data-provider ibkr `
+    --record tests\unit\infrastructure\ibkr\data\optionskette-AAPL.json
+```
+
+Bricht der Lauf ab, weil kein Verfallstermin im Fenster liegt, entsteht die
+Datei trotzdem — dann mit der Terminliste und ohne Notierungen. Auch das ist
+ein brauchbarer Fall, aber kein vollständiger: Für den Contract-Test wird
+eine Aufzeichnung **mit** `option_quotes` gebraucht.
+
+Die Datei enthält Kurse und Kontraktdaten eines öffentlich gehandelten
+Papiers — nichts Kontobezogenes, keine Zugangsdaten, keine Order.
+
 ## Zwischenschritt: Reichweite des Handelskalenders messen (optional)
 
 Kein Abnahmekriterium, sondern die Messung, die die Entscheidung E4 getragen
