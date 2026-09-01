@@ -162,5 +162,5 @@ Senke statt an der einzelnen Meldung — ist unverändert gültig.
 Adaptertests prüfen mit `httpx.MockTransport`, dass der Header gesetzt und
 die URL sauber ist; dass Finnhub den Header auf beiden genutzten Endpunkten
 akzeptiert, ist dokumentiert, aber hier nicht gemessen. Eine Einzelprobe
-(`cli ratings --provider finnhub --symbols AAPL`) auf dem Server beweist es
+(`cli ratings --symbol AAPL --provider finnhub`) auf dem Server beweist es
 in einem Aufruf.
