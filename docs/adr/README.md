@@ -83,6 +83,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0046](0046-empfehlungsstufe-aus-beiden-scores.md) | Empfehlungsstufe aus beiden Scores | Angenommen (füllt Berichtspunkt 16 und die News-Komponente; erledigt den offenen Befund aus ADR 0045) |
 | [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8) |
 | [0048](0048-optionsanalyse-im-tageslauf.md) | Cash Secured Puts aus der IBKR-Optionskette | Angenommen (füllt Berichtspunkt 13 und die sechste Score-Komponente; führt die dritte gerichtete Kopplung ein) |
+| [0049](0049-dashboard-mvp-nur-lan.md) | Dashboard-MVP nur im eigenen Netz — keine Exposition, keine eigene Auth | Angenommen (entscheidet F12/E8, entsperrt Sprint 6; Exposition und Auth werden nach stabilem Betrieb neu bewertet) |
 
 ## Offene Entscheidungen
 
@@ -194,4 +195,8 @@ ADR, sobald die nötigen Informationen vorliegen:
   danach aus. Siehe [ADR 0048](0048-optionsanalyse-im-tageslauf.md), das
   zugleich die Schwellen der Optionsattraktivität nach dem Muster von
   [ADR 0045](0045-schwellen-der-score-teilwerte.md) misst.
-- Externer Zugriff auf das Dashboard (F12)
+- Externer Zugriff auf das Dashboard (F12) — **entschieden.** Das MVP ist
+  ausschließlich aus dem eigenen Netz (LAN/VPN) erreichbar, ohne Exposition
+  und ohne eigene Authentifizierung; beides wird nach stabilem Betrieb neu
+  bewertet. Siehe [ADR 0049](0049-dashboard-mvp-nur-lan.md). Damit ist die
+  letzte Sprint-blockierende Frage dieser Liste beantwortet.
