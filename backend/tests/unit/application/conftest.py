@@ -8,6 +8,7 @@ Statusuebergaenge, Fehlerisolation), nicht die Persistenz selbst (dafuer
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
@@ -26,6 +27,7 @@ from ai_trading_analyst.domain.analysis import (
     OptionsDataProviderError,
     ProcessingErrorRepository,
     ResearchProviderError,
+    RunStatus,
     ScreeningResultRepository,
     Stock,
     StockProcessingError,
@@ -36,7 +38,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
-from ai_trading_analyst.domain.earnings import NextEarningsDate
+from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
 from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
@@ -356,8 +358,15 @@ class FakeAnalysisRunRepository:
     def get(self, run_id: uuid.UUID) -> AnalysisRun | None:
         return self._runs.get(run_id)
 
-    def list_all(self) -> tuple[AnalysisRun, ...]:
-        return tuple(self._runs.values())
+    def list_recent(
+        self, *, limit: int, offset: int, status: RunStatus | None = None
+    ) -> tuple[AnalysisRun, ...]:
+        passend = [run for run in self._runs.values() if status is None or run.status == status]
+        passend.sort(key=lambda run: run.started_at, reverse=True)
+        return tuple(passend[offset : offset + limit])
+
+    def count(self, *, status: RunStatus | None = None) -> int:
+        return sum(1 for run in self._runs.values() if status is None or run.status == status)
 
     def update(self, run: AnalysisRun) -> None:
         self._runs[run.id] = run
@@ -372,6 +381,13 @@ class FakeScreeningResultRepository:
 
     def list_for_run(self, run_id: uuid.UUID) -> tuple[StockScreeningOutcome, ...]:
         return tuple(o for o in self.added if o.analysis_run_id == run_id)
+
+    def count_by_earnings_status(self, run_id: uuid.UUID) -> dict[EarningsFilterStatus, int]:
+        gezaehlt: Counter[EarningsFilterStatus] = Counter()
+        for outcome in self.list_for_run(run_id):
+            if outcome.earnings is not None:
+                gezaehlt[outcome.earnings.status] += 1
+        return dict(gezaehlt)
 
 
 class FakeBacktestResultRepository:
@@ -390,6 +406,13 @@ class FakeBacktestResultRepository:
 
 
 
+def _berichtskennung(report: StockReport) -> uuid.UUID:
+    """Dieselbe Eindeutigkeit wie in der Datenbank: ein Bericht je Lauf und
+    Aktie (``uq_stock_report_run_stock``). Abgeleitet statt gewuerfelt, damit
+    zweimaliges Lesen desselben Berichts dieselbe Kennung ergibt."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"{report.analysis_run_id}/{report.stock_id}")
+
+
 class FakeStockReportRepository:
     def __init__(self) -> None:
         self.added: list[StockReport] = []
@@ -397,18 +420,50 @@ class FakeStockReportRepository:
     def add(self, report: StockReport) -> None:
         self.added.append(report)
 
+    def _gespeichert(self, bericht: StockReport) -> StoredReport:
+        return StoredReport(
+            id=_berichtskennung(bericht),
+            symbol=bericht.symbol,
+            created_at=bericht.created_at,
+            report_schema_version=bericht.report_schema_version,
+            app_version=bericht.app_version,
+            recommendation=(
+                bericht.recommendation.level if bericht.recommendation is not None else None
+            ),
+            swing_score=bericht.swing_score.value if bericht.swing_score is not None else None,
+            investment_score=(
+                bericht.investment_score.value if bericht.investment_score is not None else None
+            ),
+            document=as_document(bericht),
+        )
+
     def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[StoredReport, ...]:
         return tuple(
-            StoredReport(
-                symbol=bericht.symbol,
-                created_at=bericht.created_at,
-                report_schema_version=bericht.report_schema_version,
-                app_version=bericht.app_version,
-                document=as_document(bericht),
-            )
+            self._gespeichert(bericht)
             for bericht in self.added
             if bericht.analysis_run_id == analysis_run_id
         )
+
+    def get(self, report_id: uuid.UUID) -> StoredReport | None:
+        return next(
+            (
+                self._gespeichert(bericht)
+                for bericht in self.added
+                if _berichtskennung(bericht) == report_id
+            ),
+            None,
+        )
+
+    def list_for_symbol(self, symbol: str, *, limit: int, offset: int) -> tuple[StoredReport, ...]:
+        passend = sorted(
+            (bericht for bericht in self.added if bericht.symbol == symbol),
+            key=lambda bericht: bericht.created_at,
+            reverse=True,
+        )
+        return tuple(self._gespeichert(bericht) for bericht in passend[offset : offset + limit])
+
+    def count_for_symbol(self, symbol: str) -> int:
+        return sum(1 for bericht in self.added if bericht.symbol == symbol)
 
 
 class FakeProcessingErrorRepository:
@@ -420,6 +475,9 @@ class FakeProcessingErrorRepository:
 
     def list_for_run(self, run_id: uuid.UUID) -> tuple[StockProcessingError, ...]:
         return tuple(e for e in self.added if e.analysis_run_id == run_id)
+
+    def count_for_run(self, run_id: uuid.UUID) -> int:
+        return len(self.list_for_run(run_id))
 
 
 class InMemoryIntradayBarRepository:

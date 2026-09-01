@@ -67,10 +67,10 @@ einem Anwendungsfall der Application-Schicht, nicht im Endpunkt.
 ### Berichte
 
 `GET /api/v1/analysis-runs/{run_id}/reports` gibt eine **Kurzliste**:
-`report_id`, `symbol`, `company_name`, `recommendation`, `swing_score`,
-`investment_score`, `created_at`. Diese Werte stehen als eigene Spalten an
-`stock_reports` — genau dafür gibt es sie: Sie beantworten die Frage, ohne
-das Dokument zu öffnen.
+`report_id`, `symbol`, `recommendation`, `swing_score`, `investment_score`,
+`created_at`. Diese Werte stehen als eigene Spalten an `stock_reports` —
+genau dafür gibt es sie: Sie beantworten die Frage, ohne das Dokument zu
+öffnen. Der Unternehmensname gehört nicht dazu; er steht nur im Dokument.
 
 `GET /api/v1/reports/{report_id}` gibt das gespeicherte Dokument
 **unverändert** zurück, mit seinen deutschen Schlüsseln und allen achtzehn
@@ -92,7 +92,8 @@ Detailansicht.
 
 ## Paginierung
 
-Alle Listen sind paginiert, wie Doc 10 §6.14 es verlangt:
+Die beiden Listen, die **unbegrenzt wachsen**, sind paginiert — die Läufe
+und die Historie einer Aktie. Doc 10 §6.14 verlangt Pagination bei Listen:
 
 - `limit` — Voreinstellung 25, Obergrenze 100,
 - `offset` — Voreinstellung 0,
@@ -100,6 +101,12 @@ Alle Listen sind paginiert, wie Doc 10 §6.14 es verlangt:
 
 Die Antwort ist eine Hülle mit `items`, `total`, `limit` und `offset`. Ohne
 `total` wüsste die Oberfläche nicht, ob eine weitere Seite existiert.
+
+**Die Berichte eines Laufs sind bewusst nicht paginiert.** Ein Bericht
+entsteht nur für einen Kandidaten ([ADR 0039](adr/0039-report-generator.md)),
+und deren Zahl steht als `candidates_found` am Lauf selbst. Eine Seitenlogik
+über eine Liste, die von vornherein begrenzt ist, wäre eine Hülle ohne
+Inhalt.
 
 ## Fehler
 

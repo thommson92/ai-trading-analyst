@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
@@ -167,13 +167,20 @@ class SqlAlchemyAnalysisRunRepository:
         row = self._session.get(AnalysisRunOrm, run_id)
         return None if row is None else _run_from_row(row)
 
-    def list_all(self) -> Sequence[AnalysisRun]:
-        rows = (
-            self._session.execute(select(AnalysisRunOrm).order_by(AnalysisRunOrm.started_at))
-            .scalars()
-            .all()
-        )
+    def list_recent(
+        self, *, limit: int, offset: int, status: RunStatus | None = None
+    ) -> Sequence[AnalysisRun]:
+        abfrage = select(AnalysisRunOrm).order_by(AnalysisRunOrm.started_at.desc())
+        if status is not None:
+            abfrage = abfrage.where(AnalysisRunOrm.status == status)
+        rows = self._session.execute(abfrage.limit(limit).offset(offset)).scalars().all()
         return tuple(_run_from_row(row) for row in rows)
+
+    def count(self, *, status: RunStatus | None = None) -> int:
+        abfrage = select(func.count()).select_from(AnalysisRunOrm)
+        if status is not None:
+            abfrage = abfrage.where(AnalysisRunOrm.status == status)
+        return self._session.execute(abfrage).scalar_one()
 
     def update(self, run: AnalysisRun) -> None:
         row = self._session.get(AnalysisRunOrm, run.id)
@@ -1092,6 +1099,20 @@ class SqlAlchemyScreeningResultRepository:
         )
         return tuple(_outcome_from_row(row) for row in rows)
 
+    def count_by_earnings_status(self, run_id: uuid.UUID) -> Mapping[EarningsFilterStatus, int]:
+        rows = self._session.execute(
+            select(ScreeningResultOrm.earnings_status, func.count())
+            .where(
+                ScreeningResultOrm.analysis_run_id == run_id,
+                # Die Spalte ist nur bei Kandidaten gesetzt; ohne diese
+                # Bedingung zaehlte eine NULL-Gruppe mit, die keinen Status
+                # bedeutet, sondern eine nicht gestellte Frage.
+                ScreeningResultOrm.earnings_status.is_not(None),
+            )
+            .group_by(ScreeningResultOrm.earnings_status)
+        ).all()
+        return {EarningsFilterStatus(status): anzahl for status, anzahl in rows}
+
 
 class SqlAlchemyProcessingErrorRepository:
     def __init__(self, session: Session) -> None:
@@ -1125,6 +1146,13 @@ class SqlAlchemyProcessingErrorRepository:
             )
             for row in rows
         )
+
+    def count_for_run(self, run_id: uuid.UUID) -> int:
+        return self._session.execute(
+            select(func.count())
+            .select_from(ProcessingErrorOrm)
+            .where(ProcessingErrorOrm.analysis_run_id == run_id)
+        ).scalar_one()
 
 
 BARS_JE_INSERT = 1_000
@@ -1302,6 +1330,20 @@ def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[Backtes
     return tuple(results)
 
 
+def _stored_report_from_row(row: StockReportOrm) -> StoredReport:
+    return StoredReport(
+        id=row.id,
+        symbol=row.stock.symbol,
+        created_at=row.created_at,
+        report_schema_version=row.report_schema_version,
+        app_version=row.app_version,
+        recommendation=row.recommendation,
+        swing_score=row.swing_score,
+        investment_score=row.investment_score,
+        document=row.document,
+    )
+
+
 class SqlAlchemyStockReportRepository:
     """Berichte schreiben und je Lauf wieder lesen (ADR 0039).
 
@@ -1352,16 +1394,36 @@ class SqlAlchemyStockReportRepository:
             .scalars()
             .all()
         )
-        return [
-            StoredReport(
-                symbol=row.stock.symbol,
-                created_at=row.created_at,
-                report_schema_version=row.report_schema_version,
-                app_version=row.app_version,
-                document=row.document,
+        return [_stored_report_from_row(row) for row in rows]
+
+    def get(self, report_id: uuid.UUID) -> StoredReport | None:
+        row = self._session.get(StockReportOrm, report_id)
+        return None if row is None else _stored_report_from_row(row)
+
+    def list_for_symbol(
+        self, symbol: str, *, limit: int, offset: int
+    ) -> Sequence[StoredReport]:
+        rows = (
+            self._session.execute(
+                select(StockReportOrm)
+                .join(StockReportOrm.stock)
+                .where(StockOrm.symbol == symbol)
+                .order_by(StockReportOrm.created_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
-            for row in rows
-        ]
+            .scalars()
+            .all()
+        )
+        return [_stored_report_from_row(row) for row in rows]
+
+    def count_for_symbol(self, symbol: str) -> int:
+        return self._session.execute(
+            select(func.count())
+            .select_from(StockReportOrm)
+            .join(StockReportOrm.stock)
+            .where(StockOrm.symbol == symbol)
+        ).scalar_one()
 
 
 class SqlAlchemyBacktestResultRepository:

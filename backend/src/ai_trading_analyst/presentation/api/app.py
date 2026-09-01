@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from .v1 import analysis_runs, system
+from .v1 import analysis_runs, reports, stocks, system
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AI Trading Analyst", version="0.1.0")
     app.include_router(analysis_runs.router)
+    app.include_router(reports.router)
+    app.include_router(stocks.router)
     app.include_router(system.router)
     return app
