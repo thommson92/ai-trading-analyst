@@ -86,6 +86,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0049](0049-dashboard-mvp-nur-lan.md) | Dashboard-MVP nur im eigenen Netz — keine Exposition, keine eigene Auth | Angenommen (entscheidet F12/E8, entsperrt Sprint 6; Exposition und Auth werden nach stabilem Betrieb neu bewertet) |
 | [0050](0050-us-007-chartmuster-gestrichen.md) | Das US-007-Kriterium „relevante Chartmuster" ist gestrichen | Angenommen (entscheidet E13 des Audits vom 2026-08-23 — Streichung mit Vermerk statt stiller Löschung) |
 | [0051](0051-research-im-dauerbetrieb-abgeschaltet.md) | Research Agent im Dauerbetrieb abgeschaltet — Provider-Wert `none` | Angenommen (Kostenentscheidung; löst nichts an ADR 0021/0023 ab — die Einzelprobe bleibt der Weg) |
+| [0052](0052-dashboard-als-statischer-export.md) | Dashboard als statischer Export, ausgeliefert von der API | Angenommen (beantwortet die von ADR 0036 an den Dashboard-Sprint vertagte Container-Frage: weiterhin kein Container, kein Reverse Proxy) |
+| [0053](0053-lese-api-kein-lauf-ueber-http.md) | Die Web-API ist lesend — kein Analyselauf über HTTP | Angenommen (entscheidet den MVP-Zuschnitt gegen Doc 10 §6.14; `POST /analysis-runs` entfällt, weil er auf dem Server einen Fixture-Lauf speichern würde) |
 
 ## Offene Entscheidungen
 
@@ -169,7 +171,10 @@ ADR, sobald die nötigen Informationen vorliegen:
   Windows-Server ist das Deployment des MVP; Containerisierung wird zum
   Dashboard-Sprint neu bewertet. Siehe
   [ADR 0036](0036-nativer-windows-betrieb.md), das Doc 13 und Doc 10
-  Paragraph 14 abloest.
+  Paragraph 14 abloest. **Die vertagte Neubewertung ist erfolgt:** Das
+  Dashboard wird als statischer Export von der API mit ausgeliefert — kein
+  Container, kein Reverse Proxy, siehe
+  [ADR 0052](0052-dashboard-als-statischer-export.md).
 - Komponenten und Gewichte der beiden Scores — **entschieden.** Swing: die
   sechs Komponenten aus Doc 10 §6.11, mit Gewichten. Investment: vier statt
   acht — nur das, was deterministisch gerechnet wird. Fehlende Komponenten

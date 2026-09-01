@@ -28,12 +28,22 @@ neu bewertet, wenn erstmals etwas entsteht, das ausgeliefert werden muss.
 | Backend | virtuelle Python-Umgebung unter `backend\.venv` |
 | Datenbank | lokal installiertes PostgreSQL |
 | Auslösung | ein Eintrag in der Windows-Aufgabenplanung |
-| Frontend | **nicht ausgeliefert** — Next.js-Gerüst, gehört zu Sprint 6 |
+| Frontend | **noch nicht ausgeliefert** — beschlossen ist die Form, siehe unten |
 
 Es gibt keinen Worker-Dienst und keinen Reverse Proxy. Der Dispatcher ist ein
 idempotenter Einzelstart, kein Dauerprozess
 ([ADR 0019](adr/0019-trading-day-dispatcher.md)); ein Proxy setzte externen
-Zugriff voraus, und der ist unentschieden (F12).
+Zugriff voraus, und der findet nicht statt
+([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md): Das Dashboard bleibt im
+eigenen Netz).
+
+**Wie das Frontend ausgeliefert wird, ist entschieden, aber noch nicht
+gebaut** ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)): als
+statischer Export, den dieselbe FastAPI-Anwendung mit ausliefert, die die
+Lese-API bereitstellt. Kein Container, kein Node zur Laufzeit — `npm` baut,
+mehr nicht. Dazu kommt mit `uvicorn` der erste Dauerprozess des Systems, als
+Autostart-Eintrag der Aufgabenplanung, gebunden ans eigene Netz. Diese Zeile
+wird erst umgeschrieben, wenn es tatsächlich so läuft.
 
 Redis ist durch [ADR 0006](adr/0006-kein-redis-im-mvp.md) ausgeschlossen.
 Koordiniert wird über PostgreSQL.

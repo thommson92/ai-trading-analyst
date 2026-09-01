@@ -909,6 +909,13 @@ Ob zusätzlich eine „Keine Kandidaten“-Push-Nachricht versendet wird, ist ko
 
 ## 6.14 Web API
 
+> **Zuschnitt des MVP:** Die API ist **lesend**. `POST /analysis-runs` und
+> `…/retry` bleiben Zielbild und werden nicht gebaut — auf dem Server
+> schriebe ein Auslöser über HTTP einen Lauf aus Fixture-Werten in die
+> Produktivdatenbank. Ebenso entfällt der Sammelendpunkt `/dashboard`.
+> Entschieden in [ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md), die
+> gebaute Fassung steht in Doc 11.
+
 Das Backend stellt eine versionierte REST API bereit.
 
 Basispräfix:
@@ -949,6 +956,17 @@ GET    /api/v1/system/readiness
 ---
 
 ## 6.15 Web Dashboard
+
+> **Zuschnitt des MVP:** Gebaut werden drei der zehn Hauptansichten —
+> Tagesübersicht, Detailansicht und historische Analysen pro Aktie
+> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Die Detailansicht
+> zeigt den gespeicherten Bericht mit allen achtzehn Punkten und deckt damit
+> Backtesting, Optionsstrategien und Quellen bereits inhaltlich ab; als
+> eigene Ansichten bleiben sie Zielbild, ebenso Systemstatus und
+> Konfiguration. Das Dashboard ist ausschließlich aus dem eigenen Netz
+> erreichbar ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)) und wird als
+> statischer Export von der API mit ausgeliefert
+> ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)).
 
 Das Dashboard ist eine responsive Webanwendung.
 
@@ -1394,9 +1412,14 @@ angemeldete Windows-Sitzung (ADR 0014 E2, [ADR 0018](adr/0018-kein-windows-autol
 sie ist zugleich die Quelle aller Kursdaten. Ein Compose-Verbund müsste sie
 außerhalb lassen. Die vollständige Begründung steht in ADR 0036.
 
-Containerisierung ist vertagt, nicht verworfen: Sie wird zum Dashboard-Sprint
-neu bewertet, wenn mit dem Frontend erstmals etwas entsteht, das ausgeliefert
-werden muss und für das ein Reverse Proxy einen Zweck hat.
+Containerisierung war vertagt, nicht verworfen: Sie sollte zum
+Dashboard-Sprint neu bewertet werden, sobald mit dem Frontend erstmals etwas
+entsteht, das ausgeliefert werden muss. **Die Neubewertung ist erfolgt und
+bleibt beim Ergebnis** ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)):
+Das Dashboard wird als statischer Export von derselben FastAPI-Anwendung mit
+ausgeliefert, die die Lese-API bereitstellt. Ein Reverse Proxy hätte weiterhin
+keinen Zweck, solange nichts nach außen erreichbar ist
+([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)).
 
 ### Bestandteile
 
@@ -1405,10 +1428,15 @@ werden muss und für das ein Reverse Proxy einen Zweck hat.
 - lokal installiertes PostgreSQL,
 - ein Eintrag in der Windows-Aufgabenplanung als einziger Auslöser.
 
-Nicht Bestandteil des MVP: Frontend-Auslieferung (Sprint 6), Worker-Dienst
-(der Dispatcher ist ein idempotenter Einzelstart,
-[ADR 0019](adr/0019-trading-day-dispatcher.md)), Reverse Proxy (setzt den
-unentschiedenen externen Zugriff F12 voraus) und Redis
+Mit Sprint 6 kommt die **Frontend-Auslieferung** hinzu und mit ihr der erste
+Dauerprozess: `uvicorn` als Autostart-Eintrag der Aufgabenplanung, der API
+und statisches Dashboard aus einem Prozess bedient (ADR 0052). Der Auslöser
+der Analyse bleibt davon unberührt — die API kann keinen Lauf starten
+([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)).
+
+Nicht Bestandteil des MVP: Worker-Dienst (der Dispatcher ist ein idempotenter
+Einzelstart, [ADR 0019](adr/0019-trading-day-dispatcher.md)), Reverse Proxy
+(setzt externen Zugriff voraus, den ADR 0049 ausschließt) und Redis
 ([ADR 0006](adr/0006-kein-redis-im-mvp.md)).
 
 ### Persistente Daten
@@ -1629,6 +1657,12 @@ Vor der Implementierung müssen folgende Entscheidungen dokumentiert werden:
 13. Wie erfolgt der sichere externe Zugriff auf das Dashboard?
 
 Diese Entscheidungen werden als Architecture Decision Records im Verzeichnis `docs/adr/` abgelegt.
+
+**Alle dreizehn sind entschieden.** Die letzte war Nummer 13: Im MVP gibt es
+keinen externen Zugriff — das Dashboard bleibt im eigenen Netz, ohne eigene
+Authentifizierung ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)); die
+Exposition wird nach stabilem Betrieb neu bewertet. Den Stand aller
+Entscheidungen führt `docs/adr/README.md`.
 
 ---
 
