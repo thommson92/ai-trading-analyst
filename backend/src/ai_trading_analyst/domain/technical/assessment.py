@@ -157,4 +157,6 @@ class TechnicalAssessment:
     nie ungeprueft in eine Bewertung ein."""
     reason: str | None = None
     """Nur bei ``INSUFFICIENT_DATA``/``UNAVAILABLE``: etwa
-    ``"snapshot_insufficient"``, ``"provider_error"``."""
+    ``"snapshot_insufficient"``, ``"provider_error"`` oder
+    ``"provider_disabled"`` (der Betreiber hat den Agenten abgeschaltet,
+    ``technical_agent.provider: none``)."""

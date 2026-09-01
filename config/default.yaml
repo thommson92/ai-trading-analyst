@@ -208,6 +208,11 @@ research:
   # (docs/adr/0022-research-agent-quellen.md), Zitierarchitektur und
   # Kostensteuerung in ADR 0023. "fixture" bleibt Standard -- Start und
   # Tests laufen ohne Anthropic-Zugang.
+  #
+  # "none" schaltet den Agenten bewusst ab: UNAVAILABLE mit Grund
+  # provider_disabled statt eines Fixture-Schein-Ergebnisses. Der Weg fuer
+  # einen Scharfbetrieb ohne Recherche-Kosten -- fixture waere dort falsch,
+  # weil seine Beispieltexte im Bericht wie ein Ergebnis aussaehen.
   provider: fixture
   # Kostenbudget je Aktie (ADR 0021, ADR 0023 "Kostenkontrolle").
   #
@@ -312,7 +317,9 @@ technical_agent:
   # echten Chart nachgezogen werden. Die KI verändert davon nichts.
   #
   # "fixture" bleibt Standard -- Start und Tests laufen ohne Anthropic-Zugang
-  # (Muster research.provider).
+  # (Muster research.provider). "none" schaltet den Agenten bewusst ab:
+  # UNAVAILABLE statt der Fixture-Einstufungen, die im Scharfbetrieb 30
+  # Prozent des Swing-Scores mit identischen Konstanten fuellen wuerden.
   provider: fixture
   # Eine einzige Anfrage ohne Werkzeuge: sechs Einstufungen und ein kurzer
   # Text. 2000 Token sind dafür reichlich. Zu knapp bemessen schneidet es den

@@ -313,6 +313,10 @@ class TechnicalInterpreter(Protocol):
         keinen neuen ab (CLAUDE.md, zentrale Regel). Ist der Snapshot nicht
         ``COMPLETED``, liefert sie ``INSUFFICIENT_DATA`` **ohne** Aufruf des
         Anbieters -- es gaebe nichts einzuordnen, und der Aufruf kostete nur.
+        Diese Regel verhindert den vergeblichen Anbieteraufruf; eine
+        Umsetzung ohne Anbieter (``provider: none``) antwortet deshalb
+        unabhaengig vom Snapshot mit ``UNAVAILABLE`` -- ihre Luecke kommt vom
+        Betreiber, nicht von den Daten.
 
         Raises:
             TechnicalInterpreterError: wenn der Anbieter nicht erreichbar war

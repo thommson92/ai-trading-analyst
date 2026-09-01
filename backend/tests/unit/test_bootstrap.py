@@ -56,6 +56,10 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicTechnicalInterpreter,
 )
 from ai_trading_analyst.infrastructure.anthropic.client import VERBINDUNGSAUFBAU_SEKUNDEN
+from ai_trading_analyst.infrastructure.disabled import (
+    DisabledResearchProvider,
+    DisabledTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.edgar import EdgarFundamentalDataProvider
 from ai_trading_analyst.infrastructure.finnhub import (
     FinnhubAnalystRecommendationsProvider,
@@ -257,6 +261,13 @@ class TestResearchAnbieterauswahl:
         with pytest.raises(MissingSecretError, match="ATA_LLM_API_KEY"):
             build_research_provider(config, Secrets(_env_file=None))
 
+    def test_none_braucht_keinen_schluessel(self) -> None:
+        """Ein abgeschalteter Agent darf kein Geheimnis verlangen -- das ist
+        sein Zweck. Der Zweig muss deshalb VOR dem Schluesselzugriff stehen."""
+        config = AppConfig(indicators=INDICATORS, research=ResearchConfig(provider="none"))
+        provider = build_research_provider(config, Secrets(_env_file=None))
+        assert isinstance(provider, DisabledResearchProvider)
+
     def test_anthropic_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -321,6 +332,15 @@ class TestTechnicalAgentAnbieterauswahl:
         )
         with pytest.raises(MissingSecretError, match="ATA_LLM_API_KEY"):
             build_technical_interpreter(config, Secrets(_env_file=None))
+
+    def test_none_braucht_keinen_schluessel(self) -> None:
+        """Muster ``TestResearchAnbieterauswahl``: Der none-Zweig liegt vor
+        dem Schluesselzugriff."""
+        config = AppConfig(
+            indicators=INDICATORS, technical_agent=TechnicalAgentConfig(provider="none")
+        )
+        interpreter = build_technical_interpreter(config, Secrets(_env_file=None))
+        assert isinstance(interpreter, DisabledTechnicalInterpreter)
 
     def test_anthropic_mit_secret_wird_ohne_netzwerkzugriff_gebaut(
         self, monkeypatch: pytest.MonkeyPatch

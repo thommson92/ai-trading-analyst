@@ -614,7 +614,11 @@ class ResearchConfig(_Section):
     vor der Aufnahme einmal durch einen echten Lauf.
     """
 
-    provider: Literal["fixture", "anthropic"] = "fixture"
+    provider: Literal["fixture", "anthropic", "none"] = "fixture"
+    """``none`` schaltet den Agenten bewusst ab: Das Ergebnis ist
+    ``UNAVAILABLE`` mit Grund ``provider_disabled`` statt eines
+    Fixture-Schein-Ergebnisses -- fuer einen Scharfbetrieb, der die
+    Recherche nicht bezahlen will, aber auch nichts erfinden darf."""
     max_searches: PositiveInt = 5
     max_fetches: PositiveInt = 3
     max_fetch_content_tokens: PositiveInt = 8000
@@ -709,7 +713,11 @@ class TechnicalAgentConfig(_Section):
     nach oben begrenzt. Ein Regler, der nichts regelt, waere irrefuehrend.
     """
 
-    provider: Literal["fixture", "anthropic"] = "fixture"
+    provider: Literal["fixture", "anthropic", "none"] = "fixture"
+    """``none`` schaltet den Agenten bewusst ab (Muster
+    ``research.provider``): ``UNAVAILABLE`` mit Grund ``provider_disabled``
+    statt der Fixture-Einstufungen, die im Scharfbetrieb wie geprueft
+    aussaehen."""
     max_output_tokens: PositiveInt = 2000
     """Ein Werkzeugaufruf mit sechs Einstufungen und einem kurzen Text. Zu
     knapp bemessen schneidet es den Aufruf ab -- und ein abgeschnittener

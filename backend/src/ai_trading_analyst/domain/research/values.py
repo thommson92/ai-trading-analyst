@@ -208,5 +208,6 @@ class ResearchReport:
     """Die Zahlen hinter ``coverage``. Zusammen gesetzt oder zusammen ``None``."""
     reason: str | None = None
     """Nur bei ``UNAVAILABLE``/``INSUFFICIENT_DATA`` gesetzt (Muster
-    ``EarningsFilterResult.reason``): ``"provider_error"`` oder
-    ``"insufficient_sources"``."""
+    ``EarningsFilterResult.reason``): ``"provider_error"``,
+    ``"insufficient_sources"`` oder ``"provider_disabled"`` (der Betreiber
+    hat den Agenten abgeschaltet, ``research.provider: none``)."""

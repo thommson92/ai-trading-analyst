@@ -115,6 +115,11 @@ class TestResearchConfig:
         with pytest.raises(ValidationError):
             ResearchConfig(provider="openai")
 
+    def test_none_schaltet_den_agenten_bewusst_ab(self) -> None:
+        """Der dritte Wert neben fixture und anthropic: kein Anbieter, kein
+        Schein-Ergebnis -- UNAVAILABLE mit Grund (``infrastructure.disabled``)."""
+        assert ResearchConfig(provider="none").provider == "none"
+
     def test_eine_leere_allowlist_ist_erlaubt(self) -> None:
         """Bewusst keine Einschraenkung -- aber nicht der ausgelieferte Standard."""
         assert ResearchConfig(fetch_allowed_domains=()).fetch_allowed_domains == ()

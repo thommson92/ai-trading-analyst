@@ -66,6 +66,10 @@ from ai_trading_analyst.infrastructure.anthropic import (
     AnthropicTechnicalPricing,
     AnthropicTechnicalSettings,
 )
+from ai_trading_analyst.infrastructure.disabled import (
+    DisabledResearchProvider,
+    DisabledTechnicalInterpreter,
+)
 from ai_trading_analyst.infrastructure.edgar import (
     EdgarConnectionSettings,
     EdgarFundamentalDataProvider,
@@ -402,10 +406,16 @@ def build_research_provider(config: AppConfig, secrets: Secrets) -> ResearchProv
 
     ``fixture`` bleibt der Standard und der Weg fuer Tests und fuer einen
     Start ohne Anthropic-Zugang; ``anthropic`` ist die produktive Quelle
-    (ADR 0021, ADR 0023).
+    (ADR 0021, ADR 0023); ``none`` schaltet den Agenten bewusst ab.
+
+    Der ``none``-Zweig steht **vor** dem Zugriff auf ``llm_api_key``: Ein
+    abgeschalteter Agent darf keinen Schluessel verlangen -- das ist sein
+    Zweck.
     """
     if config.research.provider == "fixture":
         return FixtureResearchProvider()
+    if config.research.provider == "none":
+        return DisabledResearchProvider()
     return AnthropicResearchProvider(
         AnthropicResearchSettings(
             api_key=secrets.require("llm_api_key"),
@@ -433,11 +443,14 @@ def build_technical_interpreter(config: AppConfig, secrets: Secrets) -> Technica
     """Waehlt den Anbieter des Technical Agent (ADR 0026).
 
     Muster ``build_research_provider``: ``fixture`` ist der Standard und der
-    Weg fuer Tests und einen Start ohne Anthropic-Zugang. Das Modellprofil
-    kommt aus ``llm.technical`` und ist bereits vorbelegt.
+    Weg fuer Tests und einen Start ohne Anthropic-Zugang, ``none`` schaltet
+    den Agenten bewusst ab (Zweig vor dem Schluesselzugriff). Das
+    Modellprofil kommt aus ``llm.technical`` und ist bereits vorbelegt.
     """
     if config.technical_agent.provider == "fixture":
         return FixtureTechnicalInterpreter()
+    if config.technical_agent.provider == "none":
+        return DisabledTechnicalInterpreter()
     return AnthropicTechnicalInterpreter(
         AnthropicTechnicalSettings(
             api_key=secrets.require("llm_api_key"),
