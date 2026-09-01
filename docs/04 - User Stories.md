@@ -5,12 +5,12 @@
 > ([ADR 0001](adr/0001-dokumentenhierarchie.md)); was tatsächlich
 > entschieden ist, steht in `docs/adr/`.
 >
-> **US-007 ist nur teilweise erfüllbar.** Die geforderten „relevanten
-> Chartmuster" gibt es nicht: ohne deterministische Mustererkennung wäre
-> jede von der KI benannte Formation eine Erfindung
-> ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)). Ob die
-> Anforderung gestrichen oder als spätere Ausbaustufe vorgemerkt wird,
-> ist offen (E13).
+> **Das US-007-Kriterium „relevante Chartmuster" ist gestrichen**
+> ([ADR 0050](adr/0050-us-007-chartmuster-gestrichen.md)): ohne
+> deterministische Mustererkennung wäre jede von der KI benannte Formation
+> eine Erfindung ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)).
+> Eine Wiedereinführung begänne mit einer deterministischen Grundlage,
+> nicht mit einem Prompt.
 
 ## 1. Übersicht
 
@@ -158,7 +158,9 @@ Der Bericht enthält:
 - RSI-Situation
 - Unterstützungen
 - Widerstände
-- relevante Chartmuster
+- ~~relevante Chartmuster~~ — gestrichen
+  ([ADR 0050](adr/0050-us-007-chartmuster-gestrichen.md)); Wiedereinführung
+  nur als spätere Ausbaustufe mit deterministischer Mustererkennung
 
 ---
 

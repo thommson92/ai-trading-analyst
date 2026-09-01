@@ -1,8 +1,12 @@
 # Nachverfolgung — Repository-Audit vom 2026-08-23
 
-> **Dieses Dokument lebt.** Es wird fortgeschrieben, sooft sich ein Stand
-> ändert — im Gegensatz zum [Audit selbst](2026-08-23-repository-audit.md),
-> das als eingefrorene Momentaufnahme unverändert bleibt.
+> **Dieses Dokument wird nicht mehr fortgeschrieben** (Stand eingefroren am
+> 2026-09-01). Das Audit vom 2026-08-23 ist durch das
+> [Repository-Audit 2](2026-08-31-repository-audit-2.md) abgelöst, das jeden
+> Status dieser Tabellen unabhängig verifiziert hat; nach der Regel aus dem
+> [README dieses Verzeichnisses](README.md) ist damit auch diese
+> Nachverfolgung Beleg. Weiter geht es in der
+> [Nachverfolgung zum Audit 2](2026-08-31-nachverfolgung.md).
 
 **Stand:** 2026-08-30 (nach PR #43 bis #46 und dem Sprint-4-Abschluss:
 Fundamentalanalyse, Report Generator, Backtest im Tageslauf, getrennte

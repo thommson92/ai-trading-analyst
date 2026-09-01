@@ -352,7 +352,10 @@ Server. Ein echter Ausschnitt lässt sich danebenlegen:
 ```
 
 Das Kommando liest nur; der Bestand bleibt unverändert. Je Symbol entsteht
-eine `<symbol>.bars.csv`. Danach einmalig aufzeichnen und beides committen:
+eine `<symbol>.bars.csv`. Danach einmalig aufzeichnen und beides committen —
+**auf einem kleinen Branch mit Pull Request**, nicht direkt: `dev` ist
+geschützt ([ADR 0031](adr/0031-merge-schutz-aktiv.md)), ein Commit darauf
+würde beim Push abgewiesen:
 
 ```powershell
 $env:ATA_GOLDEN_MASTER_RECORD = "1"
@@ -463,7 +466,8 @@ ein ([ADR 0026](adr/0026-technical-agent-ki-einordnung.md)):
 die Marktdaten, Ersteres das Sprachmodell. Ausgeliefert steht
 `technical_agent.provider` auf `fixture`; ohne die Übersteuerung läuft eine
 Attrappe, die immer dasselbe antwortet — nützlich als Rauchtest der
-Verdrahtung, aussagelos für den Inhalt. Mit `anthropic` kostet jeder Aufruf
+Verdrahtung, aussagelos für den Inhalt. `none` liefert stattdessen die
+gekennzeichnete Lücke des abgeschalteten Agenten. Mit `anthropic` kostet jeder Aufruf
 Geld; das Protokoll weist Token und geschätzte Kosten je Symbol aus.
 
 `--show-prompt` gibt aus, was dem Modell übergeben wurde. Es lohnt sich beim
@@ -540,6 +544,10 @@ sie steht bewusst hier und nicht im Code.
 | Argumente | `-m ai_trading_analyst.cli dispatch --provider ibkr` |
 | Starten in | `C:\...\backend` |
 
+Die Argumente wachsen mit den Stufen G und H mit; der vollständige
+produktive Befehl steht **nur** im Stufe-H-Block „In die Aufgabenplanung
+übernehmen", der tatsächlich geschaltete Stand im Abschnitt Betriebszustand.
+
 Das Fenster ist absichtlich großzügig: 12:50 New Yorker Zeit liegen normalerweise
 auf 18:50 unserer Zeit, in den zwei bis drei Wochen, in denen die USA und Europa
 an verschiedenen Tagen umstellen, aber auf 17:50. Beide Fälle liegen darin.
@@ -567,7 +575,7 @@ Aufgabenplanung meldet damit nur, was wirklich schiefging.
 
 # Stufe G — Produktive Anbieter
 
-Erst wenn Stufe F über mindestens einen Handelstag trägt. **Alle fünf**
+Erst wenn Stufe F über mindestens einen Handelstag trägt. **Alle sechs**
 Analyseanbieter stehen in `config/default.yaml` auf `fixture` und werden **nicht
 dort** umgestellt: Der produktive Schalter gehört in die Argumente der
 Aufgabenplanung, damit ein `git pull` auf dem Server keinen lokalen Diff
@@ -578,6 +586,7 @@ vorfindet.
 | Earnings-Termine | `--earnings-provider finnhub` | `ATA_FINNHUB_API_KEY` | keine |
 | Fundamentaldaten | `--fundamentals-provider edgar` | `ATA_EDGAR_CONTACT` | keine |
 | Analystenempfehlungen | `--ratings-provider finnhub` | `ATA_FINNHUB_API_KEY` | keine |
+| Optionsanalyse | `--options-provider ibkr` | TWS + Optionsmarktdaten-Abo ([ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)) | keine |
 | Technical Agent | `--technical-agent-provider anthropic` | `ATA_LLM_API_KEY` | ~0,005 USD |
 | Research Agent | `--research-provider anthropic` | `ATA_LLM_API_KEY` | ~0,52–0,58 USD |
 
@@ -587,6 +596,14 @@ eine Lücke. Die Fixture-Fundamentaldaten liefern für jedes Symbol dieselben
 erfundenen Zahlen; erkennbar sind sie nur an der offensichtlich unechten
 Vorgangsnummer `0000000000-00-000000`. Die Fixture-Analystenempfehlungen
 verraten sich an der Quelle `fixture` am Ergebnis.
+
+Für die zwei LLM-Agenten gibt es als dritten Wert **`none`**
+([ADR 0051](adr/0051-research-im-dauerbetrieb-abgeschaltet.md)): Er schaltet
+den Agenten bewusst ab — der Abschnitt erscheint als gekennzeichnete Lücke
+(`UNAVAILABLE`, Grund `provider_disabled`) statt als Fixture-Schein-Ergebnis,
+der Score gewichtet die fehlende Komponente um. Kostet nichts, braucht keinen
+Schlüssel. Das ist der richtige Wert für einen Scharfbetrieb, der einen der
+beiden Modellaufrufe nicht bezahlen will; `fixture` ist es nicht.
 
 Die drei kostenlosen Schalter — Earnings, Fundamentaldaten und
 Analystenempfehlungen — können zusammen eingeschaltet werden; die beiden
@@ -650,6 +667,12 @@ Danach in die Argumente der Aufgabenplanung übernehmen:
 
 ## Schritt 2 — Research Agent über Anthropic
 
+> **Der Dauerbetrieb fährt seit dem 2026-09-01 `--research-provider none`**
+> (Kostenentscheidung, siehe Betriebszustand). Dieser Schritt bleibt die
+> **Einzelprobe** — und der Weg für den, der die Recherche später dauerhaft
+> scharf schalten will: in Stufe H `none` durch `anthropic` ersetzen
+> (~0,52–0,58 USD je Kandidat mit freiem Earnings-Fenster).
+
 Zuerst eine **Einzelprobe** mit sichtbarer Kostenschätzung, nicht gleich der
 ganze Lauf:
 
@@ -663,11 +686,9 @@ unter `research` und ist in [ADR 0023](adr/0023-research-agent-zitierarchitektur
 begründet; die Notbremse zwischen zwei Anfragen ist
 `max_input_tokens_per_symbol`.
 
-Erst danach in die Aufgabenplanung übernehmen:
-
-```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub
-```
+Wer nach der Einzelprobe dauerhaft scharf schalten will, ersetzt im
+Aufgabenplanungs-Eintrag aus Stufe H `--research-provider none` durch
+`--research-provider anthropic` — nichts sonst ändert sich.
 
 ---
 
@@ -715,8 +736,18 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 ### In die Aufgabenplanung übernehmen
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --options-provider ibkr --technical-agent-provider anthropic --research-provider anthropic --notification-channel telegram --telegram-chat-id <CHAT_ID>
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --options-provider ibkr --technical-agent-provider anthropic --research-provider none --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
+
+`--research-provider none` ist Absicht, kein vergessener Schalter: Die
+Recherche ist der einzige teure Modellaufruf und bleibt im Dauerbetrieb
+bewusst abgeschaltet (Beschluss vom 2026-09-01, siehe Betriebszustand) —
+ihr Berichtspunkt erscheint als gekennzeichnete Lücke, nicht als
+Fixture-Schein-Ergebnis. Scharf schalten: `none` durch `anthropic` ersetzen.
+
+Dies ist die **einzige Stelle mit dem vollständigen Befehl** — die
+Stufe-F-Tabelle zeigt bewusst nur den Ausgangszustand, und welcher Stand
+tatsächlich geschaltet ist, sagt der Abschnitt Betriebszustand.
 
 Zwei Arten von Meldungen kommen künftig an:
 
@@ -782,11 +813,104 @@ sondern ein Lauf ohne Treffer.
 
 # Laufender Betrieb
 
+## Betriebszustand
+
+**Seit dem 2026-09-01 läuft die Aufgabenplanung täglich** (Eintrag aus
+Stufe F, Argumente aus Stufe H). Geschaltet sind: Marktdaten `ibkr`,
+Earnings-Termine `finnhub`, Analystenempfehlungen `finnhub`,
+Fundamentaldaten `edgar`, Optionsanalyse `ibkr`, Technical Agent
+`anthropic`, Research **`none`** (bewusst abgeschaltet — Kostenentscheidung;
+die Einzelprobe aus Stufe G Schritt 2 bleibt der Weg für gezielte
+Recherchen), Meldung `telegram`.
+
+Maßgeblich ist der Argumentstring des Aufgabenplanungs-Eintrags auf dem
+Server — dieser Absatz beschreibt ihn nur. Ändert sich der geschaltete
+Stand, wird er hier nachgeführt; vor dem 2026-09-01 gab es keinen
+automatischen Tageslauf, nur manuell gestartete.
+
 ## Nach jedem Serverneustart
 
 Die TWS von Hand starten und anmelden. Ohne angemeldete Sitzung entscheidet der
 Dispatcher nicht einmal, ob heute ein Handelstag ist — er meldet Rückgabewert 1
 und versucht es beim nächsten Start erneut, bis die Nachholfrist abläuft.
+
+## Sicherung
+
+Doc 10 §15 fordert ein tägliches Datenbank-Backup mit Restore-Test. Das
+MVP setzt davon die einfache Stufe um: **ein täglicher `pg_dump` über die
+Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
+
+> **Bewusste Einschränkung** (Beschluss vom 2026-09-01): Die Ablage liegt
+> *nicht* außerhalb des primären Datenvolumes, wie Doc 10 §15 es als
+> Zielbild nennt. Sie schützt gegen Softwarefehler, Fehlbedienung und eine
+> kaputte Migration — **nicht** gegen den Ausfall der Platte selbst. Neu zu
+> bewerten nach stabilem Betrieb, zusammen mit der Expositionsfrage aus
+> [ADR 0049](adr/0049-dashboard-mvp-nur-lan.md).
+
+Das Skript liegt **außerhalb des Repositories** (wie die `.env`), etwa als
+`C:\...\backup-ata.ps1`:
+
+```powershell
+$stamp = Get-Date -Format yyyy-MM-dd
+pg_dump -Fc -U ata -d ai_trading_analyst `
+    -f "C:\...\backups\ata\ai_trading_analyst-$stamp.dump"
+Get-ChildItem "C:\...\backups\ata\*.dump" |
+    Where-Object LastWriteTime -lt (Get-Date).AddDays(-14) | Remove-Item
+```
+
+Vierzehn Tage rollierend: lang genug, um einen erst spät bemerkten Fehler
+zu überleben, kurz genug, dass der Ordner nicht wächst. Das **Passwort
+steht nie in den Task-Argumenten**, sondern in
+`%APPDATA%\postgresql\pgpass.conf` (eine Zeile:
+`localhost:5432:*:ata:<passwort>`) — Task-Argumente sind im
+Aufgabenplaner für jeden lesbar, der den Rechner sieht.
+
+| Feld | Wert |
+|---|---|
+| Trigger | Täglich, Beginn **22:00** (nach dem Dispatch-Fenster 17:30–21:30) |
+| Programm | `powershell.exe` |
+| Argumente | `-NoProfile -File C:\...\backup-ata.ps1` |
+
+**Restore-Probe** — einmal bei der Einrichtung und danach bei jedem
+Pflegetermin, **niemals in die Produktivdatenbank**:
+
+```powershell
+psql -U ata -d postgres -c "CREATE DATABASE ata_restore_test OWNER ata;"
+pg_restore -U ata -d ata_restore_test "C:\...\backups\ata\<juengster>.dump"
+psql -U ata -d ata_restore_test -c "SELECT count(*) FROM intraday_bars;"
+psql -U ata -d ata_restore_test -c "SELECT count(*) FROM analysis_runs;"
+psql -U ata -d postgres -c "DROP DATABASE ata_restore_test;"
+```
+
+Die Zählwerte müssen zu den Produktivzahlen des Sicherungstages passen.
+**Abnahmekriterium:** ein automatisch entstandener Dump und eine
+durchgespielte Zählprobe.
+
+## Pflege
+
+Gemessene Zahlen altern genauso still wie geratene — nur mit besserem
+Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
+2026-12-01.** Drei Gruppen:
+
+1. **Gemessene Schwellen** in `config/default.yaml` (`scoring.thresholds`,
+   `analyst_buy_share`, `options_annualized_return`): Messläufe
+   `cli ratings --watchlist --output ...` und
+   `cli options --provider ibkr --watchlist --output ...`, Auswertung mit
+   `cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
+   festlegen" ([ADR 0045](adr/0045-schwellen-der-score-teilwerte.md),
+   [ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)). Die
+   **Options-Schwellen** haben einen Zusatzanlass außer der Reihe: eine
+   unruhige Marktphase verschiebt die ganze Prämienverteilung (ADR 0048 —
+   „kurzlebiger als die übrigen").
+2. **LLM-Preislisten** (`research.pricing`, `technical_agent.pricing`) —
+   von Hand gepflegt, gegen den aktuellen Anthropic-Katalog prüfen. Sie
+   speisen nur die Kostenschätzung im Protokoll; ein veralteter Wert fällt
+   nirgends von allein auf.
+3. **Modell-Identifier** (`llm.research`, `llm.technical`, jeweils samt
+   `fallback_model`) — gegen den dann aktuellen Katalog.
+
+Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
+wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).
 
 ## Wenn ein Tageslauf ausbleibt
 

@@ -720,6 +720,20 @@ class TestTechnicalKommando:
         assert args.agent_provider is None
         assert args.show_prompt is False
 
+    def test_none_wird_als_agentenanbieter_angenommen(self) -> None:
+        """'none' ist der ehrliche Aus-Schalter der beiden LLM-Agenten --
+        auch in den Einzelproben, sonst liesse sich der abgeschaltete
+        Zustand nicht pruefen."""
+        technical = build_parser().parse_args(
+            ["technical", "--symbols", "AAPL", "--interpret", "--agent-provider", "none"]
+        )
+        research = build_parser().parse_args(
+            ["research", "--symbol", "AAPL", "--provider", "none"]
+        )
+
+        assert technical.agent_provider == "none"
+        assert research.provider == "none"
+
     def test_der_agentenanbieter_ist_von_den_marktdaten_getrennt(self) -> None:
         """Zwei Bedeutungen an einem Flag waeren ein Bedienfehler mit
         Kostenfolge: '--provider' steuert die Marktdaten, '--agent-provider'
@@ -1377,7 +1391,9 @@ class TestDispatchAnbieterUebersteuerung:
         [
             ("--earnings-provider", "finnhub", "earnings"),
             ("--research-provider", "anthropic", "research"),
+            ("--research-provider", "none", "research"),
             ("--technical-agent-provider", "anthropic", "technical_agent"),
+            ("--technical-agent-provider", "none", "technical_agent"),
             ("--fundamentals-provider", "edgar", "fundamentals"),
             ("--ratings-provider", "finnhub", "analyst_ratings"),
             ("--options-provider", "ibkr", "options"),
@@ -1420,6 +1436,10 @@ class TestDispatchAnbieterUebersteuerung:
             ("--ratings-provider", "edgar"),
             ("--earnings-provider", "anthropic"),
             ("--options-provider", "finnhub"),
+            ("--earnings-provider", "none"),
+            ("--fundamentals-provider", "none"),
+            ("--ratings-provider", "none"),
+            ("--options-provider", "none"),
         ],
     )
     def test_ein_anbieter_aus_dem_falschen_abschnitt_wird_abgewiesen(
@@ -1427,7 +1447,9 @@ class TestDispatchAnbieterUebersteuerung:
     ) -> None:
         """Sechs Schalter mit ueberlappenden Wertemengen -- 'finnhub' passt zu
         zweien, 'anthropic' zu zweien, 'ibkr' zu keinem anderen. Ein
-        Vertauschen faellt beim Argument auf, nicht erst am Anbieter."""
+        Vertauschen faellt beim Argument auf, nicht erst am Anbieter.
+        'none' gibt es nur bei den zwei LLM-Agenten: Fuer die uebrigen vier
+        waere ein abgeschalteter Anbieter ein Lauf ohne seine Pflichtdaten."""
         config = write_config(projekt, provider="ibkr")
 
         with pytest.raises(SystemExit) as abbruch:

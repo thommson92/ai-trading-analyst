@@ -27,11 +27,15 @@ getrennt.
 
 ## Projektstand
 
-**Sprints 1–4 abgeschlossen, Sprint 5 vorbereitet.** Die deterministische Kette
-läuft durchgehend: Watchlist-Import, resumierbarer Backfill, Bildung
-abgeschlossener 195-Minuten-Kerzen aus nativen 15-Minuten-Bars,
-Indikatorberechnung, Screener, Earnings-Filter, Backtesting und der
-Trading-Day-Dispatcher.
+**Sprints 1–5 umgesetzt.** Die deterministische Kette läuft durchgehend:
+Watchlist-Import, resumierbarer Backfill, Bildung abgeschlossener
+195-Minuten-Kerzen aus nativen 15-Minuten-Bars, Indikatorberechnung,
+Screener, Earnings-Filter, Backtesting, Fundamentalkennzahlen,
+Analystenempfehlungen, Optionsanalyse, beide Scores samt Empfehlungsstufe
+und der Trading-Day-Dispatcher. Seit dem 2026-09-01 läuft der Tageslauf
+automatisch über die Windows-Aufgabenplanung — welcher Anbieter dabei
+geschaltet ist, sagt der Abschnitt Betriebszustand in
+[Doc 14](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md).
 
 Die **Historientiefe** ist gemessen und aufgefüllt: Der Tiefen-Backfill lief am
 2026-08-24 über die volle Watchlist, der Backtest erreicht seither `NORMAL`
@@ -97,14 +101,19 @@ sie kostet nichts. **Kursziele gibt es dauerhaft nicht** — der Endpunkt dafür
 ist kostenpflichtig, und keine Score-Komponente braucht sie
 ([ADR 0043](docs/adr/0043-analystenempfehlungen-statt-kurszielen.md)).
 
-**Sprint 5 ist entschieden, aber noch nicht gebaut.** Woraus die beiden Scores
-bestehen, sagten Doc 09 und Doc 10 unterschiedlich — ein Punkt, den
-[ADR 0001](docs/adr/0001-dokumentenhierarchie.md) ausdrücklich offen ließ.
-[ADR 0041](docs/adr/0041-score-komponenten-und-gewichte.md) entscheidet ihn:
-sechs Komponenten für den Swing-Score, vier für den Investment-Score, fehlende
-werden umgewichtet, unterhalb von 60 % Abdeckung entsteht `INSUFFICIENT_DATA`
-statt einer Zahl. Die Schwellen selbst werden in Sprint 5 an echten Daten
-kalibriert, nicht gesetzt.
+**Sprint 5 ist umgesetzt.** Beide Scores rechnen: sechs Komponenten für den
+Swing-Score, vier für den Investment-Score, fehlende werden umgewichtet,
+unterhalb von 60 % Abdeckung entsteht `INSUFFICIENT_DATA` statt einer Zahl
+([ADR 0041](docs/adr/0041-score-komponenten-und-gewichte.md)). Die Schwellen
+sind an der Watchlist **gemessen**, nicht gesetzt
+([ADR 0045](docs/adr/0045-schwellen-der-score-teilwerte.md)); aus beiden
+Scores entsteht die Empfehlungsstufe
+([ADR 0046](docs/adr/0046-empfehlungsstufe-aus-beiden-scores.md)), und beide
+gehen mit ihr in die Ergebnismeldung
+([ADR 0047](docs/adr/0047-scores-in-der-ergebnismeldung.md)). Die
+**Optionsanalyse** liefert je Kandidat bis zu drei
+Cash-Secured-Put-Vorschläge aus der IBKR-Optionskette und die sechste
+Score-Komponente ([ADR 0048](docs/adr/0048-optionsanalyse-im-tageslauf.md)).
 
 Der **Benachrichtigungskanal (F10)** ist entschieden und umgesetzt
 ([ADR 0024](docs/adr/0024-benachrichtigungskanal-telegram.md)): Ein
@@ -125,13 +134,13 @@ Noch offen:
 |---|---|
 | Fundamental Agent, KI-Hälfte | Sprint 4 — die deterministischen Kennzahlen stehen ([ADR 0032](docs/adr/0032-fundamentalanalyse-deterministisch.md), [ADR 0033](docs/adr/0033-zwoelfmonatswerte-statt-jahresabschluss.md)), die Einordnung folgt |
 | Report Generator, KI-Hälfte | Sprint 4 — der deterministische Bericht steht ([ADR 0039](docs/adr/0039-report-generator.md)), die Formulierung folgt |
-| Scoring Engine und Empfehlung | Sprint 5 — Komponenten und Gewichte entschieden ([ADR 0041](docs/adr/0041-score-komponenten-und-gewichte.md)), die Schwellen werden zuerst kalibriert |
-| Optionsanalyse | Sprint 5 — Machbarkeit gemessen (IBKR-Spike, Greeks live bestätigt) |
-| Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst |
+| Dashboard und Analysehistorie | Sprint 6 — das Frontend ist ein Next.js-Gerüst; der Zugriff ist entschieden ([ADR 0049](docs/adr/0049-dashboard-mvp-nur-lan.md): nur eigenes Netz, keine Auth im MVP) |
 
 Der Erledigungsstand der Befunde aus dem
-[Repository-Audit](docs/audits/2026-08-23-repository-audit.md) wird in der
-[Nachverfolgung](docs/audits/2026-08-23-nachverfolgung.md) geführt.
+[Repository-Audit 2](docs/audits/2026-08-31-repository-audit-2.md) wird in
+dessen [Nachverfolgung](docs/audits/2026-08-31-nachverfolgung.md) geführt;
+das [Audit vom 2026-08-23](docs/audits/2026-08-23-repository-audit.md) ist
+damit abgelöst.
 
 ## Struktur
 
@@ -369,24 +378,28 @@ Analyse-Lauf — ein Ergebnis auf dem Stand von gestern sähe aus wie die heutig
 Analyse und wäre es nicht. Die Entscheidungen dahinter stehen in
 [ADR 0019](docs/adr/0019-trading-day-dispatcher.md).
 
-Gerechnet wird über denselben Anwendungsfall wie beim manuellen Lauf.
-Earnings-Filter und Research Agent hängen darin und laufen deshalb automatisch
-mit. Beide stehen ausgeliefert auf `fixture`; der tägliche Lauf braucht also
-weder einen Finnhub- noch einen Anthropic-Zugang, liefert dann aber auch keine
-echten Termine und keine echte Recherche.
+Gerechnet wird über denselben Anwendungsfall wie beim manuellen Lauf. Alle
+sechs Analyseanbieter hängen darin und laufen automatisch mit; ausgeliefert
+stehen sie auf `fixture`, damit Start und Tests ohne Zugangsdaten auskommen.
 
 Scharf geschaltet werden sie **nicht** in `config/default.yaml`, sondern je
-Lauf über Argumente:
+Lauf über Argumente — der produktive Stand (siehe Betriebszustand in Doc 14):
 
 ```bash
 .venv/bin/python -m ai_trading_analyst.cli dispatch --provider ibkr \
-    --earnings-provider finnhub --research-provider anthropic
+    --earnings-provider finnhub --fundamentals-provider edgar \
+    --ratings-provider finnhub --options-provider ibkr \
+    --technical-agent-provider anthropic --research-provider none \
+    --notification-channel telegram --telegram-chat-id <CHAT_ID>
 ```
 
 Damit trägt der Eintrag in der Aufgabenplanung die produktiven Schalter und
 `git pull` findet auf dem Server keinen lokalen Diff vor — dieselbe Begründung
-wie bei `--provider ibkr`. `--research-provider anthropic` löst je Kandidat
-einen echten, kostenpflichtigen API-Aufruf aus.
+wie bei `--provider ibkr`. `--research-provider none` schaltet den einzigen
+teuren Modellaufruf bewusst ab: Sein Berichtspunkt erscheint als
+gekennzeichnete Lücke statt als Fixture-Schein-Ergebnis; `anthropic` an
+seiner Stelle löst je Kandidat einen echten, kostenpflichtigen API-Aufruf
+aus (~0,55 USD).
 
 ### Eintrag in der Windows-Aufgabenplanung
 
@@ -397,9 +410,9 @@ einer deutschen Uhrzeit** und steht deshalb nicht im Code, sondern in der
 Betriebsdokumentation: **[Doc 14 — Inbetriebnahme und
 Betrieb](docs/14%20-%20Inbetriebnahme%20und%20Betrieb.md)**.
 
-Dort stehen auch die Abnahme in sieben Stufen, die Rückgabewerte, mit denen die
-Aufgabenplanung nur meldet was wirklich schiefging, und das Vorgehen im
-laufenden Betrieb.
+Dort stehen auch die Abnahme in neun Stufen (A–I), die Rückgabewerte, mit
+denen die Aufgabenplanung nur meldet was wirklich schiefging, und das
+Vorgehen im laufenden Betrieb samt Sicherung und Pflegeturnus.
 
 ### Geheimnisse
 
