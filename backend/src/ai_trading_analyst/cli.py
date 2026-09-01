@@ -367,6 +367,25 @@ def _print_backfill_progress(index: int, total: int, ergebnis: SymbolBackfill) -
     )
 
 
+_offene_engines: list[Engine] = []
+"""Die in diesem Aufruf geoeffneten Engines, damit ``main`` sie wieder
+schliessen kann.
+
+Neun Kommandos oeffnen eine Datenbankverbindung, und ihre Rumpfe haben je ein
+Dutzend Ruecksprungpunkte -- ein ``with`` je Kommando haette jeden davon
+umschliessen muessen. Das Ende des Kommandos ist die eine Stelle, an der die
+Verbindung sicher nicht mehr gebraucht wird.
+
+Im echten Aufruf loest das Prozessende das ohnehin. Bemerkbar wird es dort,
+wo viele Kommandos in **einem** Interpreter laufen: in der Testsuite, die
+seit dem strengen Warnungsfilter genau darueber stolpert."""
+
+
+def _alle_engines_schliessen() -> None:
+    while _offene_engines:
+        _offene_engines.pop().dispose()
+
+
 def _open_database() -> Engine | None:
     """Engine samt Anklopfversuch.
 
@@ -395,6 +414,7 @@ def _open_database() -> Engine | None:
             file=sys.stderr,
         )
         return None
+    _offene_engines.append(engine)
     return engine
 
 
@@ -3944,6 +3964,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except WatchlistError as error:
         print(f"Watchlist: {error}", file=sys.stderr)
         return 2
+    finally:
+        # Auch nach einem Abbruch: Eine Verbindung, die niemand mehr braucht,
+        # gehoert geschlossen und nicht dem Aufraeumer ueberlassen.
+        _alle_engines_schliessen()
     return exit_code
 
 

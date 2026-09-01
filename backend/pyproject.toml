@@ -111,3 +111,24 @@ addopts = "-q --strict-markers"
 markers = [
     "architecture: prueft die Schichtgrenzen aus Doc 10 Paragraph 9",
 ]
+# Eine Warnung ist ein Befund, kein Rauschen. Der Auditbericht vom 2026-08-31
+# fuehrte die eine bestehende als "vorbestehend, harmlos" -- und genau so
+# unauffaellig waere die naechste untergegangen. Deshalb bricht jede Warnung
+# den Lauf, und was stehen bleiben soll, steht hier mit Grund und Ablaufdatum.
+filterwarnings = [
+    "error",
+    # starlette.testclient meldet die Umstellung auf httpx2. Ausgeloest beim
+    # blossen Import von fastapi.testclient, also von keiner eigenen Zeile
+    # erreichbar; sie verschwindet, wenn FastAPI nachzieht. Bis dahin: bekannt,
+    # benannt, nicht blockierend. Naechste Pruefung im Pflegeturnus (Doc 14).
+    # Die Klasse steht ausgeschrieben da, weil sie **nicht** von
+    # DeprecationWarning erbt -- mit der Oberklasse griff der Filter nicht.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+    # Warnungen aus dem Aufraeumer (offene Verbindungen, offene Event-Loops in
+    # Testdoppeln). Sie entstehen, wann die Speicherbereinigung laeuft, und
+    # werden deshalb einem beliebigen gerade laufenden Test angelastet -- ueber
+    # zwei Laeufe hinweg jedes Mal einem anderen. Als Fehler waeren sie kein
+    # Befund, sondern eine Wackelquelle. Ihr groesster Verursacher ist
+    # abgestellt: 'main' schliesst die Engines jetzt selbst.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
