@@ -36,8 +36,14 @@ from .ports import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
+from .repeat_suppression import (
+    RECOMMENDED_LEVELS,
+    RepeatSuppressionParameters,
+    suppression_cutoff,
+)
 
 __all__ = [
+    "RECOMMENDED_LEVELS",
     "AnalysisRun",
     "AnalysisRunRepository",
     "AnalysisRunSummary",
@@ -58,6 +64,7 @@ __all__ = [
     "OptionsDataProvider",
     "OptionsDataProviderError",
     "ProcessingErrorRepository",
+    "RepeatSuppressionParameters",
     "ResearchProvider",
     "ResearchProviderError",
     "RunStatus",
@@ -70,4 +77,5 @@ __all__ = [
     "TechnicalInterpreter",
     "TechnicalInterpreterError",
     "UnitOfWork",
+    "suppression_cutoff",
 ]

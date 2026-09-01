@@ -14,6 +14,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from ai_trading_analyst.domain.analysis import (
+    RECOMMENDED_LEVELS,
     AnalysisRun,
     RunStatus,
     Stock,
@@ -926,6 +927,109 @@ class TestScreeningResultRepository:
                     make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
                 )
                 uow.commit()
+
+
+class TestLatestCandidateAnalyses:
+    """Die Abfrage der Wiederholsperre (ADR 0054) durch echtes PostgreSQL.
+
+    Die Grenze ist strikt: gezaehlt wird ``evaluated_at > since`` -- eine
+    exakt fenstergrenzalte Analyse sperrt nicht mehr.
+    """
+
+    _CUTOFF = datetime(2026, 8, 25, 20, 0, tzinfo=UTC)
+
+    def _speichere(
+        self,
+        uow_factory: UowFactory,
+        symbol: str,
+        *,
+        evaluated_at: datetime,
+        status: ScreeningStatus = ScreeningStatus.CANDIDATE,
+        recommendation: RecommendationResult | None = None,
+    ) -> None:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = replace(
+            make_outcome(stock, status, analysis_run_id=run.id),
+            evaluated_at=evaluated_at,
+            recommendation=recommendation,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+    def test_nur_analysen_nach_der_grenze_zaehlen_und_die_grenze_selbst_nicht(
+        self, uow_factory: UowFactory
+    ) -> None:
+        self._speichere(
+            uow_factory, "SPERRE-NEU", evaluated_at=self._CUTOFF + timedelta(hours=1)
+        )
+        self._speichere(
+            uow_factory, "SPERRE-ALT", evaluated_at=self._CUTOFF - timedelta(hours=1)
+        )
+        self._speichere(uow_factory, "SPERRE-GENAU", evaluated_at=self._CUTOFF)
+
+        with uow_factory() as uow:
+            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+
+        assert set(juengste) == {"SPERRE-NEU"}
+        assert juengste["SPERRE-NEU"] == self._CUTOFF + timedelta(hours=1)
+
+    def test_ohne_volle_analyse_zaehlt_nichts(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory,
+            "SPERRE-KEIN-KANDIDAT",
+            evaluated_at=self._CUTOFF + timedelta(hours=1),
+            status=ScreeningStatus.NOT_CANDIDATE,
+        )
+
+        with uow_factory() as uow:
+            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+
+        assert juengste == {}
+
+    def test_die_juengste_analyse_eines_symbols_gewinnt(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._CUTOFF + timedelta(hours=1)
+        )
+        self._speichere(
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._CUTOFF + timedelta(hours=2)
+        )
+
+        with uow_factory() as uow:
+            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+
+        assert juengste == {"SPERRE-DOPPELT": self._CUTOFF + timedelta(hours=2)}
+
+    def test_empfehlungsfilter_beschraenkt_die_ausloeser(self, uow_factory: UowFactory) -> None:
+        """Variante b aus ADR 0054: Nur empfohlene Stufen sperren. Ein
+        WATCH-Ergebnis und eines ohne Stufe fallen dann heraus, ohne Filter
+        zaehlen alle vollen Analysen."""
+        frisch = self._CUTOFF + timedelta(hours=1)
+        self._speichere(
+            uow_factory,
+            "SPERRE-EMPFOHLEN",
+            evaluated_at=frisch,
+            recommendation=RecommendationResult(level=Recommendation.CANDIDATE, version="1.0"),
+        )
+        self._speichere(
+            uow_factory,
+            "SPERRE-WATCH",
+            evaluated_at=frisch,
+            recommendation=RecommendationResult(level=Recommendation.WATCH, version="1.0"),
+        )
+        self._speichere(uow_factory, "SPERRE-OHNE-STUFE", evaluated_at=frisch)
+
+        with uow_factory() as uow:
+            nur_empfohlene = uow.screening_results.latest_candidate_analyses(
+                since=self._CUTOFF, recommendation_levels=RECOMMENDED_LEVELS
+            )
+            alle = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+
+        assert set(nur_empfohlene) == {"SPERRE-EMPFOHLEN"}
+        assert set(alle) == {"SPERRE-EMPFOHLEN", "SPERRE-WATCH", "SPERRE-OHNE-STUFE"}
 
 
 class TestBacktestResultRepository:

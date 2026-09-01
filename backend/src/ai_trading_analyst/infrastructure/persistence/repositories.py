@@ -1130,6 +1130,31 @@ class SqlAlchemyScreeningResultRepository:
         ).all()
         return {EarningsFilterStatus(status): anzahl for status, anzahl in rows}
 
+    def latest_candidate_analyses(
+        self,
+        *,
+        since: datetime,
+        recommendation_levels: frozenset[Recommendation] | None = None,
+    ) -> Mapping[str, datetime]:
+        # Kein Index auf stock_id oder evaluated_at: Die Abfrage laeuft
+        # einmal je Tageslauf ueber wenige hundert Zeilen je Lauf -- ein
+        # Index waere geraten statt gemessen (ADR 0054).
+        query = (
+            select(StockOrm.symbol, func.max(ScreeningResultOrm.evaluated_at))
+            .join(StockOrm, StockOrm.id == ScreeningResultOrm.stock_id)
+            .where(
+                ScreeningResultOrm.status == ScreeningStatus.CANDIDATE,
+                # Strikte Grenze (ADR 0054): eine exakt window_days alte
+                # Analyse sperrt nicht mehr.
+                ScreeningResultOrm.evaluated_at > since,
+            )
+            .group_by(StockOrm.symbol)
+        )
+        if recommendation_levels is not None:
+            query = query.where(ScreeningResultOrm.recommendation.in_(recommendation_levels))
+        rows = self._session.execute(query).tuples().all()
+        return dict(rows)
+
 
 class SqlAlchemyProcessingErrorRepository:
     def __init__(self, session: Session) -> None:

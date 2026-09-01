@@ -28,6 +28,7 @@ from ai_trading_analyst.domain.options import OptionsAnalysis
 # Teilergebnissen.
 from ai_trading_analyst.domain.report.values import StockReport, StoredReport
 from ai_trading_analyst.domain.research import ResearchReport
+from ai_trading_analyst.domain.scoring import Recommendation
 from ai_trading_analyst.domain.screening import CandleSeries, IntradayBar
 from ai_trading_analyst.domain.technical import (
     PriceZone,
@@ -429,6 +430,23 @@ class AnalysisRunRepository(Protocol):
 class ScreeningResultRepository(Protocol):
     def add(self, outcome: StockScreeningOutcome) -> None: ...
     def list_for_run(self, run_id: UUID) -> Sequence[StockScreeningOutcome]: ...
+
+    def latest_candidate_analyses(
+        self,
+        *,
+        since: datetime,
+        recommendation_levels: frozenset[Recommendation] | None = None,
+    ) -> Mapping[str, datetime]:
+        """Symbol -> juengstes ``evaluated_at`` aller vollen Analysen nach ``since``.
+
+        Grundlage der Wiederholsperre (ADR 0054). Eine volle Analyse ist eine
+        Ergebniszeile mit ``ScreeningStatus.CANDIDATE`` -- der Anker ist die
+        Analyse, nicht das Berichtsartefakt, denn Berichte koennen isoliert
+        scheitern. Die Grenze ist strikt: gezaehlt wird ``evaluated_at >
+        since``. ``recommendation_levels`` beschraenkt den Ausloeser optional
+        auf bestimmte Empfehlungsstufen; ``None`` zaehlt jede volle Analyse.
+        """
+        ...
 
     def count_by_earnings_status(self, run_id: UUID) -> Mapping[EarningsFilterStatus, int]:
         """Wie oft der Earnings-Filter je Ergebnis entschieden hat.

@@ -43,11 +43,13 @@ from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
 from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
+from ai_trading_analyst.domain.scoring import Recommendation
 from ai_trading_analyst.domain.screening import (
     Candle,
     CandleSeries,
     IndicatorValues,
     IntradayBar,
+    ScreeningStatus,
 )
 from ai_trading_analyst.domain.technical import (
     PriceZone,
@@ -388,6 +390,33 @@ class FakeScreeningResultRepository:
             if outcome.earnings is not None:
                 gezaehlt[outcome.earnings.status] += 1
         return dict(gezaehlt)
+
+    def latest_candidate_analyses(
+        self,
+        *,
+        since: datetime,
+        recommendation_levels: frozenset[Recommendation] | None = None,
+    ) -> dict[str, datetime]:
+        # Gleiche Zusagen wie die SQL-Implementierung: nur volle Analysen
+        # (ScreeningStatus.CANDIDATE), strikte Grenze, juengstes evaluated_at.
+        juengste: dict[str, datetime] = {}
+        for outcome in self.added:
+            if outcome.result.status is not ScreeningStatus.CANDIDATE:
+                continue
+            if outcome.evaluated_at <= since:
+                continue
+            if recommendation_levels is not None:
+                level = (
+                    outcome.recommendation.level
+                    if outcome.recommendation is not None
+                    else None
+                )
+                if level not in recommendation_levels:
+                    continue
+            bisher = juengste.get(outcome.stock.symbol)
+            if bisher is None or outcome.evaluated_at > bisher:
+                juengste[outcome.stock.symbol] = outcome.evaluated_at
+        return juengste
 
 
 class FakeBacktestResultRepository:
