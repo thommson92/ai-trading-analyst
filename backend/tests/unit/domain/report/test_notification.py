@@ -1,4 +1,5 @@
-"""Die Kurzfassung sagt, ob sich der Blick lohnt -- mehr nicht (ADR 0040).
+"""Die Kurzfassung sagt, ob sich der Blick lohnt -- mehr nicht (ADR 0040,
+ADR 0047, ADR 0055).
 
 Die entscheidenden Zusicherungen sind die **negativen**: Was nicht in der
 Meldung stehen darf, steht dort auch nicht. Sie verlaesst das eigene Netz.
@@ -7,7 +8,7 @@ Meldung stehen darf, steht dort auch nicht. Sie verlaesst das eigene Netz.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -17,6 +18,7 @@ from ai_trading_analyst.domain.analysis import (
     StockScreeningOutcome,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
+from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsStatus
 from ai_trading_analyst.domain.report import render_notification
 from ai_trading_analyst.domain.scoring import (
     ComponentName,
@@ -45,7 +47,9 @@ from tests.unit.domain.report.conftest import (
     JETZT,
     make_earnings,
     make_fundamentals,
+    make_options,
     make_outcome,
+    make_put_strategy,
     make_research,
     make_technical,
 )
@@ -114,7 +118,12 @@ def punktzahl(wert: float | None, kind: ScoreKind) -> ScoreResult:
 
 
 def kandidat(
-    symbol: str, *, swing: float | None, investment: float | None, voll: bool = False
+    symbol: str,
+    *,
+    swing: float | None,
+    investment: float | None,
+    voll: bool = False,
+    options: OptionsAnalysis | None = None,
 ) -> StockScreeningOutcome:
     """Ein Kandidat mit Scores und der Stufe, die sich daraus ergibt.
 
@@ -133,7 +142,12 @@ def kandidat(
             ),
             "technical_assessment": einordnung(FalseSignalRisk.MEDIUM),
             "earnings": make_earnings(EarningsFilterStatus.UNKNOWN),
+            # Der laengstmoegliche Block traegt seit ADR 0055 auch die
+            # Put-Zeile -- ohne sie waere die Kuerzungsmessung zu optimistisch.
+            "options": make_options(),
         }
+    if options is not None:
+        zusatz["options"] = options
     return make_outcome(
         stock=Stock(id=uuid.uuid5(uuid.NAMESPACE_DNS, symbol), symbol=symbol, exchange="NASDAQ"),
         swing_score=swing_score,
@@ -168,16 +182,36 @@ class TestWasDrinSteht:
         betreff, _ = render_notification(zusammenfassung(make_outcome()), timezone=_NY)
         assert betreff == "Analyse-Lauf 2026-08-30: 1 Kandidat(en)"
 
-    def test_jede_zeile_nennt_symbol_und_signaltypen(self) -> None:
+    def test_jeder_block_nennt_symbol_und_signalzahl_statt_signalnamen(self) -> None:
+        """ADR 0055: gezaehlt statt aufgezaehlt -- die Gesamtzahl kommt aus
+        der Regelmenge, nicht als fest verdrahtete Drei."""
         _, text = render_notification(zusammenfassung(make_outcome()), timezone=_NY)
-        assert "AAPL  EMA5_EMA20_CROSS + RSI_CROSS" in text
+        assert f"AAPL -- 2/{len(SignalType)} Signale" in text
+        assert "EMA5_EMA20_CROSS" not in text
+        assert "RSI_CROSS" not in text
 
     def test_das_fehlsignalrisiko_erscheint_als_stufe(self) -> None:
         _, text = render_notification(
             zusammenfassung(make_outcome(technical_assessment=einordnung(FalseSignalRisk.HIGH))),
             timezone=_NY,
         )
-        assert "Fehlsignalrisiko HIGH" in text
+        assert "Risiko HIGH" in text
+
+    def test_bloecke_sind_durch_leerzeilen_getrennt(self) -> None:
+        """ADR 0055: ein Block je Aktie, dazwischen eine Leerzeile -- auch
+        vor der Legende."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat("AAA", swing=7.0, investment=5.0),
+                kandidat("BBB", swing=6.0, investment=5.0),
+            ),
+            timezone=_NY,
+        )
+        bloecke = text.split("\n\n")
+        assert len(bloecke) == 3  # zwei Kandidaten + Legende
+        assert bloecke[0].startswith("AAA -- ")
+        assert bloecke[1].startswith("BBB -- ")
+        assert "cli report" in bloecke[2]
 
     def test_ein_unbekannter_earnings_termin_wird_genannt(self) -> None:
         """Doc 10, Paragraph 6.5: ein Datenrisiko, das ausdruecklich
@@ -310,7 +344,8 @@ class TestScoresUndStufe:
             timezone=_NY,
         )
 
-        assert [zeile.split()[0] for zeile in text.splitlines()[:3]] == ["ZZZ", "MMM", "AAA"]
+        bloecke = text.split("\n\n")[:3]
+        assert [block.split(" -- ")[0] for block in bloecke] == ["ZZZ", "MMM", "AAA"]
 
     def test_kandidaten_ohne_score_stehen_hinten(self) -> None:
         """Nicht, weil sie schlecht waeren, sondern weil ueber sie nichts zu
@@ -323,7 +358,14 @@ class TestScoresUndStufe:
             timezone=_NY,
         )
 
-        assert [zeile.split()[0] for zeile in text.splitlines()[:2]] == ["MIT", "OHNE"]
+        bloecke = text.split("\n\n")[:2]
+        assert [block.split(" -- ")[0] for block in bloecke] == ["MIT", "OHNE"]
+
+    def test_die_legende_nennt_die_kontraktpraemie(self) -> None:
+        _, text = render_notification(
+            zusammenfassung(kandidat("AAPL", swing=7.0, investment=5.0)), timezone=_NY
+        )
+        assert "Praemie je Kontrakt (Mid)" in text
 
     def test_bei_gleichstand_entscheidet_das_symbol(self) -> None:
         """Ohne zweiten Schluessel haengt die Reihenfolge an der Aktienliste,
@@ -336,4 +378,99 @@ class TestScoresUndStufe:
             timezone=_NY,
         )
 
-        assert [zeile.split()[0] for zeile in text.splitlines()[:2]] == ["AAA", "ZZZ"]
+        bloecke = text.split("\n\n")[:2]
+        assert [block.split(" -- ")[0] for block in bloecke] == ["AAA", "ZZZ"]
+
+
+class TestPutZeile:
+    """ADR 0055 -- der Punkt, in dem die Meldung ADR 0047 abloest: Fuer
+    empfohlene Kandidaten steht der beste Put-Vorschlag in der Meldung."""
+
+    def test_der_beste_vorschlag_steht_mit_strike_verfall_und_kontraktpraemie(self) -> None:
+        """``premium`` ist der Mid je Aktie -- 1.50 muss als ~150 $ je
+        Kontrakt erscheinen, sonst stimmt die Umrechnung nicht."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat(
+                    "AAPL",
+                    swing=8.6,
+                    investment=5.5,
+                    options=make_options(
+                        strategies=(
+                            make_put_strategy(
+                                strike=320.0, premium=1.50, expiration=date(2026, 10, 16)
+                            ),
+                        )
+                    ),
+                )
+            ),
+            timezone=_NY,
+        )
+        assert "Put-Verkauf: Strike 320 $, Verfall 16.10.2026, Praemie ~150 $" in text
+
+    def test_die_erste_und_damit_beste_strategie_wird_genommen(self) -> None:
+        """``strategies`` ist absteigend nach annualisierter Rendite sortiert
+        -- die Meldung nimmt die erste, nicht irgendeine."""
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat(
+                    "AAPL",
+                    swing=7.0,
+                    investment=5.0,
+                    options=make_options(
+                        strategies=(
+                            make_put_strategy(strike=310.0, annualized_return=0.30),
+                            make_put_strategy(strike=300.0, annualized_return=0.20),
+                        )
+                    ),
+                )
+            ),
+            timezone=_NY,
+        )
+        assert "Strike 310 $" in text
+        assert "Strike 300" not in text
+
+    def test_kandidat_ohne_optionsdaten_sagt_das_ausdruecklich(self) -> None:
+        """Fehlende Daten bleiben sichtbar fehlend -- kein Ersatzwert, keine
+        stille Auslassung."""
+        _, text = render_notification(
+            zusammenfassung(kandidat("AAPL", swing=7.0, investment=5.0)), timezone=_NY
+        )
+        assert "Put-Verkauf: keine Optionsdaten" in text
+
+    def test_insufficient_data_und_leere_strategien_sagen_dasselbe(self) -> None:
+        _, ohne_daten = render_notification(
+            zusammenfassung(
+                kandidat(
+                    "AAPL",
+                    swing=7.0,
+                    investment=5.0,
+                    options=make_options(
+                        status=OptionsStatus.INSUFFICIENT_DATA,
+                        strategies=(),
+                        reason="kein Verfall im Fenster",
+                    ),
+                )
+            ),
+            timezone=_NY,
+        )
+        _, leer = render_notification(
+            zusammenfassung(
+                kandidat("AAPL", swing=7.0, investment=5.0, options=make_options(strategies=()))
+            ),
+            timezone=_NY,
+        )
+        assert "Put-Verkauf: keine Optionsdaten" in ohne_daten
+        assert "Put-Verkauf: keine Optionsdaten" in leer
+        # Der Grund ist Freitext des Adapters und bleibt draussen.
+        assert "kein Verfall im Fenster" not in ohne_daten
+
+    def test_watch_traegt_weder_put_zeile_noch_hinweis(self) -> None:
+        _, text = render_notification(
+            zusammenfassung(
+                kandidat("AAPL", swing=5.0, investment=5.0, options=make_options())
+            ),
+            timezone=_NY,
+        )
+        assert "WATCH" in text
+        assert "Put-Verkauf" not in text
