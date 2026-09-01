@@ -953,6 +953,15 @@ npm run build
 Ergebnis ist der Ordner `frontend\out`. Er ist nicht eingecheckt und
 entsteht auf jedem Rechner neu.
 
+> **`index.html` nicht per Doppelklick öffnen.** Der Browser lädt sie dann
+> als `file://`, und die Seite verweist auf ihre JavaScript-Bündel unter
+> `/_next/static/…` — absolute Pfade, die dort ins Leere zeigen. React startet
+> nie, und die Seite bleibt **dauerhaft** bei „Wird geladen …" stehen, ohne
+> Fehlermeldung: Was zu sehen ist, ist der vorgerenderte Ausgangszustand. Es
+> lädt nicht lange, es lädt gar nicht. Auch die API wäre von dort nicht
+> erreichbar — es gibt keine Herkunft, die auf sie zeigt. Der Export gehört
+> hinter den Dienst aus Schritt 3.
+
 ## Schritt 3 — Dienst zur Probe starten
 
 ```powershell
@@ -960,9 +969,15 @@ cd C:\...\backend
 .venv\Scripts\python.exe -m uvicorn ai_trading_analyst.main:app --host 0.0.0.0 --port 8000
 ```
 
+`ai_trading_analyst.main:app` ist der richtige Einstiegspunkt und nicht
+`presentation.api.app:create_app`: Nur der Weg über `build_app()` verdrahtet
+Datenbank **und** Dashboard-Ordner. Die Fabrik direkt gestartet, liefert eine
+API ohne beides.
+
 Dann lokal `http://127.0.0.1:8000/` öffnen. Die Tagesübersicht muss den
 letzten Lauf zeigen; `http://127.0.0.1:8000/api/v1/system/readiness` muss
-`ready` melden.
+`ready` melden. Bleibt die Seite leer, sagt die Readiness, auf welcher Seite
+es klemmt.
 
 > `--host 0.0.0.0` bindet an **alle** Schnittstellen. Das ist der Preis
 > dafür, dass die Adresse des Servers per DHCP wechseln darf; abgeschirmt
