@@ -20,14 +20,27 @@ einzige, der nicht über HTTP erreichbar ist. Finnhub und EDGAR lassen sich
 mit einem `curl` einfrieren; die TWS spricht ein eigenes Protokoll über einen
 lokalen Socket, und ohne laufende TWS gibt es keine Antwort zum Aufheben.
 
-## Roh, nicht gerechnet
+## Nicht gerechnet — aber auch nicht ganz roh
 
-Aufgezeichnet ist, was der Anbieter **gab** — Verfallstermine, gelistete
-Strikes, Notierungen. **Nicht** die bewerteten Vorschläge: Ein Mitschnitt der
-fertigen Analyse würde die Rechnung mit einfrieren, und eine Formatänderung
-des Anbieters wäre danach von einer Verfahrensänderung nicht mehr zu
-unterscheiden. Der Test in `../test_eingefrorene_kette.py` rechnet aus diesen
-Rohdaten neu.
+Aufgezeichnet ist, was zurückkam: Verfallstermine, gelistete Strikes,
+Notierungen. **Nicht** die bewerteten Vorschläge — ein Mitschnitt der fertigen
+Analyse würde die Rechnung mit einfrieren, und eine Formatänderung wäre danach
+von einer Verfahrensänderung nicht mehr zu unterscheiden. Der Test in
+`../test_eingefrorene_kette.py` rechnet daraus neu.
+
+**Wie weit die Aufzeichnung reicht, gehört dazugesagt.** Der Mitschnitt hängt
+am Protokoll `OptionChainSource` und damit **hinter** `_als_quote`, das den
+`ib_async`-Ticker in die Domäne übersetzt (`ibkr/bar_source.py`). Eingefroren
+ist die Kettenstruktur nach dieser Übersetzung, nicht das Drahtformat der TWS.
+
+| Was der Test bemerkt | Was er nicht bemerkt |
+|---|---|
+| Änderung an Terminwahl, Strike-Band, Delta-Filter, Renditeformel — gegen eine echte, nicht selbst erdachte Kette | IBKR benennt ein Ticker-Feld um, `_als_quote` bildet es still auf `None` ab |
+
+Bei Finnhub liegt die Grenze günstiger: Dort geht das rohe JSON durch den
+echten Parser. Diese Lücke zu schließen hieße, den Mitschnitt eine Ebene
+tiefer zu setzen und je Ticker die Rohfelder mitzuschreiben — das braucht
+einen neuen Serverlauf bei offenem Markt und steht als Folgeschritt an.
 
 Aus demselben Grund stehen **angefragte und gelieferte Strikes getrennt**:
 Dass die TWS zu einem angefragten Kontrakt nichts zurückgibt, ist selbst ein
@@ -43,11 +56,16 @@ An diesem Tag lieferte sie zu allen zwölf etwas.
 - **61 gelistete Strikes** zu diesem Termin, von 110 bis 415. Angefragt werden
   die zwölf im Moneyness-Band. Die 49 nicht gestellten Anfragen je Titel sind
   der Unterschied zwischen einem Tageslauf und einem Nachmittag.
-- **Kein einziges Open Interest.** Im `frozen`-Marktdatenmodus (`2`) gibt die
-  TWS es zu keinem der zwölf Kontrakte heraus, bei durchweg dreistelligem
-  Volumen. Eine 0 an dieser Stelle hieße „niemand hält diesen Kontrakt" — eine
-  Aussage über den Markt, die niemand gemacht hat. Das Feld bleibt leer, und
-  die Liquiditätsbewertung stützt sich auf Spanne und Volumen.
+- **Kein einziges Open Interest**, bei durchweg dreistelligem Volumen — und
+  die Liquiditätsbewertung kommt trotzdem zu `GOOD`, getragen von Spanne und
+  Volumen. Eine 0 an dieser Stelle hieße „niemand hält diesen Kontrakt", eine
+  Aussage über den Markt, die niemand gemacht hat.
+
+  **Warum das Feld leer ist, sagt die Datei nicht.** `reqTickers` fordert Open
+  Interest gar nicht erst an (Kommentar in `_als_quote`), und der Mitschnitt
+  setzt eine Ebene darüber an — aus dem `null` lässt sich nicht ablesen, ob die
+  TWS nichts lieferte oder ob niemand gefragt hat. Belegt ist die Wirkung,
+  nicht die Ursache.
 - **Delta negativ**, wie der Anbieter es für einen Put liefert. Gefiltert und
   ausgewiesen wird der Betrag.
 

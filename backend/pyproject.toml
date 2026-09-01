@@ -124,11 +124,21 @@ filterwarnings = [
     # Die Klasse steht ausgeschrieben da, weil sie **nicht** von
     # DeprecationWarning erbt -- mit der Oberklasse griff der Filter nicht.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
-    # Warnungen aus dem Aufraeumer (offene Verbindungen, offene Event-Loops in
-    # Testdoppeln). Sie entstehen, wann die Speicherbereinigung laeuft, und
-    # werden deshalb einem beliebigen gerade laufenden Test angelastet -- ueber
-    # zwei Laeufe hinweg jedes Mal einem anderen. Als Fehler waeren sie kein
-    # Befund, sondern eine Wackelquelle. Ihr groesster Verursacher ist
-    # abgestellt: 'main' schliesst die Engines jetzt selbst.
+    # Warnungen aus dem Aufraeumer. Sie entstehen, wann die
+    # Speicherbereinigung laeuft, und werden deshalb einem beliebigen gerade
+    # laufenden Test angelastet -- ueber zwei Laeufe hinweg jedes Mal einem
+    # anderen. Als Fehler waeren sie kein Befund, sondern eine Wackelquelle.
+    #
+    # **Was hier stehen bleibt, ist ein offener Punkt und kein Testartefakt.**
+    # Der verbliebene Verursacher ist Produktivcode:
+    # ``_ensure_event_loop_exists`` (ibkr/bar_source.py) legt je Thread einen
+    # Event-Loop an, und ``close()`` trennt nur die TWS-Verbindung, schliesst
+    # ihn aber nicht. Unter FastAPI, wo synchrone Endpunkte in wechselnden
+    # Worker-Threads laufen, bleibt so je Thread ein Loop liegen. Vorbestehend,
+    # durch die Zahl der Worker begrenzt und deshalb nicht dringend -- aber
+    # nicht abgestellt. Wer diesen Filter entfernen will, faengt dort an.
+    #
+    # Der grosse Verursacher davor **ist** abgestellt: nicht geschlossene
+    # Datenbank-Engines; ``main`` schliesst sie jetzt selbst.
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]

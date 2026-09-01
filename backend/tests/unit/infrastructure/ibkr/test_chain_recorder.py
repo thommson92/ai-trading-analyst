@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import fields
 from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -140,6 +141,21 @@ class TestVollstaendigerLauf:
             "open_interest": 1200,
             "volume": 84,
         }
+
+    def test_jedes_feld_der_notierung_ist_erfasst(self, tmp_path: Path) -> None:
+        """``_quote_als_json`` zaehlt die Felder von Hand auf -- gut gegen
+        eine Umbenennung, die dort sofort scheitert, aber blind gegen eine
+        **Ergaenzung**: Ein neues Feld an ``OptionQuote`` fiele still unter
+        den Tisch, und der Mitschnitt waere unvollstaendig, ohne dass jemand
+        es merkt. Dieser Abgleich schliesst die Luecke."""
+        ziel = tmp_path / "kette.json"
+        kette = _mitschnitt(FakeQuelle(quotes=[_quote(210.0)]), ziel)
+
+        _provider(kette).options(AKTIE, price=232.14, as_of=STICHTAG)
+        kette.write()
+
+        (notierung,) = json.loads(ziel.read_text(encoding="utf-8"))["option_quotes"]["quotes"]
+        assert set(notierung) == {feld.name for feld in fields(OptionQuote)}
 
     def test_ein_fehlendes_feld_bleibt_leer(self, tmp_path: Path) -> None:
         """Kein Ersatzwert, auch nicht in der Aufzeichnung: Eine Null im

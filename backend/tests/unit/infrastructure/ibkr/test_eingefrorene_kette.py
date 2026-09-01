@@ -5,8 +5,23 @@ Das ist die Grenze dieser Tests: Sie schreiben hin, was sie erwarten, und
 koennen deshalb nicht bemerken, wenn die TWS etwas anderes liefert -- ein
 umbenanntes Feld, ein fehlendes Greek, eine andere Handelsklasse.
 
-Hier laeuft dieselbe Kette gegen die **aufgezeichneten Rohantworten** vom
-2026-09-01. Gerechnet wird neu; eingefroren ist nur, was der Anbieter gab.
+Hier laeuft dieselbe Kette gegen die **aufgezeichneten Antworten** vom
+2026-09-01. Gerechnet wird neu; eingefroren ist nur, was zurueckkam.
+
+**Wie weit das reicht, und wie weit nicht.** Der Mitschnitt haengt am
+Protokoll ``OptionChainSource`` -- also **hinter** ``_als_quote``, das den
+``ib_async``-Ticker in die Domaene uebersetzt. Eingefroren ist damit die
+Kettenstruktur nach dieser Uebersetzung, nicht das Drahtformat der TWS. Was
+diese Tests bemerken: eine Aenderung an Terminwahl, Strike-Band,
+Delta-Filter oder Renditeformel gegen eine echte, nicht selbst erdachte
+Kette. Was sie **nicht** bemerken: wenn IBKR ein Ticker-Feld umbenennt und
+``_als_quote`` es still auf ``None`` abbildet. Bei Finnhub liegt die Grenze
+guenstiger -- dort geht das rohe JSON durch den echten Parser.
+
+Diese Luecke zu schliessen hiesse, den Mitschnitt eine Ebene tiefer zu
+setzen und je Ticker die Rohfelder mitzuschreiben. Das braucht einen neuen
+Serverlauf bei offenem Markt und steht als Folgeschritt an.
+
 Herkunft und Neuaufzeichnung stehen in ``data/HERKUNFT.md``.
 """
 
@@ -200,15 +215,18 @@ class TestDieKetteAnEchtenAntworten:
         renditen = [vorschlag.annualized_return for vorschlag in analyse.strategies]
         assert renditen == sorted(renditen, reverse=True)
 
-    def test_das_fehlende_open_interest_bleibt_fehlend(self) -> None:
-        """**Der Befund, den nur eine echte Antwort liefert.** Im
-        'frozen'-Marktdatenmodus gibt die TWS zu keinem der zwoelf Kontrakte
-        ein Open Interest heraus -- bei durchweg dreistelligem Volumen.
+    def test_ohne_open_interest_kommt_die_bewertung_trotzdem_zu_einem_urteil(self) -> None:
+        """Zwoelf Kontrakte, kein einziges Open Interest -- und trotzdem
+        ``GOOD``, getragen von Spanne und Volumen.
 
-        Eine 0 an dieser Stelle hiesse "niemand haelt diesen Kontrakt" und
-        waere eine Aussage ueber den Markt, die niemand gemacht hat
-        (CLAUDE.md). Die Liquiditaetsbewertung muss trotzdem zu einem Urteil
-        kommen -- sie stuetzt sich hier auf Spanne und Volumen.
+        **Was hier nicht behauptet wird:** dass die TWS das Feld
+        zurueckgehalten haette. ``reqTickers`` fordert es gar nicht erst an
+        (Kommentar in ``bar_source._als_quote``), und der Mitschnitt setzt
+        eine Ebene darueber an -- aus dem ``null`` in der Datei laesst sich
+        die Ursache nicht ablesen. Geprueft ist die Wirkung: Ein fehlender
+        Wert kostet den Vorschlag nicht, und er wird auch nicht durch eine 0
+        ersetzt. Eine 0 hiesse "niemand haelt diesen Kontrakt" -- eine
+        Aussage ueber den Markt, die niemand gemacht hat (CLAUDE.md).
         """
         analyse = _analyse(WiedergabeQuelle(_aufzeichnung()))
 

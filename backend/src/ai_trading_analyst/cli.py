@@ -35,6 +35,7 @@ import sys
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -2442,11 +2443,33 @@ def command_options(args: argparse.Namespace) -> int:
         # Erst schreiben, dann die Verbindung schliessen -- und auch dann,
         # wenn der Abruf mittendrin abgebrochen ist: Eine halbe Aufzeichnung
         # sagt, wie weit es kam.
-        if mitschnitt is not None:
-            mitschnitt.write()
-            print(f"\nMitschnitt der Optionskette geschrieben: {mitschnittsziel}")
-        if quelle is not None:
-            quelle.close()
+        #
+        # Das Schreiben steht in einem eigenen ``try``: Scheitert es (Ziel
+        # entfernt, Laufwerk voll), darf das nicht das Trennen der Verbindung
+        # verhindern -- IBKR laesst je Client-ID nur eine, und eine offen
+        # gebliebene kostet den naechsten Lauf.
+        try:
+            if mitschnitt is not None:
+                mitschnitt.write()
+                print(f"\nMitschnitt der Optionskette geschrieben: {mitschnittsziel}")
+        except OSError as error:
+            print(f"Mitschnitt nicht geschrieben: {error}", file=sys.stderr)
+        finally:
+            if quelle is not None:
+                quelle.close()
+
+        # Ohne Mitschnitt bleibt sonst die leere Datei aus dem
+        # Beschreibbarkeitstest liegen -- und sieht im Verzeichnis aus wie
+        # eine frische Aufzeichnung.
+        if mitschnitt is None and mitschnittsziel is not None:
+            with suppress(OSError):
+                if mitschnittsziel.stat().st_size == 0:
+                    mitschnittsziel.unlink()
+            print(
+                "Kein Mitschnitt entstanden -- ohne Kurs gibt es keine Abfrage, "
+                "die sich aufzeichnen liesse.",
+                file=sys.stderr,
+            )
 
     if ziel is not None:
         _write_options_csv(ziel, ergebnisse)
