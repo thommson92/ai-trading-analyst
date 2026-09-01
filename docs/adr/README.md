@@ -85,6 +85,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0048](0048-optionsanalyse-im-tageslauf.md) | Cash Secured Puts aus der IBKR-Optionskette | Angenommen (füllt Berichtspunkt 13 und die sechste Score-Komponente; führt die dritte gerichtete Kopplung ein) |
 | [0049](0049-dashboard-mvp-nur-lan.md) | Dashboard-MVP nur im eigenen Netz — keine Exposition, keine eigene Auth | Angenommen (entscheidet F12/E8, entsperrt Sprint 6; Exposition und Auth werden nach stabilem Betrieb neu bewertet) |
 | [0050](0050-us-007-chartmuster-gestrichen.md) | Das US-007-Kriterium „relevante Chartmuster" ist gestrichen | Angenommen (entscheidet E13 des Audits vom 2026-08-23 — Streichung mit Vermerk statt stiller Löschung) |
+| [0051](0051-research-im-dauerbetrieb-abgeschaltet.md) | Research Agent im Dauerbetrieb abgeschaltet — Provider-Wert `none` | Angenommen (Kostenentscheidung; löst nichts an ADR 0021/0023 ab — die Einzelprobe bleibt der Weg) |
 
 ## Offene Entscheidungen
 

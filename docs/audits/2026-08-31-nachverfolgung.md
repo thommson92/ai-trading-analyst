@@ -102,7 +102,7 @@ Provider-Wert **`none`** für Research und Technical Agent
 | E9 | `min_touches` → Wendepunkt-Filter | **offen** | Bedingung „weitere Läufe an echten Kursen" (ADR 0025) ist seit der Aktivschaltung datierbar erfüllbar — siehe unten |
 | E13 | US-007 „relevante Chartmuster" | **entschieden** | [ADR 0050](../adr/0050-us-007-chartmuster-gestrichen.md): gestrichen mit Vermerk |
 | E-A2-1 | Pflegeturnus für gemessene Schwellen und Preislisten | **entschieden** | quartalsweise, nächster Termin 2026-12-01; Doc 14, Abschnitt „Pflege" |
-| E-A2-2 | Betriebszustand / Aktivschaltung | **entschieden** | ab 2026-09-01 aktiv, alle Anbieter scharf außer Research (bewusst `none`); Doc 14, Abschnitt „Betriebszustand" |
+| E-A2-2 | Betriebszustand / Aktivschaltung | **entschieden** | ab 2026-09-01 aktiv, alle Anbieter scharf außer Research (bewusst `none`, [ADR 0051](../adr/0051-research-im-dauerbetrieb-abgeschaltet.md)); Doc 14, Abschnitt „Betriebszustand" |
 
 ### E9 — das konkrete Vorgehen
 
@@ -124,5 +124,5 @@ Repositories liegen oder erst danach entstanden sind.
 | Datum | Ergänzung |
 |---|---|
 | 2026-09-01 | **PR #60 ist gemergt** (11:12 UTC), inklusive unabhängiger Review (`be2b24a`) und zusätzlicher Anwendungsfall-Tests (`04db9ec`). Die A2-F001-Lage des Audits ist damit zur Hälfte überholt; offen bleibt der Verbundlauf. |
-| 2026-09-01 | **Es gibt jetzt einen Provider-Wert `none`** für Research und Technical Agent. Zum Auditzeitpunkt existierte er nicht; die Alternative `fixture` wäre im Scharfbetrieb fachlich falsch gewesen — der Fixture-Interpreter füllte 30 % des Swing-Scores mit identischen Konstanten und jede Meldungszeile mit „Fehlsignalrisiko medium", ohne Kennzeichnung. |
+| 2026-09-01 | **Es gibt jetzt einen Provider-Wert `none`** für Research und Technical Agent ([ADR 0051](../adr/0051-research-im-dauerbetrieb-abgeschaltet.md)). Zum Auditzeitpunkt existierte er nicht; die Alternative `fixture` wäre im Scharfbetrieb fachlich falsch gewesen — der Fixture-Interpreter füllte 30 % des Swing-Scores mit identischen Konstanten und jede Meldungszeile mit „Fehlsignalrisiko medium", ohne Kennzeichnung. |
 | 2026-09-01 | **Die Aufgabenplanung wird erstmals dauerhaft aktiv geschaltet** (Beschluss E-A2-2): alle Anbieter scharf, Research bewusst `none`, Technical Agent `anthropic`, Meldung `telegram`. Das Audit führte den Betriebszustand als nicht verifizierbar und widersprüchlich dokumentiert (A2-F007); ab jetzt gilt der Doc-14-Abschnitt „Betriebszustand". |

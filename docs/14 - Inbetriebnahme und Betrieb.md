@@ -597,8 +597,9 @@ erfundenen Zahlen; erkennbar sind sie nur an der offensichtlich unechten
 Vorgangsnummer `0000000000-00-000000`. Die Fixture-Analystenempfehlungen
 verraten sich an der Quelle `fixture` am Ergebnis.
 
-Für die zwei LLM-Agenten gibt es als dritten Wert **`none`**: Er schaltet den
-Agenten bewusst ab — der Abschnitt erscheint als gekennzeichnete Lücke
+Für die zwei LLM-Agenten gibt es als dritten Wert **`none`**
+([ADR 0051](adr/0051-research-im-dauerbetrieb-abgeschaltet.md)): Er schaltet
+den Agenten bewusst ab — der Abschnitt erscheint als gekennzeichnete Lücke
 (`UNAVAILABLE`, Grund `provider_disabled`) statt als Fixture-Schein-Ergebnis,
 der Score gewichtet die fehlende Komponente um. Kostet nichts, braucht keinen
 Schlüssel. Das ist der richtige Wert für einen Scharfbetrieb, der einen der
