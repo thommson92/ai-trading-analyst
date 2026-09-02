@@ -12,27 +12,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from ai_trading_analyst.domain.scoring import Recommendation
-
-RECOMMENDED_LEVELS = frozenset({Recommendation.STRONG_CANDIDATE, Recommendation.CANDIDATE})
-"""Die nicht verdrahtete Auslöser-Variante "nur empfohlene Stufen sperren".
-
-ADR 0054 hat sich fuer "jede volle Analyse sperrt" entschieden
-(``recommendation_levels=None``); diese Konstante haelt den Wechsel als
-Einzeiler offen, ohne einen Konfig-Schalter ohne Bedarf einzufuehren."""
-
 
 @dataclass(frozen=True, slots=True)
 class RepeatSuppressionParameters:
     """Sperrfenster des Tageslaufs.
 
-    ``window_days``: Kalendertage; ``0`` schaltet die Sperre ab.
-    ``recommendation_levels``: ``None`` sperrt nach jeder vollen Analyse
-    (ADR 0054); eine Menge beschraenkt den Ausloeser auf diese Stufen.
+    ``window_days``: Kalendertage; ``0`` schaltet die Sperre ab. Ausloeser
+    ist jede volle Analyse (ADR 0054) -- die verworfene Variante "nur
+    empfohlene Stufen sperren" waere bei Bedarf eine zusaetzliche
+    WHERE-Klausel auf der Spalte ``recommendation``, kein Parameter.
     """
 
     window_days: int
-    recommendation_levels: frozenset[Recommendation] | None = None
 
 
 def suppression_cutoff(

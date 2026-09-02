@@ -34,9 +34,10 @@ voll analysiert, wird sie im Tageslauf komplett ignoriert.
    Meldung. Bewusst in Kauf genommen: Ein WATCH-Titel kann während der Sperre
    nicht als CANDIDATE wiederkommen. Die Alternative (nur STRONG_CANDIDATE/
    CANDIDATE sperren) wurde verworfen — sie hätte die täglichen
-   WATCH-Wiederholungen samt Kosten unverändert gelassen. Der Port-Parameter
-   `recommendation_levels` hält den Wechsel offen, ein Konfig-Schalter ohne
-   Bedarf entsteht nicht.
+   WATCH-Wiederholungen samt Kosten unverändert gelassen. Für die verworfene
+   Variante entsteht weder ein Konfig-Schalter noch ein Port-Parameter
+   (YAGNI); bei Bedarf wäre sie eine zusätzliche WHERE-Klausel auf der
+   Spalte `recommendation`.
 3. **Strikte Fenstergrenze.** Gesperrt ist, was **jünger** als der Cutoff
    ist; eine exakt sieben Tage alte Analyse sperrt nicht mehr.
 4. **Ein unterdrücktes Wiederauftreten verlängert die Sperre nicht.** Das
@@ -59,9 +60,9 @@ voll analysiert, wird sie im Tageslauf komplett ignoriert.
    `stock_reports`: Der Anker ist die Analyse, nicht das Berichtsartefakt —
    Berichte können isoliert scheitern, und `created_at` eines Berichts ist
    der Berichtszeitpunkt. `screening_results` trägt `status` **und**
-   `recommendation`; beide Auslöser-Varianten sind damit dieselbe Abfrage.
-   Kein neuer Index: Rund 192 Zeilen je Lauf, die Abfrage läuft einmal am
-   Tag — ein Index wäre geraten statt gemessen.
+   `recommendation`; auch die verworfene Auslöser-Variante bliebe damit
+   dieselbe Abfrage. Kein neuer Index: Rund 192 Zeilen je Lauf, die Abfrage
+   läuft einmal am Tag — ein Index wäre geraten statt gemessen.
 
 ## Konsequenzen
 

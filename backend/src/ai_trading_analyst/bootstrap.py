@@ -294,11 +294,7 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
 
 
 def build_repeat_suppression_params(config: AppConfig) -> RepeatSuppressionParameters:
-    """Die Wiederholsperre des Tageslaufs (ADR 0054).
-
-    ``recommendation_levels`` bleibt ``None``: Jede volle Analyse sperrt --
-    das ist die im ADR entschiedene Ausloeser-Variante, kein Konfig-Schalter.
-    """
+    """Die Wiederholsperre des Tageslaufs (ADR 0054)."""
     return RepeatSuppressionParameters(window_days=config.repeat_suppression.window_days)
 
 

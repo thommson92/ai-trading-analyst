@@ -287,10 +287,7 @@ class RunAnalysisUseCase:
             return stocks
 
         with self._uow_factory() as uow:
-            juengste = uow.screening_results.latest_candidate_analyses(
-                since=cutoff,
-                recommendation_levels=self._repeat_suppression.recommendation_levels,
-            )
+            juengste = uow.screening_results.latest_candidate_analyses(since=cutoff)
         if not juengste:
             return stocks
 

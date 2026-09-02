@@ -83,7 +83,7 @@ def _gekuerzt(text: str) -> str:
     grenze = MAX_TEXT_ZEICHEN - len(_KUERZUNGSHINWEIS)
     schnitt = text.rfind("\n\n", 0, grenze + 1)
     if schnitt <= 0:
-        return text[:grenze] + _KUERZUNGSHINWEIS
+        schnitt = grenze
     return text[:schnitt] + _KUERZUNGSHINWEIS
 
 
