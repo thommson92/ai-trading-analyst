@@ -29,6 +29,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ai_trading_analyst.domain.screening import CROSSING_SIGNALS
+
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
@@ -236,7 +238,7 @@ class ScreeningConfig(_Section):
     einzelnen Signale.
     """
 
-    required_crossing_signals: PositiveInt = 2
+    required_crossing_signals: Annotated[PositiveInt, Field(le=len(CROSSING_SIGNALS))] = 2
     """Wie viele der drei Kaufsignale feuern muessen.
 
     Die beiden Zusatzkriterien zaehlen hier nicht mit -- dass mindestens eines

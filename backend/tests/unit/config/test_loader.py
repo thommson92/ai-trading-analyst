@@ -69,6 +69,19 @@ class TestLoadConfig:
         with pytest.raises(ConfigError, match="ungueltig"):
             load_config(path)
 
+    def test_mehr_kaufsignale_als_es_gibt_ist_ein_konfigurationsfehler(
+        self, tmp_path: Path
+    ) -> None:
+        """Die Grenze gehoert ins Schema, nicht erst in den Lauf: Sonst faellt
+        der Wert erst auf, wenn Datenbank und Marktdatenanbieter schon stehen,
+        und der Tageslauf endet mit einem rohen Traceback statt mit der
+        Konfigurationsfehler-Meldung."""
+        path = tmp_path / "config.yaml"
+        path.write_text("screening:\n  required_crossing_signals: 4\n", encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="ungueltig"):
+            load_config(path)
+
 
 class TestDefaultConfigPath:
     def test_environment_variable_takes_precedence(
