@@ -241,7 +241,12 @@ class ScreeningConfig(_Section):
 
     Die beiden Zusatzkriterien zaehlen hier nicht mit -- dass mindestens eines
     von ihnen erfuellt sein muss, ist Regelsemantik und steht im Domain-Code
-    (ADR 0056)."""
+    (ADR 0056).
+
+    Mehr als es Kaufsignale gibt, laesst sich nicht fordern: Ein solcher Wert
+    liefert dauerhaft null Kandidaten, und ein Lauf ohne einen einzigen
+    Kandidaten sieht aus wie ein ruhiger Markt, nicht wie ein Konfigurations-
+    fehler."""
     signal_lookback_previous_candles: PositiveInt = 5
     """Anzahl zusaetzlicher, vorheriger Kerzen. Die aktuelle Kerze kommt immer
     und unabhaengig davon hinzu -- das Fenster umfasst also insgesamt

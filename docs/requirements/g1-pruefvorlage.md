@@ -381,8 +381,12 @@ Die geforderten zwei Signale beziehen sich jetzt ausdrücklich auf die drei
 **Kaufsignale** (A, B, C); der Konfigurationsschlüssel heißt deshalb
 `required_crossing_signals`. Hinzu kommt eine zweite Bedingung: **mindestens
 eines der beiden Zusatzkriterien** (D, E) muss erfüllt sein. Beide Bedingungen
-gelten gemeinsam; die Regel ist damit strikt schärfer als zuvor. Das
+gelten gemeinsam; die Regel verlangt damit mehr als zuvor. Das
 Sechs-Kerzen-Fenster und die Zählung pro Signaltyp bleiben unverändert.
+
+Eine reine Verengung ist es dennoch nicht: Signal B wurde im selben Schritt
+gelockert, sodass Titel hinzukommen, die zuvor an der Gap-up-Klausel
+scheiterten. Unterm Strich sinkt die Kandidatenzahl (ADR 0056).
 
 Ausdrücklich **nicht** gewählt wurde „drei von fünf" mit gleichrangigen
 Kriterien: Gemessen am Golden Master ließ diese Variante *mehr* Titel durch

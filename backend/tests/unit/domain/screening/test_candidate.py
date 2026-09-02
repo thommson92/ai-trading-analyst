@@ -360,3 +360,25 @@ class TestWarmup:
         series = build_series(SERIES_LENGTH)
         result = evaluate_candidate(series, PARAMS.warmup_candles, PARAMS)
         assert result.reason != "warmup_insufficient"
+
+
+class TestParameterpruefung:
+    @pytest.mark.parametrize("zahl", [0, 4])
+    def test_unmoegliche_zahl_geforderter_kaufsignale_wird_abgelehnt(self, zahl: int) -> None:
+        """Vier Kaufsignale gibt es nicht -- ein solcher Wert liefert dauerhaft
+        null Kandidaten und saehe im Lauf wie ein ruhiger Markt aus."""
+        with pytest.raises(ValueError, match="required_crossing_signals"):
+            CandidateRuleParameters(
+                required_crossing_signals=zahl,
+                signal_lookback_previous_candles=5,
+                warmup_candles=10,
+            )
+
+    @pytest.mark.parametrize("zahl", [1, 2, 3])
+    def test_moegliche_zahlen_werden_angenommen(self, zahl: int) -> None:
+        params = CandidateRuleParameters(
+            required_crossing_signals=zahl,
+            signal_lookback_previous_candles=5,
+            warmup_candles=10,
+        )
+        assert params.required_crossing_signals == zahl

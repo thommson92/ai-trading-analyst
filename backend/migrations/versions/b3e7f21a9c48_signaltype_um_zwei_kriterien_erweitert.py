@@ -47,14 +47,26 @@ def upgrade() -> None:
 def downgrade() -> None:
     werte = ", ".join(f"'{wert}'" for wert in _NEUE_WERTE)
     verbindung = op.get_bind()
+
+    # Beide Tabellen, nicht nur die mit dem Enumtyp: ``backtest_results``
+    # fuehrt die Signaltypen als Textarray. Der Typwechsel liesse sie
+    # unberuehrt, aber das Auslesen braeche danach beim Zurueckwandeln in
+    # ``SignalType``.
     belegt = verbindung.execute(
         text(f"SELECT count(*) FROM signal_events WHERE signal_type IN ({werte})")
     ).scalar_one()
+    belegt += verbindung.execute(
+        text(
+            "SELECT count(*) FROM backtest_results "
+            f"WHERE signal_types && ARRAY[{werte}]::varchar[]"
+        )
+    ).scalar_one()
     if belegt:
         raise RuntimeError(
-            f"{belegt} Signalereignisse tragen die Werte {werte}. Ein Downgrade "
-            "wuerde sie unlesbar machen; abgeschlossene Analysen werden nicht "
-            "veraendert. Die Zeilen muessen zuerst bewusst entfernt werden."
+            f"{belegt} gespeicherte Zeilen tragen die Werte {werte}. Ein "
+            "Downgrade wuerde sie unlesbar machen; abgeschlossene Analysen "
+            "werden nicht veraendert. Die Zeilen muessen zuerst bewusst "
+            "entfernt werden."
         )
 
     alte_werte = ", ".join(f"'{wert}'" for wert in _ALTE_WERTE)

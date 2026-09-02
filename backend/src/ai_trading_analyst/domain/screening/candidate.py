@@ -70,6 +70,17 @@ class CandidateRuleParameters:
     signal_lookback_previous_candles: int
     warmup_candles: int
 
+    def __post_init__(self) -> None:
+        if not 1 <= self.required_crossing_signals <= len(CROSSING_SIGNALS):
+            raise ValueError(
+                "required_crossing_signals muss zwischen 1 und "
+                f"{len(CROSSING_SIGNALS)} liegen, ist aber "
+                f"{self.required_crossing_signals} -- mehr Kaufsignale, als es "
+                "gibt, liefern dauerhaft null Kandidaten, und ein Lauf ohne "
+                "Kandidaten sieht aus wie ein ruhiger Markt statt wie ein "
+                "Konfigurationsfehler"
+            )
+
 
 def qualifies(fired_signal_types: frozenset[SignalType], required_crossing_signals: int) -> bool:
     """Die Kandidatenregel als reine Mengenaussage (Abschnitt 3.3).

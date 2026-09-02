@@ -1583,7 +1583,7 @@ market:
 
 screening:
   required_crossing_signals: 2
-  lookback_closed_candles: 5
+  signal_lookback_previous_candles: 5
   direction: LONG
 
 backtesting:

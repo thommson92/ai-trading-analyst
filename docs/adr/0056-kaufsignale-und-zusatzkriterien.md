@@ -125,9 +125,16 @@ bleibt bei **2** und bezieht sich nur noch auf die Kaufsignale; dass
 mindestens ein Zusatzkriterium hinzukommen muss, steht als Regelsemantik im
 Domain-Code.
 
-Die so entstandene Regel ist **strikt schärfer** als die frühere: Jeder
-Kandidat erfüllt weiterhin zwei Kaufsignale, und zusätzlich muss die Lage
-stimmen. Gemessen: AAPL 101 → 99, MSFT 122 → 111.
+Die so entstandene Regel verlangt **mehr als die frühere**: Jeder Kandidat
+erfüllt weiterhin zwei Kaufsignale, und zusätzlich muss die Lage stimmen.
+Gemessen: AAPL 101 → 99, MSFT 122 → 111.
+
+Die neue Kandidatenmenge ist deshalb aber **keine Teilmenge** der alten. Weil
+Signal B im selben Schritt gelockert wurde (Abschnitt 2), kommen Titel hinzu,
+die früher an der Gap-up-Klausel scheiterten — am Golden Master 11 bei AAPL
+und 10 bei MSFT. Unterm Strich sinkt die Zahl, aber es ist ein Austausch und
+keine reine Verengung. Wer die beiden Wirkungen getrennt sehen will, findet
+sie in den zwei Golden-Master-Aufzeichnungen dieses Zweigs.
 
 ### 4. Die Schwellenwerte 30 und fünf Kerzen stehen im Code, nicht in der Konfiguration
 
@@ -225,6 +232,14 @@ jeweils gewirkt hat.
 `len(SignalType)` und zeigt künftig `3/5 Signale`. Die dort gemessenen
 Blockgrenzen (23 volle, 82 kurze Blöcke) bleiben gültig: `x/5` ist
 zeichengleich mit `x/3`.
+
+**Der Konfigurationsschlüssel ist umbenannt.** Aus
+`screening.required_signal_count` wird `screening.required_crossing_signals`
+— der alte Name bezöge sich jetzt auf eine Zahl, die er nicht mehr meint.
+Alle Konfigurationsabschnitte lehnen unbekannte Schlüssel ab (ein Tippfehler
+soll auffallen, statt still zu einem Vorgabewert zu werden). Eine
+Override-Datei auf dem Server, die den alten Namen noch führt, lässt den Lauf
+deshalb beim Laden abbrechen. Das gehört vor der Inbetriebnahme geprüft.
 
 **Was nicht berührt ist:** die Indikatorparameter aus Gate G1 (RSI 14/Wilder,
 RSI-MA 14/SMA, EMA 5/20, Warm-up 250), das Sechs-Kerzen-Fenster, der Umgang

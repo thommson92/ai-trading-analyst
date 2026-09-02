@@ -123,7 +123,9 @@ def _bars_eines_tages(tag: date, kurs: float, wuerfel: random.Random) -> list[In
     return bars
 
 
-def erzeuge_reihe(seed: int, startkurs: float, drift: float, handelstage: int) -> list[IntradayBar]:
+def erzeuge_reihe(
+    seed: int, startkurs: float, drift: float, handelstage: int, erster_tag: date
+) -> list[IntradayBar]:
     """Eine vollstaendige Reihe.
 
     ``drift`` ist der Anteil, um den der Kurs je Handelstag im Mittel
@@ -133,17 +135,29 @@ def erzeuge_reihe(seed: int, startkurs: float, drift: float, handelstage: int) -
     wuerfel = random.Random(seed)
     kurs = startkurs
     bars: list[IntradayBar] = []
-    for tag in _handelstage(ERSTER_HANDELSTAG, handelstage):
+    for tag in _handelstage(erster_tag, handelstage):
         bars.extend(_bars_eines_tages(tag, kurs, wuerfel))
         kurs = bars[-1].close * (1.0 + drift)
     return bars
 
 
+BEGINN_DER_LANGEN_REIHE = date(2021, 1, 4)
+"""Die lange Reihe beginnt frueher als die kurze -- aus zwei Gruenden.
+
+Sie endet damit **vor** ``pipeline.EVALUATED_AT`` statt Monate danach; eine
+Historie, die in der Zukunft des Auswertungszeitpunkts liegt, beschriebe
+nichts, was ein Lauf je zu sehen bekaeme.
+
+Und ihr Anfang liegt vor der Fuenf-Jahres-Grenze dieses Zeitpunkts, sodass
+``_truncate_to_recent_history`` tatsaechlich etwas abschneidet. Vorher tat es
+das in keinem der Faelle -- ein Fehler dort waere unbemerkt geblieben.
+"""
+
 FAELLE = {
-    "synthetic-trend": (20240102, 100.0, 0.0015, KURZE_REIHE),
-    "synthetic-range": (20240103, 50.0, 0.0, LANGE_REIHE),
+    "synthetic-trend": (20240102, 100.0, 0.0015, KURZE_REIHE, ERSTER_HANDELSTAG),
+    "synthetic-range": (20240103, 50.0, 0.0, LANGE_REIHE, BEGINN_DER_LANGEN_REIHE),
 }
-"""Name der Datei -> (Startwert, Startkurs, Tagesdrift, Handelstage).
+"""Name der Datei -> (Startwert, Startkurs, Tagesdrift, Handelstage, erster Tag).
 
 Zwei Reihen, weil eine allein nur einen Ausschnitt der Regeln beruehrt: Die
 steigende erzeugt Ausbrueche und EMA-Kreuzungen, die seitwaerts laufende vor
@@ -153,8 +167,8 @@ laengere, damit die Konfidenzstufe ``NORMAL`` ueberhaupt vorkommt.
 
 
 def main() -> None:
-    for name, (seed, startkurs, drift, handelstage) in FAELLE.items():
-        bars = erzeuge_reihe(seed, startkurs, drift, handelstage)
+    for name, (seed, startkurs, drift, handelstage, erster_tag) in FAELLE.items():
+        bars = erzeuge_reihe(seed, startkurs, drift, handelstage, erster_tag)
         pfad = DATA_DIR / f"{name}.bars.csv"
         write_bars(pfad, bars)
         print(f"{pfad.name}: {len(bars)} Bars")
