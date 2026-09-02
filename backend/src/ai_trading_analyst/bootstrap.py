@@ -552,9 +552,9 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
 def _pruefe_signalabbildung(config: AppConfig) -> None:
     """Fuer jede moegliche Signalzahl eines Kandidaten gibt es einen Teilwert.
 
-    ``SIGNAL_TEILWERTE`` kennt heute drei und zwei Signale -- weil
-    ``screening.required_signal_count`` auf zwei steht. Die Zahl ist aber
-    konfigurierbar: Auf eins gesetzt, verloere jeder Ein-Signal-Kandidat
+    ``SIGNAL_TEILWERTE`` kennt heute fuenf, vier und drei Signale -- weil
+    ``screening.required_signal_count`` auf drei steht. Die Zahl ist aber
+    konfigurierbar: Auf zwei gesetzt, verloere jeder Zwei-Signal-Kandidat
     still eine Komponente mit einem Viertel des Gewichts. Wie bei den
     Schwellen faellt das nur hier auf, wo Konfiguration und Domain zugleich
     sichtbar sind.
@@ -565,7 +565,7 @@ def _pruefe_signalabbildung(config: AppConfig) -> None:
         raise ValueError(
             "screening.required_signal_count laesst Kandidaten mit "
             f"{ohne_abbildung} Signalen zu, fuer die es keinen Teilwert gibt "
-            "(ADR 0045, Abschnitt 4)"
+            "(ADR 0056)"
         )
 
 

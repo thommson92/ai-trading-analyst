@@ -23,7 +23,13 @@ from .indicators import (
     simple_moving_average,
     wilder_moving_average,
 )
-from .signals import ema5_ema20_cross, price_ema20_breakout, rsi_cross
+from .signals import (
+    ema5_ema20_cross,
+    no_recent_ema_downcross,
+    price_ema20_breakout,
+    rsi_cross,
+    rsi_oversold,
+)
 from .values import (
     SIGNAL_RULE_VERSION,
     Candle,
@@ -60,9 +66,11 @@ __all__ = [
     "ema5_ema20_cross",
     "evaluate_candidate",
     "exponential_moving_average",
+    "no_recent_ema_downcross",
     "price_ema20_breakout",
     "relative_strength_index",
     "rsi_cross",
+    "rsi_oversold",
     "simple_moving_average",
     "wilder_moving_average",
 ]

@@ -230,12 +230,12 @@ class MarketDataConfig(_Section):
 class ScreeningConfig(_Section):
     """Kandidatenregel.
 
-    Diese Werte haengen nicht von Gate G1 ab: Die Regel 'mindestens N der drei
-    Signale innerhalb der letzten M abgeschlossenen Kerzen' ist unabhaengig von
+    Diese Werte haengen nicht von Gate G1 ab: Die Regel 'mindestens N der fuenf
+    Kriterien innerhalb der letzten M abgeschlossenen Kerzen' ist unabhaengig von
     der mathematischen Definition der einzelnen Signale.
     """
 
-    required_signal_count: PositiveInt = 2
+    required_signal_count: PositiveInt = 3
     signal_lookback_previous_candles: PositiveInt = 5
     """Anzahl zusaetzlicher, vorheriger Kerzen. Die aktuelle Kerze kommt immer
     und unabhaengig davon hinzu -- das Fenster umfasst also insgesamt
@@ -956,12 +956,14 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.2"
-    """``1.2`` gegenueber ``1.1``: Die Optionsattraktivitaet rechnet mit
-    (ADR 0048). Der Score steht damit auf 100 statt 90 Prozent Abdeckung --
-    dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
-    deshalb steigt die Nummer. ``1.1`` gegenueber ``1.0`` war aus demselben
-    Grund die News- und Ereignislage (ADR 0046)."""
+    swing_version: str = "1.3"
+    """``1.3`` gegenueber ``1.2``: Die Signalzahl wird neu abgebildet -- fuenf
+    Signale sind 10, vier sind 8, drei sind 6 (ADR 0056). ``1.2`` gegenueber
+    ``1.1``: Die Optionsattraktivitaet rechnet mit (ADR 0048). Der Score steht
+    damit auf 100 statt 90 Prozent Abdeckung -- dieselbe Zahl bedeutet vorher
+    und nachher etwas anderes, und genau deshalb steigt die Nummer. ``1.1``
+    gegenueber ``1.0`` war aus demselben Grund die News- und Ereignislage
+    (ADR 0046)."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern

@@ -149,7 +149,7 @@ class TestGruppierung:
 
 
 class TestVollstaendigeBerechnung:
-    def test_alle_vier_kombinationen_sind_immer_vertreten(self) -> None:
+    def test_alle_qualifizierenden_kombinationen_sind_immer_vertreten(self) -> None:
         series = make_series(20)  # feuert nie
         params = BacktestParameters(
             horizons=(5, 10),
@@ -169,7 +169,9 @@ class TestVollstaendigeBerechnung:
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
         )
-        assert len(results) == 4
+        # Alle Teilmengen von SignalType mit mindestens zwei Elementen:
+        # zehn Zweier-, zehn Dreier-, fuenf Vierer- und die eine Fuenfer.
+        assert len(results) == 26
         assert all(
             horizon.deduplicated_event_count == 0
             and horizon.confidence is BacktestConfidence.INSUFFICIENT_DATA
@@ -178,9 +180,9 @@ class TestVollstaendigeBerechnung:
         )
 
     def test_anzahl_der_kombinationen_folgt_required_signal_count(self) -> None:
-        """Bei required_signal_count=3 qualifiziert nur noch die eine
-        Dreier-Kombination -- nicht mehr die drei Zweier-Kombinationen aus
-        dem Standardfall (G1-Pruefvorlage Abschnitt 4.3)."""
+        """Mit fuenf Signaltypen sind das zehn Dreier-, fuenf Vierer- und
+        die eine Fuenfer-Kombination (G1-Pruefvorlage Abschnitt 4.3). Die
+        Menge folgt der Schwelle, sie wird nirgends gepflegt."""
         series = make_series(20)
         params = BacktestParameters(
             horizons=(5,),
@@ -200,8 +202,9 @@ class TestVollstaendigeBerechnung:
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
         )
-        assert len(results) == 1
-        assert results[0].signal_types == frozenset(SignalType)
+        assert len(results) == 16
+        assert frozenset(SignalType) in {result.signal_types for result in results}
+        assert all(len(result.signal_types) >= 3 for result in results)
 
 
 class TestHistorienfenster:

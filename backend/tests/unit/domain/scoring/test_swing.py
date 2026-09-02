@@ -56,11 +56,19 @@ from ai_trading_analyst.domain.technical import (
 )
 
 JETZT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
-ALLE_DREI = frozenset(SignalType)
+ALLE_FUENF = frozenset(SignalType)
+VIER = ALLE_FUENF - {SignalType.RSI_OVERSOLD}
+DREI = frozenset(
+    {
+        SignalType.RSI_CROSS,
+        SignalType.EMA5_EMA20_CROSS,
+        SignalType.NO_RECENT_EMA_DOWNCROSS,
+    }
+)
 ZWEI = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
 
 
-def ergebnis(signale: frozenset[SignalType] = ALLE_DREI) -> ScreeningResult:
+def ergebnis(signale: frozenset[SignalType] = ALLE_FUENF) -> ScreeningResult:
     return ScreeningResult(
         status=ScreeningStatus.CANDIDATE,
         fired_signal_types=signale,
@@ -72,7 +80,7 @@ def ergebnis(signale: frozenset[SignalType] = ALLE_DREI) -> ScreeningResult:
 
 def statistik(
     *,
-    signale: frozenset[SignalType] = ALLE_DREI,
+    signale: frozenset[SignalType] = ALLE_FUENF,
     hit_rate: float | None = 0.7,
     confidence: BacktestConfidence = BacktestConfidence.NORMAL,
     events: int = 42,
@@ -196,15 +204,44 @@ def teilwert_zwingend(score: ScoreResult, name: ComponentName) -> float:
 
 
 class TestTechnischeSignale:
-    def test_drei_von_drei_sind_zehn(self, scoring_params: ScoringParameters) -> None:
+    def test_fuenf_von_fuenf_sind_zehn(self, scoring_params: ScoringParameters) -> None:
         score = rechne(scoring_params)
         assert teilwert(score, ComponentName.TECHNICAL_SIGNALS) == 10.0
 
-    def test_zwei_von_drei_sind_sechs(self, scoring_params: ScoringParameters) -> None:
+    def test_vier_von_fuenf_sind_acht(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(
+            scoring_params, result=ergebnis(VIER), backtest=(statistik(signale=VIER),)
+        )
+        assert teilwert(score, ComponentName.TECHNICAL_SIGNALS) == 8.0
+
+    def test_drei_von_fuenf_sind_sechs(self, scoring_params: ScoringParameters) -> None:
+        score = rechne(
+            scoring_params, result=ergebnis(DREI), backtest=(statistik(signale=DREI),)
+        )
+        assert teilwert(score, ComponentName.TECHNICAL_SIGNALS) == 6.0
+
+    def test_die_begruendung_nennt_die_gesamtzahl_der_regelmenge(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Nicht fest verdrahtet: Mit ADR 0056 ist aus "von 3" ein "von 5"
+        geworden, ohne dass die Zeile im Scoring sich aendern musste."""
+        score = rechne(
+            scoring_params, result=ergebnis(DREI), backtest=(statistik(signale=DREI),)
+        )
+        (komponente,) = [
+            k for k in score.components if k.name is ComponentName.TECHNICAL_SIGNALS
+        ]
+        assert komponente.reason == "3 von 5 Signalen"
+
+    def test_unterhalb_der_schwelle_gibt_es_keinen_teilwert(
+        self, scoring_params: ScoringParameters
+    ) -> None:
+        """Zwei Signale machen keinen Kandidaten -- ueber einen Fall, den es
+        nicht gibt, behauptet die Abbildung nichts."""
         score = rechne(
             scoring_params, result=ergebnis(ZWEI), backtest=(statistik(signale=ZWEI),)
         )
-        assert teilwert(score, ComponentName.TECHNICAL_SIGNALS) == 6.0
+        assert teilwert(score, ComponentName.TECHNICAL_SIGNALS) is None
 
 
 class TestSignalstatistik:
@@ -220,7 +257,7 @@ class TestSignalstatistik:
         """Eine Statistik zu einer anderen Kombination waere die Statistik
         eines anderen Ereignisses."""
         score = rechne(
-            scoring_params, result=ergebnis(ALLE_DREI), backtest=(statistik(signale=ZWEI),)
+            scoring_params, result=ergebnis(ALLE_FUENF), backtest=(statistik(signale=ZWEI),)
         )
         assert teilwert(score, ComponentName.SIGNAL_STATISTICS) is None
 

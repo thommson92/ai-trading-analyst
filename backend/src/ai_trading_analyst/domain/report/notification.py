@@ -99,9 +99,10 @@ def _kandidatenblock(outcome: StockScreeningOutcome) -> str:
     if empfehlung is not None:
         kopf.append(empfehlung.level.value)
 
-    # Gezaehlt statt aufgezaehlt (ADR 0055): Bei einer 2-aus-3-Regel
-    # unterscheiden die Namen nichts, die Anzahl schon. Die Gesamtzahl kommt
-    # aus der Regelmenge selbst, nicht als fest verdrahtete Drei.
+    # Gezaehlt statt aufgezaehlt (ADR 0055): Die Namen unterscheiden in einer
+    # Schwellenregel nichts, die Anzahl schon. Die Gesamtzahl kommt aus der
+    # Regelmenge selbst -- sie ist mit ADR 0056 von drei auf fuenf gewachsen,
+    # ohne dass diese Zeile sich aendern musste.
     kopf.append(f"{len(outcome.result.fired_signal_types)}/{len(SignalType)} Signale")
 
     einordnung = outcome.technical_assessment

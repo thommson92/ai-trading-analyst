@@ -73,11 +73,13 @@ market_data:
     minimum_request_interval_seconds: 11.0
 
 screening:
-  # Kandidatenregel: mindestens 2 der 3 Signale innerhalb eines
-  # Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige). Unabhaengig von
-  # Gate G1, weil die Regel nichts ueber die mathematische Definition der
-  # einzelnen Signale aussagt (G1-Pruefvorlage, Abschnitt 3).
-  required_signal_count: 2
+  # Kandidatenregel: mindestens 3 der 5 Kriterien innerhalb eines
+  # Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige); das
+  # Ausschlusskriterium NO_RECENT_EMA_DOWNCROSS wird einmal an der
+  # Entscheidungskerze geprueft. Unabhaengig von Gate G1, weil die Regel
+  # nichts ueber die mathematische Definition der einzelnen Signale aussagt
+  # (G1-Pruefvorlage Abschnitt 3, ADR 0056).
+  required_signal_count: 3
   # Anzahl zusaetzlicher, vorheriger Kerzen -- die aktuelle Kerze kommt immer
   # dazu. Frueher lookback_closed_candles; umbenannt, weil dieser Name
   # zwischen Fenstergroesse und Anzahl-Vorkerzen missverstaendlich war.
@@ -523,9 +525,10 @@ options:
   min_volume: 10
 
 scoring:
-  # 1.2: Die Optionsattraktivitaet rechnet mit (ADR 0048) -- der Score steht
-  # auf 100 statt 90 Prozent Abdeckung. Alle sechs Komponenten sind gefuellt.
-  swing_version: "1.2"
+  # 1.3: Neue Abbildung der Signalzahl -- 5 Signale sind 10, 4 sind 8, 3
+  # sind 6 (ADR 0056). Dieselbe Zahl bedeutet vorher und nachher etwas
+  # anderes. 1.2 war die mitrechnende Optionsattraktivitaet (ADR 0048).
+  swing_version: "1.3"
   long_term_version: "1.0"
   # Untergrenze der Datenabdeckung: darunter entsteht kein Score, sondern
   # INSUFFICIENT_DATA (Doc 09). Gesetzt, nicht gemessen -- sie ist der Punkt,

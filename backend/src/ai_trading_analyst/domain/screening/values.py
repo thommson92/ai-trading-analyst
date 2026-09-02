@@ -22,11 +22,18 @@ drei statt zwei, Signal B ohne Gap-up-Klausel (ADR 0056)."""
 
 
 class SignalType(StrEnum):
-    """Die drei fachlich freigegebenen Signaltypen (Doc 05, G1-Pruefvorlage Abschnitt 2)."""
+    """Die fuenf fachlich freigegebenen Signaltypen (Doc 05, G1-Pruefvorlage Abschnitt 2).
+
+    Neue Werte werden **angehaengt**, nicht einsortiert: Die Reihenfolge hier
+    ist die Iterationsreihenfolge der Kombinatorik im Backtest, und
+    ``ALTER TYPE ... ADD VALUE`` haengt in PostgreSQL ebenfalls hinten an.
+    """
 
     RSI_CROSS = "RSI_CROSS"
     PRICE_EMA20_BREAKOUT = "PRICE_EMA20_BREAKOUT"
     EMA5_EMA20_CROSS = "EMA5_EMA20_CROSS"
+    RSI_OVERSOLD = "RSI_OVERSOLD"
+    NO_RECENT_EMA_DOWNCROSS = "NO_RECENT_EMA_DOWNCROSS"
 
 
 class ScreeningStatus(StrEnum):
@@ -77,6 +84,10 @@ class SignalEvent:
     Wird zusaetzlich zur Mitgliedschaft in ``fired_signal_types`` gespeichert,
     fuer Audit und Bericht -- nicht als Kriterium fuer "identische
     Signalkombination" (G1-Pruefvorlage Abschnitt 4.3).
+
+    Fuer ``NO_RECENT_EMA_DOWNCROSS`` ist der Index immer die
+    Entscheidungskerze: Das Kriterium haengt an keiner Fensterposition,
+    sondern wird einmal an ``t`` ausgewertet (Abschnitt 2.5).
     """
 
     signal_type: SignalType

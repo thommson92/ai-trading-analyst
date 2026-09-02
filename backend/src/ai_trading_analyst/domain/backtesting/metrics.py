@@ -35,8 +35,8 @@ def _qualifying_combinations(required_signal_count: int) -> tuple[SignalCombinat
     ``evaluate_candidate`` fordert ``len(fired_types) >= required_signal_count``
     -- qualifizierend sind deshalb alle Teilmengen von ``SignalType`` mit
     mindestens dieser Groesse, nicht nur die mit exakt dieser Groesse. Bei
-    ``required_signal_count=2`` und drei Signaltypen sind das die drei
-    Zweier- und das eine Dreier-Kombination.
+    ``required_signal_count=3`` und fuenf Signaltypen sind das zehn Dreier-,
+    fuenf Vierer- und die eine Fuenfer-Kombination, zusammen sechzehn.
     """
     all_types = tuple(SignalType)
     return tuple(

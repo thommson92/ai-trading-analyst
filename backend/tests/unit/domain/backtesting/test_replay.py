@@ -13,7 +13,15 @@ from .conftest import RSI_AND_EMA_CROSS_FIRE, make_series
 PARAMS = CandidateRuleParameters(
     required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
-EXPECTED_COMBINATION = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+EXPECTED_COMBINATION = frozenset(
+    {
+        SignalType.RSI_CROSS,
+        SignalType.EMA5_EMA20_CROSS,
+        # Die ruhige Baseline enthaelt kein Abwaertskreuz, also ist das
+        # Ausschlusskriterium erfuellt -- es steht in jeder Kombination mit.
+        SignalType.NO_RECENT_EMA_DOWNCROSS,
+    }
+)
 
 
 class TestEntscheidungszeitpunkte:

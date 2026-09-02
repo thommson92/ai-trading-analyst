@@ -68,9 +68,18 @@ hinweg alle drei Stufen aufgezeichnet sind."""
 KURZE_REIHE = 400
 """800 Kerzen -- 250 Warm-up, 550 auswertbare Entscheidungspunkte."""
 
-LANGE_REIHE = 700
-"""1400 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
-und damit auf ``NORMAL``; bei 600 Handelstagen waren es 29."""
+LANGE_REIHE = 900
+"""1800 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
+und damit auf ``NORMAL``.
+
+Mit der 3-aus-5-Regel (ADR 0056) musste diese Zahl von 700 steigen: Die
+Ereignisse verteilen sich seither auf 16 statt 4 Kombinationen, und bei 700
+Handelstagen kam die staerkste nur noch auf 25. Gemessen: 700 -> 25,
+800 -> 30 (genau auf der Schwelle, zu knapp), 900 -> 40.
+
+Das ist kein Datentrick, sondern der sichtbare Preis der neuen Regel -- an
+echten Kursen wird die Signalstatistik je Kombination aus demselben Grund
+duenner (ADR 0056, Abschnitt Konsequenzen)."""
 
 BARS_JE_TAG = SESSION.session_minutes // NATIVE_BAR_MINUTES
 

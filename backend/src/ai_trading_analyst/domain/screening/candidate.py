@@ -1,4 +1,4 @@
-"""Die 2-aus-3-Kandidatenregel ueber das Sechs-Kerzen-Fenster.
+"""Die 3-aus-5-Kandidatenregel ueber das Sechs-Kerzen-Fenster.
 
 Formalisiert G1-Pruefvorlage Abschnitt 3.4. ``evaluate_candidate`` ist die
 einzige Funktion, ueber die eine Kandidatenentscheidung getroffen wird -- sie
@@ -11,7 +11,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .signals import ema5_ema20_cross, price_ema20_breakout, rsi_cross
+from .signals import (
+    ema5_ema20_cross,
+    no_recent_ema_downcross,
+    price_ema20_breakout,
+    rsi_cross,
+    rsi_oversold,
+)
 from .values import (
     CandleSeries,
     DataIncompleteError,
@@ -22,11 +28,21 @@ from .values import (
     SignalType,
 )
 
-_SIGNAL_FUNCTIONS: dict[SignalType, Callable[[CandleSeries, int], bool]] = {
+_WINDOW_SIGNAL_FUNCTIONS: dict[SignalType, Callable[[CandleSeries, int], bool]] = {
     SignalType.RSI_CROSS: rsi_cross,
     SignalType.PRICE_EMA20_BREAKOUT: price_ema20_breakout,
     SignalType.EMA5_EMA20_CROSS: ema5_ema20_cross,
+    SignalType.RSI_OVERSOLD: rsi_oversold,
 }
+"""Ereigniskriterien: ueber jede Kerze des Fensters ausgewertet."""
+
+_DECISION_CANDLE_FUNCTIONS: dict[SignalType, Callable[[CandleSeries, int], bool]] = {
+    SignalType.NO_RECENT_EMA_DOWNCROSS: no_recent_ema_downcross,
+}
+"""Kriterien, die genau einmal an der Entscheidungskerze gelten (Abschnitt 2.5).
+
+Ueber das Fenster geodert waeren sie sinnlos: "In irgendeinem der sechs
+Fuenf-Kerzen-Fenster gab es kein Abwaertskreuz" ist fast immer wahr."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,17 +81,18 @@ def evaluate_candidate(
     2. Fenster bestimmen: ``t`` sowie die ``signal_lookback_previous_candles``
        unmittelbar vorherigen Kerzen (Abschnitt 3.2).
     3. Vollstaendigkeit pruefen -- nicht nur fuer das Fenster selbst, sondern
-       zusaetzlich fuer die Kerze unmittelbar davor. Jede der drei
-       Signalformeln benoetigt fuer ihre jeweils frueheste Fensterkerze deren
-       Vorkerze; ohne diese zusaetzliche Pruefung koennte eine Datenluecke
-       knapp vor dem Fenster unbemerkt bleiben. Dies ist eine Praezisierung
-       der in der G1-Pruefvorlage skizzierten Pseudocode-Vorlage, keine
-       fachliche Abweichung: Abschnitt 1.5 fordert ausdruecklich, dass jede
-       fuer die Fensterauswertung benoetigte Kerze auf Vollstaendigkeit
-       geprueft wird.
-    4. Jeden Signaltyp unabhaengig ueber das gesamte Fenster auswerten
-       (Abschnitt 3.3) -- Zaehlung pro Typ, nicht pro Ereignis.
-    5. 2-aus-3-Regel anwenden.
+       zusaetzlich fuer die Kerze unmittelbar davor. Die Kreuzungsformeln
+       benoetigen fuer ihre jeweils frueheste Fensterkerze deren Vorkerze;
+       ohne diese zusaetzliche Pruefung koennte eine Datenluecke knapp vor
+       dem Fenster unbemerkt bleiben. Dies ist eine Praezisierung der in der
+       G1-Pruefvorlage skizzierten Pseudocode-Vorlage, keine fachliche
+       Abweichung: Abschnitt 1.5 fordert ausdruecklich, dass jede fuer die
+       Fensterauswertung benoetigte Kerze auf Vollstaendigkeit geprueft wird.
+    4. Jedes Ereigniskriterium unabhaengig ueber das gesamte Fenster
+       auswerten (Abschnitt 3.3) -- Zaehlung pro Typ, nicht pro Ereignis.
+    5. Die Kriterien der Entscheidungskerze einmal an ``t`` auswerten
+       (Abschnitt 2.5).
+    6. 3-aus-5-Regel anwenden.
     """
     if t < params.warmup_candles:
         return ScreeningResult(
@@ -97,11 +114,15 @@ def evaluate_candidate(
     fired_types: set[SignalType] = set()
     signal_positions: dict[SignalType, int] = {}
     try:
-        for signal_type, signal_fn in _SIGNAL_FUNCTIONS.items():
+        for signal_type, signal_fn in _WINDOW_SIGNAL_FUNCTIONS.items():
             for i in window:
                 if signal_fn(series, i):
                     fired_types.add(signal_type)
                     signal_positions.setdefault(signal_type, i)
+        for signal_type, signal_fn in _DECISION_CANDLE_FUNCTIONS.items():
+            if signal_fn(series, t):
+                fired_types.add(signal_type)
+                signal_positions.setdefault(signal_type, t)
     except DataIncompleteError as exc:
         return ScreeningResult(
             status=ScreeningStatus.UNKNOWN_DATA_INCOMPLETE,
