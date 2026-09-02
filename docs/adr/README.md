@@ -44,7 +44,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0007](0007-gate-g1-indikatorparameter.md) | Indikator-Parameter bleiben bis zur Freigabe leer | Abgelöst durch ADR 0010 |
 | [0008](0008-reproduzierbare-installation.md) | Reproduzierbare Installation über Lock-Dateien | Angenommen (Erzeuger ersetzt durch ADR 0015) |
 | [0009](0009-required-checks-nicht-konfigurierbar.md) | Required Status Checks derzeit nicht konfigurierbar (Plan-Limit) | Abgelöst durch [0031](0031-merge-schutz-aktiv.md) |
-| [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen |
+| [0010](0010-gate-g1-freigegeben.md) | Gate G1 fachlich freigegeben -- Indikator- und Signalparameter | Angenommen (Indikatorparameter gelten fort; Signal-B-Formel und 2-aus-3-Regel durch [0056](0056-signalregel-drei-aus-fuenf.md) abgelöst) |
 | [0011](0011-ci-dispatch-unzuverlaessig.md) | GitHub-Actions-Workflow-Dispatch ist unzuverlaessig (Plattformseitig) | Angenommen (Nachtrag 2026-08-23: Verhalten besteht nicht mehr; der Merge-Schutz steht seit [0031](0031-merge-schutz-aktiv.md)) |
 | [0012](0012-gate-g3-strang-a-no-go-non-display-nutzung.md) | Gate G3 Strang A -- NO_GO wegen Non-Display-Nutzungsverbots der TradingView-Nutzungsbedingungen | Angenommen |
 | [0013](0013-interactive-brokers-kandidat-vorschlag.md) | Interactive Brokers als nächster Kandidat für Marktdaten -- Spike vorgeschlagen | Angenommen (Spike abgeschlossen, GO_WITH_LIMITATIONS; Schritt 4 freigegeben durch ADR 0014) |
@@ -79,7 +79,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0042](0042-kein-historischer-earnings-filter.md) | Der Backtest bekommt keinen historischen Earnings-Filter | Angenommen (entscheidet E3 des Audits vom 2026-08-23 -- verworfen mit Begruendung, nicht vertagt) |
 | [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
 | [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
-| [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041) |
+| [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041; Signal-Teilwerte durch [0056](0056-signalregel-drei-aus-fuenf.md) ersetzt) |
 | [0046](0046-empfehlungsstufe-aus-beiden-scores.md) | Empfehlungsstufe aus beiden Scores | Angenommen (füllt Berichtspunkt 16 und die News-Komponente; erledigt den offenen Befund aus ADR 0045) |
 | [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8; Zeilenformat und Kürzungstabelle durch [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) abgelöst) |
 | [0048](0048-optionsanalyse-im-tageslauf.md) | Cash Secured Puts aus der IBKR-Optionskette | Angenommen (füllt Berichtspunkt 13 und die sechste Score-Komponente; führt die dritte gerichtete Kopplung ein) |
@@ -90,6 +90,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0053](0053-lese-api-kein-lauf-ueber-http.md) | Die Web-API ist lesend — kein Analyselauf über HTTP | Angenommen (entscheidet den MVP-Zuschnitt gegen Doc 10 §6.14; `POST /analysis-runs` entfällt, weil er auf dem Server einen Fixture-Lauf speichern würde) |
 | [0054](0054-wiederholsperre-im-tageslauf.md) | Wiederholsperre im Tageslauf — sieben Tage je voll analysiertem Symbol | Angenommen (jeder 2-aus-3-Treffer sperrt, auch WATCH; Ausschluss in der Application-Schicht, Bars laufen weiter) |
 | [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) | Put-Vorschlag und Signalzahl in der Ergebnismeldung | Angenommen (Blockformat mit Leerzeilen; löst ADR 0040 beim Signaltypen-Punkt und ADR 0047 bei „keine Rohdaten" ab) |
+| [0056](0056-signalregel-drei-aus-fuenf.md) | Fünf Kriterien, drei müssen erfüllt sein — Signal B ohne Gap-up-Klausel | Angenommen (ersetzt die 2-aus-3-Regel und die Signal-B-Formel aus ADR 0010 sowie die Signal-Teilwerte aus ADR 0045; Regelversion und `swing_version` steigen) |
 
 ## Offene Entscheidungen
 

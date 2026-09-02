@@ -109,7 +109,7 @@ der sich etwas kalibrieren ließe.
 
 | Komponente | Abbildung |
 |---|---|
-| Technische Signale (25 %) | 3 von 3 Signalen → **10**, 2 von 3 → **6** |
+| Technische Signale (25 %) | 3 von 3 Signalen → **10**, 2 von 3 → **6** — *ersetzt durch [ADR 0056](0056-signalregel-drei-aus-fuenf.md): 5 → 10, 4 → 8, 3 → 6* |
 | Historische Signalqualität (25 %) | Trefferquote des **kürzesten** Horizonts × 10 |
 | Chart-Setup (15 %) | Mittel aus Trendstärke, Ausbruchsqualität, Einstiegsplausibilität |
 | Chance-Risiko (15 %) | `FAVOURABLE` 10, `BALANCED` 6, `UNFAVOURABLE` 2, `NOT_ASSESSABLE` fehlt |
