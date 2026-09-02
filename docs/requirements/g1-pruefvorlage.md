@@ -354,7 +354,7 @@ def signal_e(candles, t):
 | E5 | Abwärtskreuz bei `t` | NICHT ERFÜLLT | die Entscheidungskerze zählt mit |
 | E6 | Abwärtskreuz bei `t-5` | ERFÜLLT | eine Position vor dem Prüfbereich |
 | E7 | `EMA5[i-1] == EMA20[i-1]` und `EMA5[i] == EMA20[i]` | ERFÜLLT | keine strikte Unterschreitung — kein Kreuzen |
-| E8 | EMA-Wert bei `t-5` fehlt | `DataIncomplete` | mit `candle_index` der Lücke (Abschnitt 1.5) |
+| E8 | EMA-Wert bei `t-5` fehlt | `DataIncomplete` | gemeldet wird die **Kreuzungsposition** `t-4`, deren Vorkerze fehlt — nicht der Index des fehlenden Wertes (Abschnitt 1.5) |
 
 ---
 
