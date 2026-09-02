@@ -87,6 +87,20 @@ class TestErfolgreicheAntwort:
         assert gesehen["from"] == "2026-08-17"
         assert gesehen["to"] == "2026-09-16"
 
+    def test_klassenaktie_geht_in_finnhub_schreibweise_raus(self) -> None:
+        """IBKR fuehrt Berkshire als ``BRK B``, Finnhub als ``BRK.B`` --
+        unuebersetzt fand der Kalender nichts und der Lauf meldete
+        ``no_coverage`` (ADR 0017 L3)."""
+        gesehen: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesehen.update(dict(request.url.params))
+            return httpx.Response(200, json={"earningsCalendar": []})
+
+        berkshire = Stock(id=uuid.uuid4(), symbol="BRK B", exchange="NYSE")
+        _provider(httpx.MockTransport(handler)).next_earnings_date(berkshire)
+        assert gesehen["symbol"] == "BRK.B"
+
     def test_der_schluessel_steht_im_header_und_nicht_in_der_url(self) -> None:
         """ADR 0044 hat den Weg benannt, A2-M10 geht ihn: Was nicht in der
         URL steht, kann auch nicht in einem Fehlertext auftauchen."""

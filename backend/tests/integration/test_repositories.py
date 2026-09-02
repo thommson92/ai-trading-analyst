@@ -928,6 +928,92 @@ class TestScreeningResultRepository:
                 uow.commit()
 
 
+class TestLatestCandidateAnalyses:
+    """Die Abfrage der Wiederholsperre (ADR 0054) durch echtes PostgreSQL.
+
+    Das Fenster ist ``since <= evaluated_at < until``: Die Untergrenze
+    gehoert dazu (Tagesbeginn des aeltesten Sperrtages), die Obergrenze
+    nicht -- der laufende Handelstag sperrt nie.
+    """
+
+    _SEIT = datetime(2026, 8, 26, 0, 0, tzinfo=UTC)
+    _BIS = datetime(2026, 9, 1, 0, 0, tzinfo=UTC)
+
+    def _speichere(
+        self,
+        uow_factory: UowFactory,
+        symbol: str,
+        *,
+        evaluated_at: datetime,
+        status: ScreeningStatus = ScreeningStatus.CANDIDATE,
+    ) -> None:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = replace(
+            make_outcome(stock, status, analysis_run_id=run.id),
+            evaluated_at=evaluated_at,
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+
+    def _abfrage(self, uow_factory: UowFactory) -> dict[str, datetime]:
+        with uow_factory() as uow:
+            return dict(
+                uow.screening_results.latest_candidate_analyses(
+                    since=self._SEIT, until=self._BIS
+                )
+            )
+
+    def test_nur_analysen_im_fenster_zaehlen(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory, "SPERRE-DRIN", evaluated_at=self._SEIT + timedelta(days=2)
+        )
+        self._speichere(
+            uow_factory, "SPERRE-DAVOR", evaluated_at=self._SEIT - timedelta(hours=1)
+        )
+        self._speichere(uow_factory, "SPERRE-HEUTE", evaluated_at=self._BIS + timedelta(hours=13))
+
+        juengste = self._abfrage(uow_factory)
+
+        assert set(juengste) == {"SPERRE-DRIN"}
+        assert juengste["SPERRE-DRIN"] == self._SEIT + timedelta(days=2)
+
+    def test_die_untergrenze_zaehlt_die_obergrenze_nicht(self, uow_factory: UowFactory) -> None:
+        """`>=` unten, `<` oben: Der Tagesbeginn des aeltesten Sperrtages
+        sperrt, der Beginn des laufenden Tages nicht mehr."""
+        self._speichere(uow_factory, "SPERRE-UNTEN", evaluated_at=self._SEIT)
+        self._speichere(uow_factory, "SPERRE-OBEN", evaluated_at=self._BIS)
+
+        juengste = self._abfrage(uow_factory)
+
+        assert set(juengste) == {"SPERRE-UNTEN"}
+
+    def test_ohne_volle_analyse_zaehlt_nichts(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory,
+            "SPERRE-KEIN-KANDIDAT",
+            evaluated_at=self._SEIT + timedelta(days=1),
+            status=ScreeningStatus.NOT_CANDIDATE,
+        )
+
+        assert self._abfrage(uow_factory) == {}
+
+    def test_die_juengste_analyse_eines_symbols_gewinnt(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._SEIT + timedelta(days=1)
+        )
+        self._speichere(
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._SEIT + timedelta(days=2)
+        )
+
+        juengste = self._abfrage(uow_factory)
+
+        assert juengste == {"SPERRE-DOPPELT": self._SEIT + timedelta(days=2)}
+
+
 class TestBacktestResultRepository:
     def test_ein_ergebnis_mit_mehreren_horizonten_uebersteht_den_rundlauf(
         self, uow_factory: UowFactory

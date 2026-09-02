@@ -144,3 +144,11 @@ mangels Dashboard, sondern mangels Erreichbarkeit. Mit der Neubewertung der
 Exposition (ADR 0049) ist auch der Link wieder zu prüfen; bis dahin bleibt
 die Lauf-ID der Verweis, und sie zeigt jetzt nicht mehr nur auf `cli report`,
 sondern auch auf die Detailansicht.
+
+## Nachtrag vom 2026-09-01: Signalzahl statt Signaltypen
+
+[ADR 0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) löst
+dieses ADR im Punkt „je Kandidat die Signaltypen, die gefeuert haben" ab: Die
+Meldung zählt jetzt (`3/3 Signale`) statt aufzuzählen — bei einer
+2-aus-3-Regel unterscheiden die Namen nichts, die Anzahl schon. Alles Übrige
+gilt unverändert.

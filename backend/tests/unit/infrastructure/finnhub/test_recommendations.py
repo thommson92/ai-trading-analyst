@@ -215,6 +215,21 @@ class TestAnfrage:
         assert anfrage.headers["X-Finnhub-Token"] == "test-key"
         assert "test-key" not in str(anfrage.url)
 
+    def test_klassenaktie_geht_in_finnhub_schreibweise_raus(self) -> None:
+        """IBKR fuehrt Berkshire als ``BRK B``, Finnhub als ``BRK.B`` --
+        unuebersetzt fand der Endpunkt nichts (ADR 0017 L3)."""
+        gesehen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesehen.append(request)
+            return httpx.Response(200, json=[])
+
+        berkshire = Stock(id=uuid.uuid4(), symbol="BRK B", exchange="NYSE")
+        _provider(httpx.MockTransport(handler)).recommendations(berkshire)
+
+        (anfrage,) = gesehen
+        assert anfrage.url.params["symbol"] == "BRK.B"
+
 
 class TestSchluesselLandetNichtImFehlertext:
     """Der Schluessel steht seit A2-M10 im Header und damit nicht mehr in der

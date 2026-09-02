@@ -430,6 +430,21 @@ class ScreeningResultRepository(Protocol):
     def add(self, outcome: StockScreeningOutcome) -> None: ...
     def list_for_run(self, run_id: UUID) -> Sequence[StockScreeningOutcome]: ...
 
+    def latest_candidate_analyses(
+        self, *, since: datetime, until: datetime
+    ) -> Mapping[str, datetime]:
+        """Symbol -> juengstes ``evaluated_at`` aller vollen Analysen im Fenster.
+
+        Grundlage der Wiederholsperre (ADR 0054). Eine volle Analyse ist eine
+        Ergebniszeile mit ``ScreeningStatus.CANDIDATE`` -- der Anker ist die
+        Analyse, nicht das Berichtsartefakt, denn Berichte koennen isoliert
+        scheitern. Gezaehlt wird ``since <= evaluated_at < until``; die obere
+        Grenze klammert den laufenden Handelstag aus, damit ein
+        Wiederholungslauf desselben Tages die Zeilen eines abgebrochenen
+        Laufs nicht als Sperre sieht.
+        """
+        ...
+
     def count_by_earnings_status(self, run_id: UUID) -> Mapping[EarningsFilterStatus, int]:
         """Wie oft der Earnings-Filter je Ergebnis entschieden hat.
 

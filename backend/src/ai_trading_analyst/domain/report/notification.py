@@ -1,5 +1,5 @@
 """Die kompakte Zusammenfassung fuer den Benachrichtigungskanal (ADR 0040,
-ADR 0047).
+ADR 0047, ADR 0055).
 
 Eine der drei Berichtsvarianten aus Doc 10, Paragraph 6.12. Sie steht hier und
 nicht in der Presentation-Schicht, weil **was** in die Meldung darf eine
@@ -8,10 +8,12 @@ das eigene Netz.
 
 ADR 0040 zog die Grenze bei Symbolen und Signaltypen und schloss Zahlen aus --
 mit dem ausdruecklichen Vorbehalt, das neu zu entscheiden, sobald es Scores
-gibt. **ADR 0047 hat das getan:** Beide Scores und die Empfehlungsstufe
-gehoeren hinein, weil Doc 10, Paragraph 6.13 sie verlangt und ohne sie die
-Meldung nicht sagt, ob sich der Blick lohnt. Weiterhin draussen bleibt
-Freitext -- aus der Recherche wie aus der KI-Einordnung.
+gibt. ADR 0047 hat das getan: Beide Scores und die Empfehlungsstufe gehoeren
+hinein. **ADR 0055 formt daraus Bloecke:** Signale werden gezaehlt statt
+aufgezaehlt, und fuer empfohlene Kandidaten steht der beste Put-Vorschlag mit
+Strike, Verfall und Praemie dabei -- er ist der Zweck der Meldung, nicht
+Beiwerk. Weiterhin draussen bleibt Freitext -- aus der Recherche wie aus der
+KI-Einordnung.
 """
 
 from __future__ import annotations
@@ -20,21 +22,28 @@ from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.domain.analysis.models import AnalysisRunSummary, StockScreeningOutcome
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
-from ai_trading_analyst.domain.scoring import ScoreResult
-from ai_trading_analyst.domain.screening import ScreeningStatus
+from ai_trading_analyst.domain.options import KONTRAKTGROESSE, OptionsStatus
+from ai_trading_analyst.domain.scoring import Recommendation, ScoreResult
+from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
+
+_EMPFOHLENE_STUFEN = frozenset({Recommendation.STRONG_CANDIDATE, Recommendation.CANDIDATE})
+"""Nur diese Stufen tragen die Put-Zeile (ADR 0055): Fuer sie ist der
+Vorschlag der Zweck der Meldung; bei WATCH und darunter waere er eine
+Handlungsaufforderung, die die Stufe gerade nicht ausspricht."""
 
 
 def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[str, str]:
-    """Die kompakte Zusammenfassung fuer den Benachrichtigungskanal (ADR 0040).
+    """Die kompakte Zusammenfassung fuer den Benachrichtigungskanal (ADR 0055).
 
     ``timezone`` ist die Boersenzeitzone; sie bestimmt, welchen Handelstag der
     Betreff nennt.
 
-    Betreff und Text. Enthaelt je Kandidat Symbol, Signaltypen, beide Scores,
-    die Empfehlungsstufe, das Fehlsignalrisiko als Stufe und den Hinweis auf
-    einen unbekannten Berichtstermin -- **keinen Freitext**. Die Meldung
-    verlaesst das eigene Netz; sie soll sagen, ob sich der Blick in den
-    Bericht lohnt, und nicht der Bericht sein.
+    Betreff und Text. Je Kandidat ein Block aus zwei Zeilen -- Symbol, Stufe,
+    Signalzahl, Fehlsignalrisiko, beide Scores, Earnings-Hinweis -- und fuer
+    STRONG_CANDIDATE/CANDIDATE eine dritte Zeile mit dem besten
+    Put-Vorschlag. **Kein Freitext.** Die Meldung verlaesst das eigene Netz;
+    sie soll sagen, ob sich der Blick in den Bericht lohnt, und nicht der
+    Bericht sein.
 
     **Sortiert nach Swing-Score, absteigend.** Die Kuerzung des Kanals greift
     am Ende des Textes; alphabetisch sortiert verloere man damit ausgerechnet
@@ -58,12 +67,15 @@ def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[
             f"Der Lauf ueber {summary.run.number_of_stocks} Aktien fand keinen Kandidaten."
         )
 
-    zeilen = [_kandidatenzeile(outcome) for outcome in sorted(kandidaten, key=_rangfolge)]
-    zeilen.append("")
-    zeilen.append("S = Swing, I = Investment, je bis 10. Kein Freitext in dieser")
-    zeilen.append("Meldung (ADR 0047) -- der vollstaendige Bericht:")
-    zeilen.append(f"cli report --run {summary.run.id}")
-    return betreff, "\n".join(zeilen)
+    bloecke = [_kandidatenblock(outcome) for outcome in sorted(kandidaten, key=_rangfolge)]
+    legende = "\n".join(
+        (
+            "S = Swing, I = Investment, je bis 10. Praemie je Kontrakt (Mid).",
+            "Kein Freitext in dieser Meldung (ADR 0055) -- der vollstaendige Bericht:",
+            f"cli report --run {summary.run.id}",
+        )
+    )
+    return betreff, "\n\n".join([*bloecke, legende])
 
 
 def _rangfolge(outcome: StockScreeningOutcome) -> tuple[float, str]:
@@ -78,28 +90,84 @@ def _rangfolge(outcome: StockScreeningOutcome) -> tuple[float, str]:
     return (-wert, outcome.stock.symbol)
 
 
-def _kandidatenzeile(outcome: StockScreeningOutcome) -> str:
-    signale = " + ".join(sorted(typ.value for typ in outcome.result.fired_signal_types))
-    zeile = f"{outcome.stock.symbol}  {signale}"
+def _kandidatenblock(outcome: StockScreeningOutcome) -> str:
+    """Zwei Infozeilen je Aktie, dazu fuer empfohlene Stufen die Put-Zeile
+    (ADR 0055). Die Bloecke trennt ``render_notification`` per Leerzeile."""
+    kopf = [outcome.stock.symbol]
 
     empfehlung = outcome.recommendation
     if empfehlung is not None:
-        zeile += f"  -- {empfehlung.level.value}"
-    # Ein fehlender Score steht als Strich und nicht als Null: Null hiesse
-    # geprueft und schlecht (Doc 09).
-    zeile += f"  [S {_zahl(outcome.swing_score)} | I {_zahl(outcome.investment_score)}]"
+        kopf.append(empfehlung.level.value)
+
+    # Gezaehlt statt aufgezaehlt (ADR 0055): Bei einer 2-aus-3-Regel
+    # unterscheiden die Namen nichts, die Anzahl schon. Die Gesamtzahl kommt
+    # aus der Regelmenge selbst, nicht als fest verdrahtete Drei.
+    kopf.append(f"{len(outcome.result.fired_signal_types)}/{len(SignalType)} Signale")
 
     einordnung = outcome.technical_assessment
     if einordnung is not None and einordnung.false_signal_risk is not None:
         # Eine Stufe aus einer gegen ein Schema validierten Antwort (ADR 0026),
         # kein Freitext des Modells.
-        zeile += f"  -- Fehlsignalrisiko {einordnung.false_signal_risk.value}"
+        kopf.append(f"Risiko {einordnung.false_signal_risk.value}")
 
+    # Ein fehlender Score steht als Strich und nicht als Null: Null hiesse
+    # geprueft und schlecht (Doc 09).
+    detail = f"S {_zahl(outcome.swing_score)} | I {_zahl(outcome.investment_score)}"
     if outcome.earnings is not None and outcome.earnings.status is EarningsFilterStatus.UNKNOWN:
         # Doc 10, Paragraph 6.5: ein unbekannter Termin ist ein Datenrisiko
         # und wird ausdruecklich gekennzeichnet.
-        zeile += "  -- Earnings-Termin unbekannt"
-    return zeile
+        detail += " -- Earnings-Termin unbekannt"
+
+    zeilen = [" -- ".join(kopf), detail]
+    put = _put_angabe(outcome)
+    if put is not None:
+        zeilen.append(put)
+    return "\n".join(zeilen)
+
+
+def _put_angabe(outcome: StockScreeningOutcome) -> str | None:
+    """Der beste Put-Vorschlag -- nur fuer STRONG_CANDIDATE und CANDIDATE.
+
+    Fehlende Optionsdaten bleiben sichtbar fehlend (ADR 0055): Bei einer
+    empfohlenen Stufe ohne verwertbare Daten steht das ausdruecklich da,
+    statt still zu fehlen. WATCH und darunter tragen keine Zeile -- auch
+    keinen Hinweis.
+
+    Die Praemie ist der Mid **je Kontrakt** (``premium`` ist je Aktie,
+    ``KONTRAKTGROESSE`` die Kontraktgroesse aus der Optionsdomaene); das
+    ``~`` kennzeichnet die Mid-Annahme, ein Mid ist kein handelbarer Kurs
+    (ADR 0048).
+    """
+    empfehlung = outcome.recommendation
+    if empfehlung is None or empfehlung.level not in _EMPFOHLENE_STUFEN:
+        return None
+
+    optionen = outcome.options
+    if (
+        optionen is None
+        or optionen.status is not OptionsStatus.COMPLETED
+        or not optionen.strategies
+    ):
+        return "Put-Verkauf: keine Optionsdaten"
+
+    # Die beste Strategie: ``strategies`` ist absteigend nach annualisierter
+    # Rendite sortiert -- das ist Zusage des Datentyps, keine Annahme.
+    beste = optionen.strategies[0]
+    verfall = beste.expiration.strftime("%d.%m.%Y")
+    return (
+        f"Put-Verkauf: Strike {_strike(beste.strike)} $, Verfall {verfall}, "
+        f"Praemie ~{beste.premium * KONTRAKTGROESSE:.0f} $"
+    )
+
+
+def _strike(wert: float) -> str:
+    """Der Strike mit hoechstens zwei Nachkommastellen, ohne Nullenrest.
+
+    Kein ``:g``: Das rundete ab sieben signifikanten Stellen und kippte ab
+    einer Million in wissenschaftliche Notation -- in der einen Zeile, auf
+    der gehandelt wird.
+    """
+    return f"{wert:.2f}".rstrip("0").rstrip(".")
 
 
 def _zahl(score: ScoreResult | None) -> str:

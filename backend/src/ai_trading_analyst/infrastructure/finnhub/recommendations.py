@@ -39,6 +39,7 @@ from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
 from .auth import authentifizierung
+from .symbols import finnhub_symbol
 
 _logger = get_logger(__name__)
 
@@ -108,7 +109,7 @@ class FinnhubAnalystRecommendationsProvider:
         den echten Transport von ``httpx``."""
 
     def recommendations(self, stock: Stock) -> AnalystRecommendations:
-        symbol = stock.symbol
+        symbol = finnhub_symbol(stock.symbol)
         evaluated_at = self._now()
         self._drossel.warte()
 

@@ -133,3 +133,13 @@ Die Kürzung selbst war seit ADR 0040 zugesichert und **bis heute ungeprüft**
   alles, was ADR 0024 ursprünglich zulassen wollte. Sie ist ein Enum aus
   einer deterministischen Ableitung, kein formulierter Satz — aber sie ist
   eine Aussage über eine Aktie, und das gehört gesagt.
+
+## Nachtrag vom 2026-09-01: Zeilenformat und Kürzungstabelle abgelöst
+
+[ADR 0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) löst
+zwei Punkte dieses ADRs ab: Die Grenze „keine Rohdaten" weicht für den
+besten Put-Vorschlag je empfohlenem Kandidaten (Strike, Verfall, Prämie —
+Quelle IBKR, L8 unberührt), und die Einzeiler samt Kürzungstabelle (24/51)
+weicht einem Blockformat mit Kürzung an der Blockgrenze und neu gemessener
+Tabelle. Sortierung, Strich statt Null und der Freitext-Ausschluss gelten
+unverändert.

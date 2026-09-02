@@ -51,7 +51,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0014](0014-ibkr-produktivintegration-freigegeben.md) | IBKR als produktive Marktdaten-Grundlage freigegeben -- technisch GO_WITH_LIMITATIONS, vertraglich GO | Angenommen |
 | [0015](0015-plattformunabhaengige-lock-dateien.md) | Lock-Dateien plattformunabhängig erzeugen (uv statt pip-compile) | Angenommen |
 | [0016](0016-ibkr-keine-quelle-fuer-research-daten.md) | IBKR ist keine Quelle für Research-Daten (RESC: NO_GO) | Angenommen |
-| [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen |
+| [0017](0017-finnhub-fuer-earnings-und-ratings.md) | Finnhub als Quelle für Earnings-Termine und Analystenratings | Angenommen; Nachtrag 2026-09-01: Kalenderfenster 120 Tage, Klassenaktien-Schreibweise übersetzt |
 | [0018](0018-kein-windows-autologon.md) | Kein Windows-Autologon — manueller Start wird akzeptiert | Angenommen |
 | [0019](0019-trading-day-dispatcher.md) | Trading-Day-Dispatcher — idempotenter Einzelstart statt Dauerprozess | Angenommen |
 | [0020](0020-earnings-filter-status-und-handelstagskalender.md) | Earnings-Filter — reduziertes Statusmodell und Wochentagsnäherung für die Kerzenzählung | Angenommen; L2 und L3 durch [0030](0030-wochentagsnaeherung-bleibt.md) abgelöst |
@@ -74,20 +74,22 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0037](0037-getrennte-agenten-pools-und-enges-ausweichmodell.md) | Getrennte Pools je Agent, Ausweichmodell nur bei technischem Versagen | Angenommen (loest R9 und E12 Punkt 1 des Audits vom 2026-08-23; stellt die Fuenf-Minuten-Angabe aus ADR 0026 richtig) |
 | [0038](0038-backtest-im-tageslauf.md) | Backtest je Kandidat im Tageslauf, Earnings-Abweichung am Ergebnis gekennzeichnet | Angenommen (loest E1 und M4 des Audits vom 2026-08-23; E3 bleibt offen) |
 | [0039](0039-report-generator.md) | Report Generator -- achtzehn Punkte, Luecken benannt, ohne Sprachmodell | Angenommen (fuehrt die Berichtsschema-Version ein, die Doc 10 Paragraph 8 fordert) |
-| [0040](0040-inhalt-der-ergebnismeldung.md) | Die Ergebnismeldung nennt Symbole und Signalgruende -- keine Kurse | Angenommen (entscheidet E7 des Audits vom 2026-08-23; lockert ADR 0024 bewusst) |
+| [0040](0040-inhalt-der-ergebnismeldung.md) | Die Ergebnismeldung nennt Symbole und Signalgruende -- keine Kurse | Angenommen (entscheidet E7 des Audits vom 2026-08-23; lockert ADR 0024 bewusst; Signaltypen-Punkt durch [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) abgelöst) |
 | [0041](0041-score-komponenten-und-gewichte.md) | Komponenten und Gewichte der beiden Scores | Angenommen (schliesst den Punkt, den ADR 0001 ausdruecklich offen liess; loest den Widerspruch zwischen Doc 09 und Doc 10 Paragraph 6.11) |
 | [0042](0042-kein-historischer-earnings-filter.md) | Der Backtest bekommt keinen historischen Earnings-Filter | Angenommen (entscheidet E3 des Audits vom 2026-08-23 -- verworfen mit Begruendung, nicht vertagt) |
 | [0043](0043-analystenempfehlungen-statt-kurszielen.md) | Analystenempfehlungen statt Kurszielen | Angenommen (entscheidet E11 des Audits vom 2026-08-23; baut nach, was ADR 0017 mitentschied) |
 | [0044](0044-geheimnisse-an-der-log-senke-schwaerzen.md) | Geheimnisse werden an der Log-Senke geschwärzt | Angenommen (gemessener Befund: der Finnhub-Schlüssel stand in jeder erfolgreichen Anfragezeile) |
 | [0045](0045-schwellen-der-score-teilwerte.md) | Schwellen der Score-Teilwerte | Angenommen (an 191 Titeln der Watchliste gemessen; erfüllt die Voraussetzung aus ADR 0041) |
 | [0046](0046-empfehlungsstufe-aus-beiden-scores.md) | Empfehlungsstufe aus beiden Scores | Angenommen (füllt Berichtspunkt 16 und die News-Komponente; erledigt den offenen Befund aus ADR 0045) |
-| [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8) |
+| [0047](0047-scores-in-der-ergebnismeldung.md) | Scores in der Ergebnismeldung | Angenommen (lockert ADR 0040 in einem Punkt; entscheidet Finnhub L8; Zeilenformat und Kürzungstabelle durch [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) abgelöst) |
 | [0048](0048-optionsanalyse-im-tageslauf.md) | Cash Secured Puts aus der IBKR-Optionskette | Angenommen (füllt Berichtspunkt 13 und die sechste Score-Komponente; führt die dritte gerichtete Kopplung ein) |
 | [0049](0049-dashboard-mvp-nur-lan.md) | Dashboard-MVP nur im eigenen Netz — keine Exposition, keine eigene Auth | Angenommen (entscheidet F12/E8, entsperrt Sprint 6; Exposition und Auth werden nach stabilem Betrieb neu bewertet) |
 | [0050](0050-us-007-chartmuster-gestrichen.md) | Das US-007-Kriterium „relevante Chartmuster" ist gestrichen | Angenommen (entscheidet E13 des Audits vom 2026-08-23 — Streichung mit Vermerk statt stiller Löschung) |
 | [0051](0051-research-im-dauerbetrieb-abgeschaltet.md) | Research Agent im Dauerbetrieb abgeschaltet — Provider-Wert `none` | Angenommen (Kostenentscheidung; löst nichts an ADR 0021/0023 ab — die Einzelprobe bleibt der Weg) |
 | [0052](0052-dashboard-als-statischer-export.md) | Dashboard als statischer Export, ausgeliefert von der API | Angenommen (beantwortet die von ADR 0036 an den Dashboard-Sprint vertagte Container-Frage: weiterhin kein Container, kein Reverse Proxy) |
 | [0053](0053-lese-api-kein-lauf-ueber-http.md) | Die Web-API ist lesend — kein Analyselauf über HTTP | Angenommen (entscheidet den MVP-Zuschnitt gegen Doc 10 §6.14; `POST /analysis-runs` entfällt, weil er auf dem Server einen Fixture-Lauf speichern würde) |
+| [0054](0054-wiederholsperre-im-tageslauf.md) | Wiederholsperre im Tageslauf — sieben Tage je voll analysiertem Symbol | Angenommen (jeder 2-aus-3-Treffer sperrt, auch WATCH; Ausschluss in der Application-Schicht, Bars laufen weiter) |
+| [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) | Put-Vorschlag und Signalzahl in der Ergebnismeldung | Angenommen (Blockformat mit Leerzeilen; löst ADR 0040 beim Signaltypen-Punkt und ADR 0047 bei „keine Rohdaten" ab) |
 
 ## Offene Entscheidungen
 

@@ -36,6 +36,7 @@ from .ports import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
+from .repeat_suppression import RepeatSuppressionParameters, suppression_window
 
 __all__ = [
     "AnalysisRun",
@@ -58,6 +59,7 @@ __all__ = [
     "OptionsDataProvider",
     "OptionsDataProviderError",
     "ProcessingErrorRepository",
+    "RepeatSuppressionParameters",
     "ResearchProvider",
     "ResearchProviderError",
     "RunStatus",
@@ -70,4 +72,5 @@ __all__ = [
     "TechnicalInterpreter",
     "TechnicalInterpreterError",
     "UnitOfWork",
+    "suppression_window",
 ]

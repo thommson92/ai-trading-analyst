@@ -28,6 +28,7 @@ from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact
 
 from .auth import authentifizierung
+from .symbols import finnhub_symbol
 
 _logger = get_logger(__name__)
 
@@ -77,7 +78,7 @@ class FinnhubEarningsProvider:
         den echten Transport von ``httpx``."""
 
     def next_earnings_date(self, stock: Stock) -> NextEarningsDate | None:
-        symbol = stock.symbol
+        symbol = finnhub_symbol(stock.symbol)
         today = self._now().date()
         self._drossel.warte()
         window_end = today + timedelta(days=self._settings.lookahead_calendar_days)

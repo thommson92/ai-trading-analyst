@@ -88,3 +88,36 @@ Vom Projektinhaber ausdrücklich übernommen, nicht als offene Punkte:
 - Ändert sich die Lizenzlage, entfällt die Gratis-Stufe oder wird ein
   Kursziel benötigt, ist das ein **neues ADR** — dieses wird nicht
   rückwirkend geändert.
+
+## Nachtrag vom 2026-09-01: Kalenderfenster 120 Tage, Klassenaktien übersetzt
+
+Der erste scharfe Verbundlauf (2026-09-01) zeigte bei rund zwei Dritteln der
+Kandidaten „Earnings-Termin unbekannt". Ursache war nicht der Anbieter,
+sondern das produktive Abfragefenster von 30 Kalendertagen je Symbol:
+Quartalsberichte kommen nur ~alle 90 Tage, also lag zu jedem Zeitpunkt nur
+bei rund einem Drittel der Titel ein Termin im Fenster. Die 97 % Abdeckung
+dieses ADRs waren dagegen über ein **Vier-Monats-Fenster** gemessen.
+
+Zwei Änderungen:
+
+- **`earnings_filter.lookahead_calendar_days` steigt von 30 auf 120.** Der
+  Termin hat seit ADR 0046/0048 drei Verbraucher, und nur der erste kam mit
+  30 Tagen aus: das Ausschlussfenster (10 Handelstage), die Kennzeichnung
+  `earnings_within_term` der Optionsanalyse (Verfälle bis 60 Tage voraus)
+  und der Empfehlungsdeckel `cap_earnings_unknown` — mit 30 Tagen blieb die
+  Empfehlung jedes Titels mit fernerem Termin dauerhaft gedeckelt. Ein
+  größeres Fenster ist ein reiner Query-Parameter und kostet keine
+  zusätzliche Anfrage; die Plausibilitätsschranke von 50 Einträgen je Symbol
+  bleibt auch bei 120 Tagen weit entfernt (maximal ~2 Termine). Die
+  1500-Treffer-Kürzung aus L4 betrifft nur kalenderweite Anfragen ohne
+  `symbol`-Parameter — je Symbol bleibt sie unerreichbar.
+- **Klassenaktien werden in Finnhub-Schreibweise übersetzt** (`BRK B` →
+  `BRK.B`, `infrastructure/finnhub/symbols.py`, beide Endpunkte). Damit ist
+  der Schreibweisen-Anteil von L3 eingelöst; ausländische Emittenten,
+  Neuemissionen und abweichende Geschäftsjahre (`NVO`, `MGA`, `SPCX`)
+  bleiben als echte Abdeckungslücken bestehen und werden weiterhin als
+  fehlende Information ausgewiesen.
+
+Außerdem loggt der `provider_error`-Pfad des Earnings-Filters seither eine
+Warnung mit Symbol und Ursache — er war der einzige Ausfallpfad ohne
+Logzeile, ein 429 war im Log nicht von `no_coverage` zu unterscheiden.

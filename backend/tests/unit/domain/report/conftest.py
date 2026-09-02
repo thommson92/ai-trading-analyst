@@ -30,6 +30,12 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricUnit,
     SourceRef,
 )
+from ai_trading_analyst.domain.options import (
+    LiquidityGrade,
+    OptionsAnalysis,
+    OptionsStatus,
+    PutStrategy,
+)
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchReport,
@@ -73,6 +79,45 @@ def make_outcome(**overrides: object) -> StockScreeningOutcome:
     }
     felder.update(overrides)
     return StockScreeningOutcome(**felder)  # type: ignore[arg-type]
+
+
+def make_put_strategy(
+    *,
+    strike: float = 320.0,
+    premium: float = 2.30,
+    expiration: date = date(2026, 10, 16),
+    annualized_return: float = 0.25,
+) -> PutStrategy:
+    return PutStrategy(
+        expiration=expiration,
+        days_to_expiration=45,
+        strike=strike,
+        distance_to_price_pct=0.06,
+        premium=premium,
+        break_even=strike - premium,
+        capital_at_risk=strike * 100,
+        simple_return=premium / strike,
+        annualized_return=annualized_return,
+        liquidity=LiquidityGrade.GOOD,
+    )
+
+
+def make_options(
+    *,
+    status: OptionsStatus = OptionsStatus.COMPLETED,
+    strategies: tuple[PutStrategy, ...] | None = None,
+    reason: str | None = None,
+) -> OptionsAnalysis:
+    if strategies is None:
+        strategies = (make_put_strategy(),) if status is OptionsStatus.COMPLETED else ()
+    return OptionsAnalysis(
+        status=status,
+        evaluated_at=JETZT,
+        underlying_price=340.0,
+        expiration=strategies[0].expiration if strategies else None,
+        strategies=strategies,
+        reason=reason,
+    )
 
 
 def make_analysts(

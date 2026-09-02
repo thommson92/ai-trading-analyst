@@ -84,6 +84,25 @@ screening:
   signal_lookback_previous_candles: 5
   direction: LONG
 
+repeat_suppression:
+  # Wiederholsperre des Tageslaufs (ADR 0054): Ein Symbol, dessen letzte
+  # volle Analyse in das Fenster faellt, wird komplett uebersprungen --
+  # weder analysiert noch gemeldet. Das Fenster zaehlt in Kalendertagen
+  # der Boersenzeit, schliesst den Analysetag mit ein und klammert den
+  # laufenden Tag aus: Tag 0 analysiert, Tag 7 wieder dran -- und ein
+  # Wiederholungslauf desselben Tages (Dispatcher-Retry nach Absturz)
+  # sieht die Zeilen des abgebrochenen Laufs nicht als Sperre. Ein
+  # unterdruecktes Wiederauftreten erzeugt keine neue Analysezeile und
+  # verlaengert die Sperre deshalb nicht; die Bars gesperrter Titel fuehrt
+  # der Backfill weiter nach.
+  #
+  # Sieben Tage: eine Handelswoche -- lang genug gegen die taegliche
+  # Wiederholung eines tagelang aktiven Signals, kurz genug, um eine
+  # veraenderte Lage nicht laenger als eine Woche zu verpassen. Gesetzt,
+  # nicht gemessen. 0 schaltet die Sperre ab; 1 wirkt faktisch ebenso,
+  # weil der laufende Tag nie sperrt.
+  window_days: 7
+
 backtesting:
   history_years: 5
   horizons: [5, 10, 20]
@@ -106,7 +125,18 @@ earnings_filter:
   # Abschnitt 'finnhub' gewandert, weil sie seither zwei Endpunkten gehoeren.
   # Der alte Schluesselort fuehrt zum Startfehler, nicht zu einem Default --
   # eine still uebergangene Umbenennung waere schlimmer als ein Abbruch.
-  lookahead_calendar_days: 30
+  #
+  # 120 statt der urspruenglichen 30 (Nachtrag zu ADR 0017): Der Termin hat
+  # seit ADR 0046/0048 drei Verbraucher, und nur der erste kam mit 30 aus --
+  # das Ausschlussfenster (10 Handelstage), die Kennzeichnung
+  # earnings_within_term der Optionsanalyse (Verfaelle bis 60 Tage voraus)
+  # und der Empfehlungsdeckel cap_earnings_unknown. Quartalsberichte kommen
+  # nur ~alle 90 Tage: Mit 30 Tagen war der Termin bei rund zwei Dritteln
+  # der Kandidaten "unbekannt", und deren Empfehlung blieb dauerhaft
+  # gedeckelt. 120 deckt einen vollen Quartalszyklus mit Reserve; der Spike
+  # mass ueber vier Monate 97 % Abdeckung. Ein groesseres Fenster ist ein
+  # reiner Query-Parameter -- es kostet keine zusaetzliche Anfrage.
+  lookahead_calendar_days: 120
 
 # Analystenempfehlungen (Doc 10, Paragraph 6.12 Punkt 9; ADR 0043).
 # Kursziele gibt es hier bewusst nicht: Der Endpunkt ist kostenpflichtig,

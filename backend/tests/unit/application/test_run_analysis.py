@@ -10,6 +10,7 @@ dem Ergebnis richtig umgeht.
 from __future__ import annotations
 
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -21,7 +22,13 @@ from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config.loader import load_config
-from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
+from ai_trading_analyst.domain.analysis import (
+    MarketDataProviderError,
+    RepeatSuppressionParameters,
+    RunStatus,
+    Stock,
+    StockScreeningOutcome,
+)
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestParameters
 from ai_trading_analyst.domain.earnings import (
@@ -35,7 +42,12 @@ from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import Notifier, NotifierError
 from ai_trading_analyst.domain.scoring import ScoreKind, ScoreStatus
-from ai_trading_analyst.domain.screening import CandidateRuleParameters, ScreeningStatus
+from ai_trading_analyst.domain.screening import (
+    SIGNAL_RULE_VERSION,
+    CandidateRuleParameters,
+    ScreeningResult,
+    ScreeningStatus,
+)
 from ai_trading_analyst.domain.technical import (
     TechnicalAnalysisParameters,
     TechnicalAssessment,
@@ -115,6 +127,7 @@ def _build_use_case(
     backtest_params: BacktestParameters | None = None,
     notifier: Notifier | None = None,
     notify_without_candidates: bool = False,
+    repeat_suppression: RepeatSuppressionParameters | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -148,6 +161,7 @@ def _build_use_case(
         agent_concurrency=agent_concurrency,
         notifier=notifier,
         notify_without_candidates=notify_without_candidates,
+        repeat_suppression=repeat_suppression,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -265,6 +279,141 @@ class TestVollstaendigesScheiternVorScreeningbeginn:
         assert summary.run.number_of_stocks == 0
 
 
+class TestWiederholsperre:
+    """Die Wiederholsperre des Tageslaufs (ADR 0054).
+
+    Vortagesanalysen liegen als Zeilen im Ergebnis-Repository. Das Fenster
+    zaehlt Kalendertage der Boersenzeit und klammert den laufenden Tag aus
+    -- ein zweiter Lauf desselben Tages (Dispatcher-Retry nach Absturz)
+    sperrt deshalb nichts.
+    """
+
+    _SPERRE = RepeatSuppressionParameters(window_days=7)
+
+    @staticmethod
+    def _fruehere_analyse(symbol: str, evaluated_at: datetime) -> StockScreeningOutcome:
+        return StockScreeningOutcome(
+            analysis_run_id=uuid.uuid4(),
+            stock=make_stock(symbol),
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=0,
+            evaluated_at=evaluated_at,
+            signal_rule_version=SIGNAL_RULE_VERSION,
+        )
+
+    @staticmethod
+    def _provider(symbol: str = "CAND") -> FakeMarketDataProvider:
+        return FakeMarketDataProvider(
+            stocks=(make_stock(symbol),),
+            series_by_symbol={symbol: make_series(_SERIES_LENGTH, candidate=True)},
+        )
+
+    def test_kuerzlich_voll_analysiertes_symbol_wird_komplett_uebersprungen(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Zwei Tage zurueck: sicher ein frueherer Boersen-Kalendertag,
+        # unabhaengig davon, zu welcher Uhrzeit der Test laeuft.
+        vorgestern = datetime.now(UTC) - timedelta(days=2)
+        earnings_provider = FakeEarningsProvider()
+        use_case, _, _, results_repo, errors_repo = _build_use_case(
+            self._provider(), earnings_provider, repeat_suppression=self._SPERRE
+        )
+        results_repo.added.append(self._fruehere_analyse("CAND", vorgestern))
+
+        with caplog.at_level("INFO"):
+            summary = use_case.execute()
+
+        assert summary.run.status == RunStatus.COMPLETED
+        assert summary.outcomes == ()
+        assert summary.errors == ()
+        assert not errors_repo.added
+        assert summary.run.number_of_stocks == 0
+        # Keine neue Analysezeile -- die Sperre verlaengert sich nicht.
+        assert len(results_repo.added) == 1
+        # Kein Abruf beim Anbieter: komplett uebersprungen.
+        assert earnings_provider.calls == []
+        assert "Wiederholsperre: CAND wird uebersprungen" in caplog.text
+
+    def test_der_lauf_desselben_tages_sperrt_nicht(self) -> None:
+        """Der Absturz-Fall: Ein abgebrochener Lauf hat Zeilen persistiert,
+        der Dispatcher wiederholt am selben Tag -- der Wiederholungslauf
+        muss dieselben Kandidaten erneut vollstaendig rechnen, sonst fehlten
+        sie dem angenommenen Lauf des Tages fuer sieben Tage."""
+        use_case, _, _, results_repo, _ = _build_use_case(
+            self._provider(), repeat_suppression=self._SPERRE
+        )
+
+        erste = use_case.execute()
+        zweite = use_case.execute()
+
+        assert len(erste.outcomes) == 1
+        assert len(zweite.outcomes) == 1
+        assert len(results_repo.added) == 2
+
+    def test_eine_sieben_tage_alte_analyse_sperrt_nicht_mehr(self) -> None:
+        """Tag 0 analysiert, Tag 7 wieder dran -- die Kalendergrenze haengt
+        nicht am Minuten-Jitter des Schedulers."""
+        stock_alt, stock_neu = make_stock("ALT"), make_stock("NEU")
+        provider = FakeMarketDataProvider(
+            stocks=(stock_alt, stock_neu),
+            series_by_symbol={
+                "ALT": make_series(_SERIES_LENGTH, candidate=True),
+                "NEU": make_series(_SERIES_LENGTH, candidate=True),
+            },
+        )
+        use_case, _, _, results_repo, _ = _build_use_case(
+            provider, repeat_suppression=self._SPERRE
+        )
+        jetzt = datetime.now(UTC)
+        results_repo.added.append(self._fruehere_analyse("ALT", jetzt - timedelta(days=7)))
+        results_repo.added.append(self._fruehere_analyse("NEU", jetzt - timedelta(days=2)))
+
+        summary = use_case.execute()
+
+        assert [o.stock.symbol for o in summary.outcomes] == ["ALT"]
+        assert summary.run.number_of_stocks == 1
+
+    def test_nur_volle_analysen_sperren(self) -> None:
+        use_case, _, _, results_repo, _ = _build_use_case(
+            self._provider(), repeat_suppression=self._SPERRE
+        )
+        kein_kandidat = StockScreeningOutcome(
+            analysis_run_id=uuid.uuid4(),
+            stock=make_stock("CAND"),
+            result=ScreeningResult(status=ScreeningStatus.NOT_CANDIDATE),
+            decision_candle_index=0,
+            evaluated_at=datetime.now(UTC) - timedelta(days=2),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+        )
+        results_repo.added.append(kein_kandidat)
+
+        summary = use_case.execute()
+
+        assert len(summary.outcomes) == 1
+
+    def test_fenster_null_schaltet_die_sperre_ab(self) -> None:
+        use_case, _, _, results_repo, _ = _build_use_case(
+            self._provider(), repeat_suppression=RepeatSuppressionParameters(window_days=0)
+        )
+        results_repo.added.append(
+            self._fruehere_analyse("CAND", datetime.now(UTC) - timedelta(days=2))
+        )
+
+        summary = use_case.execute()
+
+        assert len(summary.outcomes) == 1
+
+    def test_ohne_parameter_bleibt_das_verhalten_von_heute(self) -> None:
+        use_case, _, _, results_repo, _ = _build_use_case(self._provider())
+        results_repo.added.append(
+            self._fruehere_analyse("CAND", datetime.now(UTC) - timedelta(days=2))
+        )
+
+        summary = use_case.execute()
+
+        assert len(summary.outcomes) == 1
+
+
 class TestEarningsFilter:
     def test_laeuft_nur_fuer_kandidaten(self) -> None:
         stock_a, stock_b = make_stock("CAND"), make_stock("NOCAND")
@@ -299,7 +448,9 @@ class TestEarningsFilter:
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "no_coverage"
 
-    def test_providerausfall_ergibt_unknown_und_bleibt_kein_processing_error(self) -> None:
+    def test_providerausfall_ergibt_unknown_und_bleibt_kein_processing_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         stock = make_stock("CAND")
         provider = FakeMarketDataProvider(
             stocks=(stock,), series_by_symbol={"CAND": make_series(_SERIES_LENGTH, candidate=True)}
@@ -307,7 +458,8 @@ class TestEarningsFilter:
         earnings_provider = FakeEarningsProvider(error_symbols=frozenset({"CAND"}))
         use_case, _, _, _, errors_repo = _build_use_case(provider, earnings_provider)
 
-        summary = use_case.execute()
+        with caplog.at_level("WARNING"):
+            summary = use_case.execute()
 
         assert summary.run.status == RunStatus.COMPLETED
         assert not summary.errors
@@ -316,6 +468,9 @@ class TestEarningsFilter:
         assert earnings is not None
         assert earnings.status is EarningsFilterStatus.UNKNOWN
         assert earnings.reason == "provider_error"
+        # Der Ausfall war bislang stumm -- im Log war provider_error nicht
+        # von no_coverage zu unterscheiden. Jetzt steht er mit Symbol drin.
+        assert "Earnings-Termin fuer CAND nicht verfuegbar" in caplog.text
 
     def test_unplausibler_termin_ergibt_unknown_und_bleibt_kein_processing_error(self) -> None:
         """Der Anbieter ist erreichbar, seine Antwort aber nicht plausibel

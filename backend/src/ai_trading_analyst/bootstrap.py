@@ -36,6 +36,7 @@ from ai_trading_analyst.domain.analysis import (
     HistoricalBarSource,
     MarketDataProvider,
     OptionsDataProvider,
+    RepeatSuppressionParameters,
     ResearchProvider,
     TechnicalInterpreter,
     UnitOfWork,
@@ -290,6 +291,11 @@ def build_earnings_filter_params(config: AppConfig) -> EarningsFilterParameters:
         configured_exclusion_candles=config.earnings_filter.configured_exclusion_candles,
         candles_per_day=build_session_parameters(config).candles_per_day,
     )
+
+
+def build_repeat_suppression_params(config: AppConfig) -> RepeatSuppressionParameters:
+    """Die Wiederholsperre des Tageslaufs (ADR 0054)."""
+    return RepeatSuppressionParameters(window_days=config.repeat_suppression.window_days)
 
 
 def app_version() -> str:
