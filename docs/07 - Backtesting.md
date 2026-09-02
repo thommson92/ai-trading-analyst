@@ -36,7 +36,7 @@ Letzte 5 Jahre
 
 Ein historisches Signal gilt als gültig, wenn:
 
-Mindestens drei der fünf definierten Kriterien erfüllt waren (ADR 0056).
+Mindestens zwei der drei definierten Kaufsignale erfüllt waren und zusätzlich mindestens eines der beiden Zusatzkriterien (ADR 0056).
 
 ---
 

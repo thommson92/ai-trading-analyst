@@ -52,7 +52,7 @@ from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchem
 UowFactory = Callable[[], SqlAlchemyUnitOfWork]
 
 _PARAMS = CandidateRuleParameters(
-    required_signal_count=3, signal_lookback_previous_candles=5, warmup_candles=250
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=250
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 # Deckungsgleich mit dem Entscheidungskerzen-Datum der Fixture-Kerzenserie

@@ -410,10 +410,10 @@ Bis zur fachlichen Freigabe darf Claude Code hierzu keine eigene Annahme dauerha
 
 Eine Aktie qualifiziert sich für die nächste Stufe, wenn:
 
-- mindestens drei der fünf Kriterien erfüllt sind,
+- mindestens zwei der drei Kaufsignale erfüllt sind **und** zusätzlich mindestens eines der beiden Zusatzkriterien,
 - die betreffenden Signale in der aktuellen oder einer der vorherigen fünf abgeschlossenen 195-Minuten-Kerzen aufgetreten sind; das Ausschlusskriterium `NO_RECENT_EMA_DOWNCROSS` wird einmal an der Entscheidungskerze geprüft.
 
-> Geändert am 2026-09-02 durch [ADR 0056](../docs/adr/0056-signalregel-drei-aus-fuenf.md);
+> Geändert am 2026-09-02 durch [ADR 0056](../docs/adr/0056-kaufsignale-und-zusatzkriterien.md);
 > die Formeln stehen in [g1-pruefvorlage.md](requirements/g1-pruefvorlage.md).
 
 ### Ergebnis
@@ -1582,7 +1582,7 @@ market:
   daily_candle_index: 1
 
 screening:
-  required_signal_count: 2
+  required_crossing_signals: 2
   lookback_closed_candles: 5
   direction: LONG
 

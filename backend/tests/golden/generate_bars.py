@@ -8,7 +8,7 @@ darf davon nicht abhaengen -- er soll auf jedem Rechner ohne Netz laufen.
 Was der Golden Master leistet, haengt an dieser Unterscheidung:
 
 * **Was er leistet:** Er friert das *Verfahren* ein. Aendert sich die
-  Kerzenbildung, die Indikatorrechnung, die 2-aus-3-Regel, der Cooldown oder
+  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, der Cooldown oder
   eine Kennzahl, weicht das Ergebnis ab und ein Test bricht. Dafuer genuegen
   erzeugte Kursreihen vollstaendig -- die Rechnung kennt den Unterschied
   nicht.
@@ -72,10 +72,10 @@ LANGE_REIHE = 900
 """1800 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
 und damit auf ``NORMAL``.
 
-Mit der 3-aus-5-Regel (ADR 0056) musste diese Zahl von 700 steigen: Die
-Ereignisse verteilen sich seither auf 16 statt 4 Kombinationen, und bei 700
-Handelstagen kam die staerkste nur noch auf 25. Gemessen: 700 -> 25,
-800 -> 30 (genau auf der Schwelle, zu knapp), 900 -> 40.
+Mit der Regel aus ADR 0056 musste diese Zahl von 700 steigen: Die
+Ereignisse verteilen sich seither auf 12 statt 4 Kombinationen, und bei 700
+Handelstagen kam die staerkste nur noch auf 29 -- eines zu wenig. Gemessen:
+700 -> 29, 800 -> 34, 900 -> 44.
 
 Das ist kein Datentrick, sondern der sichtbare Preis der neuen Regel -- an
 echten Kursen wird die Signalstatistik je Kombination aus demselben Grund

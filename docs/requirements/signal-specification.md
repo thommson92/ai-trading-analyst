@@ -2,9 +2,9 @@
 
 - **Teilweise historisch (Stand 2026-09-02).** Die *Indikatorparameter*
   dieses Dokuments gelten unverändert fort. Die *Signalregeln* nicht mehr:
-  [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md) hat Signal B
-  gelockert, zwei Kriterien ergänzt und die Schwelle auf drei von fünf
-  gesetzt. Maßgeblich für die Regeln ist allein die
+  [ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md) hat Signal B
+  gelockert und zwei Zusatzkriterien ergänzt, von denen mindestens eines
+  neben den zwei Kaufsignalen erfüllt sein muss. Maßgeblich für die Regeln ist allein die
   [G1-Prüfvorlage](g1-pruefvorlage.md); dieses Dokument bleibt als
   Herleitung mit Diskussion und Beispielen stehen und wird nicht
   rückwirkend umgeschrieben.

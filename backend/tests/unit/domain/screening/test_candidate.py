@@ -34,7 +34,7 @@ from tests.unit.domain.screening.conftest import (
 SERIES_LENGTH = 30
 DECISION_INDEX = 20
 PARAMS = CandidateRuleParameters(
-    required_signal_count=3, signal_lookback_previous_candles=5, warmup_candles=10
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 
 OHNE_ABWAERTSKREUZ = frozenset({SignalType.NO_RECENT_EMA_DOWNCROSS})
@@ -163,7 +163,60 @@ class TestUeberverkaufterRsi:
         assert result.fired_signal_types == (
             frozenset({SignalType.RSI_OVERSOLD, SignalType.RSI_CROSS}) | OHNE_ABWAERTSKREUZ
         )
+
+    def test_beide_zusatzkriterien_ersetzen_kein_zweites_kaufsignal(self) -> None:
+        """Der Kern der Regel: Drei erfuellte Kriterien, aber nur **ein**
+        Kaufsignal -- das genuegt nicht.
+
+        Waeren alle fuenf gleichwertig ("drei aus fuenf"), waere dieser Fall
+        ein Kandidat, und die Regel liesse mehr Titel durch als die fruehere
+        Zwei-aus-drei-Regel. Gemessen am Golden Master waren das 15 Prozent
+        mehr Kandidaten statt weniger (ADR 0056)."""
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 4: rsi_oversold_fires(),
+                DECISION_INDEX: rsi_cross_fires(),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert len(result.fired_signal_types) == 3
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
+
+    def test_ein_zusatzkriterium_neben_zwei_kaufsignalen_genuegt(self) -> None:
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 4: rsi_cross_fires(),
+                # Ein Abwaertskreuz im Pruefbereich nimmt E weg; D traegt.
+                DECISION_INDEX - 2: ema_downcross_fires(),
+                DECISION_INDEX - 3: rsi_oversold_fires(),
+            },
+            candle_overrides={
+                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert SignalType.NO_RECENT_EMA_DOWNCROSS not in result.fired_signal_types
+        assert SignalType.RSI_OVERSOLD in result.fired_signal_types
         assert result.status == ScreeningStatus.CANDIDATE
+
+    def test_ohne_jedes_zusatzkriterium_reichen_zwei_kaufsignale_nicht(self) -> None:
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 4: rsi_cross_fires(),
+                DECISION_INDEX - 2: ema_downcross_fires(),
+            },
+            candle_overrides={
+                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert result.fired_signal_types == frozenset(
+            {SignalType.RSI_CROSS, SignalType.PRICE_EMA20_BREAKOUT}
+        )
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
 
 
 class TestAusschlusskriterium:

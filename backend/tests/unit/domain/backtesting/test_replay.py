@@ -11,7 +11,7 @@ from ai_trading_analyst.domain.screening import CandidateRuleParameters, SignalT
 from .conftest import RSI_AND_EMA_CROSS_FIRE, make_series
 
 PARAMS = CandidateRuleParameters(
-    required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 EXPECTED_COMBINATION = frozenset(
     {

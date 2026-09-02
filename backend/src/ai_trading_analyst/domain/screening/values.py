@@ -36,6 +36,31 @@ class SignalType(StrEnum):
     NO_RECENT_EMA_DOWNCROSS = "NO_RECENT_EMA_DOWNCROSS"
 
 
+CROSSING_SIGNALS = frozenset(
+    {
+        SignalType.RSI_CROSS,
+        SignalType.PRICE_EMA20_BREAKOUT,
+        SignalType.EMA5_EMA20_CROSS,
+    }
+)
+"""Die drei Kaufsignale: Jedes beschreibt ein **Ereignis** im Kursverlauf.
+
+Nur sie zaehlen gegen ``required_crossing_signals`` (ADR 0056)."""
+
+CONFIRMATION_SIGNALS = frozenset(
+    {
+        SignalType.RSI_OVERSOLD,
+        SignalType.NO_RECENT_EMA_DOWNCROSS,
+    }
+)
+"""Die beiden Zusatzkriterien: Sie beschreiben die **Lage**, in der ein
+Kaufsignal auftritt -- ein vorangegangener ueberverkaufter Zustand, und die
+Abwesenheit eines frischen Gegensignals.
+
+Sie ersetzen kein Kaufsignal; mindestens eines von ihnen muss zusaetzlich
+erfuellt sein (ADR 0056)."""
+
+
 class ScreeningStatus(StrEnum):
     """Ergebnisstatus einer Kandidatenpruefung (G1-Pruefvorlage Abschnitt 1.5, 3.4)."""
 

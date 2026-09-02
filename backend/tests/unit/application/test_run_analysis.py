@@ -77,7 +77,7 @@ from tests.unit.application.conftest import (
 )
 
 _PARAMS = CandidateRuleParameters(
-    required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11

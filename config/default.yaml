@@ -73,13 +73,16 @@ market_data:
     minimum_request_interval_seconds: 11.0
 
 screening:
-  # Kandidatenregel: mindestens 3 der 5 Kriterien innerhalb eines
-  # Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige); das
-  # Ausschlusskriterium NO_RECENT_EMA_DOWNCROSS wird einmal an der
-  # Entscheidungskerze geprueft. Unabhaengig von Gate G1, weil die Regel
-  # nichts ueber die mathematische Definition der einzelnen Signale aussagt
-  # (G1-Pruefvorlage Abschnitt 3, ADR 0056).
-  required_signal_count: 3
+  # Kandidatenregel (ADR 0056): mindestens 2 der 3 Kaufsignale innerhalb
+  # eines Sechs-Kerzen-Fensters (aktuelle Kerze + 5 vorherige), UND
+  # zusaetzlich mindestens eines der beiden Zusatzkriterien -- RSI war
+  # ueberverkauft, oder es gab kein frisches Abwaertskreuz. Dass ein
+  # Zusatzkriterium noetig ist, steht im Domain-Code: Es ist Regelsemantik
+  # und haengt an der Signalregel-Version, nicht am Betrieb.
+  #
+  # Unabhaengig von Gate G1, weil die Regel nichts ueber die mathematische
+  # Definition der einzelnen Signale aussagt (G1-Pruefvorlage Abschnitt 3).
+  required_crossing_signals: 2
   # Anzahl zusaetzlicher, vorheriger Kerzen -- die aktuelle Kerze kommt immer
   # dazu. Frueher lookback_closed_candles; umbenannt, weil dieser Name
   # zwischen Fenstergroesse und Anzahl-Vorkerzen missverstaendlich war.

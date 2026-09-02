@@ -4,7 +4,7 @@ Oeffentliche Schnittstelle des Screener-Domainkerns. Fachliche Grundlage ist
 ausschliesslich ``docs/requirements/g1-pruefvorlage.md``.
 """
 
-from .candidate import CandidateRuleParameters, evaluate_candidate
+from .candidate import CandidateRuleParameters, evaluate_candidate, qualifies
 from .candle_aggregation import (
     AggregationResult,
     CandleAggregationError,
@@ -31,6 +31,8 @@ from .signals import (
     rsi_oversold,
 )
 from .values import (
+    CONFIRMATION_SIGNALS,
+    CROSSING_SIGNALS,
     SIGNAL_RULE_VERSION,
     Candle,
     CandleSeries,
@@ -43,6 +45,8 @@ from .values import (
 )
 
 __all__ = [
+    "CONFIRMATION_SIGNALS",
+    "CROSSING_SIGNALS",
     "SIGNAL_RULE_VERSION",
     "AggregationResult",
     "CandidateRuleParameters",
@@ -68,6 +72,7 @@ __all__ = [
     "exponential_moving_average",
     "no_recent_ema_downcross",
     "price_ema20_breakout",
+    "qualifies",
     "relative_strength_index",
     "rsi_cross",
     "rsi_oversold",

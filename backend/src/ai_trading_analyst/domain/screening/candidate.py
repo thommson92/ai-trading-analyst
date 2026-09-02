@@ -1,4 +1,8 @@
-"""Die 3-aus-5-Kandidatenregel ueber das Sechs-Kerzen-Fenster.
+"""Die Kandidatenregel ueber das Sechs-Kerzen-Fenster.
+
+Zwei Kaufsignale aus dreien, dazu mindestens eines der beiden
+Zusatzkriterien -- ``qualifies`` haelt die Regel als reine Mengenaussage
+fest (ADR 0056).
 
 Formalisiert G1-Pruefvorlage Abschnitt 3.4. ``evaluate_candidate`` ist die
 einzige Funktion, ueber die eine Kandidatenentscheidung getroffen wird -- sie
@@ -19,6 +23,8 @@ from .signals import (
     rsi_oversold,
 )
 from .values import (
+    CONFIRMATION_SIGNALS,
+    CROSSING_SIGNALS,
     CandleSeries,
     DataIncompleteError,
     IndicatorValues,
@@ -55,9 +61,37 @@ class CandidateRuleParameters:
     Schicht baut diese Parameter aus ``AppConfig`` zusammen.
     """
 
-    required_signal_count: int
+    required_crossing_signals: int
+    """Wie viele der drei **Kaufsignale** feuern muessen (``CROSSING_SIGNALS``).
+
+    Die Zusatzkriterien zaehlen hier nicht mit: Sie ersetzen kein Kaufsignal,
+    sondern kommen obendrauf (ADR 0056)."""
+
     signal_lookback_previous_candles: int
     warmup_candles: int
+
+
+def qualifies(fired_signal_types: frozenset[SignalType], required_crossing_signals: int) -> bool:
+    """Die Kandidatenregel als reine Mengenaussage (Abschnitt 3.3).
+
+    Zwei Bedingungen, beide muessen gelten:
+
+    1. Mindestens ``required_crossing_signals`` der drei **Kaufsignale**.
+    2. Mindestens **eines** der beiden Zusatzkriterien.
+
+    Der zweite Teil ist der Grund, warum das keine "N aus fuenf"-Regel ist:
+    Waeren alle fuenf gleichwertig, ersetzte ein ueberverkaufter RSI zusammen
+    mit der Abwesenheit eines Gegensignals ein zweites Kaufsignal -- und ein
+    einzelnes Kreuzungsereignis reichte zur Qualifikation. Gemessen am
+    Golden Master waeren so *mehr* Kandidaten entstanden als unter der
+    frueheren Regel, obwohl die Schwelle stieg (ADR 0056).
+
+    Eigenstaendig, weil der Backtest dieselbe Frage fuer eine gespeicherte
+    Kombination beantworten muss, ohne eine Kerzenserie zu haben.
+    """
+    kaufsignale = fired_signal_types & CROSSING_SIGNALS
+    zusatzkriterien = fired_signal_types & CONFIRMATION_SIGNALS
+    return len(kaufsignale) >= required_crossing_signals and len(zusatzkriterien) >= 1
 
 
 def _indicators_complete(values: IndicatorValues) -> bool:
@@ -92,7 +126,7 @@ def evaluate_candidate(
        auswerten (Abschnitt 3.3) -- Zaehlung pro Typ, nicht pro Ereignis.
     5. Die Kriterien der Entscheidungskerze einmal an ``t`` auswerten
        (Abschnitt 2.5).
-    6. 3-aus-5-Regel anwenden.
+    6. ``qualifies`` anwenden.
     """
     if t < params.warmup_candles:
         return ScreeningResult(
@@ -136,7 +170,7 @@ def evaluate_candidate(
     )
     status = (
         ScreeningStatus.CANDIDATE
-        if len(fired_types) >= params.required_signal_count
+        if qualifies(frozenset(fired_types), params.required_crossing_signals)
         else ScreeningStatus.NOT_CANDIDATE
     )
     return ScreeningResult(

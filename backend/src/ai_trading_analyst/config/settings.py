@@ -230,12 +230,18 @@ class MarketDataConfig(_Section):
 class ScreeningConfig(_Section):
     """Kandidatenregel.
 
-    Diese Werte haengen nicht von Gate G1 ab: Die Regel 'mindestens N der fuenf
-    Kriterien innerhalb der letzten M abgeschlossenen Kerzen' ist unabhaengig von
-    der mathematischen Definition der einzelnen Signale.
+    Diese Werte haengen nicht von Gate G1 ab: Die Regel 'mindestens N der drei
+    Kaufsignale innerhalb der letzten M abgeschlossenen Kerzen, dazu mindestens
+    ein Zusatzkriterium' ist unabhaengig von der mathematischen Definition der
+    einzelnen Signale.
     """
 
-    required_signal_count: PositiveInt = 3
+    required_crossing_signals: PositiveInt = 2
+    """Wie viele der drei Kaufsignale feuern muessen.
+
+    Die beiden Zusatzkriterien zaehlen hier nicht mit -- dass mindestens eines
+    von ihnen erfuellt sein muss, ist Regelsemantik und steht im Domain-Code
+    (ADR 0056)."""
     signal_lookback_previous_candles: PositiveInt = 5
     """Anzahl zusaetzlicher, vorheriger Kerzen. Die aktuelle Kerze kommt immer
     und unabhaengig davon hinzu -- das Fenster umfasst also insgesamt

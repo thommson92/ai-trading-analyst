@@ -70,7 +70,7 @@ INDICATORS = IndicatorParameters(
 )
 
 CANDIDATE_RULE = CandidateRuleParameters(
-    required_signal_count=3,
+    required_crossing_signals=2,
     signal_lookback_previous_candles=5,
     warmup_candles=250,
 )

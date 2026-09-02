@@ -14,7 +14,12 @@ from datetime import datetime, timedelta
 from itertools import combinations
 from uuid import UUID
 
-from ai_trading_analyst.domain.screening import CandidateRuleParameters, CandleSeries, SignalType
+from ai_trading_analyst.domain.screening import (
+    CandidateRuleParameters,
+    CandleSeries,
+    SignalType,
+    qualifies,
+)
 
 from .replay import Decision, deduplicate_with_cooldown, find_historical_decisions
 from .values import (
@@ -28,21 +33,25 @@ from .values import (
 _DAYS_PER_YEAR = 365
 
 
-def _qualifying_combinations(required_signal_count: int) -> tuple[SignalCombination, ...]:
-    """Alle Signalkombinationen, die die konfigurierte Qualifikationsregel
-    erfuellen koennen (G1-Pruefvorlage Abschnitt 4.3).
+def _qualifying_combinations(required_crossing_signals: int) -> tuple[SignalCombination, ...]:
+    """Alle Signalkombinationen, die die Qualifikationsregel erfuellen koennen
+    (G1-Pruefvorlage Abschnitt 4.3).
 
-    ``evaluate_candidate`` fordert ``len(fired_types) >= required_signal_count``
-    -- qualifizierend sind deshalb alle Teilmengen von ``SignalType`` mit
-    mindestens dieser Groesse, nicht nur die mit exakt dieser Groesse. Bei
-    ``required_signal_count=3`` und fuenf Signaltypen sind das zehn Dreier-,
-    fuenf Vierer- und die eine Fuenfer-Kombination, zusammen sechzehn.
+    Aufgezaehlt werden alle Teilmengen von ``SignalType``, die ``qualifies``
+    durchlaesst -- die Regel steht also genau einmal im Code und wird hier
+    nicht zweitgeschrieben. Bei ``required_crossing_signals=2`` sind das vier
+    Kaufsignal-Kombinationen mal drei Zusatz-Kombinationen, zusammen zwoelf.
     """
     all_types = tuple(SignalType)
-    return tuple(
+    alle_teilmengen = (
         frozenset(combo)
-        for size in range(required_signal_count, len(all_types) + 1)
+        for size in range(1, len(all_types) + 1)
         for combo in combinations(all_types, size)
+    )
+    return tuple(
+        teilmenge
+        for teilmenge in alle_teilmengen
+        if qualifies(teilmenge, required_crossing_signals)
     )
 
 
@@ -178,7 +187,9 @@ def compute_backtest_results(
     history_start = series.candle(0).timestamp
     history_end = series.candle(len(series) - 1).timestamp
 
-    qualifying_combinations = _qualifying_combinations(candidate_params.required_signal_count)
+    qualifying_combinations = _qualifying_combinations(
+        candidate_params.required_crossing_signals
+    )
     results = []
     for combination in qualifying_combinations:
         raw_indices = raw_by_combination.get(combination, ())

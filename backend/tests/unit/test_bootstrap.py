@@ -626,12 +626,13 @@ class TestScoringParameter:
             ))))
 
     def test_eine_signalzahl_ohne_teilwert_bricht_den_start_ab(self) -> None:
-        """``SIGNAL_TEILWERTE`` kennt drei und zwei Signale, weil
-        ``required_signal_count`` auf zwei steht. Auf eins gesetzt verloere
-        jeder Ein-Signal-Kandidat still ein Viertel des Swing-Gewichts."""
+        """``SIGNAL_TEILWERTE`` kennt fuenf, vier und drei Kriterien, weil ein
+        Kandidat zwei Kaufsignale und ein Zusatzkriterium traegt. Verlangt man
+        nur ein Kaufsignal, entstehen Kandidaten mit zwei erfuellten Kriterien
+        -- und die verloeren still ein Viertel des Swing-Gewichts."""
         config = AppConfig(
             indicators=INDICATORS,
-            screening=ScreeningConfig(required_signal_count=1),
+            screening=ScreeningConfig(required_crossing_signals=1),
             scoring=ScoringConfig(thresholds=self._thresholds()),
         )
         with pytest.raises(ValueError, match="keinen Teilwert"):

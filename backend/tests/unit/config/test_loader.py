@@ -20,18 +20,18 @@ class TestLoadConfig:
         path = tmp_path / "config.yaml"
         # Bewusst nicht der Vorgabewert: Sonst bewiese der Test nicht, dass
         # gelesen wurde.
-        path.write_text("screening:\n  required_signal_count: 4\n", encoding="utf-8")
+        path.write_text("screening:\n  required_crossing_signals: 3\n", encoding="utf-8")
 
         loaded = load_config(path)
 
-        assert loaded.config.screening.required_signal_count == 4
+        assert loaded.config.screening.required_crossing_signals == 3
         assert loaded.source_path == path
 
     def test_comment_only_file_yields_defaults(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         path.write_text("# nur ein Kommentar\n", encoding="utf-8")
 
-        assert load_config(path).config.screening.required_signal_count == 3
+        assert load_config(path).config.screening.required_crossing_signals == 2
 
     def test_fingerprint_changes_with_content(self, tmp_path: Path) -> None:
         """Doc 10 Paragraph 17 verlangt protokollierbare Konfigurationsaenderungen."""

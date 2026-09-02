@@ -14,7 +14,12 @@ from ai_trading_analyst.domain.backtesting.metrics import (
     group_by_combination,
 )
 from ai_trading_analyst.domain.backtesting.values import BacktestConfidence, BacktestParameters
-from ai_trading_analyst.domain.screening import CandidateRuleParameters, SignalType
+from ai_trading_analyst.domain.screening import (
+    CONFIRMATION_SIGNALS,
+    CROSSING_SIGNALS,
+    CandidateRuleParameters,
+    SignalType,
+)
 
 from .conftest import make_series
 
@@ -159,7 +164,7 @@ class TestVollstaendigeBerechnung:
             history_years=5,
         )
         candidate_params = CandidateRuleParameters(
-            required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+            required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
         )
         results = compute_backtest_results(
             series,
@@ -169,9 +174,9 @@ class TestVollstaendigeBerechnung:
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
         )
-        # Alle Teilmengen von SignalType mit mindestens zwei Elementen:
-        # zehn Zweier-, zehn Dreier-, fuenf Vierer- und die eine Fuenfer.
-        assert len(results) == 26
+        # Vier Kaufsignal-Kombinationen (drei Paare und das Tripel) mal drei
+        # Zusatz-Kombinationen (D, E, beide).
+        assert len(results) == 12
         assert all(
             horizon.deduplicated_event_count == 0
             and horizon.confidence is BacktestConfidence.INSUFFICIENT_DATA
@@ -179,10 +184,11 @@ class TestVollstaendigeBerechnung:
             for horizon in result.horizons
         )
 
-    def test_anzahl_der_kombinationen_folgt_required_signal_count(self) -> None:
-        """Mit fuenf Signaltypen sind das zehn Dreier-, fuenf Vierer- und
-        die eine Fuenfer-Kombination (G1-Pruefvorlage Abschnitt 4.3). Die
-        Menge folgt der Schwelle, sie wird nirgends gepflegt."""
+    def test_anzahl_der_kombinationen_folgt_der_geforderten_signalzahl(self) -> None:
+        """Werden alle drei Kaufsignale verlangt, bleibt nur noch deren
+        eine Kombination -- mal drei Zusatz-Kombinationen (G1-Pruefvorlage
+        Abschnitt 4.3). Die Menge folgt der Schwelle, sie wird nirgends
+        gepflegt."""
         series = make_series(20)
         params = BacktestParameters(
             horizons=(5,),
@@ -192,7 +198,7 @@ class TestVollstaendigeBerechnung:
             history_years=5,
         )
         candidate_params = CandidateRuleParameters(
-            required_signal_count=3, signal_lookback_previous_candles=5, warmup_candles=10
+            required_crossing_signals=3, signal_lookback_previous_candles=5, warmup_candles=10
         )
         results = compute_backtest_results(
             series,
@@ -202,14 +208,18 @@ class TestVollstaendigeBerechnung:
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
         )
-        assert len(results) == 16
+        assert len(results) == 3
         assert frozenset(SignalType) in {result.signal_types for result in results}
-        assert all(len(result.signal_types) >= 3 for result in results)
+        assert all(
+            result.signal_types >= CROSSING_SIGNALS
+            and bool(result.signal_types & CONFIRMATION_SIGNALS)
+            for result in results
+        )
 
 
 class TestHistorienfenster:
     CANDIDATE_PARAMS = CandidateRuleParameters(
-        required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+        required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
     )
 
     def test_kerzen_vor_dem_cutoff_werden_nicht_repliziert(self) -> None:

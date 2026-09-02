@@ -3,7 +3,7 @@
 - Status: Angenommen
 - Datum: 2026-08-06
 - Löst ab: [ADR 0007](0007-gate-g1-indikatorparameter.md)
-- Teilweise abgelöst durch [ADR 0056](0056-signalregel-drei-aus-fuenf.md)
+- Teilweise abgelöst durch [ADR 0056](0056-kaufsignale-und-zusatzkriterien.md)
   (2026-09-02): Die Formel von Signal B und die 2-aus-3-Kandidatenregel
   gelten nicht mehr — es sind fünf Kriterien, von denen drei erfüllt sein
   müssen. Die hier freigegebenen **Indikatorparameter** gelten unverändert

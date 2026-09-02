@@ -9,9 +9,10 @@
   (dort mit Diskussion, Optionen und Herleitung) und den Festlegungen aus
   deinen Nachrichten vom 2026-08-06.
 - **Am 2026-09-02 auf fünf Kriterien fortgeschrieben**
-  ([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)): Signal B verliert
+  ([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md)): Signal B verliert
   die Gap-up-Klausel, `RSI_OVERSOLD` und `NO_RECENT_EMA_DOWNCROSS` kommen
-  hinzu, die Schwelle steht auf drei von fünf. Die zugehörige Regelversion
+  hinzu, und zu den zwei geforderten Kaufsignalen tritt mindestens eines
+  der beiden Zusatzkriterien. Die zugehörige Regelversion
   ist `g1-pruefvorlage-2026-09-02`; die Indikatorparameter aus Gate G1
   gelten unverändert fort.
 - **Die Signalformeln und die Kandidatenregel sind implementiert**
@@ -48,7 +49,7 @@ Kerze liefert Open, High, Low, Close, Volume; die Auswertung verwendet
 ausschließlich **Close** — sowohl als Preisquelle für die
 Indikatorberechnung als auch als einzigen unmittelbar verglichenen Kurswert.
 Open, High und Low gehen seit
-[ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md) in kein Kriterium mehr
+[ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md) in kein Kriterium mehr
 ein (zuvor Open bei Signal B).
 
 ### 1.2 Indikatorparameter — BESTÄTIGT
@@ -164,7 +165,7 @@ def signal_a(candles, t):
 
 `signal_type: PRICE_EMA20_BREAKOUT` (Doc 05)
 
-**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md):**
+**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md):**
 Die frühere Zusatzbedingung `open[t] <= EMA20[t]` ist entfallen. Maßgeblich
 ist das Bild des Projektinhabers
 ([Kaufsignale_EMA.png](../trading_signals/Kaufsignale_EMA.png), Kaufsignal 2):
@@ -254,7 +255,7 @@ def signal_c(candles, t):
 ### 2.4 Signal D — RSI im überverkauften Bereich
 
 `signal_type: RSI_OVERSOLD` — **neu am 2026-09-02**
-([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md))
+([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md))
 
 **Formel:**
 
@@ -299,7 +300,7 @@ def signal_d(candles, t):
 ### 2.5 Signal E — kein frisches Abwärtskreuz von EMA5 durch EMA20
 
 `signal_type: NO_RECENT_EMA_DOWNCROSS` — **neu am 2026-09-02**
-([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md))
+([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md))
 
 **Formel:**
 
@@ -358,14 +359,14 @@ def signal_e(candles, t):
 
 ---
 
-## 3. Die 3-aus-5-Kandidatenregel und das Sechs-Kerzen-Fenster
+## 3. Die Kandidatenregel und das Sechs-Kerzen-Fenster
 
 ### 3.1 Ausgangslage
 
 Bereits konfiguriert (`config/default.yaml`, Abschnitt `screening`):
 
 ```yaml
-required_signal_count: 3
+required_crossing_signals: 2
 lookback_closed_candles: 5   # wird umbenannt, siehe Abschnitt 3.2
 ```
 
@@ -375,10 +376,18 @@ fünf abgeschlossenen 195-Minuten-Kerzen aufgetreten sind." Diese Formulierung
 ließ zwei Dinge offen, die für eine testbare Implementierung nötig sind —
 beide sind jetzt bestätigt (Abschnitt 3.2, 3.3).
 
-**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md):**
-Aus „mindestens zwei der drei" ist **mindestens drei der fünf** geworden;
-`required_signal_count` steht auf 3. Das Sechs-Kerzen-Fenster und die Zählung
-pro Signaltyp bleiben unverändert.
+**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md):**
+Die geforderten zwei Signale beziehen sich jetzt ausdrücklich auf die drei
+**Kaufsignale** (A, B, C); der Konfigurationsschlüssel heißt deshalb
+`required_crossing_signals`. Hinzu kommt eine zweite Bedingung: **mindestens
+eines der beiden Zusatzkriterien** (D, E) muss erfüllt sein. Beide Bedingungen
+gelten gemeinsam; die Regel ist damit strikt schärfer als zuvor. Das
+Sechs-Kerzen-Fenster und die Zählung pro Signaltyp bleiben unverändert.
+
+Ausdrücklich **nicht** gewählt wurde „drei von fünf" mit gleichrangigen
+Kriterien: Gemessen am Golden Master ließ diese Variante *mehr* Titel durch
+als die frühere Regel, weil D und E zusammen ein zweites Kaufsignal ersetzten
+(Begründung in ADR 0056, Abschnitt 3).
 
 ### 3.2 Fensterdefinition — BESTÄTIGT
 
@@ -403,18 +412,20 @@ Kerze kommt immer und unabhängig davon hinzu. Umgesetzt in
 
 ### 3.3 Zeitliche Verteilung und Zählung der Signaltypen — BESTÄTIGT
 
-Die mindestens drei erforderlichen Signaltypen müssen **nicht auf derselben
-Kerze** auftreten. Eine Aktie qualifiziert sich, wenn mindestens drei
-verschiedene der fünf Signaltypen innerhalb des Sechs-Kerzen-Fensters erfüllt
-sind — unabhängig davon, auf welcher der sechs Kerzen jeweils.
+Die erforderlichen Signaltypen müssen **nicht auf derselben Kerze**
+auftreten. Eine Aktie qualifiziert sich, wenn mindestens zwei verschiedene
+**Kaufsignale** innerhalb des Sechs-Kerzen-Fensters erfüllt sind — unabhängig
+davon, auf welcher der sechs Kerzen jeweils — und zusätzlich mindestens eines
+der beiden **Zusatzkriterien**.
 
 Beispiel: RSI-Crossover (`RSI_CROSS`) auf `t-4`, Kursdurchbruch durch EMA20
 (`PRICE_EMA20_BREAKOUT`) auf `t-1`, kein EMA5-/EMA20-Crossover
 (`EMA5_EMA20_CROSS`) im gesamten Fenster, dazu ein erfülltes
-`NO_RECENT_EMA_DOWNCROSS` → drei Typen, die 3-aus-5-Regel ist erfüllt.
+`NO_RECENT_EMA_DOWNCROSS` → zwei Kaufsignale und ein Zusatzkriterium, die
+Regel ist erfüllt.
 
 **Zwei Klassen von Kriterien** (seit
-[ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)):
+[ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md)):
 
 - **Ereigniskriterien A bis D** werden für jede Kerze des Fensters geprüft
   und gelten als erfüllt, sobald sie an einer davon zutreffen.
@@ -426,9 +437,9 @@ Beispiel: RSI-Crossover (`RSI_CROSS`) auf `t-4`, Kursdurchbruch durch EMA20
 **Zählung pro Signaltyp, nicht pro Signalereignis:** Jeder Signaltyp zählt
 innerhalb eines Entscheidungsfensters **höchstens einmal**, auch wenn derselbe
 Signaltyp mehrfach im Fenster auftritt (z. B. `RSI_CROSS` sowohl auf `t-4` als
-auch erneut auf `t-2`). Die Anzahl erfüllter Signale für die 3-aus-5-Regel wird
-aus der Menge der **unterschiedlichen** erfüllten Signaltypen gebildet, nicht
-aus der Anzahl einzelner Signalereignisse.
+auch erneut auf `t-2`). Beide Bedingungen der Regel werden aus der Menge der
+**unterschiedlichen** erfüllten Signaltypen gebildet, nicht aus der Anzahl
+einzelner Signalereignisse.
 
 ### 3.4 Pseudocode
 
@@ -467,9 +478,12 @@ def evaluate_candidate(stock, t, config):
     #    (Abschnitt 2.5 -- ueber das Fenster geodert waere es sinnlos)
     fired["NO_RECENT_EMA_DOWNCROSS"] = signal_e(stock.candles, t)
 
-    # 6. 3-aus-5-Regel -- Anzahl unterschiedlicher erfuellter Signaltypen,
-    #    nicht Anzahl einzelner Signalereignisse
-    if sum(fired.values()) >= config.required_signal_count:
+    # 6. Beide Bedingungen der Kandidatenregel -- unterschiedliche
+    #    Signaltypen, nicht einzelne Signalereignisse
+    kaufsignale = {typ for typ in fired if fired[typ] and typ in CROSSING_SIGNALS}
+    zusatzkriterien = {typ for typ in fired if fired[typ] and typ in CONFIRMATION_SIGNALS}
+
+    if len(kaufsignale) >= config.required_crossing_signals and zusatzkriterien:
         return Result(status="CANDIDATE", fired_signal_types=fired)
     return Result(status="NOT_CANDIDATE", fired_signal_types=fired)
 ```
@@ -582,17 +596,18 @@ später — das ist beabsichtigt und keine Inkonsistenz.
 Die Signalkombination wird als **Menge unterschiedlicher Signaltypen** am
 historischen Entscheidungszeitpunkt gespeichert, nicht als geordnete Liste und
 nicht als Anzahl einzelner Signalereignisse (konsistent mit Abschnitt 3.3).
-Qualifizierend ist **jede Teilmenge der fünf Signaltypen mit mindestens drei
-Elementen** — die erzeugende Regel, nicht eine gepflegte Liste: 10 Dreier-,
-5 Vierer- und die eine Fünferkombination, zusammen **16**. Sie steigt und
-fällt mit `required_signal_count`; wird die Schwelle geändert, ändert sich
-die Menge mit, ohne dass hier etwas nachgetragen werden müsste.
+Qualifizierend ist **jede Teilmenge, welche die Kandidatenregel erfüllt** —
+die erzeugende Regel, nicht eine gepflegte Liste: vier
+Kaufsignal-Kombinationen (die drei Paare und das Tripel) mal drei
+Kombinationen der Zusatzkriterien (nur D, nur E, beide), zusammen **12**. Die
+Menge folgt der Regel; wird die Schwelle geändert, ändert sie sich mit, ohne
+dass hier etwas nachgetragen werden müsste.
 
-Der Backtest weist seine Kennzahlen je Kombination und Horizont aus. Bei 16
-Kombinationen verteilen sich die historischen Ereignisse auf mehr Gruppen als
-zuvor; dünne Stichproben werden über `BacktestConfidence` als solche
+Der Backtest weist seine Kennzahlen je Kombination und Horizont aus. Bei 12
+statt zuvor 4 Kombinationen verteilen sich die historischen Ereignisse auf
+mehr Gruppen; dünne Stichproben werden über `BacktestConfidence` als solche
 ausgewiesen und nicht durch Zusammenlegen kaschiert
-([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)).
+([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md)).
 
 Die genaue Position jedes einzelnen Signalereignisses innerhalb des
 Sechs-Kerzen-Fensters (z. B. „`RSI_CROSS` auf `t-4`") wird **zusätzlich**
@@ -636,7 +651,7 @@ Backtest-Statistik als identische Kombination, auch wenn ihre
 | 13 | Signal-B-Formel ohne Gap-up-Klausel (Abschnitt 2.2) | BESTÄTIGT 2026-09-02 |
 | 14 | Signal-D-Formel — `RSI_OVERSOLD`, Schwelle 30, Fensterauswertung (Abschnitt 2.4) | BESTÄTIGT 2026-09-02 |
 | 15 | Signal-E-Formel — `NO_RECENT_EMA_DOWNCROSS`, Bereich `t-4 … t`, Auswertung an `t` (Abschnitt 2.5) | BESTÄTIGT 2026-09-02 |
-| 16 | Kandidatenschwelle: mindestens 3 von 5 (Abschnitt 3.1) | BESTÄTIGT 2026-09-02 |
+| 16 | Kandidatenregel: zwei Kaufsignale **und** ein Zusatzkriterium (Abschnitt 3.1) | BESTÄTIGT 2026-09-02 |
 
 Die Umbenennung von `lookback_closed_candles` zu
 `signal_lookback_previous_candles` (Abschnitt 3.2) ist umgesetzt.
@@ -645,4 +660,4 @@ Die Umbenennung von `lookback_closed_candles` zu
 stammen aus der Freigabe von Gate G1
 ([ADR 0010](../adr/0010-gate-g1-freigegeben.md), 2026-08-06); die Punkte 13
 bis 16 aus der Überarbeitung des Regelwerks
-([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md), 2026-09-02).
+([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md), 2026-09-02).
