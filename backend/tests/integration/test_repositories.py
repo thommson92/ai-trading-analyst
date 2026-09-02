@@ -931,11 +931,13 @@ class TestScreeningResultRepository:
 class TestLatestCandidateAnalyses:
     """Die Abfrage der Wiederholsperre (ADR 0054) durch echtes PostgreSQL.
 
-    Die Grenze ist strikt: gezaehlt wird ``evaluated_at > since`` -- eine
-    exakt fenstergrenzalte Analyse sperrt nicht mehr.
+    Das Fenster ist ``since <= evaluated_at < until``: Die Untergrenze
+    gehoert dazu (Tagesbeginn des aeltesten Sperrtages), die Obergrenze
+    nicht -- der laufende Handelstag sperrt nie.
     """
 
-    _CUTOFF = datetime(2026, 8, 25, 20, 0, tzinfo=UTC)
+    _SEIT = datetime(2026, 8, 26, 0, 0, tzinfo=UTC)
+    _BIS = datetime(2026, 9, 1, 0, 0, tzinfo=UTC)
 
     def _speichere(
         self,
@@ -957,48 +959,59 @@ class TestLatestCandidateAnalyses:
             uow.screening_results.add(outcome)
             uow.commit()
 
-    def test_nur_analysen_nach_der_grenze_zaehlen_und_die_grenze_selbst_nicht(
-        self, uow_factory: UowFactory
-    ) -> None:
-        self._speichere(
-            uow_factory, "SPERRE-NEU", evaluated_at=self._CUTOFF + timedelta(hours=1)
-        )
-        self._speichere(
-            uow_factory, "SPERRE-ALT", evaluated_at=self._CUTOFF - timedelta(hours=1)
-        )
-        self._speichere(uow_factory, "SPERRE-GENAU", evaluated_at=self._CUTOFF)
-
+    def _abfrage(self, uow_factory: UowFactory) -> dict[str, datetime]:
         with uow_factory() as uow:
-            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+            return dict(
+                uow.screening_results.latest_candidate_analyses(
+                    since=self._SEIT, until=self._BIS
+                )
+            )
 
-        assert set(juengste) == {"SPERRE-NEU"}
-        assert juengste["SPERRE-NEU"] == self._CUTOFF + timedelta(hours=1)
+    def test_nur_analysen_im_fenster_zaehlen(self, uow_factory: UowFactory) -> None:
+        self._speichere(
+            uow_factory, "SPERRE-DRIN", evaluated_at=self._SEIT + timedelta(days=2)
+        )
+        self._speichere(
+            uow_factory, "SPERRE-DAVOR", evaluated_at=self._SEIT - timedelta(hours=1)
+        )
+        self._speichere(uow_factory, "SPERRE-HEUTE", evaluated_at=self._BIS + timedelta(hours=13))
+
+        juengste = self._abfrage(uow_factory)
+
+        assert set(juengste) == {"SPERRE-DRIN"}
+        assert juengste["SPERRE-DRIN"] == self._SEIT + timedelta(days=2)
+
+    def test_die_untergrenze_zaehlt_die_obergrenze_nicht(self, uow_factory: UowFactory) -> None:
+        """`>=` unten, `<` oben: Der Tagesbeginn des aeltesten Sperrtages
+        sperrt, der Beginn des laufenden Tages nicht mehr."""
+        self._speichere(uow_factory, "SPERRE-UNTEN", evaluated_at=self._SEIT)
+        self._speichere(uow_factory, "SPERRE-OBEN", evaluated_at=self._BIS)
+
+        juengste = self._abfrage(uow_factory)
+
+        assert set(juengste) == {"SPERRE-UNTEN"}
 
     def test_ohne_volle_analyse_zaehlt_nichts(self, uow_factory: UowFactory) -> None:
         self._speichere(
             uow_factory,
             "SPERRE-KEIN-KANDIDAT",
-            evaluated_at=self._CUTOFF + timedelta(hours=1),
+            evaluated_at=self._SEIT + timedelta(days=1),
             status=ScreeningStatus.NOT_CANDIDATE,
         )
 
-        with uow_factory() as uow:
-            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
-
-        assert juengste == {}
+        assert self._abfrage(uow_factory) == {}
 
     def test_die_juengste_analyse_eines_symbols_gewinnt(self, uow_factory: UowFactory) -> None:
         self._speichere(
-            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._CUTOFF + timedelta(hours=1)
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._SEIT + timedelta(days=1)
         )
         self._speichere(
-            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._CUTOFF + timedelta(hours=2)
+            uow_factory, "SPERRE-DOPPELT", evaluated_at=self._SEIT + timedelta(days=2)
         )
 
-        with uow_factory() as uow:
-            juengste = uow.screening_results.latest_candidate_analyses(since=self._CUTOFF)
+        juengste = self._abfrage(uow_factory)
 
-        assert juengste == {"SPERRE-DOPPELT": self._CUTOFF + timedelta(hours=2)}
+        assert juengste == {"SPERRE-DOPPELT": self._SEIT + timedelta(days=2)}
 
 
 class TestBacktestResultRepository:

@@ -86,16 +86,21 @@ screening:
 
 repeat_suppression:
   # Wiederholsperre des Tageslaufs (ADR 0054): Ein Symbol, dessen letzte
-  # volle Analyse juenger als dieses Fenster ist, wird komplett
-  # uebersprungen -- weder analysiert noch gemeldet. Anker ist die letzte
-  # volle Analyse; ein unterdruecktes Wiederauftreten erzeugt keine neue
-  # Analysezeile und verlaengert die Sperre deshalb nicht. Die Bars
-  # gesperrter Titel fuehrt der Backfill weiter nach.
+  # volle Analyse in das Fenster faellt, wird komplett uebersprungen --
+  # weder analysiert noch gemeldet. Das Fenster zaehlt in Kalendertagen
+  # der Boersenzeit, schliesst den Analysetag mit ein und klammert den
+  # laufenden Tag aus: Tag 0 analysiert, Tag 7 wieder dran -- und ein
+  # Wiederholungslauf desselben Tages (Dispatcher-Retry nach Absturz)
+  # sieht die Zeilen des abgebrochenen Laufs nicht als Sperre. Ein
+  # unterdruecktes Wiederauftreten erzeugt keine neue Analysezeile und
+  # verlaengert die Sperre deshalb nicht; die Bars gesperrter Titel fuehrt
+  # der Backfill weiter nach.
   #
   # Sieben Tage: eine Handelswoche -- lang genug gegen die taegliche
   # Wiederholung eines tagelang aktiven Signals, kurz genug, um eine
   # veraenderte Lage nicht laenger als eine Woche zu verpassen. Gesetzt,
-  # nicht gemessen. 0 schaltet die Sperre ab.
+  # nicht gemessen. 0 schaltet die Sperre ab; 1 wirkt faktisch ebenso,
+  # weil der laufende Tag nie sperrt.
   window_days: 7
 
 backtesting:

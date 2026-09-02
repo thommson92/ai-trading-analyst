@@ -36,7 +36,7 @@ from .ports import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
-from .repeat_suppression import RepeatSuppressionParameters, suppression_cutoff
+from .repeat_suppression import RepeatSuppressionParameters, suppression_window
 
 __all__ = [
     "AnalysisRun",
@@ -72,5 +72,5 @@ __all__ = [
     "TechnicalInterpreter",
     "TechnicalInterpreterError",
     "UnitOfWork",
-    "suppression_cutoff",
+    "suppression_window",
 ]

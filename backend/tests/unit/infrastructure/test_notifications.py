@@ -223,6 +223,22 @@ class TestKuerzung:
         assert len(ergebnis) == MAX_TEXT_ZEICHEN
         assert ergebnis.endswith("[... gekuerzt, vollstaendig im Bericht]")
 
+    def test_eine_meldung_ohne_bloecke_kollabiert_nicht_auf_den_betreff(self) -> None:
+        """Die einzige Leerzeile ist die hinter dem Betreff. Ein Schnitt
+        dort verwuerfe den gesamten Inhalt -- stattdessen greift der harte
+        Schnitt und behaelt das Fenster (Mindesterhalt: halbe Grenze)."""
+        gesendet: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            gesendet.append(json.loads(request.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+
+        _notifier(httpx.MockTransport(handler)).send("Betreff", "y" * (MAX_TEXT_ZEICHEN + 500))
+
+        (text,) = gesendet
+        assert len(text) == MAX_TEXT_ZEICHEN
+        assert text.count("y") > MAX_TEXT_ZEICHEN // 2
+
 
 class TestLaengeEinerEchtenMeldung:
     """Wie viele Kandidaten passen, bevor gekuerzt wird (ADR 0055).

@@ -108,14 +108,14 @@ def make_options(
     strategies: tuple[PutStrategy, ...] | None = None,
     reason: str | None = None,
 ) -> OptionsAnalysis:
-    if strategies is None and status is OptionsStatus.COMPLETED:
-        strategies = (make_put_strategy(),)
+    if strategies is None:
+        strategies = (make_put_strategy(),) if status is OptionsStatus.COMPLETED else ()
     return OptionsAnalysis(
         status=status,
         evaluated_at=JETZT,
         underlying_price=340.0,
         expiration=strategies[0].expiration if strategies else None,
-        strategies=strategies or (),
+        strategies=strategies,
         reason=reason,
     )
 

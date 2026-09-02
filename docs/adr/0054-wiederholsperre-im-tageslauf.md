@@ -23,10 +23,10 @@ voll analysiert, wird sie im Tageslauf komplett ignoriert.
 
 ## Entscheidung
 
-1. **Sperrfrist.** Ein Symbol, dessen jüngste volle Analyse weniger als
-   `repeat_suppression.window_days` (Default **7**, `0` schaltet ab) zurück
-   liegt, wird vom Lauf **komplett übersprungen**: keine Signalprüfung, keine
-   Analyse, keine Zeile in Ergebnis und Meldung.
+1. **Sperrfrist.** Ein Symbol, dessen jüngste volle Analyse in das
+   Sperrfenster fällt (`repeat_suppression.window_days`, Default **7**, `0`
+   schaltet ab), wird vom Lauf **komplett übersprungen**: keine
+   Signalprüfung, keine Analyse, keine Zeile in Ergebnis und Meldung.
 2. **Auslöser ist jede volle Analyse.** Anker ist das jüngste `evaluated_at`
    einer `screening_results`-Zeile mit `status = CANDIDATE` — also jeder
    2-aus-3-Treffer, unabhängig von der späteren Empfehlungsstufe. Auch ein
@@ -38,8 +38,18 @@ voll analysiert, wird sie im Tageslauf komplett ignoriert.
    Variante entsteht weder ein Konfig-Schalter noch ein Port-Parameter
    (YAGNI); bei Bedarf wäre sie eine zusätzliche WHERE-Klausel auf der
    Spalte `recommendation`.
-3. **Strikte Fenstergrenze.** Gesperrt ist, was **jünger** als der Cutoff
-   ist; eine exakt sieben Tage alte Analyse sperrt nicht mehr.
+3. **Kalendertag-Fenster, der laufende Tag sperrt nicht.** Das Fenster
+   zählt in Kalendertagen der Börsenzeit und umfasst die `window_days − 1`
+   Tage **vor** dem heutigen; `window_days` zählt den Analysetag mit (`1`
+   wirkt damit faktisch wie aus). Zwei Gründe:
+   - **Planbare Rückkehr:** Tag 0 analysiert, Tag `window_days` wieder dran
+     — ein Uhrzeitvergleich („jünger als 7 × 24 h") machte daraus je nach
+     Minuten-Jitter des Schedulers unvorhersehbar acht Tage.
+   - **Absturzfestigkeit:** Bricht ein Lauf nach teilweiser Persistenz ab
+     und wiederholt der Dispatcher am selben Tag, dürfen die Zeilen des
+     abgebrochenen Laufs den Wiederholungslauf nicht beschneiden — sonst
+     fehlten dem angenommenen Lauf des Tages genau diese Kandidaten, und
+     zwar für sieben Tage.
 4. **Ein unterdrücktes Wiederauftreten verlängert die Sperre nicht.** Das
    ergibt sich konstruktiv: Für übersprungene Symbole entsteht keine neue
    Analysezeile, der Anker bleibt die letzte volle Analyse.

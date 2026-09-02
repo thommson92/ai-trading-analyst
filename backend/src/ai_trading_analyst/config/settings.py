@@ -248,9 +248,10 @@ class RepeatSuppressionConfig(_Section):
     """Wiederholsperre des Tageslaufs (ADR 0054)."""
 
     window_days: NonNegativeInt = 7
-    """Kalendertage, in denen ein voll analysiertes Symbol den Lauf
-    komplett auslaesst. ``0`` schaltet die Sperre ab -- deshalb
-    ``NonNegativeInt`` und nicht ``PositiveInt``."""
+    """Kalendertage (Boersenzeit) einschliesslich des Analysetages: Tag 0
+    analysiert, Tag ``window_days`` wieder dran; der laufende Tag sperrt
+    nie. ``0`` schaltet die Sperre ab -- deshalb ``NonNegativeInt`` und
+    nicht ``PositiveInt``."""
 
 
 class BacktestingConfig(_Section):

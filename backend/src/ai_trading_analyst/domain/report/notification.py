@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.domain.analysis.models import AnalysisRunSummary, StockScreeningOutcome
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
-from ai_trading_analyst.domain.options import OptionsStatus
+from ai_trading_analyst.domain.options import KONTRAKTGROESSE, OptionsStatus
 from ai_trading_analyst.domain.scoring import Recommendation, ScoreResult
 from ai_trading_analyst.domain.screening import ScreeningStatus, SignalType
 
@@ -134,7 +134,7 @@ def _put_angabe(outcome: StockScreeningOutcome) -> str | None:
     keinen Hinweis.
 
     Die Praemie ist der Mid **je Kontrakt** (``premium`` ist je Aktie,
-    ``capital_at_risk = strike * 100`` belegt die Kontraktgroesse); das
+    ``KONTRAKTGROESSE`` die Kontraktgroesse aus der Optionsdomaene); das
     ``~`` kennzeichnet die Mid-Annahme, ein Mid ist kein handelbarer Kurs
     (ADR 0048).
     """
@@ -155,9 +155,19 @@ def _put_angabe(outcome: StockScreeningOutcome) -> str | None:
     beste = optionen.strategies[0]
     verfall = beste.expiration.strftime("%d.%m.%Y")
     return (
-        f"Put-Verkauf: Strike {beste.strike:g} $, Verfall {verfall}, "
-        f"Praemie ~{beste.premium * 100:.0f} $"
+        f"Put-Verkauf: Strike {_strike(beste.strike)} $, Verfall {verfall}, "
+        f"Praemie ~{beste.premium * KONTRAKTGROESSE:.0f} $"
     )
+
+
+def _strike(wert: float) -> str:
+    """Der Strike mit hoechstens zwei Nachkommastellen, ohne Nullenrest.
+
+    Kein ``:g``: Das rundete ab sieben signifikanten Stellen und kippte ab
+    einer Million in wissenschaftliche Notation -- in der einen Zeile, auf
+    der gehandelt wird.
+    """
+    return f"{wert:.2f}".rstrip("0").rstrip(".")
 
 
 def _zahl(score: ScoreResult | None) -> str:

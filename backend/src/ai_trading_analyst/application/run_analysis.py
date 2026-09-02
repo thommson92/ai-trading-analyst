@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -39,7 +40,7 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreter,
     TechnicalInterpreterError,
     UnitOfWork,
-    suppression_cutoff,
+    suppression_window,
 )
 from ai_trading_analyst.domain.analysts import (
     AnalystRecommendations,
@@ -278,35 +279,34 @@ class RunAnalysisUseCase:
         Wiederauftreten erzeugt keine neue Analysezeile und verlaengert die
         Sperre deshalb nicht. Die Bars gesperrter Titel fuehrt der Backfill
         weiter nach -- der Ausschluss sitzt bewusst hier und nicht an der
-        Watchlist.
+        Watchlist. Das Fenster zaehlt in Kalendertagen der Boersenzeit und
+        klammert den laufenden Handelstag aus: Ein Wiederholungslauf
+        desselben Tages sieht die Zeilen eines abgebrochenen Laufs nicht
+        als Sperre.
         """
         if self._repeat_suppression is None:
             return stocks
-        cutoff = suppression_cutoff(datetime.now(UTC), self._repeat_suppression)
-        if cutoff is None:
+        heute = datetime.now(UTC).astimezone(ZoneInfo(self._market_timezone))
+        fenster = suppression_window(heute, self._repeat_suppression)
+        if fenster is None:
             return stocks
+        seit, bis = fenster
 
         with self._uow_factory() as uow:
-            juengste = uow.screening_results.latest_candidate_analyses(since=cutoff)
-        if not juengste:
-            return stocks
+            juengste = uow.screening_results.latest_candidate_analyses(since=seit, until=bis)
 
-        verbleibend: list[Stock] = []
-        for stock in stocks:
-            zuletzt = juengste.get(stock.symbol)
-            if zuletzt is None:
-                verbleibend.append(stock)
-                continue
+        gesperrt = [stock for stock in stocks if stock.symbol in juengste]
+        verbleibend = [stock for stock in stocks if stock.symbol not in juengste]
+        for stock in gesperrt:
             _logger.info(
                 "Wiederholsperre: %s wird uebersprungen -- zuletzt voll analysiert am %s",
                 stock.symbol,
-                zuletzt.isoformat(),
+                juengste[stock.symbol].isoformat(),
             )
-        gesperrt = len(stocks) - len(verbleibend)
         if gesperrt:
             _logger.info(
                 "Wiederholsperre: %d von %d Symbolen uebersprungen (Fenster %d Tage)",
-                gesperrt,
+                len(gesperrt),
                 len(stocks),
                 self._repeat_suppression.window_days,
             )

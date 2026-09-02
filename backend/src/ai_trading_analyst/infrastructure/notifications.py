@@ -74,15 +74,19 @@ def _gekuerzt(text: str) -> str:
     Geschnitten wird an der letzten **Blockgrenze** (Leerzeile) vor dem Limit
     (ADR 0055): Seit die Meldung Bloecke traegt, saehe ein Schnitt mitten im
     Wort nach einem Defekt aus, und ein halber Block behauptete Angaben, die
-    er nicht mehr enthaelt. ``Betreff\\n\\nText`` stellt die erste Blockgrenze
-    sicher; findet sich im Fenster dennoch keine (ein Text ohne Leerzeilen),
-    bleibt der harte Schnitt als Rueckfall.
+    er nicht mehr enthaelt. Ein Blockschnitt, der mehr als die Haelfte des
+    Fensters verwerfen wuerde, faellt auf den harten Schnitt zurueck --
+    sonst kollabierte eine Meldung, deren einzige Leerzeile die hinter dem
+    Betreff ist, auf den blossen Betreff.
     """
     if len(text) <= MAX_TEXT_ZEICHEN:
         return text
     grenze = MAX_TEXT_ZEICHEN - len(_KUERZUNGSHINWEIS)
-    schnitt = text.rfind("\n\n", 0, grenze + 1)
-    if schnitt <= 0:
+    # rfind verlangt das vollstaendige "\n\n" vor dem Ende-Index; grenze + 2
+    # erlaubt damit genau die Schnittstellen, deren Rumpf noch in die Grenze
+    # passt (schnitt <= grenze).
+    schnitt = text.rfind("\n\n", 0, grenze + 2)
+    if schnitt < grenze // 2:
         schnitt = grenze
     return text[:schnitt] + _KUERZUNGSHINWEIS
 

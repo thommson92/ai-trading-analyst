@@ -430,6 +430,36 @@ class TestPutZeile:
         assert "Strike 310 $" in text
         assert "Strike 300" not in text
 
+    def test_der_strike_bleibt_eine_klare_dezimalzahl(self) -> None:
+        """Kein ``:g``: Das rundete ab sieben signifikanten Stellen und
+        zeigte Strikes ab einer Million wissenschaftlich notiert."""
+        _, gross = render_notification(
+            zusammenfassung(
+                kandidat(
+                    "TEUER",
+                    swing=8.6,
+                    investment=5.5,
+                    options=make_options(
+                        strategies=(make_put_strategy(strike=1050000.0, premium=2.0),)
+                    ),
+                )
+            ),
+            timezone=_NY,
+        )
+        _, halb = render_notification(
+            zusammenfassung(
+                kandidat(
+                    "AAPL",
+                    swing=8.6,
+                    investment=5.5,
+                    options=make_options(strategies=(make_put_strategy(strike=112.5),)),
+                )
+            ),
+            timezone=_NY,
+        )
+        assert "Strike 1050000 $" in gross
+        assert "Strike 112.5 $" in halb
+
     def test_kandidat_ohne_optionsdaten_sagt_das_ausdruecklich(self) -> None:
         """Fehlende Daten bleiben sichtbar fehlend -- kein Ersatzwert, keine
         stille Auslassung."""

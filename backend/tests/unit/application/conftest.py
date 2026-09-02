@@ -390,14 +390,17 @@ class FakeScreeningResultRepository:
                 gezaehlt[outcome.earnings.status] += 1
         return dict(gezaehlt)
 
-    def latest_candidate_analyses(self, *, since: datetime) -> dict[str, datetime]:
+    def latest_candidate_analyses(
+        self, *, since: datetime, until: datetime
+    ) -> dict[str, datetime]:
         # Gleiche Zusagen wie die SQL-Implementierung: nur volle Analysen
-        # (ScreeningStatus.CANDIDATE), strikte Grenze, juengstes evaluated_at.
+        # (ScreeningStatus.CANDIDATE), Fenster since <= t < until,
+        # juengstes evaluated_at je Symbol.
         juengste: dict[str, datetime] = {}
         for outcome in self.added:
             if outcome.result.status is not ScreeningStatus.CANDIDATE:
                 continue
-            if outcome.evaluated_at <= since:
+            if not since <= outcome.evaluated_at < until:
                 continue
             bisher = juengste.get(outcome.stock.symbol)
             if bisher is None or outcome.evaluated_at > bisher:

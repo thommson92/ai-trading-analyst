@@ -1130,7 +1130,9 @@ class SqlAlchemyScreeningResultRepository:
         ).all()
         return {EarningsFilterStatus(status): anzahl for status, anzahl in rows}
 
-    def latest_candidate_analyses(self, *, since: datetime) -> Mapping[str, datetime]:
+    def latest_candidate_analyses(
+        self, *, since: datetime, until: datetime
+    ) -> Mapping[str, datetime]:
         # Kein Index auf stock_id oder evaluated_at: Die Abfrage laeuft
         # einmal je Tageslauf ueber wenige hundert Zeilen je Lauf -- ein
         # Index waere geraten statt gemessen (ADR 0054).
@@ -1139,9 +1141,11 @@ class SqlAlchemyScreeningResultRepository:
             .join(StockOrm, StockOrm.id == ScreeningResultOrm.stock_id)
             .where(
                 ScreeningResultOrm.status == ScreeningStatus.CANDIDATE,
-                # Strikte Grenze (ADR 0054): eine exakt window_days alte
-                # Analyse sperrt nicht mehr.
-                ScreeningResultOrm.evaluated_at > since,
+                ScreeningResultOrm.evaluated_at >= since,
+                # Der laufende Handelstag sperrt nicht (ADR 0054): Ein
+                # Wiederholungslauf desselben Tages saehe sonst die Zeilen
+                # eines abgebrochenen Laufs als Sperre.
+                ScreeningResultOrm.evaluated_at < until,
             )
             .group_by(StockOrm.symbol)
         )
