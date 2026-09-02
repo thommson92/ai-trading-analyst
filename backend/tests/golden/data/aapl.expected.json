@@ -6,39 +6,39 @@
       "horizons": [
         {
           "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 14,
+          "deduplicated_event_count": 17,
           "drawdown": 0.07588039,
-          "held_above_entry_rate": 0.35714286,
-          "hit_rate": 0.71428571,
+          "held_above_entry_rate": 0.35294118,
+          "hit_rate": 0.76470588,
           "horizon": 5,
           "max_loss": -0.07588039,
-          "mean_return": 0.01417563,
-          "median_return": 0.00921312,
-          "raw_event_count": 23
+          "mean_return": 0.01274336,
+          "median_return": 0.00698971,
+          "raw_event_count": 29
         },
         {
           "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 14,
+          "deduplicated_event_count": 17,
           "drawdown": 0.11795971,
-          "held_above_entry_rate": 0.21428571,
-          "hit_rate": 0.42857143,
+          "held_above_entry_rate": 0.17647059,
+          "hit_rate": 0.52941176,
           "horizon": 10,
           "max_loss": -0.10800618,
-          "mean_return": 0.01215492,
-          "median_return": -0.00405422,
-          "raw_event_count": 23
+          "mean_return": 0.01264882,
+          "median_return": 0.003907,
+          "raw_event_count": 29
         },
         {
           "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 14,
+          "deduplicated_event_count": 16,
           "drawdown": 0.11795971,
-          "held_above_entry_rate": 0.21428571,
-          "hit_rate": 0.71428571,
+          "held_above_entry_rate": 0.1875,
+          "hit_rate": 0.6875,
           "horizon": 20,
           "max_loss": -0.10800618,
-          "mean_return": 0.02769625,
+          "mean_return": 0.02714502,
           "median_return": 0.03690369,
-          "raw_event_count": 23
+          "raw_event_count": 29
         }
       ],
       "signal_types": [
@@ -198,6 +198,42 @@
   "last_candle": "2026-09-01T09:30:00-04:00",
   "screening": {
     "candidates": [
+      {
+        "candle_index": 265,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            261
+          ],
+          [
+            "RSI_CROSS",
+            265
+          ]
+        ],
+        "timestamp": "2025-07-17T09:30:00-04:00"
+      },
+      {
+        "candle_index": 266,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            261
+          ],
+          [
+            "RSI_CROSS",
+            265
+          ]
+        ],
+        "timestamp": "2025-07-17T12:45:00-04:00"
+      },
       {
         "candle_index": 293,
         "fired_signal_types": [
@@ -1396,7 +1432,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            611
+            609
           ]
         ],
         "timestamp": "2026-03-27T09:30:00-04:00"
@@ -1414,7 +1450,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            611
+            609
           ]
         ],
         "timestamp": "2026-03-27T12:45:00-04:00"
@@ -1582,6 +1618,114 @@
           ]
         ],
         "timestamp": "2026-04-02T12:45:00-04:00"
+      },
+      {
+        "candle_index": 627,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-08T09:30:00-04:00"
+      },
+      {
+        "candle_index": 628,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-08T12:45:00-04:00"
+      },
+      {
+        "candle_index": 629,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-09T09:30:00-04:00"
+      },
+      {
+        "candle_index": 630,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-09T12:45:00-04:00"
+      },
+      {
+        "candle_index": 631,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-10T09:30:00-04:00"
+      },
+      {
+        "candle_index": 632,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            627
+          ],
+          [
+            "RSI_CROSS",
+            627
+          ]
+        ],
+        "timestamp": "2026-04-10T12:45:00-04:00"
       },
       {
         "candle_index": 659,
@@ -2064,6 +2208,78 @@
         "timestamp": "2026-08-20T12:45:00-04:00"
       },
       {
+        "candle_index": 817,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            817
+          ],
+          [
+            "RSI_CROSS",
+            817
+          ]
+        ],
+        "timestamp": "2026-08-24T09:30:00-04:00"
+      },
+      {
+        "candle_index": 818,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            817
+          ],
+          [
+            "RSI_CROSS",
+            817
+          ]
+        ],
+        "timestamp": "2026-08-24T12:45:00-04:00"
+      },
+      {
+        "candle_index": 819,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            817
+          ],
+          [
+            "RSI_CROSS",
+            817
+          ]
+        ],
+        "timestamp": "2026-08-25T09:30:00-04:00"
+      },
+      {
+        "candle_index": 820,
+        "fired_signal_types": [
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "signal_events": [
+          [
+            "PRICE_EMA20_BREAKOUT",
+            817
+          ],
+          [
+            "RSI_CROSS",
+            817
+          ]
+        ],
+        "timestamp": "2026-08-25T12:45:00-04:00"
+      },
+      {
         "candle_index": 821,
         "fired_signal_types": [
           "EMA5_EMA20_CROSS",
@@ -2077,7 +2293,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            821
+            817
           ],
           [
             "RSI_CROSS",
@@ -2100,7 +2316,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            821
+            817
           ],
           [
             "RSI_CROSS",
@@ -2203,10 +2419,10 @@
       }
     ],
     "status_counts": {
-      "CANDIDATE": 101,
-      "NOT_CANDIDATE": 479,
+      "CANDIDATE": 113,
+      "NOT_CANDIDATE": 467,
       "UNKNOWN_DATA_INCOMPLETE": 250
     }
   },
-  "signal_rule_version": "g1-pruefvorlage-2026-08-06"
+  "signal_rule_version": "g1-pruefvorlage-2026-09-02"
 }

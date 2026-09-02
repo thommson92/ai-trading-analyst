@@ -1,4 +1,4 @@
-"""Die drei fachlich freigegebenen Signalregeln (G1-Pruefvorlage Abschnitt 2).
+"""Die fachlich freigegebenen Signalregeln (G1-Pruefvorlage Abschnitt 2).
 
 Jede Funktion prueft genau eine Kerze ``t`` gegen ihre unmittelbare Vorkerze
 ``t - 1``. Vergleiche verwenden die ungerundeten Werte ohne Gleichheitstoleranz:
@@ -27,20 +27,21 @@ def rsi_cross(series: CandleSeries, t: int) -> bool:
 
 
 def price_ema20_breakout(series: CandleSeries, t: int) -> bool:
-    """Signal B -- Kerzenkoerper durchdringt EMA20 von unten und schliesst darueber."""
+    """Signal B -- Schlusskurs kreuzt EMA20 von unten nach oben.
+
+    Ein Gap-up ueber den EMA20 erfuellt das Signal, sofern die Vorkerze auf
+    oder unter dem EMA20 geschlossen hat: Bezugspunkt ist der Schlusskurs der
+    Vorkerze, nicht die Eroeffnung der aktuellen Kerze (ADR 0056).
+    """
     if not series.has_index(t - 1) or not series.has_index(t):
-        raise DataIncompleteError(candle_index=t, required=("OPEN", "CLOSE", "EMA20"))
+        raise DataIncompleteError(candle_index=t, required=("CLOSE", "EMA20"))
 
     prev_candle, prev_ind = series.candle(t - 1), series.indicator(t - 1)
     curr_candle, curr_ind = series.candle(t), series.indicator(t)
     if prev_ind.ema20 is None or curr_ind.ema20 is None:
-        raise DataIncompleteError(candle_index=t, required=("OPEN", "CLOSE", "EMA20"))
+        raise DataIncompleteError(candle_index=t, required=("CLOSE", "EMA20"))
 
-    return (
-        prev_candle.close <= prev_ind.ema20
-        and curr_candle.open <= curr_ind.ema20
-        and curr_candle.close > curr_ind.ema20
-    )
+    return prev_candle.close <= prev_ind.ema20 and curr_candle.close > curr_ind.ema20
 
 
 def ema5_ema20_cross(series: CandleSeries, t: int) -> bool:

@@ -858,7 +858,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            387
+            384
           ]
         ],
         "timestamp": "2024-09-30T09:30:00-04:00"
@@ -876,7 +876,7 @@
           ],
           [
             "PRICE_EMA20_BREAKOUT",
-            387
+            384
           ]
         ],
         "timestamp": "2024-09-30T12:45:00-04:00"
@@ -3114,5 +3114,5 @@
       "UNKNOWN_DATA_INCOMPLETE": 250
     }
   },
-  "signal_rule_version": "g1-pruefvorlage-2026-08-06"
+  "signal_rule_version": "g1-pruefvorlage-2026-09-02"
 }

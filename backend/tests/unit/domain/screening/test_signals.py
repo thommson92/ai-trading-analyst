@@ -112,9 +112,10 @@ class TestSignalBPriceEma20Breakout:
     @pytest.mark.parametrize(
         _PRICE_BREAKOUT_PARAM_NAMES,
         [
-            pytest.param(99.20, 100.00, 99.80, 100.60, 100.20, id="B1_alle_teilbedingungen"),
+            pytest.param(99.20, 100.00, 99.80, 100.60, 100.20, id="B1_kreuzung_auf_close"),
             pytest.param(100.00, 100.00, 100.00, 100.05, 100.00, id="B2_gleichheit_vorkerze"),
-            pytest.param(98.50, 100.00, 100.20, 100.21, 100.20, id="B3_open_exakt_auf_ema20"),
+            pytest.param(98.50, 100.00, 100.20, 100.21, 100.20, id="B3_knapper_uebertritt"),
+            pytest.param(99.20, 100.00, 101.80, 100.60, 100.20, id="B4_gap_up_zaehlt_jetzt"),
         ],
     )
     def test_erfuellte_faelle(
@@ -133,7 +134,6 @@ class TestSignalBPriceEma20Breakout:
     @pytest.mark.parametrize(
         _PRICE_BREAKOUT_PARAM_NAMES,
         [
-            pytest.param(99.20, 100.00, 101.80, 100.60, 100.20, id="B4_gap_up"),
             pytest.param(99.20, 100.00, 99.80, 100.20, 100.20, id="B5_gleichheit_auf_close"),
             pytest.param(100.50, 100.00, 99.80, 100.60, 100.20, id="B6_bereits_oberhalb"),
         ],
