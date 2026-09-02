@@ -1,5 +1,13 @@
 # Signalspezifikation — Gate G1
 
+- **Teilweise historisch (Stand 2026-09-02).** Die *Indikatorparameter*
+  dieses Dokuments gelten unverändert fort. Die *Signalregeln* nicht mehr:
+  [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md) hat Signal B
+  gelockert, zwei Kriterien ergänzt und die Schwelle auf drei von fünf
+  gesetzt. Maßgeblich für die Regeln ist allein die
+  [G1-Prüfvorlage](g1-pruefvorlage.md); dieses Dokument bleibt als
+  Herleitung mit Diskussion und Beispielen stehen und wird nicht
+  rückwirkend umgeschrieben.
 - Status: **Freigegeben.** Gate G1 ist fachlich freigegeben —
   [ADR 0010](../adr/0010-gate-g1-freigegeben.md), das
   [ADR 0007](../adr/0007-gate-g1-indikatorparameter.md) ablöst. Die

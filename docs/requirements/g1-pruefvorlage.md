@@ -8,7 +8,13 @@
 - Herkunft: konsolidiert aus [signal-specification.md](signal-specification.md)
   (dort mit Diskussion, Optionen und Herleitung) und den Festlegungen aus
   deinen Nachrichten vom 2026-08-06.
-- **Die Signalformeln und die 2-aus-3-Kandidatenregel sind implementiert**
+- **Am 2026-09-02 auf fünf Kriterien fortgeschrieben**
+  ([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)): Signal B verliert
+  die Gap-up-Klausel, `RSI_OVERSOLD` und `NO_RECENT_EMA_DOWNCROSS` kommen
+  hinzu, die Schwelle steht auf drei von fünf. Die zugehörige Regelversion
+  ist `g1-pruefvorlage-2026-09-02`; die Indikatorparameter aus Gate G1
+  gelten unverändert fort.
+- **Die Signalformeln und die Kandidatenregel sind implementiert**
   (`backend/src/ai_trading_analyst/domain/screening`, Sprint 1A, Tag
   `sprint-1a-baseline`). Die Backtesting-Regeln aus Abschnitt 4 sind weiterhin
   unimplementiert und bleiben bis Sprint 3 verbindliche Grundlage.
@@ -36,12 +42,14 @@ bestätigten Regel.
 
 ### 1.1 Eingangsdaten
 
-Alle drei Signale arbeiten ausschließlich auf **vollständig geschlossenen
+Alle fünf Kriterien arbeiten ausschließlich auf **vollständig geschlossenen
 195-Minuten-Kerzen der regulären US-Sitzung** (keine Extended Hours). Jede
-Kerze liefert Open, High, Low, Close, Volume; alle drei Signale verwenden
-ausschließlich **Close** als Preisquelle für die Indikatorberechnung — Open
-fließt bei Signal B zusätzlich als eigener Vergleichswert ein (nicht als
-Indikator-Input).
+Kerze liefert Open, High, Low, Close, Volume; die Auswertung verwendet
+ausschließlich **Close** — sowohl als Preisquelle für die
+Indikatorberechnung als auch als einzigen unmittelbar verglichenen Kurswert.
+Open, High und Low gehen seit
+[ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md) in kein Kriterium mehr
+ein (zuvor Open bei Signal B).
 
 ### 1.2 Indikatorparameter — BESTÄTIGT
 
@@ -115,7 +123,7 @@ die *gesamte* Aktienprüfung für diesen Lauf den Status
 
 ---
 
-## 2. Die drei Signale — vollständige Formeln und Pseudocode
+## 2. Die fünf Kriterien — vollständige Formeln und Pseudocode
 
 ### 2.1 Signal A — RSI kreuzt RSI-Moving-Average von unten nach oben
 
@@ -152,44 +160,55 @@ def signal_a(candles, t):
 | A5 | 38,0 | 41,0 | 41,0 | 41,0 | NICHT ERFÜLLT | `RSI[t]==RSI_MA[t]` — keine strikte Überschreitung |
 | A6 | 38,0 | 41,0 | 40,5 | 41,0 | NICHT ERFÜLLT | angenähert, aber `RSI[t]<RSI_MA[t]` |
 
-### 2.2 Signal B — Kurs durchdringt EMA20 von unten nach oben (Kerzenkörper)
+### 2.2 Signal B — Kurs kreuzt EMA20 von unten nach oben
 
 `signal_type: PRICE_EMA20_BREAKOUT` (Doc 05)
+
+**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md):**
+Die frühere Zusatzbedingung `open[t] <= EMA20[t]` ist entfallen. Maßgeblich
+ist das Bild des Projektinhabers
+([Kaufsignale_EMA.png](../trading_signals/Kaufsignale_EMA.png), Kaufsignal 2):
+„Kerze (Preis) schneidet den EMA 20 von unten nach oben und schließt
+darüber." Bezugspunkt der Kreuzung ist damit der Schlusskurs der Vorkerze,
+nicht die Eröffnung der aktuellen Kerze.
 
 **Formel:**
 
 ```text
-close[t-1] <= EMA20[t-1]   UND   open[t] <= EMA20[t]   UND   close[t] > EMA20[t]
+close[t-1] <= EMA20[t-1]   UND   close[t] > EMA20[t]
 ```
 
-Ein Gap-up (`open[t] > EMA20[t]`) erfüllt das Signal nicht, unabhängig vom
-Schlusskurs. Eine reine Docht-Berührung ohne körperliches Durchdringen reicht
-nicht aus.
+Ein Gap-up über den EMA 20 erfüllt das Signal, sofern die Vorkerze auf oder
+unter dem EMA 20 geschlossen hat. Eine reine Docht-Berührung ohne
+Schlusskurs oberhalb reicht weiterhin nicht aus.
 
 **Pseudocode:**
 
 ```python
 def signal_b(candles, t):
-    """Kerzenkörper durchdringt EMA20 von unten und schliesst darueber."""
+    """Schlusskurs kreuzt EMA20 von unten nach oben."""
     close_prev, ema20_prev = candles.close[t - 1], candles.ema20[t - 1]
-    open_curr, close_curr, ema20_curr = candles.open[t], candles.close[t], candles.ema20[t]
+    close_curr, ema20_curr = candles.close[t], candles.ema20[t]
 
-    if any(v is None for v in (close_prev, ema20_prev, open_curr, close_curr, ema20_curr)):
-        raise DataIncomplete(candle_index=t, required=["OPEN", "CLOSE", "EMA20"])
+    if any(v is None for v in (close_prev, ema20_prev, close_curr, ema20_curr)):
+        raise DataIncomplete(candle_index=t, required=["CLOSE", "EMA20"])
 
-    return close_prev <= ema20_prev and open_curr <= ema20_curr and close_curr > ema20_curr
+    return close_prev <= ema20_prev and close_curr > ema20_curr
 ```
 
 **Beispiele:**
 
 | # | close[t-1] | EMA20[t-1] | open[t] | close[t] | EMA20[t] | Ergebnis | Begründung |
 |---|---|---|---|---|---|---|---|
-| B1 | 99,20 | 100,00 | 99,80 | 100,60 | 100,20 | ERFÜLLT | alle drei Teilbedingungen erfüllt |
-| B2 | 100,00 | 100,00 | 100,00 | 100,05 | 100,00 | ERFÜLLT | Gleichheit auf t-1 und open[t] zulässig |
-| B3 | 98,50 | 100,00 | 100,20 | 100,21 | 100,20 | ERFÜLLT | open[t] genau auf EMA20 (Gleichheit zulässig) |
-| B4 | 99,20 | 100,00 | 101,80 | 100,60 | 100,20 | NICHT ERFÜLLT | Gap-up: `open[t]>EMA20[t]` |
+| B1 | 99,20 | 100,00 | 99,80 | 100,60 | 100,20 | ERFÜLLT | `99,20<=100,00` und `100,60>100,20` |
+| B2 | 100,00 | 100,00 | 100,00 | 100,05 | 100,00 | ERFÜLLT | Gleichheit auf t-1 zulässig |
+| B3 | 98,50 | 100,00 | 100,20 | 100,21 | 100,20 | ERFÜLLT | Knapper, aber echter Übertritt |
+| B4 | 99,20 | 100,00 | 101,80 | 100,60 | 100,20 | ERFÜLLT | Gap-up zählt seit ADR 0056; `open[t]` ist ohne Wirkung |
 | B5 | 99,20 | 100,00 | 99,80 | 100,20 | 100,20 | NICHT ERFÜLLT | `close[t]==EMA20[t]` — keine strikte Überschreitung |
-| B6 | 100,50 | 100,00 | 99,80 | 100,60 | 100,20 | NICHT ERFÜLLT | bereits vor der Kerze oberhalb — kein Durchdringen von unten |
+| B6 | 100,50 | 100,00 | 99,80 | 100,60 | 100,20 | NICHT ERFÜLLT | bereits vor der Kerze oberhalb — kein Kreuzen von unten |
+
+Die Spalte `open[t]` bleibt in der Tabelle stehen, damit der Vergleich mit
+der früheren Fassung möglich ist; sie geht nicht mehr in die Auswertung ein.
 
 ### 2.3 Signal C — EMA5 kreuzt EMA20 von unten nach oben
 
@@ -232,16 +251,121 @@ def signal_c(candles, t):
 | C5 | 99,80 | 100,00 | 100,00 | 100,00 | NICHT ERFÜLLT | `EMA5[t]==EMA20[t]` — keine strikte Überschreitung |
 | C6 | 99,50 | 100,00 | 99,90 | 100,00 | NICHT ERFÜLLT | angenähert, aber `EMA5[t]<EMA20[t]` |
 
+### 2.4 Signal D — RSI im überverkauften Bereich
+
+`signal_type: RSI_OVERSOLD` — **neu am 2026-09-02**
+([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md))
+
+**Formel:**
+
+```text
+RSI[t] < 30
+```
+
+Das einzige Kriterium ohne Bezug auf eine Vorkerze: Es beschreibt einen
+Zustand, keinen Übergang. Die Schwelle ist strikt — `RSI == 30` erfüllt das
+Kriterium nicht, dieselbe Konvention wie bei den Kreuzungen in Abschnitt 1.4.
+
+Ausgewertet wird es dennoch wie A bis C **über das gesamte
+Sechs-Kerzen-Fenster** (Abschnitt 3.3): Erfüllt ist es, sobald *eine*
+Fensterkerze darunter liegt. Gefragt ist, ob der Titel im Fenster
+überverkauft **war** — dreht der RSI aus dem überverkauften Bereich nach oben
+(Signal A), soll die Erholung das Kriterium nicht wieder entwerten.
+
+**Pseudocode:**
+
+```python
+def signal_d(candles, t):
+    """RSI(14, Wilder) liegt unter 30 -- ueberverkaufter Zustand."""
+    rsi_curr = candles.rsi[t]
+
+    if rsi_curr is None:
+        raise DataIncomplete(candle_index=t, required=["RSI"])
+
+    return rsi_curr < 30.0
+```
+
+**Beispiele:**
+
+| # | RSI[t] | Ergebnis | Begründung |
+|---|---|---|---|
+| D1 | 22,4 | ERFÜLLT | deutlich überverkauft |
+| D2 | 29,99 | ERFÜLLT | knapp, aber unter der Schwelle |
+| D3 | 30,00 | NICHT ERFÜLLT | Gleichheit genügt nicht — strikte Unterschreitung gefordert |
+| D4 | 30,01 | NICHT ERFÜLLT | knapp darüber |
+| D5 | 47,0 | NICHT ERFÜLLT | neutral |
+| D6 | `None` | `DataIncomplete` | fehlender Wert ist kein negatives Signal (Abschnitt 1.5) |
+
+### 2.5 Signal E — kein frisches Abwärtskreuz von EMA5 durch EMA20
+
+`signal_type: NO_RECENT_EMA_DOWNCROSS` — **neu am 2026-09-02**
+([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md))
+
+**Formel:**
+
+```text
+für kein i aus {t-4, t-3, t-2, t-1, t} gilt:
+    EMA5[i-1] >= EMA20[i-1]   UND   EMA5[i] < EMA20[i]
+```
+
+Das einzige **Ausschlusskriterium**: Es ist erfüllt, wenn etwas *nicht*
+stattgefunden hat. Hat der EMA 5 den EMA 20 kurz zuvor nach unten geschnitten,
+ist der anschließende Schnitt nach oben Gezappel um die Linie und kein
+Trendwechsel.
+
+Die Abwärtskreuzung ist die exakte Spiegelung von Signal C: Gleichheit ist
+auf der Vorkerze zulässig (`>=`), die Unterschreitung auf der aktuellen Kerze
+muss strikt sein (`<`).
+
+**Ausgewertet wird E genau einmal, an der Entscheidungskerze `t`** — anders
+als A bis D, die über das Fenster laufen (Abschnitt 3.3). Über das Fenster
+geodert wäre es sinnlos: „In irgendeinem der sechs Fünf-Kerzen-Fenster gab es
+kein Abwärtskreuz" ist fast immer wahr. Geprüft werden fünf
+Kreuzungspositionen (`t-4` bis `t`); berührt werden dadurch die Kerzen `t-5`
+bis `t`, die alle innerhalb des ohnehin auf Vollständigkeit geprüften
+Bereichs liegen (Abschnitt 3.2).
+
+**Pseudocode:**
+
+```python
+def signal_e(candles, t):
+    """Kein Abwaertskreuz EMA5/EMA20 in den letzten fuenf Kerzen."""
+    for i in range(t - 4, t + 1):
+        ema5_prev, ema20_prev = candles.ema5[i - 1], candles.ema20[i - 1]
+        ema5_curr, ema20_curr = candles.ema5[i], candles.ema20[i]
+
+        if any(v is None for v in (ema5_prev, ema20_prev, ema5_curr, ema20_curr)):
+            raise DataIncomplete(candle_index=i, required=["EMA5", "EMA20"])
+
+        if ema5_prev >= ema20_prev and ema5_curr < ema20_curr:
+            return False
+
+    return True
+```
+
+**Beispiele** (jeweils die Lage im Prüfbereich `t-4 … t`):
+
+| # | Lage | Ergebnis | Begründung |
+|---|---|---|---|
+| E1 | EMA5 durchgehend über EMA20 | ERFÜLLT | kein Kreuzen in irgendeine Richtung |
+| E2 | EMA5 durchgehend unter EMA20 | ERFÜLLT | dauerhaft darunter ist kein *frisches* Abwärtskreuz |
+| E3 | Aufwärtskreuz bei `t-2` | ERFÜLLT | falsche Richtung — nur Abwärtskreuze schließen aus |
+| E4 | Abwärtskreuz bei `t-4` | NICHT ERFÜLLT | älteste geprüfte Position, liegt noch im Bereich |
+| E5 | Abwärtskreuz bei `t` | NICHT ERFÜLLT | die Entscheidungskerze zählt mit |
+| E6 | Abwärtskreuz bei `t-5` | ERFÜLLT | eine Position vor dem Prüfbereich |
+| E7 | `EMA5[i-1] == EMA20[i-1]` und `EMA5[i] == EMA20[i]` | ERFÜLLT | keine strikte Unterschreitung — kein Kreuzen |
+| E8 | EMA-Wert bei `t-5` fehlt | `DataIncomplete` | mit `candle_index` der Lücke (Abschnitt 1.5) |
+
 ---
 
-## 3. Die 2-aus-3-Kandidatenregel und das Sechs-Kerzen-Fenster
+## 3. Die 3-aus-5-Kandidatenregel und das Sechs-Kerzen-Fenster
 
 ### 3.1 Ausgangslage
 
 Bereits konfiguriert (`config/default.yaml`, Abschnitt `screening`):
 
 ```yaml
-required_signal_count: 2
+required_signal_count: 3
 lookback_closed_candles: 5   # wird umbenannt, siehe Abschnitt 3.2
 ```
 
@@ -250,6 +374,11 @@ sind, die betreffenden Signale in der aktuellen oder einer der vorherigen
 fünf abgeschlossenen 195-Minuten-Kerzen aufgetreten sind." Diese Formulierung
 ließ zwei Dinge offen, die für eine testbare Implementierung nötig sind —
 beide sind jetzt bestätigt (Abschnitt 3.2, 3.3).
+
+**Geändert am 2026-09-02 durch [ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md):**
+Aus „mindestens zwei der drei" ist **mindestens drei der fünf** geworden;
+`required_signal_count` steht auf 3. Das Sechs-Kerzen-Fenster und die Zählung
+pro Signaltyp bleiben unverändert.
 
 ### 3.2 Fensterdefinition — BESTÄTIGT
 
@@ -274,19 +403,30 @@ Kerze kommt immer und unabhängig davon hinzu. Umgesetzt in
 
 ### 3.3 Zeitliche Verteilung und Zählung der Signaltypen — BESTÄTIGT
 
-Die mindestens zwei erforderlichen Signaltypen müssen **nicht auf derselben
-Kerze** auftreten. Eine Aktie qualifiziert sich, wenn mindestens zwei
-verschiedene der drei Signaltypen irgendwo innerhalb des Sechs-Kerzen-Fensters
-aufgetreten sind — unabhängig davon, auf welcher der sechs Kerzen jeweils.
+Die mindestens drei erforderlichen Signaltypen müssen **nicht auf derselben
+Kerze** auftreten. Eine Aktie qualifiziert sich, wenn mindestens drei
+verschiedene der fünf Signaltypen innerhalb des Sechs-Kerzen-Fensters erfüllt
+sind — unabhängig davon, auf welcher der sechs Kerzen jeweils.
 
 Beispiel: RSI-Crossover (`RSI_CROSS`) auf `t-4`, Kursdurchbruch durch EMA20
 (`PRICE_EMA20_BREAKOUT`) auf `t-1`, kein EMA5-/EMA20-Crossover
-(`EMA5_EMA20_CROSS`) im gesamten Fenster → die 2-aus-3-Regel ist erfüllt.
+(`EMA5_EMA20_CROSS`) im gesamten Fenster, dazu ein erfülltes
+`NO_RECENT_EMA_DOWNCROSS` → drei Typen, die 3-aus-5-Regel ist erfüllt.
+
+**Zwei Klassen von Kriterien** (seit
+[ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)):
+
+- **Ereigniskriterien A bis D** werden für jede Kerze des Fensters geprüft
+  und gelten als erfüllt, sobald sie an einer davon zutreffen.
+- **Das Ausschlusskriterium E** wird **genau einmal** ausgewertet, an der
+  Entscheidungskerze `t` (Begründung in Abschnitt 2.5). Es ist damit das
+  einzige Kriterium, dessen Erfülltsein nicht an einer Fensterposition hängt;
+  sein Signalereignis wird auf `t` festgeschrieben.
 
 **Zählung pro Signaltyp, nicht pro Signalereignis:** Jeder Signaltyp zählt
 innerhalb eines Entscheidungsfensters **höchstens einmal**, auch wenn derselbe
 Signaltyp mehrfach im Fenster auftritt (z. B. `RSI_CROSS` sowohl auf `t-4` als
-auch erneut auf `t-2`). Die Anzahl erfüllter Signale für die 2-aus-3-Regel wird
+auch erneut auf `t-2`). Die Anzahl erfüllter Signale für die 3-aus-5-Regel wird
 aus der Menge der **unterschiedlichen** erfüllten Signaltypen gebildet, nicht
 aus der Anzahl einzelner Signalereignisse.
 
@@ -313,16 +453,21 @@ def evaluate_candidate(stock, t, config):
                 affected_index=i,
             )
 
-    # 4. Jeden Signaltyp unabhaengig ueber das gesamte Fenster auswerten
+    # 4. Ereigniskriterien unabhaengig ueber das gesamte Fenster auswerten
     #    (Abschnitt 3.3 -- nicht auf dieselbe Kerze beschraenkt; jeder Typ
     #    zaehlt hoechstens einmal, auch bei mehrfachem Auftreten im Fenster)
     fired = {
         "RSI_CROSS": any(signal_a(stock.candles, i) for i in window),
         "PRICE_EMA20_BREAKOUT": any(signal_b(stock.candles, i) for i in window),
         "EMA5_EMA20_CROSS": any(signal_c(stock.candles, i) for i in window),
+        "RSI_OVERSOLD": any(signal_d(stock.candles, i) for i in window),
     }
 
-    # 5. 2-aus-3-Regel -- Anzahl unterschiedlicher erfuellter Signaltypen,
+    # 5. Ausschlusskriterium genau einmal an der Entscheidungskerze auswerten
+    #    (Abschnitt 2.5 -- ueber das Fenster geodert waere es sinnlos)
+    fired["NO_RECENT_EMA_DOWNCROSS"] = signal_e(stock.candles, t)
+
+    # 6. 3-aus-5-Regel -- Anzahl unterschiedlicher erfuellter Signaltypen,
     #    nicht Anzahl einzelner Signalereignisse
     if sum(fired.values()) >= config.required_signal_count:
         return Result(status="CANDIDATE", fired_signal_types=fired)
@@ -343,21 +488,30 @@ in ihrer Definition verwenden.
 
 ### 3.5 Beispiel
 
-Aus deiner Bestätigung übernommen:
+Fortgeschrieben auf das Fünf-Kriterien-Regelwerk:
 
-| Kerze | RSI_CROSS | PRICE_EMA20_BREAKOUT | EMA5_EMA20_CROSS |
-|---|---|---|---|
-| t-5 | — | — | — |
-| t-4 | ERFÜLLT | — | — |
-| t-3 | — | — | — |
-| t-2 | — | — | — |
-| t-1 | — | ERFÜLLT | — |
-| t (aktuell) | — | — | — |
+| Kerze | RSI_CROSS | PRICE_EMA20_BREAKOUT | EMA5_EMA20_CROSS | RSI_OVERSOLD |
+|---|---|---|---|---|
+| t-5 | — | — | — | ERFÜLLT |
+| t-4 | ERFÜLLT | — | — | — |
+| t-3 | — | — | — | — |
+| t-2 | — | — | — | — |
+| t-1 | — | ERFÜLLT | — | — |
+| t (aktuell) | — | — | — | — |
 
-Ergebnis: `RSI_CROSS` trat auf `t-4` auf, `PRICE_EMA20_BREAKOUT` auf `t-1` —
-zwei von drei Signaltypen im Fenster erfüllt, unabhängig davon, dass sie auf
-unterschiedlichen Kerzen auftraten und keines davon auf der aktuellen Kerze
-`t` selbst → **CANDIDATE**.
+`NO_RECENT_EMA_DOWNCROSS` wird nicht je Kerze geführt, sondern einmal an `t`
+ausgewertet: Im Bereich `t-4 … t` gibt es kein Abwärtskreuz → ERFÜLLT.
+
+Ergebnis: `RSI_CROSS` auf `t-4`, `PRICE_EMA20_BREAKOUT` auf `t-1`,
+`RSI_OVERSOLD` auf `t-5`, dazu `NO_RECENT_EMA_DOWNCROSS` an `t` — **vier von
+fünf** Signaltypen erfüllt, unabhängig davon, dass sie auf unterschiedlichen
+Kerzen auftraten und keines der Ereigniskriterien auf der aktuellen Kerze `t`
+selbst → **CANDIDATE**.
+
+Ohne `RSI_OVERSOLD` wären es drei Typen — ebenfalls CANDIDATE, aber genau an
+der Schwelle. Fiele zusätzlich `NO_RECENT_EMA_DOWNCROSS` weg (also ein
+frisches Abwärtskreuz im Bereich `t-4 … t`), blieben zwei Typen →
+**NOT_CANDIDATE**.
 
 ---
 
@@ -428,12 +582,17 @@ später — das ist beabsichtigt und keine Inkonsistenz.
 Die Signalkombination wird als **Menge unterschiedlicher Signaltypen** am
 historischen Entscheidungszeitpunkt gespeichert, nicht als geordnete Liste und
 nicht als Anzahl einzelner Signalereignisse (konsistent mit Abschnitt 3.3).
-Mögliche Kombinationen, die die 2-aus-3-Regel erfüllen können:
+Qualifizierend ist **jede Teilmenge der fünf Signaltypen mit mindestens drei
+Elementen** — die erzeugende Regel, nicht eine gepflegte Liste: 10 Dreier-,
+5 Vierer- und die eine Fünferkombination, zusammen **16**. Sie steigt und
+fällt mit `required_signal_count`; wird die Schwelle geändert, ändert sich
+die Menge mit, ohne dass hier etwas nachgetragen werden müsste.
 
-- `RSI_CROSS` + `PRICE_EMA20_BREAKOUT`
-- `RSI_CROSS` + `EMA5_EMA20_CROSS`
-- `PRICE_EMA20_BREAKOUT` + `EMA5_EMA20_CROSS`
-- alle drei Signaltypen
+Der Backtest weist seine Kennzahlen je Kombination und Horizont aus. Bei 16
+Kombinationen verteilen sich die historischen Ereignisse auf mehr Gruppen als
+zuvor; dünne Stichproben werden über `BacktestConfidence` als solche
+ausgewiesen und nicht durch Zusammenlegen kaschiert
+([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md)).
 
 Die genaue Position jedes einzelnen Signalereignisses innerhalb des
 Sechs-Kerzen-Fensters (z. B. „`RSI_CROSS` auf `t-4`") wird **zusätzlich**
@@ -474,9 +633,16 @@ Backtest-Statistik als identische Kombination, auch wenn ihre
 | 10 | Backtesting-Entscheidungszeitpunkte: nur erste Tageskerze (Abschnitt 4.1) | BESTÄTIGT |
 | 11 | Performancemessung in Kerzen, nicht in Handelstagen (Abschnitt 4.2) | BESTÄTIGT |
 | 12 | Signalkombination als Menge, Position separat gespeichert (Abschnitt 4.3) | BESTÄTIGT |
+| 13 | Signal-B-Formel ohne Gap-up-Klausel (Abschnitt 2.2) | BESTÄTIGT 2026-09-02 |
+| 14 | Signal-D-Formel — `RSI_OVERSOLD`, Schwelle 30, Fensterauswertung (Abschnitt 2.4) | BESTÄTIGT 2026-09-02 |
+| 15 | Signal-E-Formel — `NO_RECENT_EMA_DOWNCROSS`, Bereich `t-4 … t`, Auswertung an `t` (Abschnitt 2.5) | BESTÄTIGT 2026-09-02 |
+| 16 | Kandidatenschwelle: mindestens 3 von 5 (Abschnitt 3.1) | BESTÄTIGT 2026-09-02 |
 
 Die Umbenennung von `lookback_closed_candles` zu
 `signal_lookback_previous_candles` (Abschnitt 3.2) ist umgesetzt.
 
-**Alle zwölf fachlichen Punkte sind bestätigt. Gate G1 ist fachlich
-freigegeben (siehe [ADR 0010](../adr/0010-gate-g1-freigegeben.md)).**
+**Alle sechzehn fachlichen Punkte sind bestätigt.** Die Punkte 1 bis 12
+stammen aus der Freigabe von Gate G1
+([ADR 0010](../adr/0010-gate-g1-freigegeben.md), 2026-08-06); die Punkte 13
+bis 16 aus der Überarbeitung des Regelwerks
+([ADR 0056](../adr/0056-signalregel-drei-aus-fuenf.md), 2026-09-02).
