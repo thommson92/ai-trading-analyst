@@ -295,3 +295,52 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     assert persisted.swing_score is None
     assert persisted.recommendation is None
     assert persisted.options is None
+
+
+def _enum_werte(engine: Engine, typname: str) -> list[str]:
+    with engine.connect() as verbindung:
+        zeilen = verbindung.execute(
+            text(
+                "SELECT e.enumlabel FROM pg_enum e "
+                "JOIN pg_type t ON t.oid = e.enumtypid "
+                "WHERE t.typname = :typname ORDER BY e.enumsortorder"
+            ),
+            {"typname": typname},
+        ).scalars()
+        return list(zeilen)
+
+
+def test_signaltype_kennt_die_neuen_kriterien(engine: Engine) -> None:
+    """Die beiden neuen Werte stehen **hinten** (ADR 0056).
+
+    ``ALTER TYPE ... ADD VALUE`` haengt an, die Python-Definitionsreihenfolge
+    tut dasselbe. Laufen die beiden auseinander, faellt das hier auf und nicht
+    erst an einer sortierten Abfrage.
+    """
+    assert _enum_werte(engine, "signaltype") == [
+        "RSI_CROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "EMA5_EMA20_CROSS",
+        "RSI_OVERSOLD",
+        "NO_RECENT_EMA_DOWNCROSS",
+    ]
+
+
+def test_das_downgrade_des_signaltype_baut_den_dreiwertigen_typ_wieder_auf(
+    engine: Engine, database_url: str
+) -> None:
+    vor_den_neuen_kriterien = "a7d3e05c81f4"
+    _run_alembic(database_url, "downgrade", vor_den_neuen_kriterien)
+    try:
+        assert _enum_werte(engine, "signaltype") == [
+            "RSI_CROSS",
+            "PRICE_EMA20_BREAKOUT",
+            "EMA5_EMA20_CROSS",
+        ]
+        assert not _typ_existiert(engine, "signaltype_alt"), (
+            "der umbenannte Typ ist Muell in der Datenbank und muss mit weg"
+        )
+    finally:
+        _run_alembic(database_url, "upgrade", "head")
+
+    assert "RSI_OVERSOLD" in _enum_werte(engine, "signaltype")
