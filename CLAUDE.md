@@ -201,7 +201,7 @@ npm run lint && npm run typecheck && npm run build
 ## Golden Master
 
 `backend/tests/golden` rechnet die vollständige deterministische Kette —
-Kerzenbildung, Indikatoren, 2-aus-3-Regel, Backtest-Kennzahlen — über
+Kerzenbildung, Indikatoren, 3-aus-5-Regel, Backtest-Kennzahlen — über
 eingefrorene Bars und vergleicht das Ergebnis mit einer aufgezeichneten
 Datei. Er läuft im gewöhnlichen `pytest`-Lauf mit, ohne Netz und ohne
 Datenbank.

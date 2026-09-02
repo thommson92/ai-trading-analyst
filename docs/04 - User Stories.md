@@ -87,7 +87,7 @@ Als Nutzer möchte ich nur hochwertige Kandidaten analysieren lassen.
 
 Eine Aktie qualifiziert sich, wenn:
 
-- mindestens zwei von drei Signalen erfüllt sind
+- mindestens drei von fünf Kriterien erfüllt sind (ADR 0056)
 - Signale aktuell oder innerhalb der letzten fünf abgeschlossenen Kerzen aufgetreten sind
 - kein Ausschluss durch Earnings Filter erfolgt
 

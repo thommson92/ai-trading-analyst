@@ -410,8 +410,11 @@ Bis zur fachlichen Freigabe darf Claude Code hierzu keine eigene Annahme dauerha
 
 Eine Aktie qualifiziert sich für die nächste Stufe, wenn:
 
-- mindestens zwei der drei Signale erfüllt sind,
-- die betreffenden Signale in der aktuellen oder einer der vorherigen fünf abgeschlossenen 195-Minuten-Kerzen aufgetreten sind.
+- mindestens drei der fünf Kriterien erfüllt sind,
+- die betreffenden Signale in der aktuellen oder einer der vorherigen fünf abgeschlossenen 195-Minuten-Kerzen aufgetreten sind; das Ausschlusskriterium `NO_RECENT_EMA_DOWNCROSS` wird einmal an der Entscheidungskerze geprüft.
+
+> Geändert am 2026-09-02 durch [ADR 0056](../docs/adr/0056-signalregel-drei-aus-fuenf.md);
+> die Formeln stehen in [g1-pruefvorlage.md](requirements/g1-pruefvorlage.md).
 
 ### Ergebnis
 

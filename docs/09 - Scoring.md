@@ -35,7 +35,7 @@ keine Scheingenauigkeit vortäuschen (Doc 10 §6.11).
 
 | Komponente | Gewicht | Grundlage im System |
 |---|---|---|
-| Technische Signale | 25 % | `ScreeningResult.signals` — die unter Gate G1 freigegebenen Regeln |
+| Technische Signale | 25 % | `ScreeningResult.signals` — fünf Kriterien, drei erforderlich ([ADR 0056](adr/0056-signalregel-drei-aus-fuenf.md)) |
 | Historische Signalqualität | 25 % | `BacktestResult` je Kandidat ([ADR 0038](adr/0038-backtest-im-tageslauf.md)) |
 | Chart-Setup | 15 % | `TechnicalSnapshot` und `TechnicalAssessment` |
 | Chance-Risiko-Verhältnis | 15 % | `TechnicalSnapshot.chance_risk_ratio` |
