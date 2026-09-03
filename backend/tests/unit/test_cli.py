@@ -3483,3 +3483,24 @@ class TestOptionsKommando:
 
         assert exit_code == 0
         assert "OPTIONS_ANNUALIZED_RETURN" in capsys.readouterr().out
+
+
+class TestChartKommando:
+    def test_symbole_und_ziel_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["chart", "--symbols", "AAPL,MSFT", "--output", "/tmp/charts"]
+        )
+
+        assert args.symbols == "AAPL,MSFT"
+        assert args.output == "/tmp/charts"
+        assert args.handler is cli.command_chart
+
+    def test_ohne_symbole_bricht_der_parser_ab(self) -> None:
+        """Ein Chart ueber die ganze Watchlist waere kein Werkzeug zum
+        Hinsehen, sondern ein Verzeichnis voller Dateien."""
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["chart"])
+
+    def test_das_ziel_hat_eine_vorgabe(self) -> None:
+        args = build_parser().parse_args(["chart", "--symbols", "AAPL"])
+        assert args.output == "charts"
