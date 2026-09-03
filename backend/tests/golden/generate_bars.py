@@ -8,7 +8,8 @@ darf davon nicht abhaengen -- er soll auf jedem Rechner ohne Netz laufen.
 Was der Golden Master leistet, haengt an dieser Unterscheidung:
 
 * **Was er leistet:** Er friert das *Verfahren* ein. Aendert sich die
-  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, der Cooldown oder
+  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, die
+  Episodenbildung oder
   eine Kennzahl, weicht das Ergebnis ab und ein Test bricht. Dafuer genuegen
   erzeugte Kursreihen vollstaendig -- die Rechnung kennt den Unterschied
   nicht.
@@ -49,7 +50,7 @@ Golden Master bewachen soll.
 Der Backtest stuft jede Signalkombination nach ihrer Stichprobengroesse ein,
 und die drei Stufen verhalten sich **unterschiedlich**:
 
-* unter 10 deduplizierten Ereignissen: ``INSUFFICIENT_DATA``, und dann gibt
+* unter 10 gezaehlten Ereignissen: ``INSUFFICIENT_DATA``, und dann gibt
   es fuer diese Kombination **keine einzige** Kennzahl
   (``metrics.py``, ``has_reliable_basis``),
 * 10 bis 29: ``LOW_SAMPLE`` mit vollstaendigen Kennzahlen,

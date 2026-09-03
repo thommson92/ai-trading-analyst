@@ -1639,7 +1639,6 @@ def command_chart(args: argparse.Namespace) -> int:
     config = config.model_copy(update={"market_data": market_data})
 
     ziel = Path(args.output)
-    ziel.mkdir(parents=True, exist_ok=True)
 
     engine = _open_database()
     if engine is None:
@@ -1684,6 +1683,9 @@ def command_chart(args: argparse.Namespace) -> int:
                 print(f"{stock.symbol}: {fehler}", file=sys.stderr)
                 continue
             payload = build_chart_payload(stock.symbol, series, rule)
+            # Erst hier: Ein abgebrochener Lauf soll kein leeres Verzeichnis
+            # hinterlassen.
+            ziel.mkdir(parents=True, exist_ok=True)
             datei = ziel / f"signalchart-{stock.symbol.lower()}.html"
             datei.write_text(render_chart_html(payload), encoding="utf-8")
             geschrieben.append(datei)

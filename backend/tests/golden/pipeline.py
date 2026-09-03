@@ -7,7 +7,7 @@ ohne Datenbank, ohne TWS, ohne Netz:
       -> aggregate_intraday_bars   (Kerzenbildung, Doc 10 Paragraph 6.2)
       -> compute_indicator_values  (RSI, RSI-MA, EMA5, EMA20 -- Gate G1)
       -> evaluate_candidate        (3-aus-5-Regel, Screener)
-      -> compute_backtest_results  (Replay, Cooldown, Kennzahlen)
+      -> compute_backtest_results  (Replay, Episodenbildung, Kennzahlen)
 
 Was hier **nicht** nachgebildet wird, ist die Infrastruktur um die Kette
 herum: Repositories, Anbieteradapter, Fehlerisolation. Die haben eigene

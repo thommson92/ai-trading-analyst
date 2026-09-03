@@ -1,6 +1,6 @@
 """Anwendungsfall: historische Signalpruefung ueber den gespeicherten Bestand.
 
-Reine Orchestrierung -- Replay, Deduplizierung und Kennzahlen liegen
+Reine Orchestrierung -- Replay, Episodenbildung und Kennzahlen liegen
 vollstaendig in ``domain.backtesting``. Fehlerisolation je Aktie im Muster
 von ``BackfillHistoryUseCase``: ein Ausfall bei einer Aktie beendet nicht
 den Lauf.

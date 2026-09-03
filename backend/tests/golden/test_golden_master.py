@@ -4,7 +4,7 @@ Das Projekt aendert seine Verfahren bewusst und versioniert sie dabei
 (technical-v1 bis v3, Prompt v1 bis v3). Auf der Screener- und
 Backtest-Seite fehlte dafuer bislang das Sicherheitsnetz: Eine Aenderung an
 der Kerzenbildung, an der Indikatorrechnung, an der Kandidatenregel oder am
-Cooldown verschob die Ergebnisse, ohne dass ein Test angeschlagen haette.
+Episodenbildung verschob die Ergebnisse, ohne dass ein Test angeschlagen haette.
 Die Unit-Tests pruefen jede Regel einzeln an eigens gebauten Kerzen -- sie
 sehen nicht, was eine Aenderung ueber eine ganze Reihe hinweg bewirkt.
 
@@ -169,7 +169,7 @@ class TestBewachungsumfang:
 def test_mindestens_eine_kombination_hat_echte_kennzahlen() -> None:
     """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
 
-    Unter zehn deduplizierten Ereignissen gibt der Backtest fuer eine
+    Unter zehn gezaehlten Ereignissen gibt der Backtest fuer eine
     Kombination gar keine Kennzahl aus. Waeren alle Kombinationen aller Faelle
     darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
 

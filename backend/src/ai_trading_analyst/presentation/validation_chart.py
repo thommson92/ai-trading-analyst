@@ -247,6 +247,10 @@ _VORLAGE = """<!doctype html>
   const cv = document.getElementById("chart"), ax = document.getElementById("achse");
   const ctx = cv.getContext("2d"), actx = ax.getContext("2d"), tip = document.getElementById("tip");
   const BREITEN = [3, 4, 6, 8, 11, 15];
+  // Browser weisen jenseits von rund 65.000 Geraetepixeln kein Canvas mehr
+  // zu -- die Flaeche bliebe leer, ohne dass es eine Meldung gaebe. Bei
+  // einer Fuenf-Jahres-Reihe ist das ab der zweitgroessten Stufe erreicht.
+  const MAX_GERAETEPIXEL = 32000;
   let zoom = 2, hoehe = 620, hover = -1;
   const RSI_ANTEIL = .26, OBEN = 14, UNTEN = 26, RSI_LUFT = 16;
   const treffer = K.map((k, i) => (k.sig && !k.gate ? i : -1)).filter(i => i >= 0);
@@ -257,7 +261,13 @@ _VORLAGE = """<!doctype html>
                      "ema5","ema20","rsi","hit","hit-soft","gate","gate-soft"])
       F[n] = lies("--" + n);
   }
-  const bw = () => BREITEN[zoom];
+  function maxZoom() {
+    const dpr = window.devicePixelRatio || 1;
+    const proKerze = (MAX_GERAETEPIXEL / dpr - 40) / K.length;
+    const moeglich = BREITEN.findLastIndex(b => b <= proKerze);
+    return moeglich < 0 ? 0 : moeglich;
+  }
+  const bw = () => BREITEN[Math.min(zoom, maxZoom())];
   const breite = () => K.length * bw() + 40;
   function masse() {
     const dpr = window.devicePixelRatio || 1;
@@ -426,7 +436,7 @@ _VORLAGE = """<!doctype html>
   document.querySelectorAll("[data-zoom]").forEach(b => b.addEventListener("click", () => {
     const mitte = indexAus(scroll.getBoundingClientRect().left + scroll.clientWidth / 2);
     const neu = zoom + Number(b.dataset.zoom);
-    if (neu < 0 || neu >= BREITEN.length) return;
+    if (neu < 0 || neu > maxZoom()) return;
     zoom = neu; masse(); springe(Math.max(0, Math.min(K.length - 1, mitte))); zeichne();
   }));
   document.getElementById("prev").addEventListener("click", () => {
@@ -461,6 +471,7 @@ _VORLAGE = """<!doctype html>
     ["Verworfen (Tor)", D.verworfen], ["Warm-up", D.warmup],
   ].map(([t, w, c]) => `<div class="kennzahl ${c || ""}"><dt>${t}</dt>` +
        `<dd>${Number(w).toLocaleString("de-DE")}</dd></div>`).join("");
+  zoom = Math.min(zoom, maxZoom());
   farben(); masse(); scroll.scrollLeft = breite(); zeichne();
   requestAnimationFrame(zeichne);
 })();
