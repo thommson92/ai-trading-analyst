@@ -197,9 +197,25 @@ def _screening_snapshot(series: CandleSeries) -> dict[str, Any]:
     """
     nach_status: dict[str, int] = {}
     kandidaten: list[dict[str, Any]] = []
+    verworfen: list[dict[str, Any]] = []
     for t in range(len(series)):
         ergebnis: ScreeningResult = evaluate_candidate(series, t, CANDIDATE_RULE)
         nach_status[ergebnis.status.value] = nach_status.get(ergebnis.status.value, 0) + 1
+        if ergebnis.status is ScreeningStatus.NOT_CANDIDATE and ergebnis.reason is not None:
+            # An einer Torbedingung gescheitert (ADR 0057). Ohne diese Liste
+            # bliebe unsichtbar, ob ein Tor noch greift: Ein Tor, das nichts
+            # mehr verwirft, faende sich sonst nur an der Kandidatenzahl
+            # wieder -- und die verschiebt sich aus vielen Gruenden.
+            verworfen.append(
+                {
+                    "candle_index": t,
+                    "timestamp": series.candle(t).timestamp.isoformat(),
+                    "reason": ergebnis.reason,
+                    "fired_signal_types": sorted(
+                        signal.value for signal in ergebnis.fired_signal_types
+                    ),
+                }
+            )
         if ergebnis.status is not ScreeningStatus.CANDIDATE:
             continue
         kandidaten.append(
@@ -219,7 +235,7 @@ def _screening_snapshot(series: CandleSeries) -> dict[str, Any]:
                 ),
             }
         )
-    return {"status_counts": nach_status, "candidates": kandidaten}
+    return {"status_counts": nach_status, "candidates": kandidaten, "gated": verworfen}
 
 
 def _horizon_snapshot(metrics: Any) -> dict[str, Any]:

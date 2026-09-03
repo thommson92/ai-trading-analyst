@@ -216,3 +216,27 @@ def test_alle_drei_konfidenzstufen_sind_aufgezeichnet() -> None:
     }
 
     assert gesehen == {"INSUFFICIENT_DATA", "LOW_SAMPLE", "NORMAL"}
+
+
+def test_verworfene_qualifikationen_sind_aufgezeichnet() -> None:
+    """Die Torbedingungen (ADR 0057) muessen sichtbar greifen.
+
+    Ein Tor, das nichts mehr verwirft, waere an der Kandidatenzahl allein
+    nicht zu erkennen -- die verschiebt sich aus vielen Gruenden. Hier steht,
+    dass es ueberhaupt Faelle gibt, in denen eine erfuellte Signalmenge an
+    einer Torbedingung scheitert, und dass beide Tore darunter vorkommen.
+    """
+    verworfen = [
+        eintrag
+        for fall in FAELLE
+        for eintrag in compute_snapshot(read_bars(fall.bars_path))["screening"]["gated"]
+    ]
+
+    assert verworfen, "kein einziger Fall scheitert an einer Torbedingung"
+    gruende = {eintrag["reason"] for eintrag in verworfen}
+    assert any("stale_crossing_signals" in grund for grund in gruende)
+    assert any("close_not_above_ema20" in grund for grund in gruende)
+
+    # Die Signale bleiben am verworfenen Ergebnis -- es soll nachlesbar sein,
+    # was erfuellt war und woran es dennoch scheiterte.
+    assert all(len(eintrag["fired_signal_types"]) >= 3 for eintrag in verworfen)
