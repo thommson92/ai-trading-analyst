@@ -248,3 +248,9 @@ neuen Kriterien lösen `DataIncompleteError` aus statt `False` zu liefern),
 der Einstiegszeitpunkt und der Cooldown im Backtest, sowie die Trennung von
 deterministischer Rechnung und KI-Interpretation. Kein Sprachmodell ist an
 dieser Regel beteiligt.
+
+> **Nachtrag 2026-09-03:** Der Cooldown ist inzwischen doch berührt —
+> [ADR 0057](0057-torbedingungen-und-episoden.md) ersetzt ihn durch die
+> Ereignis-Verkettung und stellt der Regel zwei Torbedingungen an der
+> Entscheidungskerze voran. Alles Übrige dieses Absatzes gilt fort, der
+> Einstiegszeitpunkt eingeschlossen.
