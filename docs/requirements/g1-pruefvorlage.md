@@ -15,6 +15,12 @@
   der beiden Zusatzkriterien. Die zugehörige Regelversion
   ist `g1-pruefvorlage-2026-09-02`; die Indikatorparameter aus Gate G1
   gelten unverändert fort.
+- **Am 2026-09-03 um zwei Torbedingungen erweitert**
+  ([ADR 0057](../adr/0057-torbedingungen-und-episoden.md)): Eine erfüllte
+  Signalmenge macht nur dann einen Kandidaten, wenn zusätzlich ein Kaufsignal
+  frisch ist und der Schlusskurs über dem EMA 20 liegt (Abschnitt 3.6). Im
+  Backtest zählt seither die Episode statt eines pauschalen Cooldowns
+  (Abschnitt 4.3). Regelversion `g1-pruefvorlage-2026-09-03`.
 - **Die Signalformeln und die Kandidatenregel sind implementiert**
   (`backend/src/ai_trading_analyst/domain/screening`, Sprint 1A, Tag
   `sprint-1a-baseline`). Die Backtesting-Regeln aus Abschnitt 4 sind weiterhin
@@ -357,6 +363,33 @@ def signal_e(candles, t):
 | E7 | `EMA5[i-1] == EMA20[i-1]` und `EMA5[i] == EMA20[i]` | ERFÜLLT | keine strikte Unterschreitung — kein Kreuzen |
 | E8 | EMA-Wert bei `t-5` fehlt | `DataIncomplete` | gemeldet wird die **Kreuzungsposition** `t-4`, deren Vorkerze fehlt — nicht der Index des fehlenden Wertes (Abschnitt 1.5) |
 
+### 2.6 Torbedingung T2 — Schlusskurs über EMA20
+
+**Neu am 2026-09-03** ([ADR 0057](../adr/0057-torbedingungen-und-episoden.md)).
+Kein Signaltyp, sondern eine **Torbedingung**: Sie wird nicht gezählt, sondern
+entscheidet, ob eine bereits erfüllte Signalmenge zum Kandidaten führt
+(Abschnitt 3.6).
+
+**Formel:**
+
+```text
+close[t] > EMA20[t]
+```
+
+Ausgewertet an der Entscheidungskerze, strikt nach der Konvention aus
+Abschnitt 1.4 — Gleichstand genügt nicht. Die benötigten Werte deckt die
+Vollständigkeitsprüfung des Fensters bereits ab (Abschnitt 3.4, Schritt 3);
+eine eigene Datenlücken-Behandlung entsteht nicht.
+
+**Beispiele:**
+
+| # | close[t] | EMA20[t] | Ergebnis | Begründung |
+|---|---|---|---|---|
+| T2-1 | 105,20 | 100,00 | ERFÜLLT | klar darüber |
+| T2-2 | 100,01 | 100,00 | ERFÜLLT | knapp, aber echt darüber |
+| T2-3 | 100,00 | 100,00 | NICHT ERFÜLLT | Gleichstand — keine strikte Überschreitung |
+| T2-4 | 99,80 | 100,00 | NICHT ERFÜLLT | darunter; die Lage zeigt zum Entscheidungszeitpunkt nicht aufwärts |
+
 ---
 
 ## 3. Die Kandidatenregel und das Sechs-Kerzen-Fenster
@@ -487,22 +520,38 @@ def evaluate_candidate(stock, t, config):
     kaufsignale = {typ for typ in fired if fired[typ] and typ in CROSSING_SIGNALS}
     zusatzkriterien = {typ for typ in fired if fired[typ] and typ in CONFIRMATION_SIGNALS}
 
-    if len(kaufsignale) >= config.required_crossing_signals and zusatzkriterien:
-        return Result(status="CANDIDATE", fired_signal_types=fired)
-    return Result(status="NOT_CANDIDATE", fired_signal_types=fired)
+    if not (len(kaufsignale) >= config.required_crossing_signals and zusatzkriterien):
+        # Zu wenige Signale ist keine verworfene Qualifikation -- ohne Grund.
+        return Result(status="NOT_CANDIDATE", fired_signal_types=fired)
+
+    # 7. Torbedingungen an der Entscheidungskerze (Abschnitt 3.6)
+    gruende = []
+    if not any(signal(stock.candles, i)
+               for signal in (signal_a, signal_b, signal_c)
+               for i in (t, t - 1)):
+        gruende.append("stale_crossing_signals")
+    if not (stock.candles.close[t] > stock.candles.ema20[t]):
+        gruende.append("close_not_above_ema20")
+
+    if gruende:
+        return Result(status="NOT_CANDIDATE", fired_signal_types=fired,
+                      reason="gate:" + "+".join(gruende))
+    return Result(status="CANDIDATE", fired_signal_types=fired)
 ```
 
-**Wichtige Abgrenzung — keine Vermischung mit dem Backtesting-Cooldown:**
+**Wichtige Abgrenzung — Kandidatenprüfung und Episodenzählung sind getrennt:**
 `evaluate_candidate` gilt sowohl für die **tägliche Live-Prüfung** als auch je
 Entscheidungspunkt im **Backtesting** (Abschnitt 4.1 legt fest, dass im
-Backtesting nur erste Tageskerzen ein solcher Entscheidungspunkt sind). Der
-bereits freigegebene Fünf-Kerzen-Cooldown des Backtestings (F5) ist davon
-unabhängig ein drittes, separates Konzept — er entzerrt geclusterte
-Qualifikationen über die 5-Jahres-Historie erst *nach* der
-Kandidatenermittlung, nicht die Fensterprüfung selbst. Drei unterschiedliche
-Zahlen (6-Kerzen-Fenster, 5-Kerzen-Cooldown, 250-Kerzen-Warm-up) sind bewusst
-nicht zu verwechseln, auch wenn zwei davon zufällig denselben Zahlenwert 5
-in ihrer Definition verwenden.
+Backtesting nur erste Tageskerzen ein solcher Entscheidungspunkt sind). Die
+Episodenbildung des Backtestings (Abschnitt 4.3) ist davon unabhängig — sie
+fasst geclusterte Qualifikationen erst *nach* der Kandidatenermittlung
+zusammen, nicht die Fensterprüfung selbst. Drei unterschiedliche Zahlen
+(6-Kerzen-Fenster, 1 Kerze Höchstalter der Frische, 250-Kerzen-Warm-up) sind
+bewusst nicht zu verwechseln.
+
+> **Geändert am 2026-09-03** ([ADR 0057](../adr/0057-torbedingungen-und-episoden.md)):
+> Bis dahin stand hier der pauschale Fünf-Kerzen-Cooldown (F5). Er ist durch
+> die Ereignis-Verkettung ersetzt.
 
 ### 3.5 Beispiel
 
@@ -530,6 +579,63 @@ Ohne `RSI_OVERSOLD` wären es drei Typen — ebenfalls CANDIDATE, aber genau an
 der Schwelle. Fiele zusätzlich `NO_RECENT_EMA_DOWNCROSS` weg (also ein
 frisches Abwärtskreuz im Bereich `t-4 … t`), blieben zwei Typen →
 **NOT_CANDIDATE**.
+
+**Torbedingungen (seit 2026-09-03):** Der `PRICE_EMA20_BREAKOUT` auf `t-1`
+macht T1 erfüllt — ein Kaufsignal feuert innerhalb einer Kerze vor der
+Entscheidung. Für T2 ist zusätzlich vorausgesetzt, dass `close[t]` über dem
+EMA 20 liegt. Beides zusammen erhält das Ergebnis CANDIDATE. Läge der jüngste
+Kaufsignal-Feuerpunkt dagegen auf `t-2` oder früher, entstünde
+`NOT_CANDIDATE` mit `reason = "gate:stale_crossing_signals"` — bei
+unveränderter Signalmenge.
+
+### 3.6 Torbedingungen an der Entscheidungskerze — BESTÄTIGT 2026-09-03
+
+Grundlage: [ADR 0057](../adr/0057-torbedingungen-und-episoden.md).
+
+Eine Signalmenge, die Abschnitt 3.1 erfüllt, führt nur dann zu einem
+Kandidaten, wenn **beide** Torbedingungen gelten:
+
+| | Torbedingung | Bedingung |
+|---|---|---|
+| **T1** | Frische | Mindestens eines der drei **Kaufsignale** feuert an `t` oder `t-1` |
+| **T2** | Bestätigung | `close[t] > EMA20[t]` (Abschnitt 2.6) |
+
+**T1 zählt das tatsächliche Feuern, nicht die gespeicherte Fundstelle.**
+Abschnitt 4.3 speichert je Signaltyp die **früheste** Position im Fenster —
+das ist eine Festlegung für Audit und Bericht, keine Aussage darüber, ob das
+Signal noch anliegt. Feuert ein Typ auf `t-4` **und erneut** auf `t`, ist er
+frisch, obwohl gespeichert `t-4` steht.
+
+Nur Kaufsignale zählen für T1. Ein frisches `RSI_OVERSOLD` rettet nichts: Es
+beschreibt eine Lage, kein Ereignis, und die Frische fragt nach dem Ereignis.
+
+**Torbedingungen sind Filter, keine Kriterien.** Sie werden nicht gezählt,
+verändern `fired_signal_types` nicht und erscheinen in keiner
+Signalkombination. Scheitert eine, ist das Ergebnis `NOT_CANDIDATE` mit einer
+Begründung:
+
+| Fall | `reason` |
+|---|---|
+| Kein Kaufsignal auf `t` oder `t-1` | `gate:stale_crossing_signals` |
+| `close[t] <= EMA20[t]` | `gate:close_not_above_ema20` |
+| Beides | `gate:stale_crossing_signals+close_not_above_ema20` |
+
+Die gefeuerten Signale bleiben am Ergebnis erhalten — es soll nachlesbar sein,
+*was* erfüllt war und *woran* es dennoch scheiterte. Ein Ergebnis, das schon
+an der Signalzahl scheitert, trägt **keine** Begründung: „zu wenige Signale"
+ist keine verworfene Qualifikation.
+
+**Beispiele** (Signalmenge jeweils erfüllt):
+
+| # | Jüngstes Kaufsignal feuert auf | `close[t]` vs `EMA20[t]` | Ergebnis |
+|---|---|---|---|
+| T-1 | `t` | darüber | CANDIDATE |
+| T-2 | `t-1` | darüber | CANDIDATE |
+| T-3 | `t-2` | darüber | NOT_CANDIDATE, `gate:stale_crossing_signals` |
+| T-4 | `t-4`, **erneut auf `t`** | darüber | CANDIDATE — das erneute Feuern zählt |
+| T-5 | `t` | gleich | NOT_CANDIDATE, `gate:close_not_above_ema20` |
+| T-6 | `t-3` | darunter | NOT_CANDIDATE, beide Gründe |
+| T-7 | nur `RSI_OVERSOLD` feuert auf `t`, jüngstes Kaufsignal auf `t-3` | darüber | NOT_CANDIDATE, `gate:stale_crossing_signals` |
 
 ---
 
@@ -613,11 +719,48 @@ mehr Gruppen; dünne Stichproben werden über `BacktestConfidence` als solche
 ausgewiesen und nicht durch Zusammenlegen kaschiert
 ([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md)).
 
+**Episodenbildung statt Cooldown (seit 2026-09-03,
+[ADR 0057](../adr/0057-torbedingungen-und-episoden.md)).** Aufeinanderfolgende
+Entscheidungspunkte auf derselben Bewegung sind **ein** Ereignis:
+
+> Zwei aufeinanderfolgende Entscheidungspunkte gehören zur selben **Episode**,
+> wenn sie mindestens ein **identisches Signalereignis** teilen — denselben
+> Signaltyp an derselben Kerze. Gezählt wird der **erste** Trigger einer
+> Episode; er liefert auch die Signalkombination der Episode und, nach
+> Abschnitt 4.2, den Einstiegskurs.
+
+Maßgeblich ist die geteilte Grundlage, nicht der zeitliche Abstand: Zwei
+Trigger, die dieselbe Kreuzung auswerten, sind ein Ereignis, auch wenn Kerzen
+dazwischen liegen. Zwei Trigger auf eigenen, frischen Kreuzungen bleiben zwei
+Ereignisse, auch wenn sie dicht folgen. Der frühere Fünf-Kerzen-Cooldown
+konnte das nicht unterscheiden — er trennte nach Kalender.
+
+`NO_RECENT_EMA_DOWNCROSS` trägt als Position immer die Entscheidungskerze
+(Abschnitt 3.3) und kann deshalb nie zwei Entscheidungspunkte verketten. Das
+ist richtig so: Ein Kriterium, das an jeder Kerze neu gilt, sagt nichts über
+gemeinsame Grundlage.
+
+**Rohe und gezählte Stichprobengröße werden beide ausgewiesen** — die rohe
+zeigt, wie oft die Regel ansprach, die gezählte, wie viele unabhängige
+Ereignisse das waren.
+
+**Beispielhafte Episode:**
+
+```python
+episode = {
+    "erster_trigger": 743,          # gezaehlt, liefert Einstieg und Kombination
+    "mitglieder": [743, 745, 747],  # teilen (RSI_CROSS, 741) bzw. (EMA5_EMA20_CROSS, 744)
+    "signal_types": frozenset({"RSI_CROSS", "PRICE_EMA20_BREAKOUT",
+                               "NO_RECENT_EMA_DOWNCROSS"}),
+}
+```
+
 Die genaue Position jedes einzelnen Signalereignisses innerhalb des
 Sechs-Kerzen-Fensters (z. B. „`RSI_CROSS` auf `t-4`") wird **zusätzlich**
-gespeichert — für Audit und Bericht — ist aber **zunächst kein Kriterium**
-dafür, ob zwei historische Instanzen als „identische Signalkombination"
-gelten (Doc 07: „identische Signalkombinationen"). Für die Gruppierung im
+gespeichert — für Audit und Bericht. Für die Frage, ob zwei historische
+Instanzen als „identische Signalkombination" gelten (Doc 07), bleibt sie ohne
+Bedeutung; für die **Episodenbildung** ist sie seit ADR 0057 dagegen
+maßgeblich. Für die Gruppierung im
 Backtesting zählt ausschließlich die Menge der aufgetretenen Signaltypen.
 
 **Beispielhafte Datenstruktur:**
@@ -656,12 +799,17 @@ Backtest-Statistik als identische Kombination, auch wenn ihre
 | 14 | Signal-D-Formel — `RSI_OVERSOLD`, Schwelle 30, Fensterauswertung (Abschnitt 2.4) | BESTÄTIGT 2026-09-02 |
 | 15 | Signal-E-Formel — `NO_RECENT_EMA_DOWNCROSS`, Bereich `t-4 … t`, Auswertung an `t` (Abschnitt 2.5) | BESTÄTIGT 2026-09-02 |
 | 16 | Kandidatenregel: zwei Kaufsignale **und** ein Zusatzkriterium (Abschnitt 3.1) | BESTÄTIGT 2026-09-02 |
+| 17 | Torbedingung T1 — Frische, Höchstalter 1 Kerze (Abschnitt 3.6) | BESTÄTIGT 2026-09-03 |
+| 18 | Torbedingung T2 — `close[t] > EMA20[t]` (Abschnitte 2.6, 3.6) | BESTÄTIGT 2026-09-03 |
+| 19 | Episodenbildung über geteilte Signalereignisse, gezählt wird der erste Trigger (Abschnitt 4.3) | BESTÄTIGT 2026-09-03 |
 
 Die Umbenennung von `lookback_closed_candles` zu
 `signal_lookback_previous_candles` (Abschnitt 3.2) ist umgesetzt.
 
-**Alle sechzehn fachlichen Punkte sind bestätigt.** Die Punkte 1 bis 12
+**Alle neunzehn fachlichen Punkte sind bestätigt.** Die Punkte 1 bis 12
 stammen aus der Freigabe von Gate G1
 ([ADR 0010](../adr/0010-gate-g1-freigegeben.md), 2026-08-06); die Punkte 13
 bis 16 aus der Überarbeitung des Regelwerks
-([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md), 2026-09-02).
+([ADR 0056](../adr/0056-kaufsignale-und-zusatzkriterien.md), 2026-09-02); die
+Punkte 17 bis 19 aus den Torbedingungen und der Episodenzählung
+([ADR 0057](../adr/0057-torbedingungen-und-episoden.md), 2026-09-03).

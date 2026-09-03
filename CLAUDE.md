@@ -137,9 +137,14 @@ entsteht nicht, also fehlt er nie.
 Zwei freigegebene Festlegungen, die von Doc 07 abweichen bzw. es ergänzen:
 
 - **Einstieg** ist der Schlusskurs der Kerze, bei der die Qualifikationsregel
-  erstmals erkannt wird — nicht der Close der Signalkerze.
-- **Cooldown** von fünf Kerzen nach jedem gezählten Ereignis. Rohe und
-  deduplizierte Stichprobengröße werden beide ausgewiesen.
+  erstmals erkannt wird — nicht der Close der Signalkerze. „Erstmals" heißt
+  seit [ADR 0057](docs/adr/0057-torbedingungen-und-episoden.md): der **erste
+  Trigger der Episode**.
+- **Episoden statt Cooldown** ([ADR 0057](docs/adr/0057-torbedingungen-und-episoden.md)):
+  Aufeinanderfolgende Entscheidungspunkte, die mindestens ein identisches
+  Signalereignis teilen — denselben Signaltyp an derselben Kerze —, zählen als
+  **ein** Ereignis. Maßgeblich ist die geteilte Grundlage, nicht der zeitliche
+  Abstand. Rohe und gezählte Stichprobengröße werden beide ausgewiesen.
 
 **Trefferquote nach einem Horizont und dauerhaftes Halten oberhalb des
 Einstiegs sind getrennte Kennzahlen.** Sie werden nirgends zu einer

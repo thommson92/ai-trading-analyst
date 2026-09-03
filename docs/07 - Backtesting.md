@@ -8,9 +8,12 @@
 > **Drei Festlegungen weichen ab; es gilt jeweils die spätere.**
 > ① *Einstieg:* nicht der Schlusskurs der Signalkerze, sondern der
 > Schlusskurs der Kerze, bei der die Qualifikationsregel erstmals
-> erkannt wird (Projekt-`CLAUDE.md`). ② Nach jedem gezählten Ereignis
-> gilt ein *Cooldown* von fünf Kerzen; rohe und deduplizierte
-> Stichprobengröße werden beide ausgewiesen. ③ Trefferquote nach einem
+> erkannt wird (Projekt-`CLAUDE.md`) — und zwar der erste Trigger der
+> *Episode*. ② Entscheidungspunkte, die mindestens ein identisches
+> Signalereignis teilen, zählen als **ein** Ereignis
+> ([ADR 0057](adr/0057-torbedingungen-und-episoden.md), löst den früheren
+> Fünf-Kerzen-Cooldown ab); rohe und gezählte Stichprobengröße werden beide
+> ausgewiesen. ③ Trefferquote nach einem
 > Horizont und dauerhaftes Halten oberhalb des Einstiegs sind **getrennte
 > Kennzahlen** und werden nirgends zu einer „Erfolgsquote" verrechnet.
 >
@@ -36,7 +39,7 @@ Letzte 5 Jahre
 
 Ein historisches Signal gilt als gültig, wenn:
 
-Mindestens zwei der drei definierten Kaufsignale erfüllt waren und zusätzlich mindestens eines der beiden Zusatzkriterien (ADR 0056).
+Mindestens zwei der drei definierten Kaufsignale erfüllt waren und zusätzlich mindestens eines der beiden Zusatzkriterien (ADR 0056) — und beide Torbedingungen an der Entscheidungskerze gelten: ein Kaufsignal feuert auf `t` oder `t-1`, und der Schlusskurs liegt über dem EMA 20 ([ADR 0057](adr/0057-torbedingungen-und-episoden.md)).
 
 ---
 
