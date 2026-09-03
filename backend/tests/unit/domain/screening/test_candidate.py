@@ -16,6 +16,7 @@ import pytest
 import ai_trading_analyst.domain.screening.candidate as candidate_module
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
+    CandleSeries,
     DataIncompleteError,
     IndicatorValues,
     ScreeningStatus,
@@ -23,10 +24,12 @@ from ai_trading_analyst.domain.screening import (
     evaluate_candidate,
 )
 from tests.unit.domain.screening.conftest import (
+    BASELINE_EMA,
     build_series,
+    ema5_ema20_cross_fires,
     ema_downcross_fires,
     incomplete_indicators,
-    price_ema20_breakout_candle_at,
+    price_ema20_breakout_candles_at,
     rsi_cross_fires,
     rsi_oversold_fires,
 )
@@ -70,7 +73,9 @@ class TestZaehlungDerSignaltypen:
         series = build_series(
             SERIES_LENGTH,
             indicator_overrides={
-                DECISION_INDEX: IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+                DECISION_INDEX: IndicatorValues(
+                    rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=BASELINE_EMA
+                )
             },
         )
         result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
@@ -85,9 +90,7 @@ class TestZaehlungDerSignaltypen:
         series = build_series(
             SERIES_LENGTH,
             indicator_overrides={DECISION_INDEX - 4: rsi_cross_fires()},
-            candle_overrides={
-                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
-            },
+            candle_overrides=price_ema20_breakout_candles_at(DECISION_INDEX - 1),
         )
         result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
         assert result.status == ScreeningStatus.CANDIDATE
@@ -192,9 +195,7 @@ class TestUeberverkaufterRsi:
                 DECISION_INDEX - 2: ema_downcross_fires(),
                 DECISION_INDEX - 3: rsi_oversold_fires(),
             },
-            candle_overrides={
-                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
-            },
+            candle_overrides=price_ema20_breakout_candles_at(DECISION_INDEX - 1),
         )
         result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
         assert SignalType.NO_RECENT_EMA_DOWNCROSS not in result.fired_signal_types
@@ -208,9 +209,7 @@ class TestUeberverkaufterRsi:
                 DECISION_INDEX - 4: rsi_cross_fires(),
                 DECISION_INDEX - 2: ema_downcross_fires(),
             },
-            candle_overrides={
-                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
-            },
+            candle_overrides=price_ema20_breakout_candles_at(DECISION_INDEX - 1),
         )
         result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
         assert result.fired_signal_types == frozenset(
@@ -261,9 +260,7 @@ class TestAusschlusskriterium:
         ohne_kreuz = build_series(
             SERIES_LENGTH,
             indicator_overrides={DECISION_INDEX - 4: rsi_cross_fires()},
-            candle_overrides={
-                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
-            },
+            candle_overrides=price_ema20_breakout_candles_at(DECISION_INDEX - 1),
         )
         assert evaluate_candidate(ohne_kreuz, DECISION_INDEX, PARAMS).status == (
             ScreeningStatus.CANDIDATE
@@ -275,9 +272,7 @@ class TestAusschlusskriterium:
                 DECISION_INDEX - 4: rsi_cross_fires(),
                 DECISION_INDEX - 2: ema_downcross_fires(),
             },
-            candle_overrides={
-                DECISION_INDEX - 1: price_ema20_breakout_candle_at(DECISION_INDEX - 1)
-            },
+            candle_overrides=price_ema20_breakout_candles_at(DECISION_INDEX - 1),
         )
         assert evaluate_candidate(mit_kreuz, DECISION_INDEX, PARAMS).status == (
             ScreeningStatus.NOT_CANDIDATE
@@ -382,3 +377,128 @@ class TestParameterpruefung:
             warmup_candles=10,
         )
         assert params.required_crossing_signals == zahl
+
+
+class TestTorbedingungen:
+    """Frische und Bestaetigung an der Entscheidungskerze (Abschnitt 3.6)."""
+
+    @staticmethod
+    def _zwei_kaufsignale(juengstes_auf: int) -> CandleSeries:
+        """Zwei Kaufsignale; das juengste feuert auf ``juengstes_auf``.
+
+        Das RSI-Kreuz liegt bewusst weit hinten im Fenster, damit allein die
+        Position des zweiten Signals ueber die Frische entscheidet.
+        """
+        return build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 5: rsi_cross_fires(),
+                juengstes_auf: ema5_ema20_cross_fires(),
+            },
+        )
+
+    @pytest.mark.parametrize("abstand", [0, 1], ids=["feuert_auf_t", "feuert_auf_t_minus_1"])
+    def test_ein_frisches_kaufsignal_laesst_die_regel_durch(self, abstand: int) -> None:
+        result = evaluate_candidate(
+            self._zwei_kaufsignale(DECISION_INDEX - abstand), DECISION_INDEX, PARAMS
+        )
+        assert result.status == ScreeningStatus.CANDIDATE
+        assert result.reason is None
+
+    def test_ohne_frisches_kaufsignal_wird_verworfen(self) -> None:
+        """Alle Kaufsignale zwei Kerzen alt oder aelter -- der Fall aus
+        ``docs/backtesting/Fraglich.png``."""
+        result = evaluate_candidate(
+            self._zwei_kaufsignale(DECISION_INDEX - 2), DECISION_INDEX, PARAMS
+        )
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
+        assert result.reason == "gate:stale_crossing_signals"
+
+    def test_die_signale_bleiben_am_verworfenen_ergebnis(self) -> None:
+        """Es soll nachlesbar sein, *was* erfuellt war und *woran* es scheiterte."""
+        result = evaluate_candidate(
+            self._zwei_kaufsignale(DECISION_INDEX - 2), DECISION_INDEX, PARAMS
+        )
+        assert result.fired_signal_types == (
+            frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS}) | OHNE_ABWAERTSKREUZ
+        )
+        assert len(result.signal_events) == 3
+
+    def test_das_juengste_feuern_zaehlt_nicht_die_gespeicherte_position(self) -> None:
+        """Ein Typ feuert auf t-5 **und erneut** auf t: Gespeichert wird t-5
+        (Abschnitt 4.3), frisch ist er trotzdem."""
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 5: ema5_ema20_cross_fires(),
+                DECISION_INDEX - 3: rsi_cross_fires(),
+                DECISION_INDEX: ema5_ema20_cross_fires(),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        positionen = {e.signal_type: e.candle_index for e in result.signal_events}
+        assert positionen[SignalType.EMA5_EMA20_CROSS] == DECISION_INDEX - 5
+        assert result.status == ScreeningStatus.CANDIDATE
+
+    def test_ein_frisches_zusatzkriterium_rettet_die_frische_nicht(self) -> None:
+        """Nur Kaufsignale zaehlen: Ein ueberverkaufter RSI an ``t`` beschreibt
+        eine Lage, kein Ereignis."""
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 4: rsi_cross_fires(),
+                DECISION_INDEX - 3: ema5_ema20_cross_fires(),
+                DECISION_INDEX: rsi_oversold_fires(),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert SignalType.RSI_OVERSOLD in result.fired_signal_types
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
+        assert result.reason == "gate:stale_crossing_signals"
+
+    def test_gleichstand_mit_dem_ema20_genuegt_nicht(self) -> None:
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 5: rsi_cross_fires(),
+                DECISION_INDEX: IndicatorValues(
+                    rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=100.0
+                ),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
+        assert result.reason == "gate:close_not_above_ema20"
+
+    def test_beide_tore_scheitern_gemeinsam(self) -> None:
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 5: rsi_cross_fires(),
+                DECISION_INDEX - 2: ema5_ema20_cross_fires(),
+                # Beide EMAs steigen gemeinsam ueber den Schlusskurs: T2
+                # scheitert, ein Abwaertskreuz entsteht dabei aber nicht.
+                DECISION_INDEX: IndicatorValues(
+                    rsi=50.0, rsi_ma=50.0, ema5=105.0, ema20=105.0
+                ),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert result.reason == "gate:stale_crossing_signals+close_not_above_ema20"
+
+    def test_zu_wenige_signale_tragen_keinen_grund(self) -> None:
+        """"Zu wenige Signale" ist keine verworfene Qualifikation."""
+        series = build_series(
+            SERIES_LENGTH, indicator_overrides={DECISION_INDEX: rsi_cross_fires()}
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert result.status == ScreeningStatus.NOT_CANDIDATE
+        assert result.reason is None
+
+    def test_unbestimmte_daten_haben_vorrang_vor_den_toren(self) -> None:
+        series = build_series(
+            SERIES_LENGTH, indicator_overrides={DECISION_INDEX: incomplete_indicators()}
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        assert result.status == ScreeningStatus.UNKNOWN_DATA_INCOMPLETE
+        assert result.reason == "missing_candle_or_indicator"

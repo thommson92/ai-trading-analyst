@@ -276,8 +276,14 @@ def steigende_preise(count: int) -> list[float]:
 def wendepreise() -> list[float]:
     """Lange fallend, am Ende steil steigend -- so kreuzen EMA5 und EMA20, der
     Kurs durchbricht die EMA20 und der RSI kreuzt seine Glaettung, alles
-    innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten."""
-    return [300.0 - index for index in range(254)] + [50.0 + index * 25.0 for index in range(6)]
+    innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten.
+
+    Die Wende liegt bewusst **kurz** vor dem Ende: Seit ADR 0057 verlangt die
+    Torbedingung der Frische ein Kaufsignal auf ``t`` oder ``t-1``. Bei einer
+    laengeren Aufwaertsphase waeren die Kreuzungen am Entscheidungspunkt
+    bereits abgelaufen.
+    """
+    return [300.0 - index for index in range(256)] + [50.0 + index * 25.0 for index in range(3)]
 
 
 class _FakeEngine:

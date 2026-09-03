@@ -11,14 +11,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-09-02"
+SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-09-03"
 """Version der fachlichen Regeln, gegen die dieser Signalkern implementiert
 wurde (Datum der finalen Bestaetigung in g1-pruefvorlage.md). Wird an jedem
 persistierten Ergebnis gespeichert (Doc 10, Paragraph 8), damit spaetere
 Aenderungen an den Signalregeln in bestehenden Daten sichtbar bleiben.
 
-``2026-09-02`` gegenueber ``2026-08-06``: fuenf Kriterien statt drei, Schwelle
-drei statt zwei, Signal B ohne Gap-up-Klausel (ADR 0056)."""
+``2026-09-03`` gegenueber ``2026-09-02``: zwei Torbedingungen an der
+Entscheidungskerze, und im Backtest zaehlt die Episode statt eines pauschalen
+Cooldowns (ADR 0057). ``2026-09-02`` gegenueber ``2026-08-06``: fuenf Kriterien
+statt drei, Schwelle drei statt zwei, Signal B ohne Gap-up-Klausel
+(ADR 0056)."""
 
 
 class SignalType(StrEnum):

@@ -68,8 +68,12 @@ from ai_trading_analyst.infrastructure.fixtures.options_provider import FixtureO
 
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
 _TIMEFRAME = timedelta(minutes=195)
-_BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
-_CANDIDATE_INDICATORS = IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+_BASELINE_EMA = 99.0
+"""Unter dem Baseline-Schlusskurs von 100 -- so ist die Torbedingung T2
+(``close > ema20``, ADR 0057) in ruhiger Lage erfuellt."""
+
+_BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=_BASELINE_EMA, ema20=_BASELINE_EMA)
+_CANDIDATE_INDICATORS = IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=_BASELINE_EMA)
 
 
 def make_stock(symbol: str) -> Stock:

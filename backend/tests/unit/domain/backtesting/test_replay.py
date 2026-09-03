@@ -6,9 +6,13 @@ from ai_trading_analyst.domain.backtesting.replay import (
     deduplicate_with_cooldown,
     find_historical_decisions,
 )
-from ai_trading_analyst.domain.screening import CandidateRuleParameters, SignalType
+from ai_trading_analyst.domain.screening import (
+    CandidateRuleParameters,
+    IndicatorValues,
+    SignalType,
+)
 
-from .conftest import RSI_AND_EMA_CROSS_FIRE, make_series
+from .conftest import BASELINE_EMA, RSI_AND_EMA_CROSS_FIRE, make_series
 
 PARAMS = CandidateRuleParameters(
     required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
@@ -38,11 +42,27 @@ class TestEntscheidungszeitpunkte:
 
     def test_ein_signal_auf_der_zweiten_tageskerze_wirkt_in_ein_spaeteres_fenster(self) -> None:
         """Index 29 (zweite Tageskerze) liegt im Sechs-Kerzen-Fenster von
-        Index 34 (29 = 34 - 5) -- die Qualifikation dort zaehlt trotzdem."""
-        series = make_series(40, indicator_overrides={29: RSI_AND_EMA_CROSS_FIRE})
-        decisions = find_historical_decisions(series, PARAMS)
-        indices = {index for index, _ in decisions}
-        assert 34 in indices
+        Index 34 (29 = 34 - 5) und zaehlt dort mit.
+
+        Allein traegt es die Qualifikation seit ADR 0057 aber nicht mehr: Die
+        Torbedingung der Frische verlangt ein Kaufsignal auf ``t`` oder
+        ``t-1``. Erst ein frisches zweites Signal auf 34 macht den
+        Entscheidungspunkt -- und dass daraus zwei Kaufsignale werden, ist
+        genau der Beitrag des alten.
+        """
+        nur_alt = make_series(40, indicator_overrides={29: RSI_AND_EMA_CROSS_FIRE})
+        assert 34 not in {index for index, _ in find_historical_decisions(nur_alt, PARAMS)}
+
+        mit_frischem = make_series(
+            40,
+            indicator_overrides={
+                29: RSI_AND_EMA_CROSS_FIRE,
+                34: IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=BASELINE_EMA),
+            },
+        )
+        entscheidungen = dict(find_historical_decisions(mit_frischem, PARAMS))
+        assert 34 in entscheidungen
+        assert SignalType.RSI_CROSS in entscheidungen[34]
 
     def test_gefundene_kombination_entspricht_den_gefeuerten_signaltypen(self) -> None:
         series = make_series(40, indicator_overrides={30: RSI_AND_EMA_CROSS_FIRE})

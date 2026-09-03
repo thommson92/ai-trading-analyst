@@ -141,29 +141,6 @@ class TestBewachungsumfang:
     weil es nichts zu verschieben gaebe.
     """
 
-    def test_mindestens_eine_kombination_hat_echte_kennzahlen(self, fall: GoldenCase) -> None:
-        """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
-
-        Unter zehn deduplizierten Ereignissen gibt der Backtest fuer eine
-        Kombination gar keine Kennzahl aus. Waeren alle Kombinationen
-        darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
-        """
-        snapshot = compute_snapshot(read_bars(fall.bars_path))
-        mit_kennzahlen = [
-            horizont
-            for ergebnis in snapshot["backtest"]
-            for horizont in ergebnis["horizons"]
-            if horizont["hit_rate"] is not None
-        ]
-
-        assert mit_kennzahlen, (
-            f"{fall.name}: keine einzige Kombination kommt ueber "
-            "minimum_sample_size -- die Kennzahlenrechnung ist unbewacht."
-        )
-        beispiel = mit_kennzahlen[0]
-        for feld in ("mean_return", "median_return", "max_loss", "drawdown"):
-            assert beispiel[feld] is not None, f"{feld} ist trotz ausreichender Stichprobe leer"
-
     def test_auch_eine_zu_duenne_stichprobe_ist_aufgezeichnet(self, fall: GoldenCase) -> None:
         """Der Gegenfall: keine Kennzahl statt einer schwachen.
 
@@ -187,6 +164,38 @@ class TestBewachungsumfang:
 
         assert zaehlung.get("CANDIDATE", 0) > 0
         assert zaehlung.get("NOT_CANDIDATE", 0) > 0
+
+
+def test_mindestens_eine_kombination_hat_echte_kennzahlen() -> None:
+    """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
+
+    Unter zehn deduplizierten Ereignissen gibt der Backtest fuer eine
+    Kombination gar keine Kennzahl aus. Waeren alle Kombinationen aller Faelle
+    darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
+
+    **Ueber alle Faelle statt je Fall** (geaendert mit ADR 0057): Die
+    Torbedingungen haben rund vierzig Prozent der Entscheidungspunkte
+    entfernt, und eine kurze *echte* Reihe erreicht die Mindeststichprobe
+    seither nicht mehr zwangslaeufig -- MSFT deckt hier nur eineinhalb Jahre
+    ab. Das ist eine Eigenschaft der Regel und kein Mangel der Aufzeichnung;
+    die synthetischen Faelle sind lang genug, um die Rechnung zu bewachen.
+    Der Gegenfall bleibt je Fall geprueft.
+    """
+    mit_kennzahlen = [
+        horizont
+        for fall in FAELLE
+        for ergebnis in compute_snapshot(read_bars(fall.bars_path))["backtest"]
+        for horizont in ergebnis["horizons"]
+        if horizont["hit_rate"] is not None
+    ]
+
+    assert mit_kennzahlen, (
+        "keine einzige Kombination ueber alle Faelle kommt ueber "
+        "minimum_sample_size -- die Kennzahlenrechnung ist unbewacht."
+    )
+    beispiel = mit_kennzahlen[0]
+    for feld in ("mean_return", "median_return", "max_loss", "drawdown"):
+        assert beispiel[feld] is not None, f"{feld} ist trotz ausreichender Stichprobe leer"
 
 
 def test_alle_drei_konfidenzstufen_sind_aufgezeichnet() -> None:
