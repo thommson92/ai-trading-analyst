@@ -11,19 +11,54 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-08-06"
+SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-09-02"
 """Version der fachlichen Regeln, gegen die dieser Signalkern implementiert
 wurde (Datum der finalen Bestaetigung in g1-pruefvorlage.md). Wird an jedem
 persistierten Ergebnis gespeichert (Doc 10, Paragraph 8), damit spaetere
-Aenderungen an den Signalregeln in bestehenden Daten sichtbar bleiben."""
+Aenderungen an den Signalregeln in bestehenden Daten sichtbar bleiben.
+
+``2026-09-02`` gegenueber ``2026-08-06``: fuenf Kriterien statt drei, Schwelle
+drei statt zwei, Signal B ohne Gap-up-Klausel (ADR 0056)."""
 
 
 class SignalType(StrEnum):
-    """Die drei fachlich freigegebenen Signaltypen (Doc 05, G1-Pruefvorlage Abschnitt 2)."""
+    """Die fuenf fachlich freigegebenen Signaltypen (Doc 05, G1-Pruefvorlage Abschnitt 2).
+
+    Neue Werte werden **angehaengt**, nicht einsortiert: Die Reihenfolge hier
+    ist die Iterationsreihenfolge der Kombinatorik im Backtest, und
+    ``ALTER TYPE ... ADD VALUE`` haengt in PostgreSQL ebenfalls hinten an.
+    """
 
     RSI_CROSS = "RSI_CROSS"
     PRICE_EMA20_BREAKOUT = "PRICE_EMA20_BREAKOUT"
     EMA5_EMA20_CROSS = "EMA5_EMA20_CROSS"
+    RSI_OVERSOLD = "RSI_OVERSOLD"
+    NO_RECENT_EMA_DOWNCROSS = "NO_RECENT_EMA_DOWNCROSS"
+
+
+CROSSING_SIGNALS = frozenset(
+    {
+        SignalType.RSI_CROSS,
+        SignalType.PRICE_EMA20_BREAKOUT,
+        SignalType.EMA5_EMA20_CROSS,
+    }
+)
+"""Die drei Kaufsignale: Jedes beschreibt ein **Ereignis** im Kursverlauf.
+
+Nur sie zaehlen gegen ``required_crossing_signals`` (ADR 0056)."""
+
+CONFIRMATION_SIGNALS = frozenset(
+    {
+        SignalType.RSI_OVERSOLD,
+        SignalType.NO_RECENT_EMA_DOWNCROSS,
+    }
+)
+"""Die beiden Zusatzkriterien: Sie beschreiben die **Lage**, in der ein
+Kaufsignal auftritt -- ein vorangegangener ueberverkaufter Zustand, und die
+Abwesenheit eines frischen Gegensignals.
+
+Sie ersetzen kein Kaufsignal; mindestens eines von ihnen muss zusaetzlich
+erfuellt sein (ADR 0056)."""
 
 
 class ScreeningStatus(StrEnum):
@@ -74,6 +109,10 @@ class SignalEvent:
     Wird zusaetzlich zur Mitgliedschaft in ``fired_signal_types`` gespeichert,
     fuer Audit und Bericht -- nicht als Kriterium fuer "identische
     Signalkombination" (G1-Pruefvorlage Abschnitt 4.3).
+
+    Fuer ``NO_RECENT_EMA_DOWNCROSS`` ist der Index immer die
+    Entscheidungskerze: Das Kriterium haengt an keiner Fensterposition,
+    sondern wird einmal an ``t`` ausgewertet (Abschnitt 2.5).
     """
 
     signal_type: SignalType

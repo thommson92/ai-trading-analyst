@@ -29,6 +29,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ai_trading_analyst.domain.screening import CROSSING_SIGNALS
+
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
@@ -231,11 +233,22 @@ class ScreeningConfig(_Section):
     """Kandidatenregel.
 
     Diese Werte haengen nicht von Gate G1 ab: Die Regel 'mindestens N der drei
-    Signale innerhalb der letzten M abgeschlossenen Kerzen' ist unabhaengig von
-    der mathematischen Definition der einzelnen Signale.
+    Kaufsignale innerhalb der letzten M abgeschlossenen Kerzen, dazu mindestens
+    ein Zusatzkriterium' ist unabhaengig von der mathematischen Definition der
+    einzelnen Signale.
     """
 
-    required_signal_count: PositiveInt = 2
+    required_crossing_signals: Annotated[PositiveInt, Field(le=len(CROSSING_SIGNALS))] = 2
+    """Wie viele der drei Kaufsignale feuern muessen.
+
+    Die beiden Zusatzkriterien zaehlen hier nicht mit -- dass mindestens eines
+    von ihnen erfuellt sein muss, ist Regelsemantik und steht im Domain-Code
+    (ADR 0056).
+
+    Mehr als es Kaufsignale gibt, laesst sich nicht fordern: Ein solcher Wert
+    liefert dauerhaft null Kandidaten, und ein Lauf ohne einen einzigen
+    Kandidaten sieht aus wie ein ruhiger Markt, nicht wie ein Konfigurations-
+    fehler."""
     signal_lookback_previous_candles: PositiveInt = 5
     """Anzahl zusaetzlicher, vorheriger Kerzen. Die aktuelle Kerze kommt immer
     und unabhaengig davon hinzu -- das Fenster umfasst also insgesamt
@@ -956,12 +969,14 @@ class ScoringConfig(_Section):
     Schwellen** aendern -- alle drei stehen deshalb in diesem Abschnitt.
     """
 
-    swing_version: str = "1.2"
-    """``1.2`` gegenueber ``1.1``: Die Optionsattraktivitaet rechnet mit
-    (ADR 0048). Der Score steht damit auf 100 statt 90 Prozent Abdeckung --
-    dieselbe Zahl bedeutet vorher und nachher etwas anderes, und genau
-    deshalb steigt die Nummer. ``1.1`` gegenueber ``1.0`` war aus demselben
-    Grund die News- und Ereignislage (ADR 0046)."""
+    swing_version: str = "1.3"
+    """``1.3`` gegenueber ``1.2``: Die Signalzahl wird neu abgebildet -- fuenf
+    Signale sind 10, vier sind 8, drei sind 6 (ADR 0056). ``1.2`` gegenueber
+    ``1.1``: Die Optionsattraktivitaet rechnet mit (ADR 0048). Der Score steht
+    damit auf 100 statt 90 Prozent Abdeckung -- dieselbe Zahl bedeutet vorher
+    und nachher etwas anderes, und genau deshalb steigt die Nummer. ``1.1``
+    gegenueber ``1.0`` war aus demselben Grund die News- und Ereignislage
+    (ADR 0046)."""
     long_term_version: str = "1.0"
     minimum_coverage: NonNegativeFloat = 0.6
     """Unterhalb dieser Datenabdeckung entsteht kein Score, sondern

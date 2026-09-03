@@ -77,7 +77,7 @@ from tests.unit.application.conftest import (
 )
 
 _PARAMS = CandidateRuleParameters(
-    required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, candles_per_day=2)
 _SERIES_LENGTH = 11
@@ -1521,7 +1521,7 @@ class TestBerichtImTageslauf:
 
         assert bericht.swing_score is not None
         assert bericht.investment_score is not None
-        assert bericht.scoring_version == "swing-1.2+long_term-1.0"
+        assert bericht.scoring_version == "swing-1.3+long_term-1.0"
 
     def test_wer_kein_kandidat_ist_bekommt_keinen(self) -> None:
         """Berichtet wird ueber Kandidaten. Ein Bericht ueber eine Aktie, die

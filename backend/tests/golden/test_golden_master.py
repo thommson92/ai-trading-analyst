@@ -3,7 +3,7 @@
 Das Projekt aendert seine Verfahren bewusst und versioniert sie dabei
 (technical-v1 bis v3, Prompt v1 bis v3). Auf der Screener- und
 Backtest-Seite fehlte dafuer bislang das Sicherheitsnetz: Eine Aenderung an
-der Kerzenbildung, an der Indikatorrechnung, an der 2-aus-3-Regel oder am
+der Kerzenbildung, an der Indikatorrechnung, an der Kandidatenregel oder am
 Cooldown verschob die Ergebnisse, ohne dass ein Test angeschlagen haette.
 Die Unit-Tests pruefen jede Regel einzeln an eigens gebauten Kerzen -- sie
 sehen nicht, was eine Aenderung ueber eine ganze Reihe hinweg bewirkt.
@@ -124,9 +124,9 @@ class TestErzeugteDaten:
 
     def test_der_erzeuger_liefert_genau_die_abgelegten_bars(self) -> None:
         assert ERZEUGTE_FAELLE, "der Erzeuger kennt keinen einzigen Fall"
-        for name, (seed, startkurs, drift, handelstage) in ERZEUGTE_FAELLE.items():
+        for name, argumente in ERZEUGTE_FAELLE.items():
             abgelegt = read_bars(DATA_DIR / f"{name}.bars.csv")
-            assert tuple(erzeuge_reihe(seed, startkurs, drift, handelstage)) == abgelegt, (
+            assert tuple(erzeuge_reihe(*argumente)) == abgelegt, (
                 f"{name}.bars.csv weicht vom Erzeuger ab -- entweder von Hand "
                 "geaendert oder generate_bars.py hat sich veraendert."
             )
@@ -182,7 +182,7 @@ class TestBewachungsumfang:
         assert all(horizont["hit_rate"] is None for horizont in zu_duenn)
 
     def test_es_gibt_kandidaten_und_nicht_kandidaten(self, fall: GoldenCase) -> None:
-        """Ein Fall ohne einen einzigen Kandidaten bewachte die 2-aus-3-Regel nicht."""
+        """Ein Fall ohne einen einzigen Kandidaten bewachte die Kandidatenregel nicht."""
         zaehlung = compute_snapshot(read_bars(fall.bars_path))["screening"]["status_counts"]
 
         assert zaehlung.get("CANDIDATE", 0) > 0

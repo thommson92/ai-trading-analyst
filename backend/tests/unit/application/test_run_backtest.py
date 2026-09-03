@@ -24,7 +24,7 @@ from tests.unit.application.conftest import (
 )
 
 CANDIDATE_PARAMS = CandidateRuleParameters(
-    required_signal_count=2, signal_lookback_previous_candles=5, warmup_candles=10
+    required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
 )
 BACKTEST_PARAMS = BacktestParameters(
     horizons=(5,),
@@ -57,7 +57,7 @@ def _build_use_case(
 
 
 class TestErfolgreicherLauf:
-    def test_jede_aktie_bekommt_vier_ergebnisse_persistiert(self) -> None:
+    def test_jede_aktie_bekommt_alle_kombinationen_persistiert(self) -> None:
         stock_a, stock_b = make_stock("AAA"), make_stock("BBB")
         provider = FakeMarketDataProvider(
             stocks=(stock_a, stock_b),
@@ -72,7 +72,7 @@ class TestErfolgreicherLauf:
 
         assert {s.symbol for s in report.stocks} == {"AAA", "BBB"}
         assert not report.failures
-        assert len(backtest_results_repo.added) == 8  # 4 Kombinationen je Aktie
+        assert len(backtest_results_repo.added) == 24  # 12 Kombinationen je Aktie
         stock_ids = {result.stock_id for result in backtest_results_repo.results}
         assert stock_ids == {stock_a.id, stock_b.id}
 
@@ -107,7 +107,7 @@ class TestFehlerisolation:
         by_symbol = {s.symbol: s for s in report.stocks}
         assert by_symbol["AAA"].results
         assert by_symbol["BROKEN"].results == ()
-        assert len(backtest_results_repo.added) == 4  # nur AAA
+        assert len(backtest_results_repo.added) == 12  # nur AAA
 
     def test_leere_aktienliste_ergibt_einen_leeren_bericht(self) -> None:
         provider = FakeMarketDataProvider(stocks=(), series_by_symbol={})

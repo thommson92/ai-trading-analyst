@@ -18,18 +18,20 @@ from ai_trading_analyst.observability.secret_redaction import (
 class TestLoadConfig:
     def test_reads_a_minimal_file(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
-        path.write_text("screening:\n  required_signal_count: 3\n", encoding="utf-8")
+        # Bewusst nicht der Vorgabewert: Sonst bewiese der Test nicht, dass
+        # gelesen wurde.
+        path.write_text("screening:\n  required_crossing_signals: 3\n", encoding="utf-8")
 
         loaded = load_config(path)
 
-        assert loaded.config.screening.required_signal_count == 3
+        assert loaded.config.screening.required_crossing_signals == 3
         assert loaded.source_path == path
 
     def test_comment_only_file_yields_defaults(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         path.write_text("# nur ein Kommentar\n", encoding="utf-8")
 
-        assert load_config(path).config.screening.required_signal_count == 2
+        assert load_config(path).config.screening.required_crossing_signals == 2
 
     def test_fingerprint_changes_with_content(self, tmp_path: Path) -> None:
         """Doc 10 Paragraph 17 verlangt protokollierbare Konfigurationsaenderungen."""
@@ -63,6 +65,19 @@ class TestLoadConfig:
     def test_invalid_value_is_reported_with_the_file_path(self, tmp_path: Path) -> None:
         path = tmp_path / "config.yaml"
         path.write_text("market:\n  timeframe_minutes: 200\n", encoding="utf-8")
+
+        with pytest.raises(ConfigError, match="ungueltig"):
+            load_config(path)
+
+    def test_mehr_kaufsignale_als_es_gibt_ist_ein_konfigurationsfehler(
+        self, tmp_path: Path
+    ) -> None:
+        """Die Grenze gehoert ins Schema, nicht erst in den Lauf: Sonst faellt
+        der Wert erst auf, wenn Datenbank und Marktdatenanbieter schon stehen,
+        und der Tageslauf endet mit einem rohen Traceback statt mit der
+        Konfigurationsfehler-Meldung."""
+        path = tmp_path / "config.yaml"
+        path.write_text("screening:\n  required_crossing_signals: 4\n", encoding="utf-8")
 
         with pytest.raises(ConfigError, match="ungueltig"):
             load_config(path)

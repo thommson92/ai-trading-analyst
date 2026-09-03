@@ -8,7 +8,7 @@ darf davon nicht abhaengen -- er soll auf jedem Rechner ohne Netz laufen.
 Was der Golden Master leistet, haengt an dieser Unterscheidung:
 
 * **Was er leistet:** Er friert das *Verfahren* ein. Aendert sich die
-  Kerzenbildung, die Indikatorrechnung, die 2-aus-3-Regel, der Cooldown oder
+  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, der Cooldown oder
   eine Kennzahl, weicht das Ergebnis ab und ein Test bricht. Dafuer genuegen
   erzeugte Kursreihen vollstaendig -- die Rechnung kennt den Unterschied
   nicht.
@@ -68,9 +68,18 @@ hinweg alle drei Stufen aufgezeichnet sind."""
 KURZE_REIHE = 400
 """800 Kerzen -- 250 Warm-up, 550 auswertbare Entscheidungspunkte."""
 
-LANGE_REIHE = 700
-"""1400 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
-und damit auf ``NORMAL``; bei 600 Handelstagen waren es 29."""
+LANGE_REIHE = 900
+"""1800 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
+und damit auf ``NORMAL``.
+
+Mit der Regel aus ADR 0056 musste diese Zahl von 700 steigen: Die
+Ereignisse verteilen sich seither auf 12 statt 4 Kombinationen, und bei 700
+Handelstagen kam die staerkste nur noch auf 29 -- eines zu wenig. Gemessen:
+700 -> 29, 800 -> 34, 900 -> 44.
+
+Das ist kein Datentrick, sondern der sichtbare Preis der neuen Regel -- an
+echten Kursen wird die Signalstatistik je Kombination aus demselben Grund
+duenner (ADR 0056, Abschnitt Konsequenzen)."""
 
 BARS_JE_TAG = SESSION.session_minutes // NATIVE_BAR_MINUTES
 
@@ -114,7 +123,9 @@ def _bars_eines_tages(tag: date, kurs: float, wuerfel: random.Random) -> list[In
     return bars
 
 
-def erzeuge_reihe(seed: int, startkurs: float, drift: float, handelstage: int) -> list[IntradayBar]:
+def erzeuge_reihe(
+    seed: int, startkurs: float, drift: float, handelstage: int, erster_tag: date
+) -> list[IntradayBar]:
     """Eine vollstaendige Reihe.
 
     ``drift`` ist der Anteil, um den der Kurs je Handelstag im Mittel
@@ -124,17 +135,29 @@ def erzeuge_reihe(seed: int, startkurs: float, drift: float, handelstage: int) -
     wuerfel = random.Random(seed)
     kurs = startkurs
     bars: list[IntradayBar] = []
-    for tag in _handelstage(ERSTER_HANDELSTAG, handelstage):
+    for tag in _handelstage(erster_tag, handelstage):
         bars.extend(_bars_eines_tages(tag, kurs, wuerfel))
         kurs = bars[-1].close * (1.0 + drift)
     return bars
 
 
+BEGINN_DER_LANGEN_REIHE = date(2021, 1, 4)
+"""Die lange Reihe beginnt frueher als die kurze -- aus zwei Gruenden.
+
+Sie endet damit **vor** ``pipeline.EVALUATED_AT`` statt Monate danach; eine
+Historie, die in der Zukunft des Auswertungszeitpunkts liegt, beschriebe
+nichts, was ein Lauf je zu sehen bekaeme.
+
+Und ihr Anfang liegt vor der Fuenf-Jahres-Grenze dieses Zeitpunkts, sodass
+``_truncate_to_recent_history`` tatsaechlich etwas abschneidet. Vorher tat es
+das in keinem der Faelle -- ein Fehler dort waere unbemerkt geblieben.
+"""
+
 FAELLE = {
-    "synthetic-trend": (20240102, 100.0, 0.0015, KURZE_REIHE),
-    "synthetic-range": (20240103, 50.0, 0.0, LANGE_REIHE),
+    "synthetic-trend": (20240102, 100.0, 0.0015, KURZE_REIHE, ERSTER_HANDELSTAG),
+    "synthetic-range": (20240103, 50.0, 0.0, LANGE_REIHE, BEGINN_DER_LANGEN_REIHE),
 }
-"""Name der Datei -> (Startwert, Startkurs, Tagesdrift, Handelstage).
+"""Name der Datei -> (Startwert, Startkurs, Tagesdrift, Handelstage, erster Tag).
 
 Zwei Reihen, weil eine allein nur einen Ausschnitt der Regeln beruehrt: Die
 steigende erzeugt Ausbrueche und EMA-Kreuzungen, die seitwaerts laufende vor
@@ -144,8 +167,8 @@ laengere, damit die Konfidenzstufe ``NORMAL`` ueberhaupt vorkommt.
 
 
 def main() -> None:
-    for name, (seed, startkurs, drift, handelstage) in FAELLE.items():
-        bars = erzeuge_reihe(seed, startkurs, drift, handelstage)
+    for name, (seed, startkurs, drift, handelstage, erster_tag) in FAELLE.items():
+        bars = erzeuge_reihe(seed, startkurs, drift, handelstage, erster_tag)
         pfad = DATA_DIR / f"{name}.bars.csv"
         write_bars(pfad, bars)
         print(f"{pfad.name}: {len(bars)} Bars")

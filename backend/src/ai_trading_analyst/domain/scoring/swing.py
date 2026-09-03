@@ -23,7 +23,7 @@ from ai_trading_analyst.domain.analysts import (
 )
 from ai_trading_analyst.domain.backtesting import BacktestConfidence, BacktestResult
 from ai_trading_analyst.domain.options import OptionsAnalysis
-from ai_trading_analyst.domain.screening import ScreeningResult
+from ai_trading_analyst.domain.screening import ScreeningResult, SignalType
 from ai_trading_analyst.domain.technical import (
     BreakoutQuality,
     RiskRewardRating,
@@ -37,12 +37,13 @@ from .aggregate import aggregate
 from .parameters import ScoringParameters
 from .values import ComponentName, ScoreComponent, ScoreKind, ScoreResult
 
-SIGNAL_TEILWERTE = {3: 10.0, 2: 6.0}
-"""Drei von drei Signalen sind 10, zwei von drei sind 6 (ADR 0045).
+SIGNAL_TEILWERTE = {5: 10.0, 4: 8.0, 3: 6.0}
+"""Fuenf von fuenf Signalen sind 10, vier sind 8, drei sind 6 (ADR 0056).
 
-Eine Abbildung nur dieser beiden Faelle: Unter zwei Signalen ist eine Aktie
-gar kein Kandidat, und ueber einen Fall, den es nicht gibt, wird hier nichts
-behauptet."""
+Die Endpunkte stehen, wo sie bei der 2-aus-3-Regel standen: Das Maximum
+bekommt 10, das gerade noch qualifizierende Minimum 6, dazwischen linear.
+Unter drei Signalen ist eine Aktie gar kein Kandidat, und ueber einen Fall,
+den es nicht gibt, wird hier nichts behauptet."""
 
 TREND_TEILWERTE = {
     TrendStrength.STRONG: 10.0,
@@ -295,9 +296,9 @@ def _signale(result: ScreeningResult, parameters: ScoringParameters) -> ScoreCom
         weight=parameters.swing_weights[ComponentName.TECHNICAL_SIGNALS],
         value=teilwert,
         reason=(
-            f"{anzahl} von 3 Signalen"
+            f"{anzahl} von {len(SignalType)} Signalen"
             if teilwert is not None
-            else f"{anzahl} Signale -- dafuer gibt es keine Abbildung (ADR 0045)"
+            else f"{anzahl} Signale -- dafuer gibt es keine Abbildung (ADR 0056)"
         ),
     )
 

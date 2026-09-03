@@ -87,7 +87,7 @@ EMA5 kreuzt EMA20 von unten nach oben und schließt darüber.
 
 Eine Aktie wird weiter analysiert, wenn:
 
-Mindestens zwei der drei Signale aktuell oder innerhalb der letzten fünf abgeschlossenen 195-Minuten-Kerzen erfüllt wurden.
+Mindestens zwei der drei Kaufsignale erfüllt wurden -- aktuell oder innerhalb der letzten fünf abgeschlossenen 195-Minuten-Kerzen -- und zusätzlich mindestens eines der beiden Zusatzkriterien (ADR 0056).
 
 ---
 

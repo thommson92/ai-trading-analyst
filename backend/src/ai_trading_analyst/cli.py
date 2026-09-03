@@ -1203,7 +1203,7 @@ def command_screen(args: argparse.Namespace) -> int:
         uow_factory=uow_factory,
     )
     rule = CandidateRuleParameters(
-        required_signal_count=config.screening.required_signal_count,
+        required_crossing_signals=config.screening.required_crossing_signals,
         signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
@@ -1353,7 +1353,7 @@ def command_backtest(args: argparse.Namespace) -> int:
         config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
     )
     rule = CandidateRuleParameters(
-        required_signal_count=config.screening.required_signal_count,
+        required_crossing_signals=config.screening.required_crossing_signals,
         signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
         warmup_candles=indicators.warmup_candles,
     )
@@ -3150,7 +3150,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             uow_factory=uow_factory,
         )
         rule = CandidateRuleParameters(
-            required_signal_count=config.screening.required_signal_count,
+            required_crossing_signals=config.screening.required_crossing_signals,
             signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
             warmup_candles=indicators.warmup_candles,
         )

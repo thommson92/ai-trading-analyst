@@ -552,20 +552,24 @@ def build_scoring_params(config: AppConfig) -> ScoringParameters:
 def _pruefe_signalabbildung(config: AppConfig) -> None:
     """Fuer jede moegliche Signalzahl eines Kandidaten gibt es einen Teilwert.
 
-    ``SIGNAL_TEILWERTE`` kennt heute drei und zwei Signale -- weil
-    ``screening.required_signal_count`` auf zwei steht. Die Zahl ist aber
-    konfigurierbar: Auf eins gesetzt, verloere jeder Ein-Signal-Kandidat
-    still eine Komponente mit einem Viertel des Gewichts. Wie bei den
-    Schwellen faellt das nur hier auf, wo Konfiguration und Domain zugleich
-    sichtbar sind.
+    ``SIGNAL_TEILWERTE`` kennt heute fuenf, vier und drei Signale -- weil ein
+    Kandidat mindestens zwei Kaufsignale und ein Zusatzkriterium traegt. Die
+    Zahl der geforderten Kaufsignale ist aber konfigurierbar: Auf eins
+    gesetzt, verloere jeder Kandidat mit nur zwei erfuellten Kriterien still
+    eine Komponente mit einem Viertel des Gewichts. Wie bei den Schwellen
+    faellt das nur hier auf, wo Konfiguration und Domain zugleich sichtbar
+    sind.
     """
-    moeglich = range(config.screening.required_signal_count, len(SignalType) + 1)
+    # Mindestens ein Zusatzkriterium kommt zu den Kaufsignalen hinzu -- das
+    # ist die Kandidatenregel, nicht eine Annahme ueber die Daten.
+    kleinste_kandidatengroesse = config.screening.required_crossing_signals + 1
+    moeglich = range(kleinste_kandidatengroesse, len(SignalType) + 1)
     ohne_abbildung = sorted(set(moeglich) - SIGNAL_TEILWERTE.keys())
     if ohne_abbildung:
         raise ValueError(
-            "screening.required_signal_count laesst Kandidaten mit "
-            f"{ohne_abbildung} Signalen zu, fuer die es keinen Teilwert gibt "
-            "(ADR 0045, Abschnitt 4)"
+            "screening.required_crossing_signals laesst Kandidaten mit "
+            f"{ohne_abbildung} erfuellten Kriterien zu, fuer die es keinen "
+            "Teilwert gibt (ADR 0056)"
         )
 
 

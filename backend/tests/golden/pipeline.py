@@ -6,7 +6,7 @@ ohne Datenbank, ohne TWS, ohne Netz:
     native Bars
       -> aggregate_intraday_bars   (Kerzenbildung, Doc 10 Paragraph 6.2)
       -> compute_indicator_values  (RSI, RSI-MA, EMA5, EMA20 -- Gate G1)
-      -> evaluate_candidate        (2-aus-3-Regel, Screener)
+      -> evaluate_candidate        (3-aus-5-Regel, Screener)
       -> compute_backtest_results  (Replay, Cooldown, Kennzahlen)
 
 Was hier **nicht** nachgebildet wird, ist die Infrastruktur um die Kette
@@ -70,7 +70,7 @@ INDICATORS = IndicatorParameters(
 )
 
 CANDIDATE_RULE = CandidateRuleParameters(
-    required_signal_count=2,
+    required_crossing_signals=2,
     signal_lookback_previous_candles=5,
     warmup_candles=250,
 )

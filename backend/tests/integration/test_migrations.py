@@ -9,11 +9,22 @@ das Ergebnis: alle erwarteten Tabellen existieren nach dem Upgrade.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from ai_trading_analyst.domain.screening import ScreeningStatus
+from ai_trading_analyst.domain.backtesting import (
+    BacktestConfidence,
+    BacktestResult,
+    HorizonMetrics,
+)
+from ai_trading_analyst.domain.screening import (
+    SIGNAL_RULE_VERSION,
+    ScreeningStatus,
+    SignalType,
+)
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from tests.integration.conftest import make_outcome, make_run, make_stock
 from tests.integration.conftest import run_alembic as _run_alembic
@@ -295,3 +306,97 @@ def test_die_migrationen_von_sprint_fuenf_lassen_sich_zurueckdrehen(
     assert persisted.swing_score is None
     assert persisted.recommendation is None
     assert persisted.options is None
+
+
+def _enum_werte(engine: Engine, typname: str) -> list[str]:
+    with engine.connect() as verbindung:
+        zeilen = verbindung.execute(
+            text(
+                "SELECT e.enumlabel FROM pg_enum e "
+                "JOIN pg_type t ON t.oid = e.enumtypid "
+                "WHERE t.typname = :typname ORDER BY e.enumsortorder"
+            ),
+            {"typname": typname},
+        ).scalars()
+        return list(zeilen)
+
+
+def test_signaltype_kennt_die_neuen_kriterien(engine: Engine) -> None:
+    """Die beiden neuen Werte stehen **hinten** (ADR 0056).
+
+    ``ALTER TYPE ... ADD VALUE`` haengt an, die Python-Definitionsreihenfolge
+    tut dasselbe. Laufen die beiden auseinander, faellt das hier auf und nicht
+    erst an einer sortierten Abfrage.
+    """
+    assert _enum_werte(engine, "signaltype") == [
+        "RSI_CROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "EMA5_EMA20_CROSS",
+        "RSI_OVERSOLD",
+        "NO_RECENT_EMA_DOWNCROSS",
+    ]
+
+
+def test_das_downgrade_des_signaltype_baut_den_dreiwertigen_typ_wieder_auf(
+    engine: Engine, database_url: str
+) -> None:
+    vor_den_neuen_kriterien = "a7d3e05c81f4"
+    _run_alembic(database_url, "downgrade", vor_den_neuen_kriterien)
+    try:
+        assert _enum_werte(engine, "signaltype") == [
+            "RSI_CROSS",
+            "PRICE_EMA20_BREAKOUT",
+            "EMA5_EMA20_CROSS",
+        ]
+        assert not _typ_existiert(engine, "signaltype_alt"), (
+            "der umbenannte Typ ist Muell in der Datenbank und muss mit weg"
+        )
+    finally:
+        _run_alembic(database_url, "upgrade", "head")
+
+    assert "RSI_OVERSOLD" in _enum_werte(engine, "signaltype")
+
+
+def test_das_downgrade_bricht_auch_bei_belegten_backtest_zeilen_ab(
+    engine: Engine, database_url: str, uow_factory: UowFactory
+) -> None:
+    """``backtest_results.signal_types`` ist ein Textarray und traegt den
+    Enumtyp nicht -- der Typwechsel ginge daran vorbei, das Auslesen braeche
+    danach beim Zurueckwandeln in ``SignalType``. Der Waechter sieht deshalb
+    auf beide Tabellen.
+    """
+    stock = make_stock("BTDOWN")
+    jetzt = datetime.now(UTC)
+    ergebnis = BacktestResult(
+        stock_id=stock.id,
+        signal_types=frozenset(
+            {SignalType.RSI_CROSS, SignalType.NO_RECENT_EMA_DOWNCROSS}
+        ),
+        signal_rule_version=SIGNAL_RULE_VERSION,
+        evaluated_at=jetzt,
+        history_start=jetzt,
+        history_end=jetzt,
+        horizons=(
+            HorizonMetrics(
+                horizon=5,
+                raw_event_count=0,
+                deduplicated_event_count=0,
+                hit_rate=None,
+                mean_return=None,
+                median_return=None,
+                max_loss=None,
+                drawdown=None,
+                held_above_entry_rate=None,
+                confidence=BacktestConfidence.INSUFFICIENT_DATA,
+            ),
+        ),
+    )
+    with uow_factory() as uow:
+        uow.stocks.add(stock)
+        uow.backtest_results.add(ergebnis)
+        uow.commit()
+
+    with pytest.raises(RuntimeError, match="unlesbar"):
+        _run_alembic(database_url, "downgrade", "a7d3e05c81f4")
+
+    assert "NO_RECENT_EMA_DOWNCROSS" in _enum_werte(engine, "signaltype")

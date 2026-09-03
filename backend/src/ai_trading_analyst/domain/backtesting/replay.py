@@ -1,4 +1,4 @@
-"""Historischer Replay der 2-aus-3-Kandidatenregel (G1-Prüfvorlage
+"""Historischer Replay der 3-aus-5-Kandidatenregel (G1-Prüfvorlage
 Abschnitt 4.1, 4.3).
 
 Zwei getrennte Schritte, damit jeder fuer sich testbar bleibt: das Auffinden

@@ -45,7 +45,7 @@ statt `LOW_SAMPLE`
 
 Gate G1 ist fachlich freigegeben
 ([ADR 0010](docs/adr/0010-gate-g1-freigegeben.md)); die drei Signalregeln und
-die 2-aus-3-Kandidatenregel sind reiner Domain-Code
+die Kandidatenregel sind reiner Domain-Code
 (`backend/src/ai_trading_analyst/domain/screening`).
 
 Als Datenquelle ist **Interactive Brokers** freigegeben
@@ -148,7 +148,7 @@ damit abgelöst.
 backend/          Python 3.12/3.13, FastAPI-Anwendung
   src/ai_trading_analyst/
     domain/         Fachregeln, Provider-Schnittstellen (ohne Infrastruktur)
-      screening/      Signalregeln, 2-aus-3-Kandidatenregel (Gate G1),
+      screening/      Signalregeln, Kandidatenregel (Gate G1),
                       Indikatorberechnung, 195-Minuten-Kerzenbildung
       technical/      Deterministische Chartauswertung: Zonen, Trend, ATR
                       (ADR 0025) -- fliesst nie in eine Signalentscheidung

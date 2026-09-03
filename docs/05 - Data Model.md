@@ -97,6 +97,13 @@ Signaltypen:
 - RSI_CROSS
 - PRICE_EMA20_BREAKOUT
 - EMA5_EMA20_CROSS
+- RSI_OVERSOLD
+- NO_RECENT_EMA_DOWNCROSS
+
+Die beiden letzten seit [ADR 0056](adr/0056-kaufsignale-und-zusatzkriterien.md).
+`NO_RECENT_EMA_DOWNCROSS` ist ein Ausschlusskriterium: Es ist erfüllt, wenn
+eine Abwärtskreuzung *nicht* stattgefunden hat, und trägt als
+`candle_timestamp` immer die Entscheidungskerze.
 
 ---
 

@@ -1,12 +1,19 @@
 """Testbausteine fuer den Signalkern.
 
-``baseline_indicators()`` liefert absichtlich einen Zustand, in dem keines der
-drei Signale feuert (Gleichheit auf allen Vergleichen). Ueberschreibt man nur
-den Wert einer einzelnen Kerze ``i`` so, dass die Ueberschreitung strikt wird,
-feuert das jeweilige Signal ausschliesslich an dieser Kerze -- die Vorkerze
-erfuellt die (Gleichheit erlaubende) Vorbedingung bereits durch die Baseline.
-Das haelt die Fenster-/Kandidatentests unabhaengig von den exakten
-Zahlenbeispielen der G1-Pruefvorlage lesbar.
+``baseline_indicators()`` liefert einen Zustand, in dem keines der vier
+Ereigniskriterien feuert (Gleichheit auf allen Vergleichen, RSI weit ueber der
+Ueberverkauft-Schwelle). Ueberschreibt man nur den Wert einer einzelnen Kerze
+``i`` so, dass die Ueberschreitung strikt wird, feuert das jeweilige Signal
+ausschliesslich an dieser Kerze -- die Vorkerze erfuellt die (Gleichheit
+erlaubende) Vorbedingung bereits durch die Baseline. Das haelt die Fenster-
+und Kandidatentests unabhaengig von den exakten Zahlenbeispielen der
+G1-Pruefvorlage lesbar.
+
+**Fuer ``NO_RECENT_EMA_DOWNCROSS`` gilt das nicht:** Das Kriterium ist
+erfuellt, wenn etwas *nicht* geschehen ist, und in der Baseline geschieht
+nichts. Es feuert deshalb in fast jedem Test mit -- gewollt, denn genau so
+verhaelt es sich auch am Markt in ruhiger Lage. Wer es abschalten will,
+setzt mit ``ema_downcross_at`` ein Abwaertskreuz in den Bereich ``t-4 .. t``.
 """
 
 from __future__ import annotations
@@ -69,6 +76,21 @@ def rsi_cross_fires() -> IndicatorValues:
 
 def ema5_ema20_cross_fires() -> IndicatorValues:
     return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+
+
+def rsi_oversold_fires() -> IndicatorValues:
+    return IndicatorValues(rsi=25.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+
+
+def ema_downcross_fires() -> IndicatorValues:
+    """Eine Kerze, an der EMA5 den EMA20 nach unten schneidet.
+
+    Nur diese eine Kerze wird gebraucht: Die Baseline der Vorkerze traegt
+    ``ema5 == ema20`` und erfuellt damit die Gleichheit zulassende
+    Vorbedingung ``ema5 >= ema20`` -- dieselbe Konvention wie bei den
+    Aufwaertskreuzen, nur gespiegelt. Signal C feuert dadurch nirgends mit.
+    """
+    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=90.0, ema20=100.0)
 
 
 def price_ema20_breakout_candle_at(index: int) -> Candle:
