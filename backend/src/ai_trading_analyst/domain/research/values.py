@@ -150,7 +150,7 @@ class ResearchEvidence:
     Sie werden mitgespeichert, nicht nur die Stufe: Eine Einstufung ohne die
     Zahlen dahinter waere ein weiteres undurchsichtiges Etikett, und ob eine
     Schwelle richtig gewaehlt war, laesst sich spaeter nur an den Rohwerten
-    pruefen. Dasselbe Muster wie beim Backtest, der rohe und deduplizierte
+    pruefen. Dasselbe Muster wie beim Backtest, der rohe und gezaehlte
     Stichprobengroesse beide ausweist.
 
     Nicht enthalten ist der beste erreichte Quellenrang -- er ist aus den

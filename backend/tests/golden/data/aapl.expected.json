@@ -241,7 +241,7 @@
       "horizons": [
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 1,
+          "deduplicated_event_count": 0,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -253,7 +253,7 @@
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 1,
+          "deduplicated_event_count": 0,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -265,7 +265,7 @@
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 1,
+          "deduplicated_event_count": 0,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -582,6 +582,106 @@
     "rsi_ma": 54.381104
   },
   "last_candle": "2026-09-01T09:30:00-04:00",
+  "replay": {
+    "episodes": [
+      [
+        265
+      ],
+      [
+        293,
+        295
+      ],
+      [
+        331
+      ],
+      [
+        347
+      ],
+      [
+        395,
+        397
+      ],
+      [
+        445,
+        447
+      ],
+      [
+        488,
+        489
+      ],
+      [
+        527,
+        529,
+        533
+      ],
+      [
+        565,
+        567
+      ],
+      [
+        607,
+        609,
+        611
+      ],
+      [
+        619
+      ],
+      [
+        627
+      ],
+      [
+        659
+      ],
+      [
+        723
+      ],
+      [
+        743,
+        745
+      ],
+      [
+        777
+      ],
+      [
+        809,
+        811
+      ],
+      [
+        817
+      ]
+    ],
+    "raw_decision_indices": [
+      265,
+      293,
+      295,
+      331,
+      347,
+      395,
+      397,
+      445,
+      447,
+      488,
+      489,
+      527,
+      529,
+      533,
+      565,
+      567,
+      607,
+      609,
+      611,
+      619,
+      627,
+      659,
+      723,
+      743,
+      745,
+      777,
+      809,
+      811,
+      817
+    ]
+  },
   "screening": {
     "candidates": [
       {

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from ai_trading_analyst.domain.backtesting.replay import (
-    deduplicate_with_cooldown,
+    HistoricalDecision,
     find_historical_decisions,
+    group_into_episodes,
 )
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     IndicatorValues,
+    SignalEvent,
     SignalType,
 )
 
@@ -36,7 +38,7 @@ class TestEntscheidungszeitpunkte:
             indicator_overrides={30: RSI_AND_EMA_CROSS_FIRE, 31: RSI_AND_EMA_CROSS_FIRE},
         )
         decisions = find_historical_decisions(series, PARAMS)
-        indices = {index for index, _ in decisions}
+        indices = {decision.index for decision in decisions}
         assert 30 in indices
         assert 31 not in indices
 
@@ -51,7 +53,7 @@ class TestEntscheidungszeitpunkte:
         genau der Beitrag des alten.
         """
         nur_alt = make_series(40, indicator_overrides={29: RSI_AND_EMA_CROSS_FIRE})
-        assert 34 not in {index for index, _ in find_historical_decisions(nur_alt, PARAMS)}
+        assert 34 not in {d.index for d in find_historical_decisions(nur_alt, PARAMS)}
 
         mit_frischem = make_series(
             40,
@@ -60,14 +62,16 @@ class TestEntscheidungszeitpunkte:
                 34: IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=BASELINE_EMA),
             },
         )
-        entscheidungen = dict(find_historical_decisions(mit_frischem, PARAMS))
+        entscheidungen = {
+            d.index: d.combination for d in find_historical_decisions(mit_frischem, PARAMS)
+        }
         assert 34 in entscheidungen
         assert SignalType.RSI_CROSS in entscheidungen[34]
 
     def test_gefundene_kombination_entspricht_den_gefeuerten_signaltypen(self) -> None:
         series = make_series(40, indicator_overrides={30: RSI_AND_EMA_CROSS_FIRE})
         decisions = find_historical_decisions(series, PARAMS)
-        by_index = dict(decisions)
+        by_index = {d.index: d.combination for d in decisions}
         assert by_index[30] == EXPECTED_COMBINATION
 
     def test_keine_qualifikation_ergibt_keine_entscheidungen(self) -> None:
@@ -75,27 +79,72 @@ class TestEntscheidungszeitpunkte:
         assert find_historical_decisions(series, PARAMS) == ()
 
 
-class TestCooldownDeduplizierung:
-    def test_ereignisse_innerhalb_der_cooldown_frist_werden_verworfen(self) -> None:
-        decisions = [
-            (10, EXPECTED_COMBINATION),
-            (12, EXPECTED_COMBINATION),
-            (20, EXPECTED_COMBINATION),
-            (21, EXPECTED_COMBINATION),
-            (30, EXPECTED_COMBINATION),
-        ]
-        result = deduplicate_with_cooldown(decisions, cooldown_candles=5)
-        assert [index for index, _ in result] == [10, 20, 30]
+class TestEpisodenbildung:
+    """Geteilte Signalereignisse buendeln, nicht zeitliche Naehe (ADR 0057)."""
 
-    def test_genau_die_cooldown_distanz_wird_noch_verworfen(self) -> None:
-        decisions = [(10, EXPECTED_COMBINATION), (15, EXPECTED_COMBINATION)]
-        result = deduplicate_with_cooldown(decisions, cooldown_candles=5)
-        assert [index for index, _ in result] == [10]
+    @staticmethod
+    def _entscheidung(index: int, *ereignisse: tuple[SignalType, int]) -> HistoricalDecision:
+        return HistoricalDecision(
+            index=index,
+            combination=EXPECTED_COMBINATION,
+            signal_events=frozenset(
+                SignalEvent(signal_type=typ, candle_index=kerze) for typ, kerze in ereignisse
+            ),
+        )
 
-    def test_eine_kerze_ueber_der_cooldown_distanz_wird_behalten(self) -> None:
-        decisions = [(10, EXPECTED_COMBINATION), (16, EXPECTED_COMBINATION)]
-        result = deduplicate_with_cooldown(decisions, cooldown_candles=5)
-        assert [index for index, _ in result] == [10, 16]
+    def test_ein_geteiltes_ereignis_buendelt(self) -> None:
+        kreuzung = (SignalType.RSI_CROSS, 8)
+        episoden = group_into_episodes(
+            [
+                self._entscheidung(10, kreuzung),
+                self._entscheidung(12, kreuzung, (SignalType.EMA5_EMA20_CROSS, 11)),
+            ]
+        )
+        assert [[e.index for e in episode] for episode in episoden] == [[10, 12]]
+
+    def test_ohne_geteiltes_ereignis_bleiben_es_zwei(self) -> None:
+        """Zeitlich dicht, aber auf eigener Grundlage -- der Fall aus
+        ``docs/backtesting/Gruppierung.png``, zweiter Block."""
+        episoden = group_into_episodes(
+            [
+                self._entscheidung(10, (SignalType.RSI_CROSS, 8)),
+                self._entscheidung(12, (SignalType.RSI_CROSS, 12)),
+            ]
+        )
+        assert [[e.index for e in episode] for episode in episoden] == [[10], [12]]
+
+    def test_die_kette_reicht_ueber_den_direkten_nachbarn_hinaus(self) -> None:
+        """Der dritte Punkt teilt nichts mehr mit dem ersten, wohl aber mit
+        dem zweiten -- alle drei sind eine Episode."""
+        episoden = group_into_episodes(
+            [
+                self._entscheidung(10, (SignalType.RSI_CROSS, 8)),
+                self._entscheidung(
+                    12, (SignalType.RSI_CROSS, 8), (SignalType.EMA5_EMA20_CROSS, 11)
+                ),
+                self._entscheidung(14, (SignalType.EMA5_EMA20_CROSS, 11)),
+            ]
+        )
+        assert [[e.index for e in episode] for episode in episoden] == [[10, 12, 14]]
+
+    def test_grosser_abstand_trennt_nicht_wenn_die_grundlage_dieselbe_ist(self) -> None:
+        """Der Gegenentwurf zum frueheren Cooldown: Er haette hier getrennt."""
+        kreuzung = (SignalType.RSI_CROSS, 8)
+        episoden = group_into_episodes(
+            [self._entscheidung(10, kreuzung), self._entscheidung(13, kreuzung)]
+        )
+        assert len(episoden) == 1
+
+    def test_das_ausschlusskriterium_verkettet_nie(self) -> None:
+        """Es traegt immer die eigene Entscheidungskerze und sagt damit nichts
+        ueber gemeinsame Grundlage."""
+        episoden = group_into_episodes(
+            [
+                self._entscheidung(10, (SignalType.NO_RECENT_EMA_DOWNCROSS, 10)),
+                self._entscheidung(12, (SignalType.NO_RECENT_EMA_DOWNCROSS, 12)),
+            ]
+        )
+        assert len(episoden) == 2
 
     def test_leere_liste_bleibt_leer(self) -> None:
-        assert deduplicate_with_cooldown([], cooldown_candles=5) == ()
+        assert group_into_episodes([]) == ()

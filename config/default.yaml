@@ -111,9 +111,10 @@ repeat_suppression:
 backtesting:
   history_years: 5
   horizons: [5, 10, 20]
-  # Freigegeben als F5: Cooldown nach jedem gezaehlten Ereignis, damit
-  # geclusterte Qualifikationen die Stichprobe nicht aufblaehen.
-  cooldown_candles: 5
+  # Einen Cooldown gibt es hier nicht mehr: Seit ADR 0057 buendelt der
+  # Backtest Entscheidungspunkte zu Episoden, wenn sie dasselbe
+  # Signalereignis auswerten. Das braucht keinen Zahlenparameter -- die
+  # Zusammengehoerigkeit steht in den Daten.
   # Konfidenzstufen nach F6.
   minimum_sample_size: 10
   normal_confidence_sample_size: 30

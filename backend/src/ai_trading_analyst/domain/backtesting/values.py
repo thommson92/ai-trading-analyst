@@ -37,6 +37,11 @@ class HorizonMetrics:
     """Kennzahlen einer Signalkombination fuer einen Bewertungshorizont
     (Doc 07 "Kennzahlen").
 
+    ``deduplicated_event_count`` zaehlt seit ADR 0057 die **Episoden** --
+    Entscheidungspunkte, die dieselbe Bewegung auswerten, sind ein Ereignis.
+    Der Feldname blieb: Was eine Zeile bedeutet, sagt ihre Signalregel-Version,
+    und ein neuer Name haette alte Zeilen nicht wahrer gemacht.
+
     Alle ``float``-Felder sind ``None``, wenn ``deduplicated_event_count``
     null ist -- kein Ersatzwert, kein stillschweigender Nullwert.
     """
@@ -87,7 +92,6 @@ class BacktestParameters:
     config-frei."""
 
     horizons: tuple[int, ...]
-    cooldown_candles: int
     minimum_sample_size: int
     normal_confidence_sample_size: int
     history_years: int

@@ -68,7 +68,6 @@ zugleich, dass die ausgelieferten Werte in sich stimmig sind."""
 
 _BACKTEST_PARAMS = BacktestParameters(
     horizons=(5, 10, 20),
-    cooldown_candles=5,
     minimum_sample_size=10,
     normal_confidence_sample_size=30,
     history_years=5,

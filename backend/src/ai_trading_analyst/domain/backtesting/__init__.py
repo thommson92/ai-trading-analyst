@@ -1,7 +1,7 @@
 """Historische Signalprüfung (Doc 07; G1-Prüfvorlage Abschnitt 4; CLAUDE.md "Backtesting")."""
 
 from .metrics import compute_backtest_results, compute_horizon_metrics, group_by_combination
-from .replay import Decision, deduplicate_with_cooldown, find_historical_decisions
+from .replay import HistoricalDecision, find_historical_decisions, group_into_episodes
 from .values import (
     BacktestConfidence,
     BacktestParameters,
@@ -14,12 +14,12 @@ __all__ = [
     "BacktestConfidence",
     "BacktestParameters",
     "BacktestResult",
-    "Decision",
+    "HistoricalDecision",
     "HorizonMetrics",
     "SignalCombination",
     "compute_backtest_results",
     "compute_horizon_metrics",
-    "deduplicate_with_cooldown",
     "find_historical_decisions",
     "group_by_combination",
+    "group_into_episodes",
 ]
