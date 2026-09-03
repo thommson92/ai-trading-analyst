@@ -3504,3 +3504,24 @@ class TestChartKommando:
     def test_das_ziel_hat_eine_vorgabe(self) -> None:
         args = build_parser().parse_args(["chart", "--symbols", "AAPL"])
         assert args.output == "charts"
+
+    def test_verweigert_den_lauf_wenn_der_anbieter_nicht_ibkr_ist(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wie beim Backtest: Der Fixture-Anbieter kennt nur Kunstsymbole.
+        Ohne diese Pruefung meldete das Kommando fuer jedes echte Symbol
+        'Nicht in der Watchlist gefunden' und schoebe die Schuld auf die
+        Watchlist statt auf den Anbieter."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "AAPL",
+             "--output", str(projekt / "charts")]
+        )
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "'fixture'" in fehler
+        assert "Nicht in der Watchlist gefunden" not in fehler
+        # Kein Verzeichnis anlegen, bevor der Lauf ueberhaupt moeglich ist.
+        assert not (projekt / "charts").exists()

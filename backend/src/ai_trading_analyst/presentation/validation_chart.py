@@ -18,7 +18,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ai_trading_analyst.domain.backtesting import find_historical_decisions, group_into_episodes
+from ai_trading_analyst.domain.backtesting import (
+    find_historical_decisions,
+    group_into_episodes,
+    is_decision_point,
+)
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
@@ -27,8 +31,6 @@ from ai_trading_analyst.domain.screening import (
     SignalType,
     evaluate_candidate,
 )
-
-_FIRST_DAILY_CANDLE = 1
 
 KRITERIUM_KURZ = {
     SignalType.RSI_CROSS: "RSI-Kreuz",
@@ -82,7 +84,7 @@ def build_chart_payload(
             "rma": None if werte.rsi_ma is None else round(werte.rsi_ma, 2),
         }
 
-        if kerze.daily_candle_index == _FIRST_DAILY_CANDLE:
+        if is_decision_point(series, i):
             ergebnis = evaluate_candidate(series, i, params)
             if ergebnis.status is ScreeningStatus.CANDIDATE:
                 geprueft += 1
@@ -101,7 +103,7 @@ def build_chart_payload(
         "symbol": symbol,
         "regelversion": SIGNAL_RULE_VERSION,
         "kerzen": kerzen,
-        "entscheidungspunkte": geprueft,
+        "geprueft": geprueft,
         "treffer": len(entscheidungen),
         "episoden": len(episoden),
         "verworfen": verworfen,
@@ -454,8 +456,8 @@ _VORLAGE = """<!doctype html>
   document.getElementById("spanne").textContent =
     `195-Minuten-Kerzen \\u00b7 ${fmt(a)} bis ${fmt(b2)} \\u00b7 Regel ${D.regelversion}`;
   document.getElementById("kennzahlen").innerHTML = [
-    ["Kerzen", K.length], ["Entscheidungspunkte", D.entscheidungspunkte],
-    ["Treffer", D.treffer, "treffer"], ["Episoden", D.episoden],
+    ["Kerzen", K.length], ["geprueft", D.geprueft],
+    ["Entscheidungspunkte", D.treffer, "treffer"], ["Episoden", D.episoden],
     ["Verworfen (Tor)", D.verworfen], ["Warm-up", D.warmup],
   ].map(([t, w, c]) => `<div class="kennzahl ${c || ""}"><dt>${t}</dt>` +
        `<dd>${Number(w).toLocaleString("de-DE")}</dd></div>`).join("");

@@ -98,13 +98,16 @@ class TestNutzlast:
         assert len(erste) == payload["episoden"]
         assert all(k["ep"] == kandidaten[0]["ep"] for k in kandidaten) or payload["episoden"] > 1
 
-    def test_die_kennzahlen_zaehlen_nur_entscheidungspunkte(self) -> None:
+    def test_geprueft_zaehlt_nur_erste_tageskerzen(self) -> None:
+        """``geprueft`` sind die ausgewerteten Kerzen, ``treffer`` die
+        Entscheidungspunkte im Sinne von ADR 0057 -- zwei verschiedene
+        Zahlen, die sich leicht verwechseln lassen."""
         payload = build_chart_payload("TEST", _serie(), PARAMS)
         erste_tageskerzen_nach_warmup = len(
             [i for i in range(PARAMS.warmup_candles, SERIES_LENGTH) if i % 2 == 0]
         )
 
-        assert payload["entscheidungspunkte"] == erste_tageskerzen_nach_warmup
+        assert payload["geprueft"] == erste_tageskerzen_nach_warmup
         assert payload["treffer"] == 0
 
     def test_die_regelversion_steht_in_der_nutzlast(self) -> None:

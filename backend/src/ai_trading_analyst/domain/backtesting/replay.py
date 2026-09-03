@@ -22,6 +22,17 @@ from .values import SignalCombination
 _FIRST_DAILY_CANDLE = 1
 
 
+def is_decision_point(series: CandleSeries, t: int) -> bool:
+    """Wird an dieser Kerze ueberhaupt entschieden?
+
+    Nur die erste Tageskerze -- wie im Live-Betrieb (G1-Pruefvorlage
+    Abschnitt 4.1). Oeffentlich, damit der Validierungschart dieselbe
+    Definition benutzt und nicht eine zweite, die stillschweigend
+    auseinanderlaufen koennte.
+    """
+    return series.candle(t).daily_candle_index == _FIRST_DAILY_CANDLE
+
+
 @dataclass(frozen=True, slots=True)
 class HistoricalDecision:
     """Ein historischer Entscheidungspunkt.
@@ -50,7 +61,7 @@ def find_historical_decisions(
     """
     decisions: list[HistoricalDecision] = []
     for t in range(len(series)):
-        if series.candle(t).daily_candle_index != _FIRST_DAILY_CANDLE:
+        if not is_decision_point(series, t):
             continue
         result = evaluate_candidate(series, t, params)
         if result.status == ScreeningStatus.CANDIDATE:
@@ -94,12 +105,10 @@ def group_into_episodes(
     gemeinsame Grundlage.
     """
     episodes: list[list[HistoricalDecision]] = []
-    laufende_ereignisse: frozenset[SignalEvent] = frozenset()
     for decision in decisions:
-        if episodes and (laufende_ereignisse & decision.signal_events):
+        vorgaenger = episodes[-1][-1] if episodes else None
+        if vorgaenger is not None and (vorgaenger.signal_events & decision.signal_events):
             episodes[-1].append(decision)
-            laufende_ereignisse |= decision.signal_events
         else:
             episodes.append([decision])
-            laufende_ereignisse = decision.signal_events
     return tuple(tuple(episode) for episode in episodes)

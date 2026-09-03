@@ -1621,6 +1621,20 @@ def command_chart(args: argparse.Namespace) -> int:
         market_data = config.market_data.model_copy(update={"provider": args.provider})
         config = config.model_copy(update={"market_data": market_data})
 
+    if config.market_data.provider != "ibkr":
+        # Ohne diese Pruefung meldete das Kommando fuer jedes echte Symbol
+        # "Nicht in der Watchlist gefunden" -- und schoebe die Schuld damit
+        # auf die Watchlist statt auf den Anbieter, der nur Kunstsymbole
+        # kennt.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Chart zeigt den gespeicherten "
+            "Bestand -- entweder market_data.provider auf 'ibkr' stellen oder "
+            "zuerst 'backfill' laufen lassen.",
+            file=sys.stderr,
+        )
+        return 2
+
     market_data = config.market_data.model_copy(update={"source": "stored"})
     config = config.model_copy(update={"market_data": market_data})
 
@@ -1675,8 +1689,9 @@ def command_chart(args: argparse.Namespace) -> int:
             geschrieben.append(datei)
             print(
                 f"{stock.symbol}: {len(series)} Kerzen, "
-                f"{payload['entscheidungspunkte']} Entscheidungspunkte, "
-                f"{payload['treffer']} Treffer in {payload['episoden']} Episoden, "
+                f"{payload['geprueft']} geprueft, "
+                f"{payload['treffer']} Entscheidungspunkte in "
+                f"{payload['episoden']} Episoden, "
                 f"{payload['verworfen']} an einer Torbedingung verworfen "
                 f"-> {datei}"
             )
