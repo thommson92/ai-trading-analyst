@@ -191,18 +191,24 @@ getrennt ausgewiesen, und keine ersetzt die andere:
 Die zweite macht den Unterschied zwischen den Strukturen vollständig sichtbar,
 ohne dass eine Zinsannahme nötig wäre. Der Verzicht wird am Ergebnis vermerkt.
 
-### 7. Simuliert werden vier Varianten
+### 7. Simuliert werden zwei Varianten
 
 | Variante | Regel |
 |---|---|
 | **Grundlinie** | halten bis Verfall |
 | **Gemanagt** | Gewinnmitnahme bei **33 %** der Prämie; Rückkauf, wenn der Optionspreis das **Dreifache** der vereinnahmten Prämie erreicht |
-| **Chartbasiert** | Ausstieg bei Schluss unter dem EMA 20 bzw. unter der Unterstützungszone |
 
-Die Grundlinie ist kein Beiwerk: Ohne sie hätte kein Vergleich einen
-Bezugspunkt. Der Vergleich der gemanagten gegen die chartbasierte Variante ist
-für sich interessant — er beantwortet, ob ein Auslöser aus dem Chart besser
-trägt als eine Zahl am Optionspreis.
+Die Grundlinie ist kein Beiwerk: Ohne sie hätte die gemanagte Variante keinen
+Bezugspunkt. Erst der Abstand zwischen beiden sagt, ob das Management etwas
+beiträgt oder nur Transaktionskosten erzeugt.
+
+**Ein chartbasierter Ausstieg** — Schluss unter dem EMA 20 oder unter der
+Unterstützungszone — wird **nicht** simuliert. Er war vorgeschlagen und ist
+verworfen worden. Das ist zugleich eine architektonische Vereinfachung: Der
+Options-Replay braucht damit für den Ausstieg **keine Indikatoren und keine
+Zonen**, sondern allein den Kurspfad und das Preismodell. Er hängt damit an
+nichts aus `domain/technical`; die Einstiegspunkte kommen weiterhin aus dem
+Screening-Replay.
 
 **Was die gewählten Parameter verlangen.** Bei Gewinnmitnahme über `+0,33 ×
 Prämie` und Rückkauf bei `−2,00 × Prämie` — das Dreifache zahlen, das Einfache
@@ -267,8 +273,12 @@ Als **Zusatz**, sobald der Absicherungs-Strike notiert wird (Festlegung 11):
 4. **Liquidität des Absicherungs-Strikes** — ist die zweite Seite dünn, ist der
    Spread eine Rechnung und kein Handel.
 6. **Abstand des Strikes zur Unterstützungszone** (`distance_to_support_pct`,
-   existiert bereits) — er macht aus „Zone bricht" einen chartbaren
-   Stop-Auslöser statt einer erfundenen Zahl.
+   existiert bereits) — eine Aussage über die **Lage des Strikes**, nicht über
+   einen Ausstieg: Ein Strike über einer belastbaren Zone muss erst durch sie
+   hindurch angedient werden, ein Strike darunter nicht. Die ursprüngliche
+   Begründung — die Zone als chartbarer Stop-Auslöser — ist mit Festlegung 7
+   entfallen; das Kriterium bleibt, weil es auch ohne Ausstiegsregel etwas
+   Wahres über den gewählten Kontrakt sagt.
 
 **Später:** das Volatilitätsregime (sobald die IV-Historie aus Festlegung 1
 trägt) und die gemessene Backtest-Evidenz je Signalkombination.
