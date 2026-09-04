@@ -204,6 +204,33 @@ class OptionsAnalysis:
     dahinter."""
     reason: str | None = None
     """Nur bei ``INSUFFICIENT_DATA`` gesetzt: warum kein Vorschlag entstand."""
+    quotes: tuple[OptionQuote, ...] = ()
+    """**Jede** abgerufene Notierung, nicht nur die bewerteten Vorschlaege
+    (ADR 0058, Festlegung 1).
+
+    Das ist die Grundlage, nicht das Ergebnis: Wo ``strategies`` sagt, was
+    empfohlen wird, sagt ``quotes``, was der Markt in diesem Augenblick
+    ueberhaupt stellte. Der Abruf holt bis zu ``max_strikes`` Kontrakte und
+    behaelt hoechstens ``max_suggestions``; die uebrigen verschwanden bisher
+    nach der Auswertung. Genau sie tragen die Auskunft, die ADR 0058 fuer die
+    Kalibrierung des Bewertungsmodells braucht -- vor allem die Notierungen
+    **ausserhalb** des Delta-Bandes, die als einzige etwas ueber die Form der
+    Volatilitaetskurve sagen.
+
+    Auch bei ``INSUFFICIENT_DATA`` gefuellt, sofern der Abruf ueberhaupt
+    stattfand. Gerade dann ist die Menge interessant: Ein Lauf, in dem keine
+    einzige Notierung brauchbar war, sagt ueber den Anbieter mehr aus als
+    einer, in dem alles glattging.
+
+    Leer, wenn vor dem Abruf abgebrochen wurde -- kein Verfallstermin im
+    Fenster, kein Strike im Moneyness-Band. Leer ist hier also "nicht
+    abgerufen" und nicht "nichts gestellt"; welcher Fall vorliegt, sagt
+    ``reason``.
+
+    **Wird nicht zurueckgelesen.** Die Persistenz schreibt diese Menge in eine
+    eigene Tabelle; ein aus der Datenbank geladenes ``OptionsAnalysis`` traegt
+    hier ein leeres Tupel. Die Kalibrierung fragt die Tabelle, nicht dieses
+    Feld."""
     parameters: Mapping[str, float] = field(
         default_factory=lambda: MappingProxyType({}),
     )

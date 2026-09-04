@@ -183,6 +183,7 @@ def build_options_analysis(
             parameters=parameters,
             underlying_price=price,
             expiration=expiration,
+            quotes=tuple(quotes),
         )
 
     strategien.sort(
@@ -194,6 +195,12 @@ def build_options_analysis(
         underlying_price=price,
         expiration=expiration,
         strategies=tuple(strategien[: parameters.max_suggestions]),
+        # Alle abgerufenen Notierungen, nicht nur die empfohlenen (ADR 0058,
+        # Festlegung 1). Hier und nicht im Adapter: Beide Anbieter -- IBKR und
+        # Fixture -- laufen durch diese Funktion, und was einer von beiden
+        # mitschriebe und der andere nicht, waere spaeter eine Luecke, die
+        # niemand erklaeren koennte.
+        quotes=tuple(quotes),
         parameters=parameters.as_mapping(),
     )
 
@@ -205,6 +212,7 @@ def unzureichend(
     parameters: OptionsParameters,
     underlying_price: float | None = None,
     expiration: date | None = None,
+    quotes: tuple[OptionQuote, ...] = (),
 ) -> OptionsAnalysis:
     """Ein Ergebnis ohne Vorschlaege -- mit Grund, nie stillschweigend.
 
@@ -212,6 +220,11 @@ def unzureichend(
     Verfallstermin im Zielfenster, kein Strike im Moneyness-Band. Der
     Aktienkurs bleibt erhalten, weil er auch dann belegt, worauf gerechnet
     wurde.
+
+    ``quotes`` bleibt bei diesen Aufrufern leer -- dort gab es keinen Abruf.
+    Kam die Kette an und war nur nichts davon brauchbar, reicht
+    ``build_options_analysis`` sie herein: Diese Notierungen sind fuer die
+    Kalibrierung (ADR 0058) genauso gueltig wie die eines geglueckten Laufs.
     """
     return OptionsAnalysis(
         status=OptionsStatus.INSUFFICIENT_DATA,
@@ -219,6 +232,7 @@ def unzureichend(
         underlying_price=underlying_price,
         expiration=expiration,
         reason=reason,
+        quotes=quotes,
         parameters=parameters.as_mapping(),
     )
 

@@ -96,6 +96,7 @@ from .orm import (
     BacktestResultOrm,
     FundamentalMetricOrm,
     IntradayBarOrm,
+    OptionQuoteOrm,
     ProcessingErrorOrm,
     ResearchCitationOrm,
     ScreeningResultOrm,
@@ -1102,6 +1103,24 @@ class SqlAlchemyScreeningResultRepository:
             )
             for position, metric in enumerate(
                 fundamentals.metrics.values() if fundamentals is not None else ()
+            )
+        ]
+        optionen = outcome.options
+        row.option_quotes = [
+            OptionQuoteOrm(
+                id=uuid.uuid4(),
+                position=position,
+                expiration=quote.expiration,
+                strike=quote.strike,
+                bid=quote.bid,
+                ask=quote.ask,
+                delta=quote.delta,
+                implied_volatility=quote.implied_volatility,
+                open_interest=quote.open_interest,
+                volume=quote.volume,
+            )
+            for position, quote in enumerate(
+                optionen.quotes if optionen is not None else ()
             )
         ]
         self._session.add(row)

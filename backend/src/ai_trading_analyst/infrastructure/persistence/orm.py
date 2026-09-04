@@ -438,6 +438,11 @@ class ScreeningResultOrm(Base):
         cascade="all, delete-orphan",
         order_by="FundamentalMetricOrm.position",
     )
+    option_quotes: Mapped[list[OptionQuoteOrm]] = relationship(
+        back_populates="screening_result",
+        cascade="all, delete-orphan",
+        order_by="OptionQuoteOrm.position",
+    )
 
 
 class SignalEventOrm(Base):
@@ -449,6 +454,51 @@ class SignalEventOrm(Base):
     candle_index: Mapped[int]
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="signal_events")
+
+
+class OptionQuoteOrm(Base):
+    """Eine einzelne abgerufene Put-Notierung (ADR 0058, Festlegung 1).
+
+    **Eigene Tabelle und nicht JSONB wie ``options_strategies``** -- und zwar
+    nach dem Kriterium, das dort selbst genannt ist: Die Vorschlaege werden
+    "im Ganzen geschrieben, im Ganzen gelesen, nie gefiltert oder sortiert".
+    Bei den Rohnotierungen ist genau das Gegenteil der Zweck. Sie existieren,
+    um spaeter nach Moneyness gruppiert, ueber Zeitraeume aggregiert und gegen
+    die modellierte Praemie gehalten zu werden; als JSONB muesste jede dieser
+    Abfragen die Menge erst entpacken.
+
+    Keine Spalten fuer Zeitpunkt und Aktienkurs: Beide stehen mit
+    ``options_evaluated_at`` und ``options_underlying_price`` an der
+    Elternzeile und gelten fuer jede Notierung desselben Abrufs gleich.
+    """
+
+    __tablename__ = "option_quotes"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    screening_result_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("screening_results.id"), index=True
+    )
+    """``index=True`` gehoert an das Modell und nicht nur in die Migration --
+    sonst erzeugte das naechste ``alembic revision --autogenerate`` ein
+    ``drop_index``, weil ``env.py`` gegen ``Base.metadata`` vergleicht."""
+    position: Mapped[int]
+    """Reihenfolge des Abrufs -- die Strikes kommen absteigend, die
+    naechstliegenden zuerst (``select_strikes``). Muster
+    ``TechnicalZoneOrm.position``: Eine Relationship ohne ``order_by``
+    liefert die Kinder in einer Reihenfolge, die die Datenbank bestimmt."""
+    expiration: Mapped[date] = mapped_column(Date)
+    strike: Mapped[float]
+    bid: Mapped[float | None] = mapped_column(nullable=True)
+    ask: Mapped[float | None] = mapped_column(nullable=True)
+    delta: Mapped[float | None] = mapped_column(nullable=True)
+    """Vorzeichenbehaftet, wie der Anbieter ihn liefert -- fuer einen Put also
+    negativ. Bewusst **nicht** als Betrag gespeichert wie am Vorschlag: Hier
+    steht, was ankam, nicht, was daraus gemacht wurde."""
+    implied_volatility: Mapped[float | None] = mapped_column(nullable=True)
+    open_interest: Mapped[int | None] = mapped_column(nullable=True)
+    volume: Mapped[int | None] = mapped_column(nullable=True)
+
+    screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="option_quotes")
 
 
 class TechnicalZoneOrm(Base):
