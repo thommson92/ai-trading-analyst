@@ -388,6 +388,7 @@ def build_options_params(config: AppConfig) -> OptionsParameters:
         max_relative_spread=section.max_relative_spread,
         min_open_interest=section.min_open_interest,
         min_volume=section.min_volume,
+        hedge_width_pct=section.hedge_width_pct,
     )
 
 

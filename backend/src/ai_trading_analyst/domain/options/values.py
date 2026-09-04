@@ -21,8 +21,12 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
-OPTIONS_ANALYSIS_VERSION = "options-v1"
+if TYPE_CHECKING:
+    from .spread import PutSpread
+
+OPTIONS_ANALYSIS_VERSION = "options-v2"
 """Version des Bewertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung).
 
@@ -33,8 +37,16 @@ aus dem Geldkurs, und man muss einem gespeicherten Ergebnis ansehen koennen,
 welche von beiden es ist.
 
 ``v1`` rechnet mit dem **Mittelwert**. Waehrend der Entwicklung stand hier
-kurzzeitig der Geldkurs; da nie ein Ergebnis gespeichert wurde, bleibt es
-bei ``v1``."""
+kurzzeitig der Geldkurs; da nie ein Ergebnis gespeichert wurde, blieb es
+zunaechst bei ``v1``.
+
+``v2`` fuegt den Strukturvergleich hinzu (ADR 0058, Festlegung 11). Er ist
+keine neue Auswahlregel -- die Vorschlaege sind Zahl fuer Zahl dieselben --,
+aber er bringt eine neue Annahme mit, die an keinem Ergebnis steht:
+``hedge_width_pct``. Ohne den Sprung waeren zwei Zeilen, die mit 6,5 und mit
+10 Prozent Zielbreite gerechnet wurden, nicht auseinanderzuhalten, und eine
+alte Zeile ohne Spread saehe aus wie eine neue, bei der keiner zustande kam.
+"""
 
 
 class OptionsStatus(StrEnum):
@@ -231,6 +243,25 @@ class OptionsAnalysis:
     eigene Tabelle; ein aus der Datenbank geladenes ``OptionsAnalysis`` traegt
     hier ein leeres Tupel. Die Kalibrierung fragt die Tabelle, nicht dieses
     Feld."""
+    spread: PutSpread | None = None
+    """Der Put-Spread zum bestbewerteten Vorschlag (ADR 0058, Festlegung 11),
+    oder ``None``.
+
+    Der Import steht unter ``TYPE_CHECKING``: ``spread.py`` braucht
+    ``PutStrategy`` von hier, zur Laufzeit schloesse eine Angabe in die
+    Gegenrichtung den Kreis. Mit ``from __future__ import annotations`` wird
+    die Annotation nicht ausgewertet, ``mypy`` sieht sie trotzdem -- ein
+    ``object`` an dieser Stelle schaltete die Pruefung ab, und eine
+    Zeichenkette liesse sich unbemerkt hineinlegen.
+
+    ``None`` heisst **nicht** "kein Spread moeglich", sondern "nicht
+    gerechnet oder nicht zustande gekommen"; warum, sagt ``spread_reason``."""
+    spread_reason: str | None = None
+    """Warum kein Spread entstand -- im Klartext, nie stillschweigend.
+
+    Der Vergleich ist eine **zusaetzliche** Auskunft: Faellt er aus, bleibt
+    der Put-Vorschlag vollstaendig. Ein Cash Secured Put ist auch ohne
+    Alternative ein Vorschlag."""
     parameters: Mapping[str, float] = field(
         default_factory=lambda: MappingProxyType({}),
     )
@@ -286,6 +317,17 @@ class OptionsParameters:
     """Geld-Brief-Spanne im Verhaeltnis zum Mittelwert, ab der gewarnt wird."""
     min_open_interest: int = 100
     min_volume: int = 10
+    hedge_width_pct: float = 0.065
+    """Zielabstand des Absicherungs-Strikes unter dem Verkauf, als Anteil des
+    **Aktienkurses** (ADR 0058, Festlegung 11).
+
+    Anteil des Kurses und nicht des Strikes, damit die Breite ueber Titel
+    hinweg dasselbe bedeutet -- ein Kursrutsch misst sich am Kurs.
+
+    6,5 Prozent sind **gewaehlt, nicht gemessen**: Bei einem Titel um 230
+    Dollar treffen sie das uebliche Strike-Raster drei Stufen unter dem
+    Verkauf und liegen damit in der Spannweite, in der ein Put-Spread ueblich
+    gehandelt wird. Was er tatsaechlich kostet, misst der Lauf."""
 
     def as_mapping(self) -> Mapping[str, float]:
         """Die Parameter zum Mitspeichern am Ergebnis."""
@@ -303,5 +345,6 @@ class OptionsParameters:
                 "max_relative_spread": self.max_relative_spread,
                 "min_open_interest": float(self.min_open_interest),
                 "min_volume": float(self.min_volume),
+                "hedge_width_pct": self.hedge_width_pct,
             }
         )

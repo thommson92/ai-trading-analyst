@@ -395,6 +395,20 @@ class ScreeningResultOrm(Base):
     abgeschlossenen Kerze. Ohne ihn liesse sich der Abstand eines Strikes zum
     Kurs spaeter nicht nachrechnen."""
     options_expiration: Mapped[date | None] = mapped_column(Date, nullable=True)
+    options_spread: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """Der Put-Spread zum bestbewerteten Vorschlag (ADR 0058, Festlegung 11).
+
+    JSONB wie ``options_strategies`` und aus demselben Grund: im Ganzen
+    geschrieben, im Ganzen gelesen, nie gefiltert oder sortiert. Anders als
+    die Rohnotierungen -- die gehoeren in eine eigene Tabelle, weil ueber sie
+    aggregiert wird."""
+    options_spread_reason: Mapped[str | None] = mapped_column(nullable=True)
+    """Warum kein Spread entstand -- im Klartext, nie stillschweigend.
+
+    Eigene Spalte neben ``options_reason``: Die Optionsanalyse kann
+    vollstaendig sein und der Strukturvergleich trotzdem fehlen. Beide Gruende
+    in eine Spalte zu legen hiesse, zwei verschiedene Ausfaelle zu
+    verwechseln."""
     options_strategies: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB, nullable=True
     )

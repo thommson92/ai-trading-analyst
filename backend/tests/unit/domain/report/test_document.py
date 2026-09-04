@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
@@ -17,9 +18,11 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.options import (
     OPTIONS_ANALYSIS_VERSION,
+    REASON_NO_HEDGE_STRIKE,
     LiquidityGrade,
     OptionsAnalysis,
     OptionsStatus,
+    PutSpread,
     PutStrategy,
 )
 from ai_trading_analyst.domain.report import ReportSection, as_document, build_report
@@ -386,6 +389,45 @@ class TestPutStrategienImDokument:
         (vorschlag,) = self._inhalt(self._analyse(earnings_within_term=None))["vorschlaege"]
 
         assert vorschlag["earnings_within_term"] is None
+
+    def test_der_strukturvergleich_steht_aufgeloest_im_abschnitt(self) -> None:
+        """ADR 0058, Festlegung 11. Er steht **neben** den Vorschlaegen und
+        ersetzt keinen -- aber wenn er da ist, gehoert er ganz da hin."""
+        spread = PutSpread(
+            short_strike=92.0,
+            hedge_strike=85.0,
+            hedge_cost=0.4,
+            net_credit=1.1,
+            max_loss=5.9,
+            capital_at_risk=590.0,
+            hedge_cost_share=0.2667,
+            return_on_risk=0.1864,
+            hedge_liquidity=LiquidityGrade.GOOD,
+            hedge_delta=0.12,
+        )
+
+        inhalt = self._inhalt(replace(self._analyse(), spread=spread))
+
+        assert inhalt["spread_grund"] is None
+        assert inhalt["spread"]["hedge_strike"] == pytest.approx(85.0)
+        assert inhalt["spread"]["max_loss"] == pytest.approx(5.9)
+        # Aufgeloest, nicht als Objektname: Das Enum steht als sein Wert, und
+        # die nicht gelieferten Nebenangaben als ``null`` statt als Zahl.
+        assert inhalt["spread"]["hedge_liquidity"] == "GOOD"
+        assert inhalt["spread"]["hedge_open_interest"] is None
+
+    def test_ein_ausgefallener_vergleich_nennt_seinen_grund(self) -> None:
+        """Ein Vergleich, der einfach fehlt, sieht aus wie einer, den es nicht
+        geben kann. Der Grund steht deshalb in einem **eigenen** Feld neben
+        ``grund`` -- die Optionsanalyse selbst ist vollstaendig."""
+        inhalt = self._inhalt(
+            replace(self._analyse(), spread_reason=REASON_NO_HEDGE_STRIKE)
+        )
+
+        assert inhalt["spread"] is None
+        assert inhalt["spread_grund"] == REASON_NO_HEDGE_STRIKE
+        assert inhalt["grund"] is None
+        assert inhalt["vorschlaege"]
 
 
 class TestEmpfehlungImDokument:

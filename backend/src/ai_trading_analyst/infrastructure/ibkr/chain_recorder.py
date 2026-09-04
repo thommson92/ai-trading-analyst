@@ -83,10 +83,14 @@ class RohNotierungenSammler:
         self.eintraege: list[dict[str, Any]] = []
 
     def __call__(self, tickers: Sequence[Any]) -> None:
-        # Der letzte Abruf gewinnt: Je Aufzeichnung wird genau ein
-        # Verfallstermin notiert, und ein zweiter Aufruf hiesse, dass der
-        # erste nicht der ist, der in der Datei steht.
-        self.eintraege = [_ticker_als_json(ticker) for ticker in tickers]
+        # **Angehaengt, nicht ersetzt.** Frueher gewann der letzte Abruf, weil
+        # es je Aufzeichnung nur einen gab. Seit ADR 0058, Festlegung 11 kann
+        # ein zweiter fuer den Absicherungs-Strike folgen -- und mit dem
+        # frueheren Verhalten stuende in der Datei genau eine Rohnotierung
+        # neben zwoelf uebersetzten. Der Test, der beide Seiten
+        # gegeneinanderhaelt, braeche dann an ihrer Laenge, und zwar erst bei
+        # der naechsten Aufzeichnung am Server.
+        self.eintraege.extend(_ticker_als_json(ticker) for ticker in tickers)
 
 
 class RecordingOptionChainSource:
@@ -152,7 +156,7 @@ class RecordingOptionChainSource:
         quotes = self._inner.option_quotes(
             contract, expiration, strikes, market_data_type, trading_class
         )
-        self._mitschnitt["option_quotes"] = {
+        abschnitt = {
             "expiration": expiration.isoformat(),
             "trading_class": trading_class,
             "market_data_type": market_data_type,
@@ -162,6 +166,15 @@ class RecordingOptionChainSource:
             "angefragte_strikes": list(strikes),
             "quotes": [_quote_als_json(quote) for quote in quotes],
         }
+        # **Der erste Abruf bleibt stehen.** Seit ADR 0058, Festlegung 11 folgt
+        # ein zweiter, gezielter fuer den Absicherungs-Strike. Wuerde er den
+        # ersten ueberschreiben, enthielte die Aufzeichnung genau eine
+        # Notierung statt des Moneyness-Bandes -- und damit nicht mehr das,
+        # wofuer sie eingefroren wird.
+        if "option_quotes" in self._mitschnitt:
+            self._mitschnitt.setdefault("weitere_option_quotes", []).append(abschnitt)
+        else:
+            self._mitschnitt["option_quotes"] = abschnitt
         if self._rohe is not None:
             # Neben den uebersetzten Notierungen, nicht statt ihrer: Der
             # Contract-Test rechnet die Uebersetzung aus den Rohfeldern nach

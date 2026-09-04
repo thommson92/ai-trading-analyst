@@ -22,15 +22,21 @@ kommt so mit jeder Watchlist zurecht.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 from ai_trading_analyst.domain.analysis import OptionsDataProviderError, Stock
 from ai_trading_analyst.domain.options import (
+    REASON_NO_HEDGE_STRIKE,
     OptionQuote,
     OptionsAnalysis,
     OptionsParameters,
     build_options_analysis,
+    evaluate_spread,
+    find_quote,
+    liquiditaetsstufe_von,
     select_expiration,
+    select_hedge_strike,
     select_strikes,
     unzureichend,
 )
@@ -112,7 +118,7 @@ class FixtureOptionsProvider:
             _notierung(strike, price=price, expiration=termin, faktor=faktor)
             for strike in strikes
         ]
-        return build_options_analysis(
+        analyse = build_options_analysis(
             quotes,
             price=price,
             expiration=termin,
@@ -122,6 +128,55 @@ class FixtureOptionsProvider:
             zones=zones,
             next_earnings_date=next_earnings_date,
         )
+        return self._mit_spread(analyse, price=price, expiration=termin, faktor=faktor)
+
+    def _mit_spread(
+        self,
+        analyse: OptionsAnalysis,
+        *,
+        price: float,
+        expiration: date,
+        faktor: float,
+    ) -> OptionsAnalysis:
+        """Der Strukturvergleich auch im Fixture-Betrieb (ADR 0058,
+        Festlegung 11).
+
+        Der IBKR-Anbieter fragt den Absicherungs-Strike in einem zweiten
+        Aufruf nach; hier wird er aus derselben konstruierten Kette gerechnet.
+        Das ist kein Abruf, den es nachzubilden gaebe -- aber ein Fixture-Lauf,
+        in dem der Vergleich einfach fehlte, sagte etwas anderes ueber den
+        Bericht aus als der Scharfbetrieb, und genau davor warnt der
+        Modul-Docstring des Anbieters.
+
+        Das Raster reicht bis 83 Prozent des Kurses; liegt der
+        Absicherungs-Strike darunter, entsteht kein Vergleich -- mit Grund.
+        """
+        if not analyse.strategies:
+            return analyse
+        verkauf = analyse.strategies[0]
+        strike = select_hedge_strike(
+            [round(price * stufe, 1) for stufe in _MONEYNESS_STUFEN],
+            short_strike=verkauf.strike,
+            price=price,
+            width_pct=self._parameters.hedge_width_pct,
+        )
+        if strike is None:
+            return replace(analyse, spread_reason=REASON_NO_HEDGE_STRIKE)
+        # Wie beim IBKR-Weg: erst nachsehen, dann konstruieren. Sonst stuende
+        # derselbe Kontrakt zweimal in ``quotes``.
+        vorhanden = find_quote(analyse.quotes, strike=strike, expiration=expiration)
+        absicherung = vorhanden or _notierung(
+            strike, price=price, expiration=expiration, faktor=faktor
+        )
+        ergebnis = evaluate_spread(
+            verkauf,
+            absicherung,
+            liquidity=liquiditaetsstufe_von(absicherung, self._parameters),
+        )
+        if isinstance(ergebnis, str):
+            return replace(analyse, spread_reason=ergebnis)
+        quotes = analyse.quotes if vorhanden is not None else (*analyse.quotes, absicherung)
+        return replace(analyse, spread=ergebnis, quotes=quotes)
 
 
 def _verfallstermine(as_of: date) -> tuple[date, ...]:

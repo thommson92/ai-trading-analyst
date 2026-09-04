@@ -28,6 +28,7 @@ umdrehen und waere ein erfundener Wert (CLAUDE.md).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Protocol
 
@@ -37,12 +38,17 @@ from ai_trading_analyst.domain.analysis import (
     Stock,
 )
 from ai_trading_analyst.domain.options import (
+    REASON_NO_HEDGE_STRIKE,
     OptionQuote,
     OptionsAnalysis,
     OptionsParameters,
     build_options_analysis,
+    evaluate_spread,
     expirations_in_window,
+    find_quote,
+    liquiditaetsstufe_von,
     select_expiration,
+    select_hedge_strike,
     select_strikes,
     unzureichend,
 )
@@ -185,7 +191,7 @@ class IbkrOptionsProvider:
             len(strikes),
             termin.isoformat(),
         )
-        return build_options_analysis(
+        analyse = build_options_analysis(
             quotes,
             price=price,
             expiration=termin,
@@ -195,6 +201,123 @@ class IbkrOptionsProvider:
             zones=zones,
             next_earnings_date=next_earnings_date,
         )
+        return self._mit_spread(
+            analyse,
+            contract=contract,
+            gelistet=gelistet,
+            price=price,
+            termin=termin,
+            trading_class=struktur.trading_class,
+            symbol=stock.symbol,
+        )
+
+    def _mit_spread(
+        self,
+        analyse: OptionsAnalysis,
+        *,
+        contract: ContractSpec,
+        gelistet: Sequence[float],
+        price: float,
+        termin: date,
+        trading_class: str,
+        symbol: str,
+    ) -> OptionsAnalysis:
+        """Notiert den Absicherungs-Strike nach und rechnet den Spread
+        (ADR 0058, Festlegung 11).
+
+        **Der zweite Abruf faellt nur an, wo es etwas abzusichern gibt** --
+        also nachdem ein Verkaufs-Strike feststeht. Das Moneyness-Band nach
+        unten zu verbreitern haette fuer jeden Kandidaten mehr Kontrakte
+        notiert, auch fuer die ohne Vorschlag.
+
+        **Er haelt den Lauf nicht auf.** Faellt er aus, bleibt die
+        Optionsanalyse vollstaendig und nur der Strukturvergleich fehlt --
+        mit Grund. Ein Cash Secured Put ist auch ohne Alternative ein
+        Vorschlag; ein Anbieterfehler beim Nachschlag darf ihn nicht
+        entwerten.
+        """
+        if not analyse.strategies:
+            return analyse
+        verkauf = analyse.strategies[0]
+        absicherungs_strike = select_hedge_strike(
+            gelistet,
+            short_strike=verkauf.strike,
+            price=price,
+            width_pct=self._parameters.hedge_width_pct,
+        )
+        if absicherungs_strike is None:
+            return replace(analyse, spread_reason=REASON_NO_HEDGE_STRIKE)
+
+        # **Erst nachsehen, dann nachfragen.** Der Absicherungs-Strike liegt
+        # meistens schon im Moneyness-Band; gemessen an der eingefrorenen
+        # AAPL-Kette faellt er mitten hinein. Ihn erneut zu notieren kostete
+        # eine Anfrage umsonst und erzeugte eine Dublette in
+        # ``option_quotes`` -- die Kalibrierung mittelt ueber alle Zeilen.
+        vorhanden = find_quote(
+            analyse.quotes, strike=absicherungs_strike, expiration=termin
+        )
+        neu_abgerufen = False
+        if vorhanden is not None:
+            absicherung = vorhanden
+        else:
+            try:
+                notierungen = self._source.option_quotes(
+                    contract,
+                    termin,
+                    [absicherungs_strike],
+                    self._market_data_type,
+                    trading_class,
+                )
+            except IbkrBarSourceError as error:
+                _logger.warning(
+                    "%s: Absicherungs-Strike %.2f nicht notierbar (%s)",
+                    symbol,
+                    absicherungs_strike,
+                    error,
+                )
+                return replace(
+                    analyse, spread_reason=f"Absicherungs-Strike nicht abrufbar: {error}"
+                )
+            if not notierungen:
+                return replace(
+                    analyse,
+                    spread_reason=(
+                        f"zum Strike {absicherungs_strike:.2f} kam keine Notierung"
+                    ),
+                )
+            absicherung = notierungen[0]
+            # **Geliefert ist nicht angefragt.** Die TWS antwortet gelegentlich
+            # mit einem anderen Kontrakt; ``evaluate_spread`` faengt davon nur,
+            # was auf oder ueber dem Verkauf liegt. Ein beliebiger Strike
+            # *darunter* ergaebe einen rechnerisch richtigen Spread ganz
+            # anderer Breite -- und weil ``find_quote`` ueber den **angefragten**
+            # Strike nachsah, stuende der gelieferte womoeglich ein zweites Mal
+            # in ``option_quotes``. Beides schweigend, beides falsch.
+            if absicherung.strike != absicherungs_strike:
+                return replace(
+                    analyse,
+                    spread_reason=(
+                        f"zum Strike {absicherungs_strike:.2f} kam die Notierung "
+                        f"des Strikes {absicherung.strike:.2f}"
+                    ),
+                    quotes=(*analyse.quotes, absicherung),
+                )
+            neu_abgerufen = True
+
+        # **Vor der Auswertung.** Eine Notierung, die wirklich abgerufen wurde,
+        # wird gespeichert -- auch wenn aus ihr kein Spread wird (ADR 0058,
+        # Festlegung 1). Die Anfrage ist bezahlt, und gerade die Notierungen
+        # ausserhalb des Delta-Bandes sagen als einzige etwas ueber die Form
+        # der Volatilitaetskurve.
+        quotes = (*analyse.quotes, absicherung) if neu_abgerufen else analyse.quotes
+        ergebnis = evaluate_spread(
+            verkauf,
+            absicherung,
+            liquidity=liquiditaetsstufe_von(absicherung, self._parameters),
+        )
+        if isinstance(ergebnis, str):
+            return replace(analyse, spread_reason=ergebnis, quotes=quotes)
+        return replace(analyse, spread=ergebnis, quotes=quotes)
 
 
 _TERMINE_IN_DER_MELDUNG = 6

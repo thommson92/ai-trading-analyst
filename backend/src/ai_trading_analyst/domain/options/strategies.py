@@ -328,6 +328,19 @@ def _bewerte(
     )
 
 
+def liquiditaetsstufe_von(
+    quote: OptionQuote, parameters: OptionsParameters
+) -> LiquidityGrade:
+    """Die Liquiditaetsstufe einer einzelnen Notierung.
+
+    Oeffentlich, weil der Absicherungs-Strike (ADR 0058, Festlegung 11) sie
+    ebenso braucht wie ein Vorschlag -- und mit **derselben** Rechnung: Zwei
+    Fassungen ergaeben zwei Bewertungen derselben Groesse, und Kriterium 4
+    der Strukturwahl haengt daran.
+    """
+    return _liquiditaetsstufe(_liquiditaetswarnungen(quote, parameters))
+
+
 def _liquiditaetswarnungen(
     quote: OptionQuote, parameters: OptionsParameters
 ) -> tuple[str, ...]:

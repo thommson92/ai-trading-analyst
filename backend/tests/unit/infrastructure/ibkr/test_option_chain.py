@@ -9,6 +9,7 @@ dahinter hat ihre eigenen Tests in ``tests/unit/domain/options``.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -20,7 +21,12 @@ from ai_trading_analyst.domain.analysis import (
     OptionsDataProviderError,
     Stock,
 )
-from ai_trading_analyst.domain.options import OptionsParameters, OptionsStatus
+from ai_trading_analyst.domain.options import (
+    REASON_HEDGE_CROSSED,
+    OptionQuote,
+    OptionsParameters,
+    OptionsStatus,
+)
 from ai_trading_analyst.infrastructure.ibkr import (
     IbAsyncBarSource,
     IbkrBarSourceError,
@@ -500,3 +506,146 @@ class TestBerichtsterminBeiDerTerminwahl:
         assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
         assert "nach dem Berichtstermin am 2026-09-15" in (analyse.reason or "")
         assert quelle.angefragte_strikes == []
+
+
+class SpreadQuelle:
+    """Eine Quelle, die **jede** Notierungsanfrage einzeln beantwortet.
+
+    ``FakeQuelle`` gibt auf jede Frage dieselbe Liste zurueck und merkt sich
+    nur die letzte -- fuer den zweiten, gezielten Abruf des
+    Absicherungs-Strikes (ADR 0058, Festlegung 11) ist beides unbrauchbar.
+    """
+
+    def __init__(
+        self,
+        *,
+        notiert: dict[float, OptionQuote],
+        nachschlag: Sequence[OptionQuote] | Exception = (),
+        gelistet: tuple[float, ...] = (80.0, 90.0, 95.0, 99.0, 105.0),
+    ) -> None:
+        self._notiert = notiert
+        self._nachschlag = nachschlag
+        self._gelistet = gelistet
+        self.abfragen: list[tuple[float, ...]] = []
+
+    def option_chain(self, contract: ContractSpec) -> OptionChainStructure:
+        return struktur()
+
+    def option_strikes(
+        self, contract: ContractSpec, expiration: date, trading_class: str
+    ) -> tuple[float, ...]:
+        return self._gelistet
+
+    def option_quotes(
+        self,
+        contract: ContractSpec,
+        expiration: date,
+        strikes: Any,
+        market_data_type: int,
+        trading_class: str,
+    ) -> Sequence[OptionQuote]:
+        self.abfragen.append(tuple(strikes))
+        if len(self.abfragen) == 1:
+            return tuple(self._notiert[s] for s in strikes if s in self._notiert)
+        if isinstance(self._nachschlag, Exception):
+            raise self._nachschlag
+        return self._nachschlag
+
+
+def notierung(
+    strike: float, *, bid: float = 2.0, ask: float = 2.1, delta: float | None = -0.25
+) -> OptionQuote:
+    return OptionQuote(
+        expiration=date(2026, 10, 2),
+        strike=strike,
+        bid=bid,
+        ask=ask,
+        delta=delta,
+        implied_volatility=0.31,
+        open_interest=None,
+        volume=60,
+    )
+
+
+def spread_analyse(quelle: SpreadQuelle) -> Any:
+    """Ein enges Moneyness-Band, damit der Absicherungs-Strike herausfaellt.
+
+    Notiert werden dann nur 99 und 95; die Zielbreite von 6,5 Prozent fuehrt
+    von 99 auf 92,5 und damit auf den gelisteten, aber **nicht** notierten
+    90er. Genau dann tritt der Rueckfall ein.
+    """
+    return IbkrOptionsProvider(
+        quelle,
+        watchlist=[AAPL],
+        parameters=OptionsParameters(min_moneyness=0.92),
+        market_data_type=2,
+        now=lambda: BEWERTET_AM,
+    ).options(AKTIE, price=100.0, as_of=STICHTAG)
+
+
+class TestStrukturvergleichAmAdapter:
+    """Die Zweige des zweiten Abrufs. Sie liegen alle im Adapter, nicht in der
+    Domaene -- die Rechnung selbst hat ihre Tests in
+    ``tests/unit/domain/options/test_spread.py``."""
+
+    def _quelle(self, **kwargs: Any) -> SpreadQuelle:
+        return SpreadQuelle(
+            notiert={99.0: notierung(99.0), 95.0: notierung(95.0)}, **kwargs
+        )
+
+    def test_der_nachgefragte_kontrakt_wird_gespeichert_und_gerechnet(self) -> None:
+        quelle = self._quelle(nachschlag=(notierung(90.0, bid=0.8, ask=0.9),))
+
+        analyse = spread_analyse(quelle)
+
+        assert quelle.abfragen[1] == (90.0,)
+        assert analyse.spread is not None
+        assert analyse.spread.hedge_strike == 90.0
+        # Angehaengt, und genau einmal: Die Kalibrierung mittelt ueber die
+        # Zeilen in ``option_quotes`` (ADR 0058, Festlegung 1).
+        assert [q.strike for q in analyse.quotes] == [99.0, 95.0, 90.0]
+
+    def test_ein_anderer_strike_als_angefragt_wird_nicht_geglaubt(self) -> None:
+        """Der Anbieter antwortet gelegentlich mit einem anderen Kontrakt.
+        Liegt er unter dem Verkauf, ergaebe er einen rechnerisch richtigen
+        Spread ganz anderer Breite -- und stuende womoeglich ein zweites Mal
+        in ``option_quotes``, weil ueber den **angefragten** Strike nachgesehen
+        wurde."""
+        quelle = self._quelle(nachschlag=(notierung(95.0, bid=0.8, ask=0.9),))
+
+        analyse = spread_analyse(quelle)
+
+        assert analyse.spread is None
+        assert "95.00" in (analyse.spread_reason or "")
+        assert "90.00" in (analyse.spread_reason or "")
+
+    def test_ein_ausfall_der_tws_entwertet_die_optionsanalyse_nicht(self) -> None:
+        quelle = self._quelle(nachschlag=IbkrBarSourceError("Zeitueberschreitung"))
+
+        analyse = spread_analyse(quelle)
+
+        assert analyse.status is OptionsStatus.COMPLETED
+        assert analyse.strategies
+        assert analyse.spread is None
+        assert "Zeitueberschreitung" in (analyse.spread_reason or "")
+
+    def test_eine_leere_antwort_nennt_den_strike(self) -> None:
+        quelle = self._quelle(nachschlag=())
+
+        analyse = spread_analyse(quelle)
+
+        assert analyse.spread is None
+        assert "90.00" in (analyse.spread_reason or "")
+
+    def test_eine_abgerufene_notierung_bleibt_auch_ohne_spread_erhalten(self) -> None:
+        """Die Anfrage ist bezahlt, und gerade Notierungen ausserhalb des
+        Bandes sagen als einzige etwas ueber die Form der Volatilitaetskurve
+        (ADR 0058, Festlegung 1). Hier ist der Markt gekreuzt -- kein Spread,
+        aber sehr wohl eine Beobachtung."""
+        quelle = self._quelle(nachschlag=(notierung(90.0, bid=0.9, ask=0.8),))
+
+        analyse = spread_analyse(quelle)
+
+        assert analyse.spread is None
+        assert analyse.spread_reason == REASON_HEDGE_CROSSED
+        assert 90.0 in [q.strike for q in analyse.quotes]
