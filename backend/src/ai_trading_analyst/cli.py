@@ -1713,6 +1713,25 @@ def command_chart(args: argparse.Namespace) -> int:
     return 0 if geschrieben else 1
 
 
+def _volatilitaetsfenster(roh: str) -> int:
+    """Handelstage fuer die realisierte Volatilitaet, mindestens drei.
+
+    Die Untergrenze ist keine Schikane: ``davor[-fenster:]`` ist bei
+    ``fenster=0`` **die ganze Liste** statt keiner, und bei einem negativen
+    Wert eine stillschweigend andere Teilreihe. Beides ergaebe eine plausibel
+    aussehende Volatilitaet ueber einen ganz anderen Zeitraum -- und die geht
+    direkt in den Aufschlag ein, der spaeter einen Konfigurationswert
+    ersetzen soll. Drei ist zugleich das Wenigste, woraus
+    ``realized_volatility`` ueberhaupt einen Wert macht.
+    """
+    wert = int(roh)
+    if wert < 3:
+        raise argparse.ArgumentTypeError(
+            f"--vola-window braucht mindestens 3 Handelstage, war {wert}."
+        )
+    return wert
+
+
 def command_options_calibrate(args: argparse.Namespace) -> int:
     """Haelt das Preismodell gegen die gespeicherten echten Notierungen
     (ADR 0058, Stufe 0).
@@ -1727,8 +1746,9 @@ def command_options_calibrate(args: argparse.Namespace) -> int:
     2026-09-01. Liegt der Fehler hier bei vierzig Prozent, ist der
     historische Lauf Dekoration -- und man weiss es, bevor man ihn baut.
     """
-    load_config(args.config)
+    loaded = load_config(args.config)
     configure_logging(LoggingConfig(level="INFO", format="console"))
+    boersenzeit = ZoneInfo(loaded.config.market.timezone)
 
     engine = _open_database()
     if engine is None:
@@ -1749,12 +1769,14 @@ def command_options_calibrate(args: argparse.Namespace) -> int:
         # Die Schlusskurse je Symbol **einmal** holen und nicht je Notierung:
         # Zwoelf Notierungen desselben Abrufs teilen sich dieselbe Historie.
         schlusskurse = {
-            symbol: _tagesschlusskurse(uow.intraday_bars.list_for(symbol))
+            symbol: _tagesschlusskurse(uow.intraday_bars.list_for(symbol), boersenzeit)
             for symbol in sorted({n.symbol for n in notierungen})
         }
 
     beobachtungen = [
-        _als_beobachtung(notierung, schlusskurse[notierung.symbol], args.vola_window)
+        _als_beobachtung(
+            notierung, schlusskurse[notierung.symbol], args.vola_window, boersenzeit
+        )
         for notierung in notierungen
     ]
     zusammenfassung = summarize_calibration(
@@ -1764,22 +1786,33 @@ def command_options_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _tagesschlusskurse(bars: Sequence[IntradayBar]) -> list[tuple[date, float]]:
+def _tagesschlusskurse(
+    bars: Sequence[IntradayBar], boersenzeit: ZoneInfo
+) -> list[tuple[date, float]]:
     """Je Handelstag der Schluss des letzten Bars, aufsteigend.
 
     Der letzte Bar eines Tages **ist** der Tagesschluss -- eine Aggregation
-    auf 195-Minuten-Kerzen braucht es dafuer nicht. Der Tag kommt aus dem
-    Zeitstempel des Bars und damit aus dessen Zeitzone; die Bars sind auf
-    New Yorker Zeit datiert (ADR 0019), also ist es der Handelstag.
+    auf 195-Minuten-Kerzen braucht es dafuer nicht.
+
+    **Der Handelstag wird umgerechnet, nicht angenommen.** Was aus PostgreSQL
+    zurueckkommt, traegt die Zeitzone der Sitzung und nicht die der Boerse;
+    ``.date()` darauf ergaebe den Kalendertag in UTC. Bei regulaeren
+    Handelszeiten faellt das heute nicht auf -- 13:30 bis 21:00 UTC liegen am
+    selben Tag wie ihre New Yorker Zeit --, aber es faellt still um, sobald
+    Bars ausserhalb davon hereinkommen. ``candle_aggregation.py`` rechnet aus
+    demselben Grund um.
     """
     je_tag: dict[date, float] = {}
     for bar in bars:
-        je_tag[bar.start.date()] = bar.close
+        je_tag[bar.start.astimezone(boersenzeit).date()] = bar.close
     return sorted(je_tag.items())
 
 
 def _als_beobachtung(
-    notierung: StoredQuote, schlusskurse: Sequence[tuple[date, float]], fenster: int
+    notierung: StoredQuote,
+    schlusskurse: Sequence[tuple[date, float]],
+    fenster: int,
+    boersenzeit: ZoneInfo,
 ) -> Observation:
     """Eine gespeicherte Notierung, aufbereitet zum Vergleich.
 
@@ -1789,14 +1822,14 @@ def _als_beobachtung(
     hier nichts Historisches), aber dieselbe Rechnung soll spaeter im
     Backtest gelten, und zwei Definitionen waeren zwei Ergebnisse.
     """
-    stichtag = notierung.observed_at.date()
+    stichtag = notierung.observed_at.astimezone(boersenzeit).date()
     davor = [close for tag, close in schlusskurse if tag < stichtag]
     return Observation(
         symbol=notierung.symbol,
         underlying_price=notierung.underlying_price,
         strike=notierung.quote.strike,
         years_to_expiration=(notierung.quote.expiration - stichtag).days / TAGE_JE_JAHR,
-        quoted_mid=notierung.quote.mid or 0.0,
+        quoted_mid=notierung.quote.mid,
         quoted_implied_volatility=notierung.quote.implied_volatility,
         realized_volatility=realized_volatility(davor[-fenster:]),
         chain_key=(
@@ -1817,25 +1850,34 @@ def _print_optionskalibrierung(
         f"Volatilitaetsfenster {args.vola_window} Handelstage"
     )
     print(
-        f"Ohne implizite Volatilitaet: {zusammenfassung.ohne_implizite_volatilitaet}   "
+        f"{zusammenfassung.ketten} Ketten, davon {zusammenfassung.ketten_mit_gerade} "
+        "mit genug Strikes fuer eine Gerade"
+    )
+    print(
+        f"Notierungen ohne Mittelwert: {zusammenfassung.ohne_mittelwert}   "
+        f"ohne implizite Volatilitaet: {zusammenfassung.ohne_implizite_volatilitaet}   "
         f"ohne realisierte: {zusammenfassung.ohne_realisierte_volatilitaet}"
     )
     print()
     kopf = f"{'Messgroesse':34} {'n':>5} {'25%':>10} {'Median':>10} {'75%':>10} {'Spanne':>22}"
     print(kopf)
     print("-" * len(kopf))
-    _print_verteilung("Formeltreue (rel. Abweichung)", zusammenfassung.formeltreue)
-    _print_verteilung("Aufschlag implizit/realisiert", zusammenfassung.volatilitaetsaufschlag)
-    _print_verteilung(
-        f"Skew je Kette ({zusammenfassung.ketten_fuer_skew})", zusammenfassung.skew_steigung
-    )
+    _print_verteilung("Formeltreue je Notierung", zusammenfassung.formeltreue)
+    _print_verteilung("Aufschlag je Kette", zusammenfassung.volatilitaetsaufschlag)
+    _print_verteilung("Skew-Steigung je Kette", zusammenfassung.skew_steigung)
     print()
     print(
         "Formeltreue rechnet mit der NOTIERTEN impliziten Volatilitaet -- was\n"
         "uebrig bleibt, ist der Fehler der Formel selbst. Alle drei\n"
         "Vereinfachungen (europaeisch, ohne Dividende, ein Zinssatz)\n"
         "unterschaetzen die Praemie, ein leicht negativer Median ist also der\n"
-        "erwartete Befund. Der Aufschlag ist der Faktor aus ADR 0058,\n"
+        "erwartete Befund.\n"
+        "\n"
+        "Aufschlag und Skew stehen JE KETTE, nicht je Notierung: Eine Kette\n"
+        "hat zwoelf Strikes mit je eigener impliziter, aber nur eine\n"
+        "realisierte Volatilitaet. Je Notierung gerechnet maesse der Aufschlag\n"
+        "den Skew mit. Genommen wird die auf das Geld extrapolierte implizite\n"
+        "Volatilitaet der Kette. Der Aufschlag ist der Faktor aus ADR 0058,\n"
         "Festlegung 2; die Skew-Steigung entscheidet ueber Festlegung 3."
     )
 
@@ -3940,7 +3982,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     kalibrierung.add_argument(
         "--vola-window",
-        type=int,
+        type=_volatilitaetsfenster,
         default=30,
         help=(
             "Handelstage fuer die realisierte Volatilitaet (Vorgabe: 30). "

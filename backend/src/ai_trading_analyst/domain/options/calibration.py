@@ -71,7 +71,11 @@ class Observation:
     underlying_price: float
     strike: float
     years_to_expiration: float
-    quoted_mid: float
+    quoted_mid: float | None
+    """Der notierte Mittelwert, oder ``None``, wenn Geld- **oder** Briefkurs
+    fehlte -- nach Boersenschluss und bei duenn gehandelten Kontrakten der
+    Regelfall (``OptionQuote.mid``). Kein Ersatzwert: Eine Null waere von
+    einer notierten Null nicht mehr zu unterscheiden."""
     quoted_implied_volatility: float | None
     realized_volatility: float | None
     chain_key: tuple[str, datetime, date]
@@ -107,7 +111,13 @@ def verteilung(werte: Sequence[float]) -> Verteilung | None:
     if len(sortiert) == 1:
         einziger = sortiert[0]
         return Verteilung(1, einziger, einziger, einziger, einziger, einziger)
-    unteres, _, oberes = statistics.quantiles(sortiert, n=4)
+    # ``method="inclusive"`` und nicht die Vorgabe: Die Vorgabe (``exclusive``)
+    # extrapoliert ueber die Reihe hinaus und liefert bei zwei Werten Quartile
+    # **ausserhalb** der Spanne -- aus ``[0, 10]`` wird ``-2,5`` und ``12,5``.
+    # Ein negatives Quartil neben einem Aufschlag, der nur positiv sein kann,
+    # waere sichtbar falsch. Und die duenne Anfangslage ist genau der Fall,
+    # den ADR 0058 als Risiko benennt.
+    unteres, _, oberes = statistics.quantiles(sortiert, n=4, method="inclusive")
     return Verteilung(
         anzahl=len(sortiert),
         median=statistics.median(sortiert),
@@ -136,7 +146,26 @@ class CalibrationSummary:
     unterschaetzen die Praemie."""
     volatilitaetsaufschlag: Verteilung | None
     """Verhaeltnis ``implizit / realisiert``. Der Faktor aus Festlegung 2,
-    hier gemessen statt gesetzt."""
+    hier gemessen statt gesetzt.
+
+    **Je Kette, nicht je Notierung** -- und das ist keine Feinheit, sondern
+    der Unterschied zwischen einer Messung und einem Mischwert. Eine Kette
+    liefert bis zu zwoelf Strikes mit je eigener, skew-behafteter impliziter
+    Volatilitaet, aber nur **eine** realisierte. Ein Median ueber alle
+    Einzelverhaeltnisse maesse Aufschlag und Skew in einer Zahl: Bei einem
+    wahren Aufschlag von 1,25 und einer Skew-Steigung von -0,5 kaeme 1,49
+    heraus, bei -1,0 sogar 1,74 -- systematisch zu hoch, und abhaengig davon,
+    welche Strikes der Tageslauf gerade notiert hat.
+
+    Genommen wird deshalb die **auf das Geld extrapolierte** implizite
+    Volatilitaet der Kette: der Achsenabschnitt derselben Ausgleichsgeraden,
+    aus der auch ``skew_steigung`` kommt, bei ``ln(K/S) = 0``. Das ist eine
+    kurze Extrapolation -- die notierten Strikes liegen zwischen 80 und 99
+    Prozent des Kurses, der naechste also bei ``ln(K/S) ~ -0,01``.
+
+    Eine Kette, fuer die sich keine Gerade schaetzen laesst, traegt hier
+    nichts bei. Aus einem oder zwei Punkten liesse sich Niveau und Steigung
+    nicht trennen, und ein Ersatz waere erfunden."""
     skew_steigung: Verteilung | None
     """Aenderung der impliziten Volatilitaet je Einheit ``ln(strike / kurs)``,
     je Kette geschaetzt. **Negativ** ist der uebliche Befund bei
@@ -144,10 +173,18 @@ class CalibrationSummary:
     -- tragen die hoehere implizite Volatilitaet."""
     ohne_implizite_volatilitaet: int
     ohne_realisierte_volatilitaet: int
-    ketten_fuer_skew: int
-    """Wieviele Ketten mindestens drei Notierungen mit implizierter
-    Volatilitaet und **verschiedenen** Strikes hatten. Darunter laesst sich
-    keine Steigung schaetzen."""
+    ohne_mittelwert: int
+    """Notierungen ohne Geld- oder Briefkurs. Sie zaehlen in ``notierungen``
+    mit und in der Formeltreue nicht -- ohne diese Zahl bliebe die Luecke
+    zwischen beiden unerklaerlich, und die Abdeckung ist genau die Frage,
+    fuer die dieser Messlauf gebaut ist."""
+    ketten: int
+    """Wieviele Ketten (Symbol, Abrufzeitpunkt, Verfall) der Bestand ueberhaupt
+    enthaelt."""
+    ketten_mit_gerade: int
+    """Wieviele davon mindestens drei Notierungen mit implizierter
+    Volatilitaet auf **drei verschiedenen** Strikes hatten. Nur sie tragen zu
+    Aufschlag und Skew bei; darunter laesst sich keine Gerade schaetzen."""
 
 
 def summarize_calibration(
@@ -157,16 +194,32 @@ def summarize_calibration(
     beobachtungen = list(observations)
 
     abweichungen: list[float] = []
-    aufschlaege: list[float] = []
     ohne_iv = 0
     ohne_rv = 0
-    ketten: dict[tuple[str, datetime, date], list[tuple[float, float]]] = {}
+    ohne_mid = 0
+    kurven: dict[tuple[str, datetime, date], list[tuple[float, float]]] = {}
+    # Je Kette **eine** realisierte Volatilitaet: Alle ihre Notierungen teilen
+    # Symbol und Abrufzeitpunkt, stehen also auf derselben Kurshistorie.
+    kette_rv: dict[tuple[str, datetime, date], float] = {}
+    alle_ketten: set[tuple[str, datetime, date]] = set()
 
     for beobachtung in beobachtungen:
+        alle_ketten.add(beobachtung.chain_key)
         iv = beobachtung.quoted_implied_volatility
+        mid = beobachtung.quoted_mid
+        if mid is None or mid <= 0.0:
+            ohne_mid += 1
+        rv = beobachtung.realized_volatility
+        if rv is None or rv <= 0.0:
+            ohne_rv += 1
+        else:
+            kette_rv[beobachtung.chain_key] = rv
+
         if iv is None or iv <= 0.0:
             ohne_iv += 1
-        else:
+            continue
+
+        if mid is not None and mid > 0.0:
             modelliert = price_put(
                 spot=beobachtung.underlying_price,
                 strike=beobachtung.strike,
@@ -174,28 +227,27 @@ def summarize_calibration(
                 volatility=iv,
                 risk_free_rate=risk_free_rate,
             ).premium
-            if beobachtung.quoted_mid > 0.0:
-                abweichungen.append(
-                    (modelliert - beobachtung.quoted_mid) / beobachtung.quoted_mid
-                )
-            ketten.setdefault(beobachtung.chain_key, []).append(
-                (
-                    math.log(beobachtung.strike / beobachtung.underlying_price),
-                    iv,
-                )
-            )
+            abweichungen.append((modelliert - mid) / mid)
 
-        rv = beobachtung.realized_volatility
-        if rv is None or rv <= 0.0:
-            ohne_rv += 1
-        elif iv is not None and iv > 0.0:
-            aufschlaege.append(iv / rv)
+        kurven.setdefault(beobachtung.chain_key, []).append(
+            (math.log(beobachtung.strike / beobachtung.underlying_price), iv)
+        )
 
-    steigungen = [
-        steigung
-        for punkte in ketten.values()
-        if (steigung := _steigung(punkte)) is not None
-    ]
+    steigungen: list[float] = []
+    aufschlaege: list[float] = []
+    for schluessel, punkte in kurven.items():
+        gerade = _gerade(punkte)
+        if gerade is None:
+            continue
+        steigung, am_geld = gerade
+        steigungen.append(steigung)
+        rv_der_kette = kette_rv.get(schluessel)
+        # Der Achsenabschnitt ist die auf ``ln(K/S) = 0`` extrapolierte
+        # implizite Volatilitaet -- das Niveau der Kette, ohne den Skew.
+        # Eine negative Extrapolation gibt es rechnerisch, als Volatilitaet
+        # nicht; sie traegt deshalb nichts bei.
+        if rv_der_kette is not None and am_geld > 0.0:
+            aufschlaege.append(am_geld / rv_der_kette)
 
     return CalibrationSummary(
         notierungen=len(beobachtungen),
@@ -204,39 +256,43 @@ def summarize_calibration(
         skew_steigung=verteilung(steigungen),
         ohne_implizite_volatilitaet=ohne_iv,
         ohne_realisierte_volatilitaet=ohne_rv,
-        ketten_fuer_skew=len(steigungen),
+        ohne_mittelwert=ohne_mid,
+        ketten=len(alle_ketten),
+        ketten_mit_gerade=len(steigungen),
     )
 
 
-_MINDESTPUNKTE_JE_KETTE = 3
-"""Zwei Punkte legen immer eine Gerade -- und sagen damit nichts darueber, ob
-es eine gibt. Ab drei ist die Steigung eine Schaetzung und keine
-Tautologie."""
+_MINDESTSTRIKES_JE_KETTE = 3
+"""Zwei Stuetzstellen legen immer eine Gerade -- und sagen damit nichts
+darueber, ob es eine gibt. Gezaehlt werden **verschiedene** ``x``, nicht
+Punkte: Drei Notierungen auf den Strikes 95/95/90 stuenden auf zwei
+Stuetzstellen und waeren wieder die Tautologie, gegen die diese Schranke
+gesetzt ist."""
 
 
-def _steigung(punkte: Sequence[tuple[float, float]]) -> float | None:
-    """Steigung der Ausgleichsgeraden durch ``(x, y)``, oder ``None``.
+def _gerade(punkte: Sequence[tuple[float, float]]) -> tuple[float, float] | None:
+    """Steigung und Achsenabschnitt der Ausgleichsgeraden durch ``(x, y)``.
 
-    ``None``, wenn zu wenige Punkte vorliegen oder alle auf demselben ``x``
-    stehen -- dann ist die Steigung nicht bestimmt, und eine Zahl an dieser
-    Stelle waere erfunden.
+    Der Achsenabschnitt ist der Wert bei ``x = 0`` -- fuer die Skew-Kurve also
+    die auf das Geld extrapolierte implizite Volatilitaet.
+
+    ``None``, wenn weniger als drei **verschiedene** ``x`` vorliegen. Dann ist
+    die Gerade nicht bestimmt, und Zahlen an dieser Stelle waeren erfunden.
+    Der Vergleich laeuft dabei auf den Werten selbst und nicht auf ihrer
+    Streuung: Bei lauter gleichen ``x`` ist die Streuung rechnerisch null, in
+    Gleitkomma aber nicht -- ``fmean`` summiert und teilt, das Ergebnis weicht
+    im letzten Bit ab, die Streuung landet bei ~1e-34 und die Kovarianz bei
+    ~1e-18. Der Quotient waere eine Steigung aus reinem Rundungsrauschen.
     """
-    if len(punkte) < _MINDESTPUNKTE_JE_KETTE:
-        return None
     xs = [x for x, _ in punkte]
-    ys = [y for _, y in punkte]
-    # **Der Vergleich laeuft auf den Werten selbst, nicht auf ihrer Streuung.**
-    # Bei lauter gleichen ``x`` ist die Streuung rechnerisch null, in
-    # Gleitkomma aber nicht: ``fmean`` summiert und teilt, und das Ergebnis
-    # weicht im letzten Bit ab. Die Streuung landet dann bei ~1e-34, die
-    # Kovarianz bei ~1e-18, und der Quotient ist eine Steigung aus reinem
-    # Rundungsrauschen -- gemessen -2,67, wo es keine gibt.
-    if min(xs) == max(xs):
+    if len(set(xs)) < _MINDESTSTRIKES_JE_KETTE:
         return None
+    ys = [y for _, y in punkte]
     x_mittel = statistics.fmean(xs)
     y_mittel = statistics.fmean(ys)
     streuung = sum((x - x_mittel) ** 2 for x in xs)
     kovarianz = sum(
         (x - x_mittel) * (y - y_mittel) for x, y in zip(xs, ys, strict=True)
     )
-    return kovarianz / streuung
+    steigung = kovarianz / streuung
+    return steigung, y_mittel - steigung * x_mittel
