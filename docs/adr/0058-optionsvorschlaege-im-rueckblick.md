@@ -195,12 +195,44 @@ ohne dass eine Zinsannahme nötig wäre. Der Verzicht wird am Ergebnis vermerkt.
 
 | Variante | Regel |
 |---|---|
-| **Grundlinie** | halten bis Verfall |
-| **Gemanagt** | Gewinnmitnahme bei **33 %** der Prämie; Rückkauf, wenn der Optionspreis das **Dreifache** der vereinnahmten Prämie erreicht |
+| **Grundlinie** | halten bis Verfall, Andienung wird hingenommen |
+| **Gemanagt** | Gewinnmitnahme bei **33 %** der Prämie; Rückkauf, wenn der Optionspreis das **Dreifache** der vereinnahmten Prämie erreicht; **greift keines von beiden, wird am Verfallstag glattgestellt** |
 
 Die Grundlinie ist kein Beiwerk: Ohne sie hätte die gemanagte Variante keinen
 Bezugspunkt. Erst der Abstand zwischen beiden sagt, ob das Management etwas
 beiträgt oder nur Transaktionskosten erzeugt.
+
+**Nachtrag vom 2026-09-04: die Glattstellung am Verfallstag.** In der ersten
+Fassung endete die gemanagte Variante auf der Grundlinie, wenn weder Marke
+erreicht wurde. Gemessen ist das die **Mehrzahl** der Trades — beide Varianten
+trugen dort Zahl für Zahl dasselbe Ergebnis, und die Variante, die sich über
+Rückkaufregeln definiert, kaufte am Ende nie zurück. Der Vergleich, der der
+Zweck dieses Backtests ist, maß an dieser Stelle nichts.
+
+Die Glattstellung schließt zugleich eine offene Größe mitten in der Kennzahl:
+Was eine Andienung wert ist, hängt davon ab, ob die Aktie gewollt war — eine
+Frage, die Festlegung 10 an anderer Stelle stellt und die der Backtest nicht
+beantworten kann. Nach der Glattstellung endet jeder gemanagte Trade in
+Bargeld, und die Zahlen sind über alle Trades hinweg vergleichbar.
+
+Drei Randbedingungen, damit daraus keine neue Annahme wird:
+
+* **Der Rückkaufpreis ist der innere Wert**, nicht der Modellpreis. Am
+  Verfallstag steht er fest, sobald der Schlusskurs feststeht; das Preismodell
+  wäre hier eine Annahme, wo es keine braucht.
+* **Läuft der Put wertlos aus, geschieht nichts.** Innerer Wert null heißt
+  kein Kontrakt, der zurückzukaufen wäre — die gemanagte Variante ist dann
+  identisch mit der Grundlinie, und das ist kein Mangel, sondern die
+  Wirklichkeit.
+* **Der Ausführungsabschlag greift** wie bei jedem anderen Rückkauf
+  (Festlegung 8). Er ist proportional und bei einem tief im Geld liegenden Put
+  eher zu hoch als zu niedrig — die Verzerrung geht zu Lasten der gemanagten
+  Variante, und die Richtung ist benannt.
+
+**Die Grundlinie bleibt unangetastet.** Sie ist die bewusst regellose Referenz;
+ihr Wert liegt darin, dass sie nichts entscheidet. Baute man ihr eine
+Entscheidung ein, gäbe es keine Größe mehr, gegen die das Management sich
+beweisen muss. Der Nachtrag hebt `OPTIONS_BACKTEST_VERSION` auf `v2`.
 
 **Ein chartbasierter Ausstieg** — Schluss unter dem EMA 20 oder unter der
 Unterstützungszone — wird **nicht** simuliert. Er war vorgeschlagen und ist
