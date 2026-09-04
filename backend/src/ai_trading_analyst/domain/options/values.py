@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .spread import PutSpread
 
-OPTIONS_ANALYSIS_VERSION = "options-v1"
+OPTIONS_ANALYSIS_VERSION = "options-v2"
 """Version des Bewertungsverfahrens, an jedem Ergebnis gespeichert
 (CLAUDE.md: Versionierung).
 
@@ -37,8 +37,16 @@ aus dem Geldkurs, und man muss einem gespeicherten Ergebnis ansehen koennen,
 welche von beiden es ist.
 
 ``v1`` rechnet mit dem **Mittelwert**. Waehrend der Entwicklung stand hier
-kurzzeitig der Geldkurs; da nie ein Ergebnis gespeichert wurde, bleibt es
-bei ``v1``."""
+kurzzeitig der Geldkurs; da nie ein Ergebnis gespeichert wurde, blieb es
+zunaechst bei ``v1``.
+
+``v2`` fuegt den Strukturvergleich hinzu (ADR 0058, Festlegung 11). Er ist
+keine neue Auswahlregel -- die Vorschlaege sind Zahl fuer Zahl dieselben --,
+aber er bringt eine neue Annahme mit, die an keinem Ergebnis steht:
+``hedge_width_pct``. Ohne den Sprung waeren zwei Zeilen, die mit 6,5 und mit
+10 Prozent Zielbreite gerechnet wurden, nicht auseinanderzuhalten, und eine
+alte Zeile ohne Spread saehe aus wie eine neue, bei der keiner zustande kam.
+"""
 
 
 class OptionsStatus(StrEnum):

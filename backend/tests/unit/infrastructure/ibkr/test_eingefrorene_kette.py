@@ -63,6 +63,21 @@ def _aufzeichnung() -> dict[str, Any]:
     return inhalt
 
 
+def _alle_aufgezeichneten_notierungen(daten: dict[str, Any]) -> list[dict[str, Any]]:
+    """Die uebersetzten Notierungen **aller** Abrufe, in der Reihenfolge des
+    Mitschnitts.
+
+    Seit ADR 0058, Festlegung 11 kann ein zweiter, gezielter Abruf folgen; er
+    steht in ``weitere_option_quotes``. Nur den ersten Abschnitt zu lesen
+    hiesse, den Rueckfall genau dort zu uebersehen, wo er auftritt --
+    ``RohNotierungenSammler`` sammelt naemlich ueber beide.
+    """
+    eintraege: list[dict[str, Any]] = list(daten["option_quotes"]["quotes"])
+    for weiterer in daten.get("weitere_option_quotes", []):
+        eintraege.extend(weiterer["quotes"])
+    return eintraege
+
+
 class WiedergabeQuelle:
     """Spielt die aufgezeichneten Antworten zurueck -- und nur sie.
 
@@ -112,6 +127,13 @@ class WiedergabeQuelle:
         abschnitt = self._daten["option_quotes"]
         assert expiration == date.fromisoformat(abschnitt["expiration"])
         self.abfragen.append(tuple(strikes))
+        # **Nur die angefragten Strikes.** Frueher kam auf jede Frage das ganze
+        # Band zurueck. Der gezielte zweite Abruf lief damit durch einen Pfad,
+        # den es real nicht gibt -- er bekam zwoelf Notierungen auf die Frage
+        # nach einer, und der Test bemerkte davon nichts. Wer einen Strike
+        # abfragt, der in der Aufzeichnung nicht steht, bekommt hier nichts:
+        # Das ist die Antwort der TWS auf einen nicht notierten Kontrakt.
+        gefragt = set(strikes)
         return tuple(
             OptionQuote(
                 expiration=date.fromisoformat(eintrag["expiration"]),
@@ -123,7 +145,8 @@ class WiedergabeQuelle:
                 open_interest=eintrag["open_interest"],
                 volume=eintrag["volume"],
             )
-            for eintrag in abschnitt["quotes"]
+            for eintrag in _alle_aufgezeichneten_notierungen(self._daten)
+            if eintrag["strike"] in gefragt
         )
 
 
@@ -216,11 +239,19 @@ class TestDieKetteAnEchtenAntworten:
         Anfrage, und sie holt genau einen Kontrakt."""
         quelle = WiedergabeQuelle(_aufzeichnung())
 
-        _analyse(quelle, OptionsParameters(hedge_width_pct=0.25))
+        analyse = _analyse(quelle, OptionsParameters(hedge_width_pct=0.25))
 
         assert len(quelle.abfragen) == 2
         assert len(quelle.abfragen[1]) == 1
         assert quelle.abfragen[1][0] < min(quelle.abfragen[0])
+        # Und was dabei herauskommt, nicht nur dass gefragt wurde: Die
+        # Aufzeichnung haelt genau das Band fest, der gesuchte Strike steht
+        # nicht darin. Also entsteht kein Spread -- **mit** Grund. Frueher gab
+        # die Wiedergabequelle auf jede Frage das ganze Band zurueck; dann
+        # entstand hier ein Spread aus einem Kontrakt, der nie angefragt war.
+        assert analyse.spread is None
+        assert analyse.spread_reason is not None
+        assert f"{quelle.abfragen[1][0]:.2f}" in analyse.spread_reason
 
     def test_kein_angefragter_strike_liegt_ueber_dem_kurs(self) -> None:
         """Ein Put ueber dem Kurs waere im Geld -- er gehoert nicht in eine
@@ -353,7 +384,11 @@ class TestDieUebersetzungAmDrahtformat:
         """Roh und uebersetzt stehen beide in der Datei. Dass sie
         zusammenpassen, ist die Zusage von ``_als_quote`` -- und sie wird hier
         nachgerechnet statt geglaubt."""
-        erwartet = _aufzeichnung()["option_quotes"]["quotes"]
+        # Beide Abschnitte: Der Sammler haelt die Rohnotierungen **aller**
+        # Abrufe fest. Nur den ersten dagegenzuhalten braeche diesen Test bei
+        # der naechsten Aufzeichnung mit Rueckfall-Abruf an der Laenge -- und
+        # zwar erst am Server.
+        erwartet = _alle_aufgezeichneten_notierungen(_aufzeichnung())
 
         gerechnet = [_als_quote(_als_ticker(roh)) for roh in self._rohe()]
 

@@ -286,17 +286,37 @@ class IbkrOptionsProvider:
                     ),
                 )
             absicherung = notierungen[0]
+            # **Geliefert ist nicht angefragt.** Die TWS antwortet gelegentlich
+            # mit einem anderen Kontrakt; ``evaluate_spread`` faengt davon nur,
+            # was auf oder ueber dem Verkauf liegt. Ein beliebiger Strike
+            # *darunter* ergaebe einen rechnerisch richtigen Spread ganz
+            # anderer Breite -- und weil ``find_quote`` ueber den **angefragten**
+            # Strike nachsah, stuende der gelieferte womoeglich ein zweites Mal
+            # in ``option_quotes``. Beides schweigend, beides falsch.
+            if absicherung.strike != absicherungs_strike:
+                return replace(
+                    analyse,
+                    spread_reason=(
+                        f"zum Strike {absicherungs_strike:.2f} kam die Notierung "
+                        f"des Strikes {absicherung.strike:.2f}"
+                    ),
+                    quotes=(*analyse.quotes, absicherung),
+                )
             neu_abgerufen = True
 
+        # **Vor der Auswertung.** Eine Notierung, die wirklich abgerufen wurde,
+        # wird gespeichert -- auch wenn aus ihr kein Spread wird (ADR 0058,
+        # Festlegung 1). Die Anfrage ist bezahlt, und gerade die Notierungen
+        # ausserhalb des Delta-Bandes sagen als einzige etwas ueber die Form
+        # der Volatilitaetskurve.
+        quotes = (*analyse.quotes, absicherung) if neu_abgerufen else analyse.quotes
         ergebnis = evaluate_spread(
             verkauf,
             absicherung,
             liquidity=liquiditaetsstufe_von(absicherung, self._parameters),
         )
         if isinstance(ergebnis, str):
-            return replace(analyse, spread_reason=ergebnis)
-        # Nur eine wirklich neu abgerufene Notierung kommt dazu.
-        quotes = (*analyse.quotes, absicherung) if neu_abgerufen else analyse.quotes
+            return replace(analyse, spread_reason=ergebnis, quotes=quotes)
         return replace(analyse, spread=ergebnis, quotes=quotes)
 
 

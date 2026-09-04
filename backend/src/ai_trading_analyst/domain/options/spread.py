@@ -70,7 +70,15 @@ class PutSpread:
     capital_at_risk: float
     """``max_loss * 100``. Beim Cash Secured Put ist es ``strike * 100``; der
     Unterschied zwischen beiden Zahlen ist die eigentliche Aussage
-    (ADR 0058, Festlegung 6)."""
+    (ADR 0058, Festlegung 6).
+
+    **Die beiden Basen sind nicht dieselbe Groesse.** Hier ist die Gutschrift
+    schon abgezogen, beim Verkauf nicht -- dessen ``simple_return`` steht auf
+    dem vollen Strike. Beim Spread macht das rund ein Siebtel aus, beim
+    Verkauf rund ein Prozent. Wer die beiden Renditen nebeneinanderlegt, liest
+    diesen Unterschied mit; der Groessenordnungsabstand zwischen den
+    Strukturen ueberdeckt ihn bei weitem, aber gerechnet ist er nicht
+    weg."""
     hedge_cost_share: float
     """Anteil der Praemie, den die Absicherung frisst -- Kriterium 3 der
     Strukturwahl. Bei steilem Skew treibt er auf die Haelfte und mehr."""
@@ -129,6 +137,12 @@ wurde -- ein erfundener Wert (``CLAUDE.md``). Dieselbe Pruefung nimmt
 ``_bewerte`` fuer die Verkaufsseite vor, und aus demselben Grund: Die
 Spannenpruefung faengt ihn nicht, sie wird negativ und liegt damit unter
 jeder Obergrenze. Die Liquiditaetsstufe fiele sogar auf ``GOOD``."""
+REASON_SHORT_WITHOUT_PREMIUM = "der Verkauf hat keine positive Praemie"
+"""Symmetrisch zu ``_bewerte``, das ``praemie <= 0`` fuer die Verkaufsseite
+verwirft. Ueber den IBKR-Weg ist der Fall unerreichbar -- ``_preis`` bildet
+Werte <= 0 auf ``None`` ab. Diese Funktion ist aber oeffentliche Domain-API und
+soll laut ADR 0058 auch der historische Lauf rufen, wo die Praemie modelliert
+statt notiert ist; ohne die Pruefung teilte ``hedge_cost_share`` durch null."""
 REASON_CREDIT_EXCEEDS_WIDTH = "die Gutschrift uebersteigt die Spannweite"
 """Ein Spread, der mehr einbringt als er hoechstens verlieren kann, waere ein
 risikoloser Gewinn -- den stellt kein Markt. Er entsteht aus zwei Notierungen,
@@ -158,6 +172,8 @@ def evaluate_spread(
     liefert nicht immer den angefragten Kontrakt, und eine Notierung mit
     Brief unter Geld ist ein Kurs, zu dem nie gehandelt wurde.
     """
+    if short.premium <= 0.0:
+        return REASON_SHORT_WITHOUT_PREMIUM
     if hedge.expiration != short.expiration:
         return REASON_HEDGE_WRONG_EXPIRATION
     if hedge.strike >= short.strike:

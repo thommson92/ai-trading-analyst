@@ -19,6 +19,7 @@ from ai_trading_analyst.domain.options import (
     REASON_HEDGE_WITHOUT_MID,
     REASON_HEDGE_WRONG_EXPIRATION,
     REASON_NO_HEDGE_STRIKE,
+    REASON_SHORT_WITHOUT_PREMIUM,
     LiquidityGrade,
     OptionQuote,
     PutSpread,
@@ -164,6 +165,20 @@ class TestKeinSpread:
         )
 
         assert ergebnis == REASON_CREDIT_EXCEEDS_WIDTH
+
+    def test_wenn_der_verkauf_selbst_keine_praemie_hat(self) -> None:
+        """Ueber den IBKR-Weg unerreichbar -- ``_preis`` bildet Werte <= 0 auf
+        ``None`` ab, und ``_bewerte`` prueft die Praemie. Diese Funktion ist
+        aber oeffentliche Domain-API und soll laut ADR 0058 auch der
+        historische Lauf rufen, wo die Praemie **modelliert** statt notiert
+        ist. Ohne die Pruefung teilte ``hedge_cost_share`` durch null."""
+        ergebnis = evaluate_spread(
+            verkauf(praemie=0.0),
+            absicherung(strike=205.0),
+            liquidity=LiquidityGrade.GOOD,
+        )
+
+        assert ergebnis == REASON_SHORT_WITHOUT_PREMIUM
 
 
 class TestGeprueftStattGeglaubt:

@@ -190,6 +190,23 @@ def test_die_empfehlungsspalten_entstehen_durch_die_migration(engine: Engine) ->
     assert {"recommendation", "recommendation_detail"} <= spalten
 
 
+def test_die_spread_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
+    """ADR 0058, Festlegung 11 -- ``e1c8a05f7b32``, zwei Spalten, kein Enumtyp.
+
+    Der Grund liegt bewusst **neben** ``options_reason``: Die Optionsanalyse
+    kann vollstaendig sein und der Strukturvergleich trotzdem ausfallen. Beide
+    Gruende in eine Spalte zu legen hiesse, zwei verschiedene Ausfaelle zu
+    verwechseln -- und das faellt ohne diesen Test erst am Server auf.
+    """
+    spalten = {
+        spalte["name"]: str(spalte["type"])
+        for spalte in inspect(engine).get_columns("screening_results")
+    }
+
+    assert {"options_spread", "options_spread_reason"} <= set(spalten)
+    assert spalten["options_spread"] == "JSONB"
+
+
 def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
     """ADR 0041, ADR 0045 -- vier Spalten je Score und ein neuer Enum-Typ.
 
