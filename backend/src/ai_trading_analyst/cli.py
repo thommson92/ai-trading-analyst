@@ -80,6 +80,7 @@ from ai_trading_analyst.bootstrap import (
     build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
+    build_options_backtest_params,
     build_options_provider,
     build_repeat_suppression_params,
     build_research_provider,
@@ -113,6 +114,23 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.backtesting.options_metrics import (
+    SIGNAL_BUCHSTABEN,
+    OptionsBacktestResult,
+    VariantMetrics,
+    assumptions_of,
+    compute_options_backtest_results,
+    kombinationskuerzel,
+)
+from ai_trading_analyst.domain.backtesting.options_trade import (
+    OptionsBacktestParameters,
+    OptionTrade,
+    simulate_put_sale,
+)
+from ai_trading_analyst.domain.backtesting.replay import (
+    find_historical_decisions,
+    group_into_episodes,
+)
 from ai_trading_analyst.domain.fundamentals import (
     FundamentalSnapshot,
     Metric,
@@ -127,6 +145,7 @@ from ai_trading_analyst.domain.options import (
     OptionsAnalysis,
     StoredQuote,
     Verteilung,
+    daily_closes,
     realized_volatility,
     summarize_calibration,
 )
@@ -1794,18 +1813,12 @@ def _tagesschlusskurse(
     Der letzte Bar eines Tages **ist** der Tagesschluss -- eine Aggregation
     auf 195-Minuten-Kerzen braucht es dafuer nicht.
 
-    **Der Handelstag wird umgerechnet, nicht angenommen.** Was aus PostgreSQL
-    zurueckkommt, traegt die Zeitzone der Sitzung und nicht die der Boerse;
-    ``.date()` darauf ergaebe den Kalendertag in UTC. Bei regulaeren
-    Handelszeiten faellt das heute nicht auf -- 13:30 bis 21:00 UTC liegen am
-    selben Tag wie ihre New Yorker Zeit --, aber es faellt still um, sobald
-    Bars ausserhalb davon hereinkommen. ``candle_aggregation.py`` rechnet aus
-    demselben Grund um.
+    Die Ableitung selbst steht in ``domain.options.daily_closes`` und nicht
+    hier: Der historische Backtest braucht dieselbe, nur auf gebildeten
+    Kerzen statt auf nativen Bars. Zwei Fassungen waeren zwei Definitionen
+    von "Tagesschluss".
     """
-    je_tag: dict[date, float] = {}
-    for bar in bars:
-        je_tag[bar.start.astimezone(boersenzeit).date()] = bar.close
-    return sorted(je_tag.items())
+    return daily_closes([(bar.start, bar.close) for bar in bars], timezone=boersenzeit)
 
 
 def _als_beobachtung(
@@ -1891,6 +1904,215 @@ def _print_verteilung(name: str, wert: Verteilung | None) -> None:
         f"{name:34} {wert.anzahl:>5} {wert.unteres_quartil:>10.4f} "
         f"{wert.median:>10.4f} {wert.oberes_quartil:>10.4f} {spanne:>22}"
     )
+
+
+def command_options_backtest(args: argparse.Namespace) -> int:
+    """Simuliert je Episode den vorgeschlagenen Put-Verkauf (ADR 0058, Stufe 1).
+
+    Das Muster von ``options-calibrate``: messen, ausgeben, nichts ablegen.
+    Festlegung 9 sieht fuer die Ergebnisse eine eigene Tabelle vor -- sie
+    entsteht, wenn die Zahlen einmal angesehen sind. Ein Schema fuer Werte zu
+    entwerfen, die noch niemand gepruefte hat, waere genau die Reihenfolge,
+    vor der das ADR warnt.
+
+    **Jede Zahl hier ist eine Modellzahl.** Die Praemie ist gerechnet, der
+    Verfallskalender konstruiert, das Strike-Raster angenommen und der
+    Volatilitaetsaufschlag gesetzt statt gemessen -- solange
+    ``options-calibrate`` keine belastbare Zahl liefert. Was der Kurspfad
+    beitraegt, ist dagegen gemessen. Deshalb steht der Aufschlag als Schalter
+    da: Das Ergebnis gehoert als Band ueber mehrere Aufschlaege gelesen.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    indicators = config.require_indicators()
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+    boersenzeit = ZoneInfo(config.market.timezone)
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Optionsbacktest braucht den "
+            "ueber IBKR gefuellten Bestand -- entweder '--provider ibkr' mitgeben, "
+            "market_data.provider auf 'ibkr' stellen oder zuerst 'backfill' "
+            "laufen lassen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    market_data = config.market_data.model_copy(update={"source": "stored"})
+    config = config.model_copy(update={"market_data": market_data})
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    provider = build_market_data_provider(
+        config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+    )
+    rule = CandidateRuleParameters(
+        required_crossing_signals=config.screening.required_crossing_signals,
+        signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
+        warmup_candles=indicators.warmup_candles,
+    )
+    backtest_params = build_backtest_params(config)
+    options_params = build_options_backtest_params(
+        config,
+        volatility_uplift=args.volatility_uplift,
+        risk_free_rate=args.risk_free_rate,
+        execution_haircut=args.execution_haircut,
+    )
+
+    je_kombination: dict[frozenset[SignalType], list[OptionTrade | None]] = defaultdict(list)
+    ausgewertet = 0
+    try:
+        stocks = list(provider.list_stocks())
+        if args.symbols is not None:
+            gewuenscht = {
+                symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()
+            }
+            stocks = [stock for stock in stocks if stock.symbol in gewuenscht]
+            fehlend = gewuenscht - {stock.symbol for stock in stocks}
+            if fehlend:
+                print(
+                    f"Nicht in der Watchlist gefunden: {', '.join(sorted(fehlend))}",
+                    file=sys.stderr,
+                )
+            if not stocks:
+                return 2
+
+        for stock in stocks:
+            try:
+                series = provider.get_candle_series(stock)
+            except MarketDataProviderError as fehler:
+                print(f"{stock.symbol}: {fehler}", file=sys.stderr)
+                continue
+            episoden = group_into_episodes(find_historical_decisions(series, rule))
+            for episode in episoden:
+                erster = episode[0]
+                je_kombination[erster.combination].append(
+                    simulate_put_sale(
+                        series, erster.index, options_params, exchange_timezone=boersenzeit
+                    )
+                )
+            ausgewertet += 1
+            print(
+                f"{stock.symbol}: {len(series)} Kerzen, {len(episoden)} Episoden",
+                file=sys.stderr,
+            )
+    finally:
+        if isinstance(provider, IbkrMarketDataProvider):
+            provider.close()
+
+    if not ausgewertet:
+        print("Keine Aktie ausgewertet.", file=sys.stderr)
+        return 1
+
+    ergebnisse = compute_options_backtest_results(
+        je_kombination,
+        options_params=options_params,
+        backtest_params=backtest_params,
+        required_crossing_signals=rule.required_crossing_signals,
+    )
+    _print_optionsbacktest(ergebnisse, ausgewertet, options_params)
+    return 0
+
+
+def _print_optionsbacktest(
+    ergebnisse: Sequence[OptionsBacktestResult],
+    aktien: int,
+    params: OptionsBacktestParameters,
+) -> None:
+    mit_episoden = [e for e in ergebnisse if e.episodes]
+    gesamt_episoden = sum(e.episodes for e in mit_episoden)
+    gesamt_trades = sum(e.trades for e in mit_episoden)
+
+    print()
+    print(
+        f"=== Simulierte Put-Verkaeufe ueber {aktien} Aktien: "
+        f"{gesamt_episoden} Episoden, {gesamt_trades} Trades ==="
+    )
+    print("Alle Praemien sind MODELLIERT -- es gibt keine Notierung aus der Vergangenheit.")
+    # Auch bei null Episoden: Die Annahmen sagen, was versucht wurde, und
+    # ohne sie stuende ein leeres Ergebnis ohne Erklaerung da.
+    for name, wert in assumptions_of(params).items():
+        print(f"  {name:24} {wert}")
+
+    print()
+    print("Kombinationen als Kriterienbuchstaben der G1-Pruefvorlage:")
+    for buchstabe, signal in SIGNAL_BUCHSTABEN.items():
+        print(f"  {buchstabe}  {signal.name}")
+
+    print()
+    kopf = (
+        f"{'Krit.':6} {'Ep':>4} {'Tr':>4} {'Variante':>10} "
+        f"{'Quote':>7} {'Mittel':>10} {'Median':>10} {'schlecht.':>11} {'RoC':>8}"
+    )
+    print(kopf)
+    print("-" * len(kopf))
+    for ergebnis in sorted(mit_episoden, key=lambda e: -e.trades):
+        kurz = kombinationskuerzel(ergebnis.signal_types)
+        if ergebnis.held is None:
+            print(
+                f"{kurz:6} {ergebnis.episodes:>4} {ergebnis.trades:>4} "
+                f"{'--':>10}   {ergebnis.confidence.value}"
+            )
+            continue
+        _print_variante(kurz, ergebnis, "gehalten", ergebnis.held)
+        _print_variante("", ergebnis, "gemanagt", ergebnis.managed)
+
+    print()
+    print(
+        "Quote ist der Anteil Trades ueber null, RoC der mittlere Ertrag im\n"
+        "Verhaeltnis zum gebundenen Kapital (Strike mal 100). Beide stehen\n"
+        "nebeneinander, weil keine die andere ersetzt: Ein Cash Secured Put\n"
+        "bringt mehr Dollar und bindet ein Vielfaches an Kapital.\n"
+        "\n"
+        "Die Spalte 'schlecht.' ist der schlechteste EINZELNE Trade -- die\n"
+        "Zahl, die eine gute Quote nicht zeigt. Bei Gewinnmitnahme auf 33 %\n"
+        "gegen Rueckkauf beim Dreifachen liegt die rechnerische Grenze bei\n"
+        "rund 86 % Quote; darunter verliert die gemanagte Variante trotz\n"
+        "ueberwiegend gewonnener Trades."
+    )
+
+
+def _print_variante(
+    name: str,
+    ergebnis: OptionsBacktestResult,
+    bezeichnung: str,
+    kennzahlen: VariantMetrics | None,
+) -> None:
+    if kennzahlen is None:
+        return
+    episoden = f"{ergebnis.episodes:>4}" if name else " " * 4
+    trades = f"{ergebnis.trades:>4}" if name else " " * 4
+    print(
+        f"{name:6} {episoden} {trades} {bezeichnung:>10} "
+        f"{_anteil(kennzahlen.win_rate):>7} {_geld(kennzahlen.mean_profit):>10} "
+        f"{_geld(kennzahlen.median_profit):>10} {_geld(kennzahlen.worst_profit):>11} "
+        f"{_rendite(kennzahlen.mean_return_on_capital):>8}"
+    )
+
+
+def _anteil(wert: float | None) -> str:
+    return "--" if wert is None else f"{wert:.1%}"
+
+
+def _rendite(wert: float | None) -> str:
+    """Zwei Nachkommastellen: Eine Rendite auf ``strike * 100`` liegt je Trade
+    im Zehntelprozentbereich -- mit einer Stelle blieben lauter Nullen."""
+    return "--" if wert is None else f"{wert:.2%}"
+
+
+def _geld(wert: float | None) -> str:
+    return "--" if wert is None else f"{wert:,.0f}"
 
 
 def command_technical(args: argparse.Namespace) -> int:
@@ -3962,6 +4184,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
+
+    optionsbacktest = subparsers.add_parser(
+        "options-backtest",
+        help=(
+            "Simuliert je Episode den vorgeschlagenen Put-Verkauf (ADR 0058, "
+            "Stufe 1). Misst und gibt aus, legt nichts ab."
+        ),
+    )
+    optionsbacktest.add_argument(
+        "--symbols",
+        default=None,
+        help="Kommagetrennte Symbole. Ohne Angabe die ganze Watchliste.",
+    )
+    optionsbacktest.add_argument(
+        "--volatility-uplift",
+        type=float,
+        default=1.15,
+        help=(
+            "Aufschlag von der realisierten auf die implizite Volatilitaet "
+            "(Vorgabe: 1.15). GESETZT, nicht gemessen -- das Ergebnis gehoert "
+            "als Band ueber mehrere Aufschlaege gelesen, bis "
+            "'options-calibrate' eine belastbare Zahl liefert."
+        ),
+    )
+    optionsbacktest.add_argument(
+        "--risk-free-rate", type=float, default=0.04, help="Zinssatz (Vorgabe: 0.04)."
+    )
+    optionsbacktest.add_argument(
+        "--execution-haircut",
+        type=float,
+        default=0.02,
+        help=(
+            "Ausfuehrungsabschlag je Seite und Transaktion (Vorgabe: 0.02). "
+            "Er macht sichtbar, dass jede Managementregel eine zusaetzliche "
+            "Transaktion kostet."
+        ),
+    )
+    optionsbacktest.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    optionsbacktest.set_defaults(handler=command_options_backtest)
 
     kalibrierung = subparsers.add_parser(
         "options-calibrate",

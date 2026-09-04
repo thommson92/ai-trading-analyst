@@ -8,6 +8,17 @@ from .calibration import (
     summarize_calibration,
     verteilung,
 )
+from .historical import (
+    DEFAULT_STRIKE_GRID,
+    HISTORICAL_CALENDAR,
+    daily_closes,
+    monthly_expirations,
+    select_historical_expiration,
+    select_historical_strike,
+    snap_to_strike_grid,
+    strike_step,
+    third_friday,
+)
 from .pricing import (
     PRICING_MODEL_VERSION,
     TRADING_DAYS_PER_YEAR,
@@ -36,6 +47,8 @@ from .values import (
 )
 
 __all__ = [
+    "DEFAULT_STRIKE_GRID",
+    "HISTORICAL_CALENDAR",
     "KONTRAKTGROESSE",
     "OPTIONS_ANALYSIS_VERSION",
     "PRICING_MODEL_VERSION",
@@ -53,13 +66,20 @@ __all__ = [
     "StoredQuote",
     "Verteilung",
     "build_options_analysis",
+    "daily_closes",
     "expirations_in_window",
+    "monthly_expirations",
     "normal_cdf",
     "price_put",
     "realized_volatility",
     "select_expiration",
+    "select_historical_expiration",
+    "select_historical_strike",
     "select_strikes",
+    "snap_to_strike_grid",
+    "strike_step",
     "summarize_calibration",
+    "third_friday",
     "unzureichend",
     "verteilung",
 ]

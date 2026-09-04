@@ -11,14 +11,11 @@ import statistics
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from itertools import combinations
 from uuid import UUID
 
 from ai_trading_analyst.domain.screening import (
     CandidateRuleParameters,
     CandleSeries,
-    SignalType,
-    qualifies,
 )
 
 from .replay import HistoricalDecision, find_historical_decisions, group_into_episodes
@@ -28,31 +25,10 @@ from .values import (
     BacktestResult,
     HorizonMetrics,
     SignalCombination,
+    qualifying_combinations,
 )
 
 _DAYS_PER_YEAR = 365
-
-
-def _qualifying_combinations(required_crossing_signals: int) -> tuple[SignalCombination, ...]:
-    """Alle Signalkombinationen, die die Qualifikationsregel erfuellen koennen
-    (G1-Pruefvorlage Abschnitt 4.3).
-
-    Aufgezaehlt werden alle Teilmengen von ``SignalType``, die ``qualifies``
-    durchlaesst -- die Regel steht also genau einmal im Code und wird hier
-    nicht zweitgeschrieben. Bei ``required_crossing_signals=2`` sind das vier
-    Kaufsignal-Kombinationen mal drei Zusatz-Kombinationen, zusammen zwoelf.
-    """
-    all_types = tuple(SignalType)
-    alle_teilmengen = (
-        frozenset(combo)
-        for size in range(1, len(all_types) + 1)
-        for combo in combinations(all_types, size)
-    )
-    return tuple(
-        teilmenge
-        for teilmenge in alle_teilmengen
-        if qualifies(teilmenge, required_crossing_signals)
-    )
 
 
 def _truncate_to_recent_history(
@@ -193,11 +169,9 @@ def compute_backtest_results(
     history_start = series.candle(0).timestamp
     history_end = series.candle(len(series) - 1).timestamp
 
-    qualifying_combinations = _qualifying_combinations(
-        candidate_params.required_crossing_signals
-    )
+    kombinationen = qualifying_combinations(candidate_params.required_crossing_signals)
     results = []
-    for combination in qualifying_combinations:
+    for combination in kombinationen:
         raw_indices = raw_by_combination.get(combination, ())
         counted_indices = counted_by_combination.get(combination, ())
         horizons = tuple(

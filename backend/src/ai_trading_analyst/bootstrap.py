@@ -42,6 +42,7 @@ from ai_trading_analyst.domain.analysis import (
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
+from ai_trading_analyst.domain.backtesting.options_trade import OptionsBacktestParameters
 from ai_trading_analyst.domain.earnings import EarningsFilterParameters
 from ai_trading_analyst.domain.fundamentals import FundamentalParameters, MetricName
 from ai_trading_analyst.domain.options import OptionsParameters
@@ -387,6 +388,42 @@ def build_options_params(config: AppConfig) -> OptionsParameters:
         max_relative_spread=section.max_relative_spread,
         min_open_interest=section.min_open_interest,
         min_volume=section.min_volume,
+    )
+
+
+def build_options_backtest_params(
+    config: AppConfig,
+    *,
+    volatility_uplift: float,
+    risk_free_rate: float,
+    execution_haircut: float,
+) -> OptionsBacktestParameters:
+    """Aus ``OptionsConfig`` die Annahmen des historischen Laufs (ADR 0058).
+
+    **Laufzeitfenster und Ziel-Delta kommen aus derselben Konfiguration wie
+    der Live-Betrieb** -- sonst maesse der Rueckblick still eine andere
+    Strategie als die gehandelte, sobald jemand die Konfiguration aendert.
+    Genau das will Festlegung 5 verhindern. Heute stimmen die Vorgaben
+    ueberein; das ist ein Zufall, auf den sich nichts stuetzen soll.
+
+    Das Ziel-Delta ist die **Mitte** des produktiven Bandes: Live entscheidet
+    das Band, welche Kontrakte durchgehen; historisch muss ein einzelner
+    Strike gewaehlt werden, und die Mitte ist die sparsamste Uebersetzung.
+
+    Volatilitaetsaufschlag, Zinssatz und Ausfuehrungsabschlag stehen dagegen
+    **nicht** in der Konfiguration: Sie gehoeren zum Messlauf und nicht zum
+    Tageslauf, und der Aufschlag ist ausdruecklich zum Variieren gedacht
+    (Festlegung 2) -- das Ergebnis gehoert als Band gelesen.
+    """
+    section = config.options
+    return OptionsBacktestParameters(
+        min_days_to_expiration=section.min_days_to_expiration,
+        max_days_to_expiration=section.max_days_to_expiration,
+        target_days_to_expiration=section.target_days_to_expiration,
+        target_delta=(section.min_delta + section.max_delta) / 2.0,
+        volatility_uplift=volatility_uplift,
+        risk_free_rate=risk_free_rate,
+        execution_haircut=execution_haircut,
     )
 
 

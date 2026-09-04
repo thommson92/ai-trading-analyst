@@ -26,6 +26,7 @@ from ai_trading_analyst.application.deepen_history import (
     DeepenOutcome,
     SymbolDeepening,
 )
+from ai_trading_analyst.bootstrap import build_options_backtest_params
 from ai_trading_analyst.cli import (
     _print_calendar_reach,
     _print_research_report,
@@ -3787,3 +3788,140 @@ class TestOptionsKalibrierungRaender:
         # Der Aufschlag hat keine Grundlage und sagt das, statt eine Zahl zu
         # zeigen.
         assert "keine Grundlage" in ausgabe
+
+
+class TestOptionsBacktestKommando:
+    """Der Messlauf ueber die simulierten Put-Verkaeufe (ADR 0058, Stufe 1)."""
+
+    def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
+        args = build_parser().parse_args(["options-backtest"])
+
+        assert args.volatility_uplift == pytest.approx(1.15)
+        assert args.risk_free_rate == pytest.approx(0.04)
+        assert args.execution_haircut == pytest.approx(0.02)
+        assert args.symbols is None
+        assert args.handler is cli.command_options_backtest
+
+    def test_der_aufschlag_laesst_sich_setzen(self) -> None:
+        """Er ist gesetzt und nicht gemessen -- das Ergebnis gehoert als Band
+        ueber mehrere Aufschlaege gelesen, und dafuer muss er verstellbar
+        sein."""
+        args = build_parser().parse_args(
+            ["options-backtest", "--volatility-uplift", "1.4", "--symbols", "AAPL"]
+        )
+
+        assert args.volatility_uplift == pytest.approx(1.4)
+        assert args.symbols == "AAPL"
+
+    def test_verweigert_den_lauf_wenn_der_anbieter_nicht_ibkr_ist(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wie beim Backtest und beim Chart: Der Fixture-Anbieter kennt nur
+        Kunstsymbole."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(["--config", str(config), "options-backtest"])
+
+        assert exit_code == 2
+        assert "'fixture'" in capsys.readouterr().err
+
+    def test_schreibt_eine_tabelle_ueber_die_ausgewerteten_aktien(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        series = kerzenreihe([100.0 + (1.0 if (i // 2) % 2 else -1.0) for i in range(400)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(["--config", str(config), "options-backtest"])
+
+        ausgabe = capsys.readouterr().out
+        assert exit_code == 0
+        # Die Annahmen stehen im Kopf -- ohne sie waeren die Zahlen nicht deutbar.
+        assert "monatsverfaelle-dritter-freitag" in ausgabe
+        assert "volatilitaetsaufschlag   1.15" in ausgabe
+        # Und der Hinweis, dass keine dieser Praemien je notiert wurde.
+        assert "MODELLIERT" in ausgabe
+        assert "Kriterienbuchstaben" in ausgabe
+
+    def test_der_symbolfilter_grenzt_ein(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        series = kerzenreihe([100.0 + (1.0 if (i // 2) % 2 else -1.0) for i in range(400)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli,
+            "build_market_data_provider",
+            lambda *a, **k: FakeProvider(series, symbole=("AAPL", "MSFT")),
+        )
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(["--config", str(config), "options-backtest", "--symbols", "AAPL"])
+
+        ausgabe = capsys.readouterr()
+        assert exit_code == 0
+        assert "ueber 1 Aktien" in ausgabe.out
+        assert "AAPL:" in ausgabe.err
+        assert "MSFT:" not in ausgabe.err
+
+    def test_ein_unbekanntes_symbol_endet_mit_zwei(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        series = kerzenreihe([100.0 + (1.0 if (i // 2) % 2 else -1.0) for i in range(400)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(
+            ["--config", str(config), "options-backtest", "--symbols", "GIBTESNICHT"]
+        )
+
+        assert exit_code == 2
+        assert "GIBTESNICHT" in capsys.readouterr().err
+
+    def test_die_laufzeitparameter_kommen_aus_der_konfiguration(self) -> None:
+        """Sonst maesse der Rueckblick still eine andere Strategie als die
+        gehandelte, sobald jemand die Konfiguration aendert -- genau das will
+        ADR 0058 Festlegung 5 verhindern."""
+        config = _config_mit_ibkr_bestand()
+        angepasst = config.model_copy(
+            update={
+                "options": config.options.model_copy(
+                    update={
+                        "min_days_to_expiration": 30,
+                        "max_days_to_expiration": 45,
+                        "target_days_to_expiration": 40,
+                        "min_delta": 0.20,
+                        "max_delta": 0.40,
+                    }
+                )
+            }
+        )
+
+        params = build_options_backtest_params(
+            angepasst, volatility_uplift=1.2, risk_free_rate=0.03, execution_haircut=0.01
+        )
+
+        assert params.min_days_to_expiration == 30
+        assert params.max_days_to_expiration == 45
+        assert params.target_days_to_expiration == 40
+        # Live entscheidet das Band; historisch muss ein Strike gewaehlt
+        # werden, und die Mitte ist die sparsamste Uebersetzung.
+        assert params.target_delta == pytest.approx(0.30)
+        assert params.volatility_uplift == pytest.approx(1.2)
