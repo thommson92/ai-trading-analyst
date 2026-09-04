@@ -80,6 +80,7 @@ from ai_trading_analyst.bootstrap import (
     build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
+    build_options_backtest_params,
     build_options_provider,
     build_repeat_suppression_params,
     build_research_provider,
@@ -1962,7 +1963,8 @@ def command_options_backtest(args: argparse.Namespace) -> int:
         warmup_candles=indicators.warmup_candles,
     )
     backtest_params = build_backtest_params(config)
-    options_params = OptionsBacktestParameters(
+    options_params = build_options_backtest_params(
+        config,
         volatility_uplift=args.volatility_uplift,
         risk_free_rate=args.risk_free_rate,
         execution_haircut=args.execution_haircut,

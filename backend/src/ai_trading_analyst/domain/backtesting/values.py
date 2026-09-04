@@ -12,14 +12,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from itertools import combinations
 from uuid import UUID
 
-from ai_trading_analyst.domain.screening import SignalType
+from ai_trading_analyst.domain.screening import SignalType, qualifies
 
 SignalCombination = frozenset[SignalType]
 """Menge der aufgetretenen Signaltypen, nicht Reihenfolge oder Position
 (G1-Pruefvorlage Abschnitt 4.3: massgeblich fuer die Gruppierung ist
 ausschliesslich die Menge)."""
+
+
+def qualifying_combinations(required_crossing_signals: int) -> tuple[SignalCombination, ...]:
+    """Alle Signalkombinationen, die die Qualifikationsregel erfuellen koennen
+    (G1-Pruefvorlage Abschnitt 4.3).
+
+    Aufgezaehlt werden alle Teilmengen von ``SignalType``, die ``qualifies``
+    durchlaesst -- die Regel steht also genau einmal im Code und wird hier
+    nicht zweitgeschrieben. Bei ``required_crossing_signals=2`` sind das vier
+    Kaufsignal-Kombinationen mal drei Zusatz-Kombinationen, zusammen zwoelf.
+
+    Hier und nicht in ``metrics.py``: Die Kennzahlen der Aktienseite und die
+    der Optionsseite brauchen dieselbe Aufzaehlung, und zwei Fassungen
+    koennten auseinanderlaufen, ohne dass ein Test es merkt.
+    """
+    alle = tuple(SignalType)
+    return tuple(
+        frozenset(kombination)
+        for groesse in range(1, len(alle) + 1)
+        for kombination in combinations(alle, groesse)
+        if qualifies(frozenset(kombination), required_crossing_signals)
+    )
 
 
 class BacktestConfidence(StrEnum):

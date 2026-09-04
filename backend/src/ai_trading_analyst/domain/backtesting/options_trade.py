@@ -46,6 +46,17 @@ Kurspfad eine andere Zahl macht.
 """
 
 
+MAX_ABSTAND_ZUM_VERFALL_TAGE = 4
+"""Wie weit die Abrechnungskerze hoechstens vor dem Verfall liegen darf.
+
+Vier Tage decken den einzigen Fall, der regulaer vorkommt: Der dritte Freitag
+ist ein Feiertag, gehandelt wird zuletzt am Donnerstag. Grosszuegig genug fuer
+einen Feiertag am Rand eines Wochenendes und eng genug, dass ein echtes Loch
+im Bestand auffaellt statt stillschweigend eine Abrechnung Wochen vor dem
+Verfall zu erzeugen.
+"""
+
+
 class TradeOutcome(StrEnum):
     """Wie der Trade endete."""
 
@@ -268,14 +279,21 @@ def _unterstellte_volatilitaet(
 def _letzte_kerze_bis(
     series: CandleSeries, verfall: date, exchange_timezone: ZoneInfo
 ) -> int | None:
-    """Index der letzten Kerze **am oder vor** dem Verfallstag.
+    """Index der letzten Kerze **am oder kurz vor** dem Verfallstag.
 
-    Am oder vor: Faellt der dritte Freitag auf einen Feiertag, gibt es an ihm
-    keine Kerze -- der Handel des Vortags ist dann der letzte, und genau er
-    bestimmt die Andienung.
+    Nicht genau am: Faellt der dritte Freitag auf einen Feiertag -- Karfreitag
+    trifft ihn regelmaessig --, gibt es an ihm keine Kerze. Der Handel des
+    Vortags ist dann der letzte, und genau er bestimmt die Andienung.
 
-    ``None``, wenn die Reihe vor dem Verfall endet. Der Trade waere
-    unvollstaendig, und ein abgeschnittener saehe wie ein Ergebnis aus.
+    ``None`` in zwei Faellen, und beide sind Aussagen ueber die Grundlage:
+
+    * Die Reihe **endet** vor dem Verfall. Der Trade ist nicht ausgelaufen,
+      und ein abgeschnittener saehe wie ein Ergebnis aus.
+    * Die letzte Kerze liegt **zu weit** vor dem Verfall. Ein Loch mitten in
+      der Reihe -- ein ausgesetzter Titel, eine Luecke im Bestand -- fuehrte
+      sonst dazu, dass der Trade auf einem Kurs abgerechnet wird, der mit dem
+      Verfall nichts zu tun hat, und trotzdem wie ein vollstaendiges Ergebnis
+      aussieht.
     """
     letzter: int | None = None
     for i in range(len(series)):
@@ -286,8 +304,7 @@ def _letzte_kerze_bis(
     if letzter is None:
         return None
     letzter_tag = series.candle(letzter).timestamp.astimezone(exchange_timezone).date()
-    # Endet die Reihe vor dem Verfall, ist der Trade nicht ausgelaufen.
-    if letzter == len(series) - 1 and letzter_tag < verfall:
+    if (verfall - letzter_tag).days > MAX_ABSTAND_ZUM_VERFALL_TAGE:
         return None
     return letzter
 

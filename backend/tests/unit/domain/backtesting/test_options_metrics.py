@@ -11,7 +11,6 @@ from ai_trading_analyst.domain.backtesting.options_metrics import (
     SIGNAL_BUCHSTABEN,
     compute_options_backtest_results,
     kombinationskuerzel,
-    qualifying_combinations,
     summarize_variant,
 )
 from ai_trading_analyst.domain.backtesting.options_trade import (
@@ -19,6 +18,7 @@ from ai_trading_analyst.domain.backtesting.options_trade import (
     OptionTrade,
     TradeOutcome,
 )
+from ai_trading_analyst.domain.backtesting.values import qualifying_combinations
 from ai_trading_analyst.domain.screening import SignalType
 
 OPTIONEN = OptionsBacktestParameters()

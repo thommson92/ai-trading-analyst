@@ -22,11 +22,10 @@ from __future__ import annotations
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from itertools import combinations
 from types import MappingProxyType
 
 from ai_trading_analyst.domain.options import DEFAULT_STRIKE_GRID, HISTORICAL_CALENDAR
-from ai_trading_analyst.domain.screening import SignalType, qualifies
+from ai_trading_analyst.domain.screening import SignalType
 
 from .options_trade import (
     OPTIONS_BACKTEST_VERSION,
@@ -34,7 +33,12 @@ from .options_trade import (
     OptionTrade,
     TradeOutcome,
 )
-from .values import BacktestConfidence, BacktestParameters, SignalCombination
+from .values import (
+    BacktestConfidence,
+    BacktestParameters,
+    SignalCombination,
+    qualifying_combinations,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +60,10 @@ class VariantMetrics:
     Trefferquote nicht zeigt."""
     mean_return_on_capital: float | None
     """Ertrag im Verhaeltnis zum gebundenen Kapital, je Trade gerechnet und
-    dann gemittelt. Bei einem Cash Secured Put ist das ``strike * 100``."""
+    dann gemittelt. Bei einem Cash Secured Put ist das ``strike * 100`` und
+    damit **immer positiv** -- eine Absicherung gegen null waere eine gegen
+    einen Fall, den es nicht gibt (``CLAUDE.md``), und sie mittelte
+    stillschweigend ueber weniger Trades, als daneben stehen."""
     expired_worthless: int
     assigned: int
     take_profits: int
@@ -103,7 +110,6 @@ def summarize_variant(
         mean_return_on_capital=statistics.fmean(
             gewinn / kapital
             for gewinn, kapital in zip(profits, capitals, strict=True)
-            if kapital > 0.0
         ),
         expired_worthless=sum(1 for o in outcomes if o is TradeOutcome.EXPIRED_WORTHLESS),
         assigned=sum(1 for o in outcomes if o is TradeOutcome.ASSIGNED),
@@ -167,21 +173,6 @@ def kombinationskuerzel(kombination: SignalCombination) -> str:
         buchstabe
         for buchstabe, signal in SIGNAL_BUCHSTABEN.items()
         if signal in kombination
-    )
-
-
-def qualifying_combinations(required_crossing_signals: int) -> tuple[SignalCombination, ...]:
-    """Alle Signalkombinationen, die die Qualifikationsregel erfuellen koennen.
-
-    Dieselbe Aufzaehlung wie in ``metrics.py``: Die Regel steht genau einmal
-    im Code (``qualifies``) und wird hier nicht zweitgeschrieben.
-    """
-    alle = tuple(SignalType)
-    return tuple(
-        frozenset(kombination)
-        for groesse in range(1, len(alle) + 1)
-        for kombination in combinations(alle, groesse)
-        if qualifies(frozenset(kombination), required_crossing_signals)
     )
 
 

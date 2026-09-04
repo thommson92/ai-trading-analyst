@@ -10,6 +10,7 @@ als eigener Wert am Ergebnis, statt in einer Summe zu verschwinden.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -79,6 +80,24 @@ def _schwankend(anzahl: int, *, um: float = 100.0, ausschlag: float = 1.0) -> li
 
 VORLAUF = 90
 """Kerzen vor dem Einstieg -- genug fuer das 30-Handelstage-Fenster."""
+
+
+def ohne_tage(series: CandleSeries, weglassen: Callable[[date], bool]) -> CandleSeries:
+    """Dieselbe Reihe ohne bestimmte Handelstage.
+
+    Filtert Kerzen **und** Indikatoren zusammen -- ``CandleSeries`` verlangt
+    gleiche Laenge, und das aus gutem Grund: Ein Indikator am falschen Index
+    gehoerte zu einer anderen Kerze.
+    """
+    behalten = [
+        (kerze, indikator)
+        for kerze, indikator in zip(series.candles, series.indicators, strict=True)
+        if not weglassen(kerze.timestamp.astimezone(NEW_YORK).date())
+    ]
+    return CandleSeries(
+        candles=tuple(kerze for kerze, _ in behalten),
+        indicators=tuple(indikator for _, indikator in behalten),
+    )
 
 
 class TestVollstaendigerTrade:
@@ -314,3 +333,114 @@ class TestBekannteKalenderfaelle:
         from ai_trading_analyst.domain.options import third_friday
 
         assert third_friday(jahr, monat) == date(jahr, monat, tag)
+
+
+class TestRueckfallAufDieGrundlinie:
+    """Trades, die **keine** der beiden Marken erreichen.
+
+    ADR 0058 Festlegung 7 nennt genau sie als Zweck des Backtests: Die
+    rechnerische Grenze von rund 86 Prozent gilt nur, wenn jeder Trade an
+    einer der Marken endet. Wie viele stattdessen bis zum Verfall laufen,
+    ist eine der Fragen, die der Lauf beantworten soll.
+    """
+
+    @pytest.mark.parametrize("anteil", [0.10, 0.33, 0.50, 0.90, 0.99])
+    def test_ein_wertlos_verfallender_put_wird_immer_vorher_glattgestellt(
+        self, anteil: float
+    ) -> None:
+        """Ein Befund, kein Randfall: Verfaellt der Put wertlos, faellt sein
+        Preis auf dem Weg dorthin unter **jede** Gewinnmarke unter hundert
+        Prozent. Die gemanagte Variante vereinnahmt deshalb nie die volle
+        Praemie -- auch dann nicht, wenn das Halten sie gebracht haette.
+
+        Das ist genau die Haelfte der Rechnung aus ADR 0058 Festlegung 7: Die
+        Gewinne sind gedeckelt, die Verluste nicht, und daher stammt die
+        Grenze von rund 86 Prozent Trefferquote.
+        """
+        weit = OptionsBacktestParameters(
+            take_profit_fraction=anteil, stop_multiple=100.0, execution_haircut=0.0
+        )
+        series = handelsreihe(_schwankend(VORLAUF + 80))
+
+        trade = simulate_put_sale(series, VORLAUF, weit, exchange_timezone=NEW_YORK)
+
+        assert trade is not None
+        assert trade.held_outcome is TradeOutcome.EXPIRED_WORTHLESS
+        assert trade.managed_outcome is TradeOutcome.TAKE_PROFIT
+        assert 0.0 < trade.managed_profit < trade.held_profit
+
+    def test_auch_bei_andienung_faellt_er_auf_die_grundlinie_zurueck(self) -> None:
+        """Ein Absturz ohne erreichten Stop: Der Verlust ist der volle."""
+        weit = OptionsBacktestParameters(
+            take_profit_fraction=0.99, stop_multiple=100.0, execution_haircut=0.0
+        )
+        closes = _schwankend(VORLAUF + 10) + [40.0] * 70
+        series = handelsreihe(closes)
+
+        trade = simulate_put_sale(series, VORLAUF, weit, exchange_timezone=NEW_YORK)
+
+        assert trade is not None
+        assert trade.held_outcome is TradeOutcome.ASSIGNED
+        assert trade.managed_outcome is TradeOutcome.ASSIGNED
+        assert trade.managed_profit == pytest.approx(trade.held_profit)
+
+
+class TestAbrechnungskerze:
+    def test_ein_feiertag_am_verfall_laesst_den_vortag_abrechnen(self) -> None:
+        """Faellt der dritte Freitag auf einen Feiertag -- Karfreitag trifft
+        ihn regelmaessig --, gibt es an ihm keine Kerze. Der Handel des
+        Vortags ist dann der letzte und bestimmt die Andienung."""
+        vollstaendig = handelsreihe(_schwankend(VORLAUF + 80))
+        referenz = simulate_put_sale(
+            vollstaendig, VORLAUF, OHNE_ABSCHLAG, exchange_timezone=NEW_YORK
+        )
+        assert referenz is not None
+
+        gekuerzt = ohne_tage(vollstaendig, lambda tag: tag == referenz.expiration)
+
+        trade = simulate_put_sale(
+            gekuerzt, VORLAUF, OHNE_ABSCHLAG, exchange_timezone=NEW_YORK
+        )
+
+        assert trade is not None
+        assert trade.expiration == referenz.expiration
+        # Abgerechnet wird auf dem Vortag, nicht auf irgendeiner Kerze.
+        abrechnung = gekuerzt.candle(
+            next(
+                i
+                for i in range(len(gekuerzt) - 1, -1, -1)
+                if gekuerzt.candle(i).timestamp.astimezone(NEW_YORK).date()
+                <= trade.expiration
+            )
+        )
+        assert trade.underlying_at_expiration == pytest.approx(abrechnung.close)
+
+    def test_ein_loch_ueber_den_verfall_hinweg_erzeugt_keinen_trade(self) -> None:
+        """Der Befund der Review: Ohne Abstandsgrenze wuerde der Trade auf
+        einem Kurs abgerechnet, der Wochen vor dem Verfall liegt -- und saehe
+        trotzdem wie ein vollstaendiges Ergebnis aus."""
+        vollstaendig = handelsreihe(_schwankend(VORLAUF + 80))
+        referenz = simulate_put_sale(
+            vollstaendig, VORLAUF, PARAMETER, exchange_timezone=NEW_YORK
+        )
+        assert referenz is not None
+
+        loch_ab = referenz.expiration - timedelta(days=28)
+        loch_bis = referenz.expiration + timedelta(days=3)
+        mit_loch = ohne_tage(vollstaendig, lambda tag: loch_ab <= tag <= loch_bis)
+
+        assert (
+            simulate_put_sale(mit_loch, VORLAUF, PARAMETER, exchange_timezone=NEW_YORK)
+            is None
+        )
+
+
+class TestStrikeRaster:
+    def test_ueber_zweihundert_dollar_gilt_der_fuenferschritt(self) -> None:
+        from ai_trading_analyst.domain.options import snap_to_strike_grid, strike_step
+
+        assert strike_step(15.0) == pytest.approx(1.0)
+        assert strike_step(100.0) == pytest.approx(2.5)
+        assert strike_step(232.0) == pytest.approx(5.0)
+        assert snap_to_strike_grid(231.7, price=232.0) == pytest.approx(230.0)
+        assert snap_to_strike_grid(97.4, price=100.0) == pytest.approx(97.5)
