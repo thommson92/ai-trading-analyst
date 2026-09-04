@@ -15,7 +15,11 @@ from typing import Protocol
 from uuid import UUID
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
-from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.backtesting import (
+    BacktestResult,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+)
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, StoredQuote
@@ -336,6 +340,39 @@ class BacktestResultRepository(Protocol):
     def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
 
 
+class OptionsBacktestResultRepository(Protocol):
+    """Ergebnisse des Optionsbacktests (ADR 0058, Festlegung 9).
+
+    **Eigene Tabelle, nie die Spalten der echten Optionsanalyse.** Jede Zahl
+    hier ist modelliert -- die Praemie gerechnet, der Verfallskalender
+    konstruiert, das Strike-Raster angenommen. Eine modellierte Praemie darf
+    an keiner Stelle neben einer notierten stehen, ohne dass man beide
+    unterscheiden kann.
+
+    Geschrieben wird **angehaengt, nie ueberschrieben**: Jeder Aufruf ist eine
+    eigene Messung mit eigener ``measurement_id``. Zwei Laeufe mit
+    verschiedenem Volatilitaetsaufschlag sind zwei Befunde und nicht ein
+    korrigierter.
+    """
+
+    def add(
+        self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
+    ) -> None: ...
+
+    def latest_measurement_id(self) -> UUID | None:
+        """Die juengste Messung, oder ``None``, wenn noch keine lief."""
+        ...
+
+    def list_for_measurement(
+        self, measurement_id: UUID
+    ) -> Sequence[tuple[OptionsBacktestScope, OptionsBacktestResult]]:
+        """Alle Zeilen einer Messung -- Aktienzeilen **und** die Zeile ueber
+        alle Aktien (``scope.stock_id is None``). Wer nur die eine oder die
+        andere Sorte will, filtert; sie hier zu trennen hiesse, zweimal
+        dasselbe zu fragen."""
+        ...
+
+
 class IntradayBarRepository(Protocol):
     """Speicher fuer die nativen Bars des Anbieters.
 
@@ -542,6 +579,7 @@ class UnitOfWork(Protocol):
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
     backtest_results: BacktestResultRepository
+    options_backtest_results: OptionsBacktestResultRepository
     stock_reports: StockReportRepository
 
     def __enter__(self) -> UnitOfWork: ...

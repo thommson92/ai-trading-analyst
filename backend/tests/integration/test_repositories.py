@@ -30,6 +30,14 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
     HorizonMetrics,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+    VariantMetrics,
+)
+from ai_trading_analyst.domain.backtesting.options_metrics import assumptions_of
+from ai_trading_analyst.domain.backtesting.options_trade import (
+    OPTIONS_BACKTEST_VERSION,
+    OptionsBacktestParameters,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.options import (
@@ -2408,3 +2416,155 @@ class TestSpreadRundlauf:
         assert persisted.options.spread_reason == "kein Strike unter dem Verkauf gelistet"
         # Der Grund der Optionsanalyse selbst bleibt davon unberuehrt.
         assert persisted.options.reason is None
+
+
+class TestOptionsBacktestResultRepository:
+    """ADR 0058, Festlegung 9 -- eigene Tabelle, eigene Version, angehaengt.
+
+    Der Rundlauf muss beides tragen: eine Aktienzeile und die Zeile ueber alle
+    Aktien (``stock_id is None``). Sie unterscheiden sich nur im Bereich, nie
+    in den Kennzahlen -- und genau deshalb faellt eine Verwechslung ohne Test
+    nicht auf.
+    """
+
+    @staticmethod
+    def _kennzahlen(*, gemanagt: bool) -> VariantMetrics:
+        return VariantMetrics(
+            trades=8,
+            win_rate=0.75,
+            mean_profit=41.5,
+            median_profit=38.0,
+            total_profit=332.0,
+            worst_profit=-260.0,
+            mean_return_on_capital=0.0042,
+            expired_worthless=0 if gemanagt else 6,
+            assigned=0 if gemanagt else 2,
+            take_profits=6 if gemanagt else 0,
+            stops=1 if gemanagt else 0,
+            closed_at_expiration=1 if gemanagt else 0,
+        )
+
+    def _ergebnis(
+        self, *, belastbar: bool = True, kombination: frozenset[SignalType] | None = None
+    ) -> OptionsBacktestResult:
+        return OptionsBacktestResult(
+            signal_types=kombination
+            or frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS}),
+            episodes=11,
+            trades=8,
+            without_trade=3,
+            held=self._kennzahlen(gemanagt=False) if belastbar else None,
+            managed=self._kennzahlen(gemanagt=True) if belastbar else None,
+            confidence=(
+                BacktestConfidence.NORMAL
+                if belastbar
+                else BacktestConfidence.INSUFFICIENT_DATA
+            ),
+            assumptions=assumptions_of(OptionsBacktestParameters(volatility_uplift=1.25)),
+        )
+
+    @staticmethod
+    def _bereich(stock_id: uuid.UUID | None, *, messung: uuid.UUID) -> OptionsBacktestScope:
+        return OptionsBacktestScope(
+            measurement_id=messung,
+            measured_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            stock_id=stock_id,
+            stocks=1 if stock_id is not None else 4,
+            history_start=datetime(2025, 1, 2, 14, 30, tzinfo=UTC),
+            history_end=datetime(2026, 9, 4, 20, 0, tzinfo=UTC),
+        )
+
+    def test_rundlauf_ueber_aktienzeile_und_gesamtzeile(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("OPTBT")
+        messung = uuid.uuid4()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.options_backtest_results.add(
+                self._bereich(stock.id, messung=messung), [self._ergebnis()]
+            )
+            uow.options_backtest_results.add(
+                self._bereich(None, messung=messung), [self._ergebnis()]
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert uow.options_backtest_results.latest_measurement_id() == messung
+            zeilen = uow.options_backtest_results.list_for_measurement(messung)
+
+        assert len(zeilen) == 2
+        # Die Zeile ueber alle Aktien zuerst -- sie ist die Antwort auf die
+        # Frage, die der Lauf gestellt hat.
+        (gesamt_bereich, gesamt), (aktien_bereich, je_aktie) = zeilen
+        assert gesamt_bereich.stock_id is None
+        assert gesamt_bereich.stocks == 4
+        assert aktien_bereich.stock_id == stock.id
+        assert aktien_bereich.stocks == 1
+        assert gesamt == je_aktie
+
+    def test_die_kennzahlen_kommen_unveraendert_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        messung = uuid.uuid4()
+        erwartet = self._ergebnis()
+        with uow_factory() as uow:
+            uow.options_backtest_results.add(self._bereich(None, messung=messung), [erwartet])
+            uow.commit()
+
+        with uow_factory() as uow:
+            ((bereich, gelesen),) = uow.options_backtest_results.list_for_measurement(messung)
+
+        assert gelesen == erwartet
+        assert bereich == self._bereich(None, messung=messung)
+        # Die Annahmen sind das einzige, was zwei Messungen desselben Tages
+        # unterscheidet -- sie muessen vollstaendig zurueckkommen.
+        assert gelesen.assumptions["volatilitaetsaufschlag"] == "1.25"
+        assert gelesen.assumptions["version"] == OPTIONS_BACKTEST_VERSION
+
+    def test_ohne_belastbare_stichprobe_bleiben_beide_varianten_leer(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """``None`` heisst keine Grundlage, nicht null -- und dann darf auch
+        die Ausgangsverteilung nicht dastehen. Eine Verteilung ohne Kennzahlen
+        sagte, es habe Trades gegeben, deren Ergebnis niemand ausweisen
+        wollte."""
+        messung = uuid.uuid4()
+        with uow_factory() as uow:
+            uow.options_backtest_results.add(
+                self._bereich(None, messung=messung), [self._ergebnis(belastbar=False)]
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            ((_, gelesen),) = uow.options_backtest_results.list_for_measurement(messung)
+
+        assert gelesen.held is None
+        assert gelesen.managed is None
+        assert gelesen.confidence is BacktestConfidence.INSUFFICIENT_DATA
+        # Die Grundgesamtheit steht trotzdem da: Elf Episoden ohne belastbare
+        # Kennzahlen sind etwas anderes als keine Episoden.
+        assert gelesen.episodes == 11
+        assert gelesen.trades == 8
+
+    def test_eine_zweite_messung_ueberschreibt_die_erste_nicht(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """CLAUDE.md: Unveraenderlichkeit. Zwei Laeufe mit verschiedenem
+        Volatilitaetsaufschlag sind zwei Befunde und nicht ein korrigierter --
+        das Ergebnis gehoert ohnehin als Band ueber mehrere Aufschlaege
+        gelesen."""
+        erste, zweite = uuid.uuid4(), uuid.uuid4()
+        with uow_factory() as uow:
+            uow.options_backtest_results.add(self._bereich(None, messung=erste), [self._ergebnis()])
+            uow.commit()
+        with uow_factory() as uow:
+            uow.options_backtest_results.add(
+                self._bereich(None, messung=zweite), [self._ergebnis()]
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            assert len(uow.options_backtest_results.list_for_measurement(erste)) == 1
+            assert len(uow.options_backtest_results.list_for_measurement(zweite)) == 1

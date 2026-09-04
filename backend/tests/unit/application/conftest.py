@@ -24,6 +24,7 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
+    OptionsBacktestResultRepository,
     OptionsDataProviderError,
     ProcessingErrorRepository,
     ResearchProviderError,
@@ -37,7 +38,11 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreterError,
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
-from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.backtesting import (
+    BacktestResult,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+)
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
@@ -427,6 +432,34 @@ class FakeBacktestResultRepository:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
 
 
+class FakeOptionsBacktestResultRepository:
+    """ADR 0058, Festlegung 9. Sammelt, was ihm gegeben wird -- ohne
+    Ueberschreiben, denn genau das tut die echte auch nicht."""
+
+    def __init__(self) -> None:
+        self.added: list[tuple[OptionsBacktestScope, tuple[OptionsBacktestResult, ...]]] = []
+
+    def add(
+        self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
+    ) -> None:
+        self.added.append((scope, tuple(results)))
+
+    def latest_measurement_id(self) -> uuid.UUID | None:
+        if not self.added:
+            return None
+        return self.added[-1][0].measurement_id
+
+    def list_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> tuple[tuple[OptionsBacktestScope, OptionsBacktestResult], ...]:
+        return tuple(
+            (scope, ergebnis)
+            for scope, ergebnisse in self.added
+            if scope.measurement_id == measurement_id
+            for ergebnis in ergebnisse
+        )
+
+
 
 def _berichtskennung(report: StockReport) -> uuid.UUID:
     """Dieselbe Eindeutigkeit wie in der Datenbank: ein Bericht je Lauf und
@@ -556,6 +589,7 @@ class FakeUnitOfWork:
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
         backtest_results: BacktestResultRepository | None = None,
+        options_backtest_results: OptionsBacktestResultRepository | None = None,
         stock_reports: StockReportRepository | None = None,
     ) -> None:
         self.stocks = stocks
@@ -564,6 +598,9 @@ class FakeUnitOfWork:
         self.screening_results = screening_results
         self.processing_errors = processing_errors
         self.backtest_results = backtest_results or FakeBacktestResultRepository()
+        self.options_backtest_results = (
+            options_backtest_results or FakeOptionsBacktestResultRepository()
+        )
         self.stock_reports = stock_reports or FakeStockReportRepository()
 
     def __enter__(self) -> Self:

@@ -207,6 +207,31 @@ def test_die_spread_spalten_entstehen_durch_die_migration(engine: Engine) -> Non
     assert spalten["options_spread"] == "JSONB"
 
 
+def test_die_optionsbacktest_tabelle_entsteht_durch_die_migration(engine: Engine) -> None:
+    """ADR 0058, Festlegung 9 -- ``b3d7f19ac405``, eine eigene Tabelle.
+
+    Sie benutzt den Enumtyp ``backtestconfidence`` der Aktienseite mit
+    ``create_type=False``. Ein zweites ``create`` scheitert -- dieselbe Falle
+    wie bei den Empfehlungsspalten, und ohne diesen Test faellt sie erst beim
+    ersten Messlauf auf dem Server auf.
+    """
+    inspektor = inspect(engine)
+
+    assert "options_backtest_results" in inspektor.get_table_names()
+    spalten = {s["name"]: s for s in inspektor.get_columns("options_backtest_results")}
+    assert {"measurement_id", "stock_id", "stocks", "assumptions"} <= set(spalten)
+    # ``stock_id`` muss leer bleiben duerfen: NULL ist die Zeile ueber alle
+    # Aktien und kein fehlender Wert.
+    assert spalten["stock_id"]["nullable"] is True
+    assert spalten["measurement_id"]["nullable"] is False
+    # Beide Varianten leer, wenn die Stichprobe nicht traegt.
+    assert spalten["held_win_rate"]["nullable"] is True
+    assert spalten["managed_outcomes"]["nullable"] is True
+
+    indizes = {i["name"] for i in inspektor.get_indexes("options_backtest_results")}
+    assert "ix_options_backtest_results_measurement_id" in indizes
+
+
 def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
     """ADR 0041, ADR 0045 -- vier Spalten je Score und ein neuer Enum-Typ.
 

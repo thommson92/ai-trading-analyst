@@ -22,7 +22,9 @@ from __future__ import annotations
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from types import MappingProxyType
+from uuid import UUID
 
 from ai_trading_analyst.domain.options import DEFAULT_STRIKE_GRID, HISTORICAL_CALENDAR
 from ai_trading_analyst.domain.screening import SignalType
@@ -68,6 +70,13 @@ class VariantMetrics:
     assigned: int
     take_profits: int
     stops: int
+    closed_at_expiration: int
+    """Am Verfallstag im Geld glattgestellt (ADR 0058, Nachtrag zu
+    Festlegung 7). Nur die gemanagte Variante kennt diesen Ausgang.
+
+    Ohne ihn zaehlten die uebrigen vier nicht mehr bis ``trades``, und die
+    Differenz saehe aus wie ein Rundungsfehler statt wie ein Ausgang. Ein
+    Test haelt fest, dass die Summe stimmt."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +99,36 @@ class OptionsBacktestResult:
     managed: VariantMetrics | None
     confidence: BacktestConfidence
     assumptions: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class OptionsBacktestScope:
+    """Wofuer eine Reihe von Ergebnissen gilt (ADR 0058, Festlegung 9).
+
+    Sie steht **neben** den Kennzahlen und nicht in ihnen: Dieselbe Rechnung
+    laeuft je Aktie und noch einmal ueber alle zusammen, und die Kennzahlen
+    sehen in beiden Faellen gleich aus. Was sie unterscheidet, steht hier.
+
+    ``measurement_id`` bindet zusammen, was ein Aufruf erzeugt hat. Eine
+    Neuberechnung ueberschreibt nichts, sondern legt eine neue Messung daneben
+    (``CLAUDE.md``: Unveraenderlichkeit) -- schon deshalb, weil sich zwischen
+    zwei Laeufen der Volatilitaetsaufschlag geaendert haben kann und das
+    Ergebnis als **Band** ueber mehrere Aufschlaege zu lesen ist.
+    """
+
+    measurement_id: UUID
+    measured_at: datetime
+    signal_rule_version: str
+    stock_id: UUID | None
+    """``None`` heisst: ueber alle Aktien der Messung zusammen.
+
+    Diese Zeile wird **aus den Einzeltrades** gerechnet und nicht aus den
+    Aktienzeilen gemittelt. Ein Mittel von Mitteln gewichtete eine Aktie mit
+    drei Trades so schwer wie eine mit dreissig."""
+    stocks: int
+    """Wie viele Aktien beigetragen haben -- 1 an einer Aktienzeile."""
+    history_start: datetime
+    history_end: datetime
 
 
 def summarize_variant(
@@ -115,6 +154,9 @@ def summarize_variant(
         assigned=sum(1 for o in outcomes if o is TradeOutcome.ASSIGNED),
         take_profits=sum(1 for o in outcomes if o is TradeOutcome.TAKE_PROFIT),
         stops=sum(1 for o in outcomes if o is TradeOutcome.STOPPED_OUT),
+        closed_at_expiration=sum(
+            1 for o in outcomes if o is TradeOutcome.CLOSED_AT_EXPIRATION
+        ),
     )
 
 

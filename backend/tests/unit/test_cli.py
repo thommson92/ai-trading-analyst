@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -3790,8 +3790,42 @@ class TestOptionsKalibrierungRaender:
         assert "keine Grundlage" in ausgabe
 
 
+class _SammelndeMessung:
+    """Nimmt entgegen, was der Messlauf ablegen will (ADR 0058, Festlegung 9).
+
+    Die Tests fuehren keine Datenbank -- ``build_session_factory`` ist auf
+    ``None`` gesetzt. Bis Festlegung 9 umgesetzt war, machte das nichts, weil
+    der Lauf nur druckte. Jetzt schreibt er, und ohne dieses Doppel praegte
+    der Test die Zeile "der Messlauf legt nichts ab" ein, die gerade nicht
+    mehr gilt.
+    """
+
+    zeilen: ClassVar[list[tuple[Any, tuple[Any, ...]]]] = []
+
+    def __init__(self, session_factory: Any) -> None:
+        pass
+
+    def __enter__(self) -> Any:
+        self.options_backtest_results = self
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+    def add(self, scope: Any, results: Any) -> None:
+        type(self).zeilen.append((scope, tuple(results)))
+
+    def commit(self) -> None:
+        pass
+
+
 class TestOptionsBacktestKommando:
     """Der Messlauf ueber die simulierten Put-Verkaeufe (ADR 0058, Stufe 1)."""
+
+    @pytest.fixture(autouse=True)
+    def _ohne_datenbank(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _SammelndeMessung.zeilen = []
+        monkeypatch.setattr(cli, "SqlAlchemyUnitOfWork", _SammelndeMessung)
 
     def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
         args = build_parser().parse_args(["options-backtest"])
@@ -3849,6 +3883,15 @@ class TestOptionsBacktestKommando:
         # Und der Hinweis, dass keine dieser Praemien je notiert wurde.
         assert "MODELLIERT" in ausgabe
         assert "Kriterienbuchstaben" in ausgabe
+
+        # Und der Lauf legt ab, was er gemessen hat (Festlegung 9): je Aktie
+        # eine Reihe und eine ueber alle zusammen, unter **einer** Messung.
+        bereiche = [bereich for bereich, _ in _SammelndeMessung.zeilen]
+        assert len(bereiche) == 2
+        assert {b.stock_id is None for b in bereiche} == {True, False}
+        assert len({b.measurement_id for b in bereiche}) == 1
+        (gesamt,) = [b for b in bereiche if b.stock_id is None]
+        assert gesamt.stocks == 1
 
     def test_der_symbolfilter_grenzt_ein(
         self,

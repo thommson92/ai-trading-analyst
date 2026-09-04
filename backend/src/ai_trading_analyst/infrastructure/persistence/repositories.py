@@ -6,6 +6,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from types import MappingProxyType
 from typing import Any
 
 from sqlalchemy import Select, func, nullslast, select
@@ -28,6 +29,9 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestResult,
     HorizonMetrics,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+    VariantMetrics,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
@@ -100,6 +104,7 @@ from .orm import (
     FundamentalMetricOrm,
     IntradayBarOrm,
     OptionQuoteOrm,
+    OptionsBacktestResultOrm,
     ProcessingErrorOrm,
     ResearchCitationOrm,
     ScreeningResultOrm,
@@ -1643,4 +1648,138 @@ class SqlAlchemyBacktestResultRepository:
             .all()
         )
         return _group_rows_into_results(rows)
+
+
+_VARIANTENFELDER = (
+    "win_rate",
+    "mean_profit",
+    "median_profit",
+    "total_profit",
+    "worst_profit",
+    "mean_return_on_capital",
+)
+"""Die Zahlen, die als Spalten stehen. Die Ausgangsverteilung nicht -- sie
+geht als JSONB, weil sie im Ganzen gelesen und nie sortiert wird."""
+
+_AUSGAENGE = (
+    "expired_worthless",
+    "assigned",
+    "take_profits",
+    "stops",
+    "closed_at_expiration",
+)
+
+
+def _variante_als_spalten(kennzahlen: VariantMetrics | None, praefix: str) -> dict[str, Any]:
+    """Eine Variante auf ihre Spalten verteilt.
+
+    ``None`` heisst ``INSUFFICIENT_DATA``: Dann bleibt **jede** Spalte leer,
+    auch die Ausgangsverteilung. Eine Verteilung ohne Kennzahlen sagte, es
+    haette Trades gegeben, deren Ergebnis niemand ausweisen wollte.
+    """
+    if kennzahlen is None:
+        return {f"{praefix}_{feld}": None for feld in (*_VARIANTENFELDER, "outcomes")}
+    spalten: dict[str, Any] = {
+        f"{praefix}_{feld}": getattr(kennzahlen, feld) for feld in _VARIANTENFELDER
+    }
+    spalten[f"{praefix}_outcomes"] = {
+        ausgang: getattr(kennzahlen, ausgang) for ausgang in _AUSGAENGE
+    }
+    return spalten
+
+
+def _variante_aus_spalten(
+    row: OptionsBacktestResultOrm, praefix: str, trades: int
+) -> VariantMetrics | None:
+    verteilung = getattr(row, f"{praefix}_outcomes")
+    if verteilung is None:
+        return None
+    werte = {feld: getattr(row, f"{praefix}_{feld}") for feld in _VARIANTENFELDER}
+    return VariantMetrics(
+        trades=trades,
+        **werte,
+        **{ausgang: verteilung[ausgang] for ausgang in _AUSGAENGE},
+    )
+
+
+class SqlAlchemyOptionsBacktestResultRepository:
+    """ADR 0058, Festlegung 9. Angehaengt, nie ueberschrieben."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(
+        self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
+    ) -> None:
+        self._session.add_all(
+            OptionsBacktestResultOrm(
+                id=uuid.uuid4(),
+                measurement_id=scope.measurement_id,
+                measured_at=scope.measured_at,
+                stock_id=scope.stock_id,
+                stocks=scope.stocks,
+                signal_types=sorted(signal.value for signal in result.signal_types),
+                signal_rule_version=scope.signal_rule_version,
+                options_backtest_version=result.assumptions["version"],
+                history_start=scope.history_start,
+                history_end=scope.history_end,
+                episodes=result.episodes,
+                trades=result.trades,
+                without_trade=result.without_trade,
+                confidence=result.confidence,
+                assumptions=dict(result.assumptions),
+                **_variante_als_spalten(result.held, "held"),
+                **_variante_als_spalten(result.managed, "managed"),
+            )
+            for result in results
+        )
+
+    def latest_measurement_id(self) -> uuid.UUID | None:
+        return self._session.execute(
+            select(OptionsBacktestResultOrm.measurement_id)
+            .order_by(OptionsBacktestResultOrm.measured_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def list_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> Sequence[tuple[OptionsBacktestScope, OptionsBacktestResult]]:
+        rows = (
+            self._session.execute(
+                select(OptionsBacktestResultOrm)
+                .where(OptionsBacktestResultOrm.measurement_id == measurement_id)
+                .order_by(
+                    # Die Zeile ueber alle Aktien zuerst: Sie ist die Antwort
+                    # auf die Frage, die der Lauf gestellt hat.
+                    OptionsBacktestResultOrm.stock_id.is_(None).desc(),
+                    OptionsBacktestResultOrm.signal_types,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            (
+                OptionsBacktestScope(
+                    measurement_id=row.measurement_id,
+                    measured_at=row.measured_at,
+                    signal_rule_version=row.signal_rule_version,
+                    stock_id=row.stock_id,
+                    stocks=row.stocks,
+                    history_start=row.history_start,
+                    history_end=row.history_end,
+                ),
+                OptionsBacktestResult(
+                    signal_types=frozenset(SignalType(v) for v in row.signal_types),
+                    episodes=row.episodes,
+                    trades=row.trades,
+                    without_trade=row.without_trade,
+                    held=_variante_aus_spalten(row, "held", row.trades),
+                    managed=_variante_aus_spalten(row, "managed", row.trades),
+                    confidence=row.confidence,
+                    assumptions=MappingProxyType(dict(row.assumptions)),
+                ),
+            )
+            for row in rows
+        ]
 
