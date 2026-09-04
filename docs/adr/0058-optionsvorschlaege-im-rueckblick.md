@@ -204,10 +204,24 @@ beiträgt oder nur Transaktionskosten erzeugt.
 
 **Nachtrag vom 2026-09-04: die Glattstellung am Verfallstag.** In der ersten
 Fassung endete die gemanagte Variante auf der Grundlinie, wenn weder Marke
-erreicht wurde. Gemessen ist das die **Mehrzahl** der Trades — beide Varianten
-trugen dort Zahl für Zahl dasselbe Ergebnis, und die Variante, die sich über
-Rückkaufregeln definiert, kaufte am Ende nie zurück. Der Vergleich, der der
-Zweck dieses Backtests ist, maß an dieser Stelle nichts.
+erreicht wurde: Sie trug dann Zahl für Zahl das Ergebnis der Variante, gegen
+die sie sich beweisen soll, und die Variante, die sich über Rückkaufregeln
+definiert, kaufte am Ende nichts zurück.
+
+**Wie oft das eintritt, ist gemessen — und es ist selten.** Über die vier
+Golden-Master-Fälle (AAPL und MSFT als echte Ausschnitte, dazu die beiden
+erzeugten Reihen) entstehen aus 131 Episoden 127 Trades. Genau **einer**
+davon erreicht keine der beiden Marken. Der Grund ist die Gewinnmitnahme bei
+33 %: Ein verkaufter Put verliert ein Drittel seines Werts schon durch das
+Altern allein, und fast jeder Pfad läuft dort hindurch, bevor der Verfall
+kommt.
+
+Die Regel bleibt trotzdem richtig, aber aus einem anderen Grund als dem
+zunächst angenommenen. Sie beseitigt keinen häufigen Fall, sondern einen
+**stillen Rückfall**: einen Ausgang, den die Variante nicht selbst
+entscheidet. Und sie hängt an den Parametern — 33 % und das Dreifache sind
+konfiguriert, nicht in Stein; mit weiteren Marken wächst der Anteil, und dann
+wäre der Rückfall keine Randerscheinung mehr, sondern der Regelfall.
 
 Die Glattstellung schließt zugleich eine offene Größe mitten in der Kennzahl:
 Was eine Andienung wert ist, hängt davon ab, ob die Aktie gewollt war — eine

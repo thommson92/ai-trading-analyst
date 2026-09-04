@@ -220,4 +220,4 @@ class TestErgebnisJeKombination:
         annahmen = ergebnisse[0].assumptions
         assert annahmen["volatilitaetsaufschlag"] == "1.42"
         assert annahmen["kalender"] == "monatsverfaelle-dritter-freitag"
-        assert annahmen["version"] == "optionsbacktest-v1"
+        assert annahmen["version"] == "optionsbacktest-v2"
