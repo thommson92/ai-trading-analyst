@@ -120,7 +120,16 @@ from ai_trading_analyst.domain.fundamentals import (
     MetricName,
     MetricUnit,
 )
-from ai_trading_analyst.domain.options import OptionsAnalysis
+from ai_trading_analyst.domain.options import (
+    TAGE_JE_JAHR,
+    CalibrationSummary,
+    Observation,
+    OptionsAnalysis,
+    StoredQuote,
+    Verteilung,
+    realized_volatility,
+    summarize_calibration,
+)
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
@@ -1702,6 +1711,144 @@ def command_chart(args: argparse.Namespace) -> int:
             provider.close()
 
     return 0 if geschrieben else 1
+
+
+def command_options_calibrate(args: argparse.Namespace) -> int:
+    """Haelt das Preismodell gegen die gespeicherten echten Notierungen
+    (ADR 0058, Stufe 0).
+
+    Das Muster von ``history-depth`` und ``calibrate-scores``: messen,
+    ausgeben, nichts ablegen. Die Schwellen und Aufschlaege entscheidet ein
+    ADR -- dieses Kommando liefert die Zahlen, auf denen es steht.
+
+    **Warum es vor dem historischen Backtest kommt.** Jede Praemie dort ist
+    eine Modellzahl; es gibt keine Notierung aus der Vergangenheit, an der
+    sie sich pruefen liesse. Was es gibt, sind die Ketten seit dem
+    2026-09-01. Liegt der Fehler hier bei vierzig Prozent, ist der
+    historische Lauf Dekoration -- und man weiss es, bevor man ihn baut.
+    """
+    load_config(args.config)
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    with SqlAlchemyUnitOfWork(session_factory) as uow:
+        notierungen = uow.option_quotes.list_all()
+        if not notierungen:
+            print(
+                "Keine gespeicherten Optionsnotierungen. Sie entstehen im "
+                "Tageslauf mit '--options-provider ibkr' (ADR 0058, "
+                "Festlegung 1); vor dem ersten solchen Lauf gibt es nichts "
+                "zu messen.",
+                file=sys.stderr,
+            )
+            return 2
+        # Die Schlusskurse je Symbol **einmal** holen und nicht je Notierung:
+        # Zwoelf Notierungen desselben Abrufs teilen sich dieselbe Historie.
+        schlusskurse = {
+            symbol: _tagesschlusskurse(uow.intraday_bars.list_for(symbol))
+            for symbol in sorted({n.symbol for n in notierungen})
+        }
+
+    beobachtungen = [
+        _als_beobachtung(notierung, schlusskurse[notierung.symbol], args.vola_window)
+        for notierung in notierungen
+    ]
+    zusammenfassung = summarize_calibration(
+        beobachtungen, risk_free_rate=args.risk_free_rate
+    )
+    _print_optionskalibrierung(zusammenfassung, args)
+    return 0
+
+
+def _tagesschlusskurse(bars: Sequence[IntradayBar]) -> list[tuple[date, float]]:
+    """Je Handelstag der Schluss des letzten Bars, aufsteigend.
+
+    Der letzte Bar eines Tages **ist** der Tagesschluss -- eine Aggregation
+    auf 195-Minuten-Kerzen braucht es dafuer nicht. Der Tag kommt aus dem
+    Zeitstempel des Bars und damit aus dessen Zeitzone; die Bars sind auf
+    New Yorker Zeit datiert (ADR 0019), also ist es der Handelstag.
+    """
+    je_tag: dict[date, float] = {}
+    for bar in bars:
+        je_tag[bar.start.date()] = bar.close
+    return sorted(je_tag.items())
+
+
+def _als_beobachtung(
+    notierung: StoredQuote, schlusskurse: Sequence[tuple[date, float]], fenster: int
+) -> Observation:
+    """Eine gespeicherte Notierung, aufbereitet zum Vergleich.
+
+    Die realisierte Volatilitaet steht auf den letzten ``fenster``
+    Tagesschluessen **vor** dem Abruf -- der Tag des Abrufs selbst zaehlt
+    nicht mit. Das ist kein Look-ahead-Verbot im engeren Sinn (gemessen wird
+    hier nichts Historisches), aber dieselbe Rechnung soll spaeter im
+    Backtest gelten, und zwei Definitionen waeren zwei Ergebnisse.
+    """
+    stichtag = notierung.observed_at.date()
+    davor = [close for tag, close in schlusskurse if tag < stichtag]
+    return Observation(
+        symbol=notierung.symbol,
+        underlying_price=notierung.underlying_price,
+        strike=notierung.quote.strike,
+        years_to_expiration=(notierung.quote.expiration - stichtag).days / TAGE_JE_JAHR,
+        quoted_mid=notierung.quote.mid or 0.0,
+        quoted_implied_volatility=notierung.quote.implied_volatility,
+        realized_volatility=realized_volatility(davor[-fenster:]),
+        chain_key=(
+            notierung.symbol,
+            notierung.observed_at,
+            notierung.quote.expiration,
+        ),
+    )
+
+
+def _print_optionskalibrierung(
+    zusammenfassung: CalibrationSummary, args: argparse.Namespace
+) -> None:
+    print()
+    print(f"=== Preismodell gegen {zusammenfassung.notierungen} echte Notierungen ===")
+    print(
+        f"Zinssatz {args.risk_free_rate:.2%}, "
+        f"Volatilitaetsfenster {args.vola_window} Handelstage"
+    )
+    print(
+        f"Ohne implizite Volatilitaet: {zusammenfassung.ohne_implizite_volatilitaet}   "
+        f"ohne realisierte: {zusammenfassung.ohne_realisierte_volatilitaet}"
+    )
+    print()
+    kopf = f"{'Messgroesse':34} {'n':>5} {'25%':>10} {'Median':>10} {'75%':>10} {'Spanne':>22}"
+    print(kopf)
+    print("-" * len(kopf))
+    _print_verteilung("Formeltreue (rel. Abweichung)", zusammenfassung.formeltreue)
+    _print_verteilung("Aufschlag implizit/realisiert", zusammenfassung.volatilitaetsaufschlag)
+    _print_verteilung(
+        f"Skew je Kette ({zusammenfassung.ketten_fuer_skew})", zusammenfassung.skew_steigung
+    )
+    print()
+    print(
+        "Formeltreue rechnet mit der NOTIERTEN impliziten Volatilitaet -- was\n"
+        "uebrig bleibt, ist der Fehler der Formel selbst. Alle drei\n"
+        "Vereinfachungen (europaeisch, ohne Dividende, ein Zinssatz)\n"
+        "unterschaetzen die Praemie, ein leicht negativer Median ist also der\n"
+        "erwartete Befund. Der Aufschlag ist der Faktor aus ADR 0058,\n"
+        "Festlegung 2; die Skew-Steigung entscheidet ueber Festlegung 3."
+    )
+
+
+def _print_verteilung(name: str, wert: Verteilung | None) -> None:
+    if wert is None:
+        print(f"{name:34} {'--':>5}   keine Grundlage")
+        return
+    spanne = f"{wert.kleinster:>10.4f} .. {wert.groesster:<10.4f}"
+    print(
+        f"{name:34} {wert.anzahl:>5} {wert.unteres_quartil:>10.4f} "
+        f"{wert.median:>10.4f} {wert.oberes_quartil:>10.4f} {spanne:>22}"
+    )
 
 
 def command_technical(args: argparse.Namespace) -> int:
@@ -3773,6 +3920,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
+
+    kalibrierung = subparsers.add_parser(
+        "options-calibrate",
+        help=(
+            "Haelt das Optionspreis-Modell gegen die gespeicherten echten "
+            "Notierungen (ADR 0058, Stufe 0). Misst und gibt aus, legt nichts ab."
+        ),
+    )
+    kalibrierung.add_argument(
+        "--risk-free-rate",
+        type=float,
+        default=0.04,
+        help=(
+            "Annualisierter Zinssatz fuer die Bewertung (Vorgabe: 0.04). Bei "
+            "aus dem Geld liegenden Puts mit 21 bis 60 Tagen ist die "
+            "Empfindlichkeit klein -- der Schalter macht sie pruefbar."
+        ),
+    )
+    kalibrierung.add_argument(
+        "--vola-window",
+        type=int,
+        default=30,
+        help=(
+            "Handelstage fuer die realisierte Volatilitaet (Vorgabe: 30). "
+            "Nahe an der bevorzugten Restlaufzeit von 35 Kalendertagen, damit "
+            "implizite und realisierte Volatilitaet denselben Zeitraum meinen."
+        ),
+    )
+    kalibrierung.set_defaults(handler=command_options_calibrate)
 
     chart = subparsers.add_parser(
         "chart",

@@ -67,6 +67,7 @@ from ai_trading_analyst.domain.fundamentals import (
     SourceRef,
     TagConflict,
 )
+from ai_trading_analyst.domain.options import OptionQuote, StoredQuote
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -3577,3 +3578,95 @@ class TestChartKommando:
         assert exit_code == 2
         assert "GIBTESNICHT" in capsys.readouterr().err
         assert not ziel.exists()
+
+
+class TestOptionsKalibrierung:
+    """Der Messlauf, der das Preismodell gegen echte Notierungen haelt
+    (ADR 0058, Stufe 0)."""
+
+    def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
+        args = build_parser().parse_args(["options-calibrate"])
+
+        assert args.risk_free_rate == pytest.approx(0.04)
+        assert args.vola_window == 30
+        assert args.handler is cli.command_options_calibrate
+
+    def test_die_schalter_lassen_sich_setzen(self) -> None:
+        args = build_parser().parse_args(
+            ["options-calibrate", "--risk-free-rate", "0.045", "--vola-window", "60"]
+        )
+
+        assert args.risk_free_rate == pytest.approx(0.045)
+        assert args.vola_window == 60
+
+    def test_der_letzte_bar_eines_tages_ist_der_tagesschluss(self) -> None:
+        """Eine Aggregation auf 195-Minuten-Kerzen braucht es dafuer nicht."""
+        beginn = datetime(2026, 9, 1, 9, 30, tzinfo=NEW_YORK)
+        bars = [
+            IntradayBar(
+                start=beginn + timedelta(days=tag, minutes=15 * i),
+                open=100.0,
+                high=100.0,
+                low=100.0,
+                close=100.0 + tag + i / 10,
+                volume=1_000.0,
+            )
+            for tag in range(3)
+            for i in range(4)
+        ]
+
+        schluesse = cli._tagesschlusskurse(bars)
+
+        assert [tag for tag, _ in schluesse] == [
+            date(2026, 9, 1),
+            date(2026, 9, 2),
+            date(2026, 9, 3),
+        ]
+        # Je Tag der **letzte** Bar, nicht der erste.
+        assert [close for _, close in schluesse] == pytest.approx([100.3, 101.3, 102.3])
+
+    def test_die_volatilitaet_steht_nur_auf_kursen_vor_dem_abruf(self) -> None:
+        """Der Tag des Abrufs zaehlt nicht mit. Gemessen wird hier nichts
+        Historisches -- aber dieselbe Rechnung soll spaeter im Backtest
+        gelten, und zwei Definitionen waeren zwei Ergebnisse."""
+        abruf = datetime(2026, 9, 10, 17, 15, tzinfo=UTC)
+        schluesse = [(date(2026, 9, tag), 100.0 + tag) for tag in range(1, 12)]
+        notierung = StoredQuote(
+            symbol="TEST",
+            observed_at=abruf,
+            underlying_price=110.0,
+            quote=OptionQuote(
+                expiration=date(2026, 10, 16), strike=100.0, bid=1.0, ask=1.2
+            ),
+        )
+
+        mit_allen = cli._als_beobachtung(notierung, schluesse, 30)
+        # Dieselbe Reihe, aber die Tage ab dem Abruf abgeschnitten: Das
+        # Ergebnis darf sich nicht unterscheiden.
+        nur_davor = cli._als_beobachtung(
+            notierung, [(tag, c) for tag, c in schluesse if tag < abruf.date()], 30
+        )
+
+        assert mit_allen.realized_volatility == pytest.approx(
+            nur_davor.realized_volatility
+        )
+        assert mit_allen.quoted_mid == pytest.approx(1.1)
+        assert mit_allen.chain_key == ("TEST", abruf, date(2026, 10, 16))
+
+    def test_die_restlaufzeit_rechnet_in_kalendertagen(self) -> None:
+        """Wie die annualisierte Rendite (ADR 0048): Kapital ist ueber ein
+        Wochenende genauso gebunden wie an einem Dienstag."""
+        notierung = StoredQuote(
+            symbol="TEST",
+            observed_at=datetime(2026, 9, 4, 17, 15, tzinfo=UTC),
+            underlying_price=100.0,
+            quote=OptionQuote(
+                expiration=date(2026, 10, 9), strike=95.0, bid=1.0, ask=1.2
+            ),
+        )
+
+        beobachtung = cli._als_beobachtung(notierung, [], 30)
+
+        assert beobachtung.years_to_expiration == pytest.approx(35 / 365)
+        # Ohne Kerzen keine realisierte Volatilitaet -- kein Ersatzwert.
+        assert beobachtung.realized_volatility is None

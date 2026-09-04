@@ -11,6 +11,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRunRepository,
     BacktestResultRepository,
     IntradayBarRepository,
+    OptionQuoteRepository,
     ProcessingErrorRepository,
     ScreeningResultRepository,
     StockReportRepository,
@@ -21,6 +22,7 @@ from .repositories import (
     SqlAlchemyAnalysisRunRepository,
     SqlAlchemyBacktestResultRepository,
     SqlAlchemyIntradayBarRepository,
+    SqlAlchemyOptionQuoteRepository,
     SqlAlchemyProcessingErrorRepository,
     SqlAlchemyScreeningResultRepository,
     SqlAlchemyStockReportRepository,
@@ -34,6 +36,7 @@ class SqlAlchemyUnitOfWork:
 
     stocks: StockRepository
     intraday_bars: IntradayBarRepository
+    option_quotes: OptionQuoteRepository
     analysis_runs: AnalysisRunRepository
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
@@ -48,6 +51,7 @@ class SqlAlchemyUnitOfWork:
         self._session = self._session_factory()
         self.stocks = SqlAlchemyStockRepository(self._session)
         self.intraday_bars = SqlAlchemyIntradayBarRepository(self._session)
+        self.option_quotes = SqlAlchemyOptionQuoteRepository(self._session)
         self.analysis_runs = SqlAlchemyAnalysisRunRepository(self._session)
         self.screening_results = SqlAlchemyScreeningResultRepository(self._session)
         self.processing_errors = SqlAlchemyProcessingErrorRepository(self._session)

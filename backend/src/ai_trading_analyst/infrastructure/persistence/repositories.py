@@ -43,9 +43,11 @@ from ai_trading_analyst.domain.fundamentals import (
 )
 from ai_trading_analyst.domain.options import (
     LiquidityGrade,
+    OptionQuote,
     OptionsAnalysis,
     OptionsStatus,
     PutStrategy,
+    StoredQuote,
 )
 from ai_trading_analyst.domain.report import StockReport, StoredReport, as_document
 from ai_trading_analyst.domain.research import (
@@ -1227,6 +1229,65 @@ Tausend Zeilen belegen 7.000 Parameter -- reichlich Abstand, ohne die Zahl
 der Anweisungen unnoetig hochzutreiben. Alle Bloecke laufen in derselben
 Transaktion; ein Abbruch dazwischen laesst nichts halb Geschriebenes zurueck.
 """
+
+
+class SqlAlchemyOptionQuoteRepository:
+    """Lesezugriff auf die gespeicherten Rohnotierungen (ADR 0058, Stufe 0).
+
+    Nur lesend. Geschrieben werden die Notierungen als Kinder des
+    Screening-Ergebnisses, in derselben Transaktion wie es -- ein zweiter
+    Schreibweg koennte eine Notierung ohne ihr Ergebnis hinterlassen.
+
+    Der Verbund holt Symbol, Zeitpunkt und Aktienkurs von der Elternzeile: Sie
+    stehen dort, weil sie zum Abruf gehoeren und nicht zum einzelnen
+    Kontrakt. Ein Kurs an jeder Notierung waere derselbe Wert zwoelfmal.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_all(self) -> Sequence[StoredQuote]:
+        rows = self._session.execute(
+            select(
+                StockOrm.symbol,
+                ScreeningResultOrm.options_evaluated_at,
+                ScreeningResultOrm.options_underlying_price,
+                OptionQuoteOrm,
+            )
+            .join(
+                ScreeningResultOrm,
+                OptionQuoteOrm.screening_result_id == ScreeningResultOrm.id,
+            )
+            .join(StockOrm, ScreeningResultOrm.stock_id == StockOrm.id)
+            .order_by(
+                StockOrm.symbol,
+                ScreeningResultOrm.options_evaluated_at,
+                OptionQuoteOrm.position,
+            )
+        ).all()
+        return tuple(
+            StoredQuote(
+                symbol=symbol,
+                observed_at=evaluated_at,
+                underlying_price=price,
+                quote=OptionQuote(
+                    expiration=row.expiration,
+                    strike=row.strike,
+                    bid=row.bid,
+                    ask=row.ask,
+                    delta=row.delta,
+                    implied_volatility=row.implied_volatility,
+                    open_interest=row.open_interest,
+                    volume=row.volume,
+                ),
+            )
+            for symbol, evaluated_at, price, row in rows
+            # Ohne Zeitpunkt oder Kurs laesst sich nichts vergleichen. Beide
+            # sind an einer Zeile mit Notierungen immer gesetzt -- die Spalten
+            # sind nur deshalb nullable, weil sie bei Aktien ohne
+            # Optionsanalyse leer bleiben.
+            if evaluated_at is not None and price is not None
+        )
 
 
 class SqlAlchemyIntradayBarRepository:
