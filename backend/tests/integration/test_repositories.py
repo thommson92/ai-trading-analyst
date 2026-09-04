@@ -2181,3 +2181,103 @@ class TestRohnotierungen:
 
         assert persisted.options is not None
         assert persisted.options.quotes == ()
+
+
+class TestRohnotierungenLesen:
+    """Der Lesepfad fuer den Kalibrierungs-Messlauf (ADR 0058, Stufe 0).
+
+    Der Verbund holt Symbol, Zeitpunkt und Aktienkurs von der Elternzeile --
+    sie gehoeren zum Abruf, nicht zum Kontrakt. Faellt einer davon weg, ist
+    die Notierung fuer den Vergleich wertlos.
+    """
+
+    def _lauf(
+        self,
+        uow_factory: UowFactory,
+        symbol: str,
+        analyse: OptionsAnalysis | None,
+    ) -> None:
+        stock = make_stock(symbol)
+        run = make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(
+                StockScreeningOutcome(
+                    analysis_run_id=run.id,
+                    stock=stock,
+                    result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+                    decision_candle_index=258,
+                    evaluated_at=datetime.now(UTC),
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                    options=analyse,
+                )
+            )
+            uow.commit()
+
+    def test_der_kontext_kommt_von_der_elternzeile_mit(
+        self, uow_factory: UowFactory
+    ) -> None:
+        gemessen_am = datetime(2026, 9, 4, 17, 15, tzinfo=UTC)
+        self._lauf(
+            uow_factory,
+            "LESEVOLL",
+            OptionsAnalysis(
+                status=OptionsStatus.COMPLETED,
+                evaluated_at=gemessen_am,
+                underlying_price=232.14,
+                expiration=date(2026, 10, 16),
+                quotes=(
+                    OptionQuote(
+                        expiration=date(2026, 10, 16),
+                        strike=220.0,
+                        bid=2.30,
+                        ask=2.40,
+                        delta=-0.22,
+                        implied_volatility=0.25,
+                        open_interest=1200,
+                        volume=340,
+                    ),
+                ),
+            ),
+        )
+
+        with uow_factory() as uow:
+            (gelesen,) = uow.option_quotes.list_all()
+
+        assert gelesen.symbol == "LESEVOLL"
+        assert gelesen.observed_at == gemessen_am
+        assert gelesen.underlying_price == pytest.approx(232.14)
+        assert gelesen.quote.strike == pytest.approx(220.0)
+        assert gelesen.quote.implied_volatility == pytest.approx(0.25)
+        # Vorzeichenbehaftet, wie der Anbieter ihn lieferte.
+        assert gelesen.quote.delta == pytest.approx(-0.22)
+        # Der Mittelwert entsteht aus Geld und Brief -- er wird nicht gespeichert.
+        assert gelesen.quote.mid == pytest.approx(2.35)
+
+    def test_die_reihenfolge_des_abrufs_bleibt(self, uow_factory: UowFactory) -> None:
+        self._lauf(
+            uow_factory,
+            "LESERANG",
+            OptionsAnalysis(
+                status=OptionsStatus.COMPLETED,
+                evaluated_at=datetime.now(UTC),
+                underlying_price=100.0,
+                expiration=date(2026, 10, 16),
+                quotes=tuple(
+                    OptionQuote(expiration=date(2026, 10, 16), strike=strike, bid=1.0, ask=1.1)
+                    for strike in (98.0, 95.0, 92.0)
+                ),
+            ),
+        )
+
+        with uow_factory() as uow:
+            gelesen = uow.option_quotes.list_all()
+
+        assert [q.quote.strike for q in gelesen] == [98.0, 95.0, 92.0]
+
+    def test_ohne_notierungen_kommt_nichts_zurueck(self, uow_factory: UowFactory) -> None:
+        self._lauf(uow_factory, "LESELEER", None)
+
+        with uow_factory() as uow:
+            assert uow.option_quotes.list_all() == ()

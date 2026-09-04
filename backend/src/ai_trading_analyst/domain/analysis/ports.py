@@ -18,7 +18,7 @@ from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
-from ai_trading_analyst.domain.options import OptionsAnalysis
+from ai_trading_analyst.domain.options import OptionsAnalysis, StoredQuote
 
 # Bewusst aus dem Wertemodul und nicht aus dem Paket: ``domain.report``
 # zieht ueber ``build_report`` seinerseits ``domain.analysis`` herein. Der
@@ -384,6 +384,25 @@ class IntradayBarRepository(Protocol):
 
     def list_for(self, symbol: str) -> Sequence[IntradayBar]:
         """Alle gespeicherten Bars einer Aktie, nach Zeit aufsteigend."""
+        ...
+
+
+class OptionQuoteRepository(Protocol):
+    """Lesezugriff auf die gespeicherten Rohnotierungen (ADR 0058).
+
+    Nur lesend: Geschrieben werden sie als Kinder des Screening-Ergebnisses,
+    zusammen mit ihm und in derselben Transaktion. Ein eigener Schreibweg
+    daneben koennte eine Notierung ohne ihr Ergebnis hinterlassen.
+    """
+
+    def list_all(self) -> Sequence[StoredQuote]:
+        """Alle gespeicherten Notierungen, nach Symbol und Zeitpunkt geordnet.
+
+        Ohne Filter, weil der Messlauf ueber den ganzen Bestand rechnet -- er
+        ist die Kalibrierung, nicht der Tageslauf. Waechst der Bestand ueber
+        das hinaus, was in den Speicher passt, wird das hier eingegrenzt und
+        nicht beim Aufrufer.
+        """
         ...
 
 

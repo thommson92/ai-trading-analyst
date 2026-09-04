@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -67,6 +68,7 @@ from ai_trading_analyst.domain.fundamentals import (
     SourceRef,
     TagConflict,
 )
+from ai_trading_analyst.domain.options import OptionQuote, StoredQuote
 from ai_trading_analyst.domain.research import (
     Citation,
     ResearchCoverage,
@@ -3577,3 +3579,211 @@ class TestChartKommando:
         assert exit_code == 2
         assert "GIBTESNICHT" in capsys.readouterr().err
         assert not ziel.exists()
+
+
+class TestOptionsKalibrierung:
+    """Der Messlauf, der das Preismodell gegen echte Notierungen haelt
+    (ADR 0058, Stufe 0)."""
+
+    def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
+        args = build_parser().parse_args(["options-calibrate"])
+
+        assert args.risk_free_rate == pytest.approx(0.04)
+        assert args.vola_window == 30
+        assert args.handler is cli.command_options_calibrate
+
+    def test_die_schalter_lassen_sich_setzen(self) -> None:
+        args = build_parser().parse_args(
+            ["options-calibrate", "--risk-free-rate", "0.045", "--vola-window", "60"]
+        )
+
+        assert args.risk_free_rate == pytest.approx(0.045)
+        assert args.vola_window == 60
+
+    def test_der_letzte_bar_eines_tages_ist_der_tagesschluss(self) -> None:
+        """Eine Aggregation auf 195-Minuten-Kerzen braucht es dafuer nicht."""
+        beginn = datetime(2026, 9, 1, 9, 30, tzinfo=NEW_YORK)
+        bars = [
+            IntradayBar(
+                start=beginn + timedelta(days=tag, minutes=15 * i),
+                open=100.0,
+                high=100.0,
+                low=100.0,
+                close=100.0 + tag + i / 10,
+                volume=1_000.0,
+            )
+            for tag in range(3)
+            for i in range(4)
+        ]
+
+        schluesse = cli._tagesschlusskurse(bars, NEW_YORK)
+
+        assert [tag for tag, _ in schluesse] == [
+            date(2026, 9, 1),
+            date(2026, 9, 2),
+            date(2026, 9, 3),
+        ]
+        # Je Tag der **letzte** Bar, nicht der erste.
+        assert [close for _, close in schluesse] == pytest.approx([100.3, 101.3, 102.3])
+
+    def test_die_volatilitaet_steht_nur_auf_kursen_vor_dem_abruf(self) -> None:
+        """Der Tag des Abrufs zaehlt nicht mit. Gemessen wird hier nichts
+        Historisches -- aber dieselbe Rechnung soll spaeter im Backtest
+        gelten, und zwei Definitionen waeren zwei Ergebnisse."""
+        abruf = datetime(2026, 9, 10, 17, 15, tzinfo=UTC)
+        schluesse = [(date(2026, 9, tag), 100.0 + tag) for tag in range(1, 12)]
+        notierung = StoredQuote(
+            symbol="TEST",
+            observed_at=abruf,
+            underlying_price=110.0,
+            quote=OptionQuote(
+                expiration=date(2026, 10, 16), strike=100.0, bid=1.0, ask=1.2
+            ),
+        )
+
+        mit_allen = cli._als_beobachtung(notierung, schluesse, 30, NEW_YORK)
+        # Dieselbe Reihe, aber die Tage ab dem Abruf abgeschnitten: Das
+        # Ergebnis darf sich nicht unterscheiden.
+        nur_davor = cli._als_beobachtung(
+            notierung,
+            [(tag, c) for tag, c in schluesse if tag < abruf.date()],
+            30,
+            NEW_YORK,
+        )
+
+        assert mit_allen.realized_volatility == pytest.approx(
+            nur_davor.realized_volatility
+        )
+        assert mit_allen.quoted_mid == pytest.approx(1.1)
+        assert mit_allen.chain_key == ("TEST", abruf, date(2026, 10, 16))
+
+    def test_die_restlaufzeit_rechnet_in_kalendertagen(self) -> None:
+        """Wie die annualisierte Rendite (ADR 0048): Kapital ist ueber ein
+        Wochenende genauso gebunden wie an einem Dienstag."""
+        notierung = StoredQuote(
+            symbol="TEST",
+            observed_at=datetime(2026, 9, 4, 17, 15, tzinfo=UTC),
+            underlying_price=100.0,
+            quote=OptionQuote(
+                expiration=date(2026, 10, 9), strike=95.0, bid=1.0, ask=1.2
+            ),
+        )
+
+        beobachtung = cli._als_beobachtung(notierung, [], 30, NEW_YORK)
+
+        assert beobachtung.years_to_expiration == pytest.approx(35 / 365)
+        # Ohne Kerzen keine realisierte Volatilitaet -- kein Ersatzwert.
+        assert beobachtung.realized_volatility is None
+
+
+class TestOptionsKalibrierungRaender:
+    """Was die unabhaengige Review als ungetestet benannt hat."""
+
+    def test_ein_zu_kleines_fenster_wird_abgelehnt(self) -> None:
+        """``davor[-0:]`` ist die GANZE Liste statt keiner, und ein negativer
+        Wert eine stillschweigend andere Teilreihe. Beides ergaebe eine
+        plausibel aussehende Volatilitaet ueber einen ganz anderen Zeitraum."""
+        for unbrauchbar in ("0", "-5", "2"):
+            with pytest.raises(SystemExit):
+                build_parser().parse_args(
+                    ["options-calibrate", "--vola-window", unbrauchbar]
+                )
+
+        args = build_parser().parse_args(["options-calibrate", "--vola-window", "3"])
+        assert args.vola_window == 3
+
+    def test_utc_datierte_bars_werden_auf_den_handelstag_umgerechnet(self) -> None:
+        """Was aus PostgreSQL zurueckkommt, traegt die Zeitzone der Sitzung.
+        Ein Bar um 21:00 UTC ist der Schluss des **New Yorker** Vortags-Tages
+        (17:00 ET) -- ohne Umrechnung landete er auf dem falschen Kalendertag,
+        sobald er nach Mitternacht UTC faellt."""
+        bars = [
+            IntradayBar(
+                start=datetime(2026, 9, 1, 13, 30, tzinfo=UTC),
+                open=100.0, high=100.0, low=100.0, close=100.0, volume=1_000.0,
+            ),
+            IntradayBar(
+                start=datetime(2026, 9, 1, 20, 45, tzinfo=UTC),
+                open=101.0, high=101.0, low=101.0, close=101.0, volume=1_000.0,
+            ),
+        ]
+
+        schluesse = cli._tagesschlusskurse(bars, NEW_YORK)
+
+        # 13:30 und 20:45 UTC sind 09:30 und 16:45 New Yorker Zeit -- derselbe
+        # Handelstag, und der spaetere Bar traegt den Schlusskurs.
+        assert schluesse == [(date(2026, 9, 1), 101.0)]
+
+    def test_ohne_gespeicherte_notierungen_endet_der_lauf_mit_zwei(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Vor dem ersten Tageslauf mit '--options-provider ibkr' gibt es
+        nichts zu messen. Das soll dastehen und keine Zahl aus dem Nichts."""
+
+        class LeererBestand:
+            option_quotes = SimpleNamespace(list_all=lambda: ())
+
+            def __enter__(self) -> LeererBestand:
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(cli, "SqlAlchemyUnitOfWork", lambda factory: LeererBestand())
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(["--config", str(config), "options-calibrate"])
+
+        assert exit_code == 2
+        assert "Keine gespeicherten Optionsnotierungen" in capsys.readouterr().err
+
+    def test_ein_symbol_ohne_bars_liefert_keine_realisierte_volatilitaet(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Der Lauf bricht deshalb nicht ab -- die Formeltreue braucht die
+        Kurshistorie nicht, nur der Aufschlag."""
+        notierung = StoredQuote(
+            symbol="OHNEBARS",
+            observed_at=datetime(2026, 9, 4, 17, 15, tzinfo=UTC),
+            underlying_price=100.0,
+            quote=OptionQuote(
+                expiration=date(2026, 10, 9),
+                strike=95.0,
+                bid=1.0,
+                ask=1.2,
+                implied_volatility=0.30,
+            ),
+        )
+
+        class Bestand:
+            option_quotes = SimpleNamespace(list_all=lambda: (notierung,))
+            intraday_bars = SimpleNamespace(list_for=lambda symbol: ())
+
+            def __enter__(self) -> Bestand:
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(cli, "SqlAlchemyUnitOfWork", lambda factory: Bestand())
+        config = write_config(projekt, provider="ibkr")
+
+        exit_code = main(["--config", str(config), "options-calibrate"])
+
+        ausgabe = capsys.readouterr().out
+        assert exit_code == 0
+        assert "1 echte Notierungen" in ausgabe
+        assert "ohne realisierte: 1" in ausgabe
+        # Der Aufschlag hat keine Grundlage und sagt das, statt eine Zahl zu
+        # zeigen.
+        assert "keine Grundlage" in ausgabe
