@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 
 from .strategies import KONTRAKTGROESSE
 from .values import LiquidityGrade, OptionQuote, PutStrategy
@@ -85,9 +86,49 @@ class PutSpread:
     hedge_volume: int | None = None
 
 
+def find_quote(
+    quotes: Sequence[OptionQuote], *, strike: float, expiration: date
+) -> OptionQuote | None:
+    """Die bereits vorliegende Notierung dieses Kontrakts, falls es sie gibt.
+
+    **Der Absicherungs-Strike liegt meistens schon im Moneyness-Band.** Das
+    Band reicht bis 80 Prozent des Kurses, die Zielbreite betraegt 6,5
+    Prozent -- gemessen an der eingefrorenen AAPL-Kette (Kurs 313,48, Band
+    310 bis 255) faellt der gesuchte 290er mitten hinein. Die Annahme aus
+    ADR 0058, Festlegung 11, das Kontingent sei ausgeschoepft, trifft im
+    Regelfall also nicht zu.
+
+    Daraus folgt zweierlei. Der zweite Abruf ist ein **Rueckfall** und nicht
+    die Regel -- er kostet nur dort eine Anfrage, wo der Strike wirklich
+    ausserhalb lag. Und die vorhandene Notierung ein zweites Mal anzuhaengen
+    erzeugte eine **Dublette** in ``option_quotes``: Die Kalibrierung mittelt
+    ueber alle Zeilen, und ein doppelt gezaehlter Punkt ist eine Beobachtung,
+    die es nicht gab (ADR 0058, Festlegung 1).
+    """
+    return next(
+        (
+            quote
+            for quote in quotes
+            if quote.strike == strike and quote.expiration == expiration
+        ),
+        None,
+    )
+
+
 REASON_NO_HEDGE_STRIKE = "kein Strike unter dem Verkauf gelistet"
 REASON_HEDGE_WITHOUT_MID = "der Absicherungs-Strike lieferte keinen Mittelwert"
 REASON_HEDGE_NOT_CHEAPER = "die Absicherung kostet mindestens die ganze Praemie"
+REASON_HEDGE_WRONG_EXPIRATION = "der Absicherungs-Kontrakt hat einen anderen Verfall"
+"""Ein Spread ueber zwei Verfallstermine ist kein Spread: Nach dem frueheren
+ist das Risiko nicht mehr begrenzt, waehrend ``max_loss`` als feste Zahl
+danebenstuende. Der Anbieter liefert gelegentlich einen anderen Kontrakt als
+den angefragten -- gegen den eingefrorenen Mitschnitt nachgestellt."""
+REASON_HEDGE_CROSSED = "der Absicherungs-Strike hat einen gekreuzten Markt"
+"""Brief unter Geld. Sein Mittelwert ist ein Kurs, zu dem nie gehandelt
+wurde -- ein erfundener Wert (``CLAUDE.md``). Dieselbe Pruefung nimmt
+``_bewerte`` fuer die Verkaufsseite vor, und aus demselben Grund: Die
+Spannenpruefung faengt ihn nicht, sie wird negativ und liegt damit unter
+jeder Obergrenze. Die Liquiditaetsstufe fiele sogar auf ``GOOD``."""
 REASON_CREDIT_EXCEEDS_WIDTH = "die Gutschrift uebersteigt die Spannweite"
 """Ein Spread, der mehr einbringt als er hoechstens verlieren kann, waere ein
 risikoloser Gewinn -- den stellt kein Markt. Er entsteht aus zwei Notierungen,
@@ -111,7 +152,18 @@ def evaluate_spread(
     Kostet die Absicherung mindestens die ganze Praemie, entsteht keiner:
     Eine Gutschrift von null oder darunter ist kein Verkauf mehr. Das kommt
     bei sehr steilem Skew und schmalen Spannweiten tatsaechlich vor.
+
+    **Der Kontrakt wird geprueft, nicht geglaubt.** Verfall und Strike muessen
+    zum Verkauf passen, und ein gekreuzter Markt scheidet aus -- der Anbieter
+    liefert nicht immer den angefragten Kontrakt, und eine Notierung mit
+    Brief unter Geld ist ein Kurs, zu dem nie gehandelt wurde.
     """
+    if hedge.expiration != short.expiration:
+        return REASON_HEDGE_WRONG_EXPIRATION
+    if hedge.strike >= short.strike:
+        return REASON_NO_HEDGE_STRIKE
+    if hedge.ask is not None and hedge.bid is not None and hedge.ask < hedge.bid:
+        return REASON_HEDGE_CROSSED
     kosten = hedge.mid
     if kosten is None:
         return REASON_HEDGE_WITHOUT_MID

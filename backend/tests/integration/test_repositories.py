@@ -37,6 +37,7 @@ from ai_trading_analyst.domain.options import (
     OptionQuote,
     OptionsAnalysis,
     OptionsStatus,
+    PutSpread,
     PutStrategy,
 )
 from ai_trading_analyst.domain.report import (
@@ -2281,3 +2282,129 @@ class TestRohnotierungenLesen:
 
         with uow_factory() as uow:
             assert uow.option_quotes.list_all() == ()
+
+
+class TestSpreadRundlauf:
+    """Der Strukturvergleich durch PostgreSQL und zurueck (ADR 0058, E11).
+
+    Er wurde in der ersten Fassung gerechnet und **nirgends** gespeichert --
+    die unabhaengige Review fand ihn als schweren Befund. Dieser Test haelt
+    fest, dass er den Rundlauf ueberlebt.
+    """
+
+    def _rundlauf(
+        self, uow_factory: UowFactory, symbol: str, analyse: OptionsAnalysis
+    ) -> StockScreeningOutcome:
+        stock = make_stock(symbol)
+        run = make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(
+                StockScreeningOutcome(
+                    analysis_run_id=run.id,
+                    stock=stock,
+                    result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+                    decision_candle_index=258,
+                    evaluated_at=datetime.now(UTC),
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                    options=analyse,
+                )
+            )
+            uow.commit()
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run.id)
+        return persisted
+
+    @staticmethod
+    def _analyse(
+        spread: PutSpread | None = None, grund: str | None = None
+    ) -> OptionsAnalysis:
+        return OptionsAnalysis(
+            status=OptionsStatus.COMPLETED,
+            evaluated_at=datetime.now(UTC),
+            underlying_price=232.14,
+            expiration=date(2026, 10, 16),
+            strategies=(
+                PutStrategy(
+                    expiration=date(2026, 10, 16),
+                    days_to_expiration=35,
+                    strike=220.0,
+                    distance_to_price_pct=0.05,
+                    premium=2.35,
+                    break_even=217.65,
+                    capital_at_risk=22_000.0,
+                    simple_return=0.0107,
+                    annualized_return=0.111,
+                    liquidity=LiquidityGrade.GOOD,
+                ),
+            ),
+            spread=spread,
+            spread_reason=grund,
+        )
+
+    def test_ein_vollstaendiger_spread_kommt_unveraendert_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        spread = PutSpread(
+            short_strike=220.0,
+            hedge_strike=205.0,
+            hedge_cost=0.68,
+            net_credit=1.67,
+            max_loss=13.33,
+            capital_at_risk=1333.0,
+            hedge_cost_share=0.2894,
+            return_on_risk=0.1253,
+            hedge_liquidity=LiquidityGrade.ACCEPTABLE,
+            hedge_delta=0.07,
+            hedge_open_interest=800,
+            hedge_volume=120,
+        )
+
+        persisted = self._rundlauf(uow_factory, "SPRVOLL", self._analyse(spread))
+
+        assert persisted.options is not None
+        assert persisted.options.spread == spread
+
+    def test_fehlende_felder_kommen_als_fehlend_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Ein ``None``, das als ``0.0`` zurueckkaeme, saehe im Bericht wie ein
+        gemessenes Delta von null aus."""
+        spread = PutSpread(
+            short_strike=220.0,
+            hedge_strike=205.0,
+            hedge_cost=0.68,
+            net_credit=1.67,
+            max_loss=13.33,
+            capital_at_risk=1333.0,
+            hedge_cost_share=0.2894,
+            return_on_risk=0.1253,
+            hedge_liquidity=LiquidityGrade.POOR,
+            hedge_delta=None,
+            hedge_open_interest=None,
+            hedge_volume=None,
+        )
+
+        persisted = self._rundlauf(uow_factory, "SPRLEER", self._analyse(spread))
+
+        assert persisted.options is not None
+        assert persisted.options.spread is not None
+        assert persisted.options.spread.hedge_delta is None
+        assert persisted.options.spread.hedge_open_interest is None
+        assert persisted.options.spread.hedge_liquidity is LiquidityGrade.POOR
+
+    def test_der_grund_ueberlebt_ebenfalls(self, uow_factory: UowFactory) -> None:
+        """Die Optionsanalyse kann vollstaendig sein und der Vergleich
+        trotzdem fehlen -- eigene Spalte, eigener Grund."""
+        persisted = self._rundlauf(
+            uow_factory,
+            "SPRGRUND",
+            self._analyse(grund="kein Strike unter dem Verkauf gelistet"),
+        )
+
+        assert persisted.options is not None
+        assert persisted.options.spread is None
+        assert persisted.options.spread_reason == "kein Strike unter dem Verkauf gelistet"
+        # Der Grund der Optionsanalyse selbst bleibt davon unberuehrt.
+        assert persisted.options.reason is None

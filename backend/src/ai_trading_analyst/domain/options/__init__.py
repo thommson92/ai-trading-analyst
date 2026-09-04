@@ -29,11 +29,14 @@ from .pricing import (
 )
 from .spread import (
     REASON_CREDIT_EXCEEDS_WIDTH,
+    REASON_HEDGE_CROSSED,
     REASON_HEDGE_NOT_CHEAPER,
     REASON_HEDGE_WITHOUT_MID,
+    REASON_HEDGE_WRONG_EXPIRATION,
     REASON_NO_HEDGE_STRIKE,
     PutSpread,
     evaluate_spread,
+    find_quote,
     select_hedge_strike,
 )
 from .strategies import (
@@ -63,8 +66,10 @@ __all__ = [
     "OPTIONS_ANALYSIS_VERSION",
     "PRICING_MODEL_VERSION",
     "REASON_CREDIT_EXCEEDS_WIDTH",
+    "REASON_HEDGE_CROSSED",
     "REASON_HEDGE_NOT_CHEAPER",
     "REASON_HEDGE_WITHOUT_MID",
+    "REASON_HEDGE_WRONG_EXPIRATION",
     "REASON_NO_HEDGE_STRIKE",
     "TAGE_JE_JAHR",
     "TRADING_DAYS_PER_YEAR",
@@ -84,6 +89,7 @@ __all__ = [
     "daily_closes",
     "evaluate_spread",
     "expirations_in_window",
+    "find_quote",
     "liquiditaetsstufe_von",
     "monthly_expirations",
     "normal_cdf",

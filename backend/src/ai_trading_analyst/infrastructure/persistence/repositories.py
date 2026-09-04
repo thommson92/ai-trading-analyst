@@ -46,6 +46,7 @@ from ai_trading_analyst.domain.options import (
     OptionQuote,
     OptionsAnalysis,
     OptionsStatus,
+    PutSpread,
     PutStrategy,
     StoredQuote,
 )
@@ -555,6 +556,8 @@ _OPTIONS_FIELDS = (
     "underlying_price",
     "expiration",
     "strategies",
+    "spread",
+    "spread_reason",
 )
 """Die ``options_``-Spalten ohne Praefix (Muster ``_FUNDAMENTALS_FIELDS``).
 Einmal geschrieben, damit die beiden Zweige des Mappers nicht auseinander
@@ -579,7 +582,45 @@ def _options_columns(analyse: OptionsAnalysis | None) -> dict[str, Any]:
         "options_underlying_price": analyse.underlying_price,
         "options_expiration": analyse.expiration,
         "options_strategies": [_strategie_als_json(s) for s in analyse.strategies],
+        "options_spread": (
+            _spread_als_json(analyse.spread) if analyse.spread is not None else None
+        ),
+        "options_spread_reason": analyse.spread_reason,
     }
+
+
+def _spread_als_json(spread: PutSpread) -> dict[str, Any]:
+    return {
+        "verkaufs_strike": spread.short_strike,
+        "absicherungs_strike": spread.hedge_strike,
+        "absicherungskosten": spread.hedge_cost,
+        "netto_gutschrift": spread.net_credit,
+        "max_verlust": spread.max_loss,
+        "kapitalbindung": spread.capital_at_risk,
+        "kostenanteil": spread.hedge_cost_share,
+        "rendite_auf_risiko": spread.return_on_risk,
+        "liquiditaet": spread.hedge_liquidity.value,
+        "delta": spread.hedge_delta,
+        "open_interest": spread.hedge_open_interest,
+        "volumen": spread.hedge_volume,
+    }
+
+
+def _spread_aus_json(eintrag: dict[str, Any]) -> PutSpread:
+    return PutSpread(
+        short_strike=eintrag["verkaufs_strike"],
+        hedge_strike=eintrag["absicherungs_strike"],
+        hedge_cost=eintrag["absicherungskosten"],
+        net_credit=eintrag["netto_gutschrift"],
+        max_loss=eintrag["max_verlust"],
+        capital_at_risk=eintrag["kapitalbindung"],
+        hedge_cost_share=eintrag["kostenanteil"],
+        return_on_risk=eintrag["rendite_auf_risiko"],
+        hedge_liquidity=LiquidityGrade(eintrag["liquiditaet"]),
+        hedge_delta=eintrag["delta"],
+        hedge_open_interest=eintrag["open_interest"],
+        hedge_volume=eintrag["volumen"],
+    )
 
 
 def _strategie_als_json(strategie: PutStrategy) -> dict[str, Any]:
@@ -626,6 +667,12 @@ def _options_from_row(row: ScreeningResultOrm) -> OptionsAnalysis | None:
             _strategie_aus_json(eintrag) for eintrag in row.options_strategies or ()
         ),
         reason=row.options_reason,
+        spread=(
+            _spread_aus_json(row.options_spread)
+            if row.options_spread is not None
+            else None
+        ),
+        spread_reason=row.options_spread_reason,
     )
 
 

@@ -21,6 +21,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .spread import PutSpread
 
 OPTIONS_ANALYSIS_VERSION = "options-v1"
 """Version des Bewertungsverfahrens, an jedem Ergebnis gespeichert
@@ -231,14 +235,16 @@ class OptionsAnalysis:
     eigene Tabelle; ein aus der Datenbank geladenes ``OptionsAnalysis`` traegt
     hier ein leeres Tupel. Die Kalibrierung fragt die Tabelle, nicht dieses
     Feld."""
-    spread: object | None = None
+    spread: PutSpread | None = None
     """Der Put-Spread zum bestbewerteten Vorschlag (ADR 0058, Festlegung 11),
     oder ``None``.
 
-    Als ``object`` typisiert und nicht als ``PutSpread``: ``spread.py``
-    braucht ``PutStrategy`` von hier, und eine Typangabe in die Gegenrichtung
-    schloesse den Kreis. Die einzige Stelle, die etwas hineinlegt, ist
-    ``spread.py`` selbst.
+    Der Import steht unter ``TYPE_CHECKING``: ``spread.py`` braucht
+    ``PutStrategy`` von hier, zur Laufzeit schloesse eine Angabe in die
+    Gegenrichtung den Kreis. Mit ``from __future__ import annotations`` wird
+    die Annotation nicht ausgewertet, ``mypy`` sieht sie trotzdem -- ein
+    ``object`` an dieser Stelle schaltete die Pruefung ab, und eine
+    Zeichenkette liesse sich unbemerkt hineinlegen.
 
     ``None`` heisst **nicht** "kein Spread moeglich", sondern "nicht
     gerechnet oder nicht zustande gekommen"; warum, sagt ``spread_reason``."""

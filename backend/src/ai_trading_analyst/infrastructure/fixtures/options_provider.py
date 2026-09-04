@@ -33,6 +33,7 @@ from ai_trading_analyst.domain.options import (
     OptionsParameters,
     build_options_analysis,
     evaluate_spread,
+    find_quote,
     liquiditaetsstufe_von,
     select_expiration,
     select_hedge_strike,
@@ -161,7 +162,12 @@ class FixtureOptionsProvider:
         )
         if strike is None:
             return replace(analyse, spread_reason=REASON_NO_HEDGE_STRIKE)
-        absicherung = _notierung(strike, price=price, expiration=expiration, faktor=faktor)
+        # Wie beim IBKR-Weg: erst nachsehen, dann konstruieren. Sonst stuende
+        # derselbe Kontrakt zweimal in ``quotes``.
+        vorhanden = find_quote(analyse.quotes, strike=strike, expiration=expiration)
+        absicherung = vorhanden or _notierung(
+            strike, price=price, expiration=expiration, faktor=faktor
+        )
         ergebnis = evaluate_spread(
             verkauf,
             absicherung,
@@ -169,7 +175,8 @@ class FixtureOptionsProvider:
         )
         if isinstance(ergebnis, str):
             return replace(analyse, spread_reason=ergebnis)
-        return replace(analyse, spread=ergebnis, quotes=(*analyse.quotes, absicherung))
+        quotes = analyse.quotes if vorhanden is not None else (*analyse.quotes, absicherung)
+        return replace(analyse, spread=ergebnis, quotes=quotes)
 
 
 def _verfallstermine(as_of: date) -> tuple[date, ...]:

@@ -127,12 +127,14 @@ class WiedergabeQuelle:
         )
 
 
-def _analyse(quelle: WiedergabeQuelle) -> Any:
+def _analyse(
+    quelle: WiedergabeQuelle, parameters: OptionsParameters | None = None
+) -> Any:
     daten = _aufzeichnung()
     provider = IbkrOptionsProvider(
         quelle,
         watchlist=[AAPL],
-        parameters=OptionsParameters(),
+        parameters=parameters or OptionsParameters(),
         market_data_type=daten["marktdatentyp"],
         now=lambda: BEWERTET_AM,
     )
@@ -183,22 +185,42 @@ class TestDieKetteAnEchtenAntworten:
         assert max(quelle.abgefragte_strikes) == 310.0
         assert min(quelle.abgefragte_strikes) == 255.0
 
-    def test_der_absicherungs_strike_wird_gezielt_nachgefragt(self) -> None:
-        """ADR 0058, Festlegung 11: ein **zweiter** Abruf, und zwar erst,
-        nachdem der Verkaufs-Strike feststeht.
+    def test_der_absicherungs_strike_liegt_meist_schon_im_band(self) -> None:
+        """Ein gemessener Befund, der die Annahme aus ADR 0058 Festlegung 11
+        korrigiert.
 
-        Das Moneyness-Band nach unten zu verbreitern haette fuer jeden
-        Kandidaten mehr Kontrakte notiert -- auch fuer die ohne Vorschlag.
-        Der Nachschlag kostet genau eine Anfrage, und nur dort, wo es etwas
-        abzusichern gibt.
+        Das Moneyness-Band reicht bis 80 Prozent des Kurses, die Zielbreite
+        der Absicherung betraegt 6,5 Prozent -- an dieser echten Kette (Kurs
+        313,48, Band 310 bis 255) faellt der gesuchte 290er mitten hinein.
+        Das Kontingent ist also **nicht** ausgeschoepft, und der zweite Abruf
+        ist ein Rueckfall, keine Regel.
+
+        Ihn trotzdem zu stellen kostete eine Anfrage umsonst -- und die
+        Notierung ein zweites Mal anzuhaengen erzeugte eine Dublette in
+        ``option_quotes``, ueber die die Kalibrierung dann mittelte.
         """
         quelle = WiedergabeQuelle(_aufzeichnung())
 
         analyse = _analyse(quelle)
 
+        assert len(quelle.abfragen) == 1
+        assert analyse.spread is not None
+        assert analyse.spread.hedge_strike < analyse.strategies[0].strike
+        strikes = [q.strike for q in analyse.quotes]
+        assert analyse.spread.hedge_strike in strikes
+        assert len(strikes) == len(set(strikes))
+
+    def test_liegt_er_ausserhalb_wird_er_gezielt_nachgefragt(self) -> None:
+        """Der Rueckfall: Eine Zielbreite von 25 Prozent fuehrt aus dem Band
+        heraus. Dann -- und nur dann -- kostet der Vergleich eine zweite
+        Anfrage, und sie holt genau einen Kontrakt."""
+        quelle = WiedergabeQuelle(_aufzeichnung())
+
+        _analyse(quelle, OptionsParameters(hedge_width_pct=0.25))
+
         assert len(quelle.abfragen) == 2
-        (nachschlag,) = quelle.abfragen[1]
-        assert nachschlag < analyse.strategies[0].strike
+        assert len(quelle.abfragen[1]) == 1
+        assert quelle.abfragen[1][0] < min(quelle.abfragen[0])
 
     def test_kein_angefragter_strike_liegt_ueber_dem_kurs(self) -> None:
         """Ein Put ueber dem Kurs waere im Geld -- er gehoert nicht in eine

@@ -160,6 +160,17 @@ def _inhalte(report: StockReport) -> dict[ReportSection, Any]:
             "vorschlaege": [_rein(s) for s in report.options.strategies],
             "grund": report.options.reason,
             "version": report.options.analysis_version,
+            # Der Strukturvergleich (ADR 0058, Festlegung 11) -- was ein
+            # gekaufter Put als Absicherung kostet und was er an Risiko
+            # wegnimmt. Er steht **neben** den Vorschlaegen und ersetzt
+            # keinen: Welche Struktur die richtige ist, entscheidet
+            # Festlegung 10 und nicht diese Zahlen allein.
+            "spread": (
+                None if report.options.spread is None else _rein(report.options.spread)
+            ),
+            # Auch sein Ausfall steht da. Ein Vergleich, der einfach fehlt,
+            # sieht aus wie einer, den es nicht geben kann.
+            "spread_grund": report.options.spread_reason,
         }
 
     # Punkte 14 und 15: der vollstaendige Score, nicht nur seine Zahl -- Doc

@@ -45,6 +45,7 @@ from ai_trading_analyst.domain.options import (
     build_options_analysis,
     evaluate_spread,
     expirations_in_window,
+    find_quote,
     liquiditaetsstufe_von,
     select_expiration,
     select_hedge_strike,
@@ -247,25 +248,46 @@ class IbkrOptionsProvider:
         if absicherungs_strike is None:
             return replace(analyse, spread_reason=REASON_NO_HEDGE_STRIKE)
 
-        try:
-            notierungen = self._source.option_quotes(
-                contract, termin, [absicherungs_strike], self._market_data_type, trading_class
-            )
-        except IbkrBarSourceError as error:
-            _logger.warning(
-                "%s: Absicherungs-Strike %.2f nicht notierbar (%s)",
-                symbol,
-                absicherungs_strike,
-                error,
-            )
-            return replace(analyse, spread_reason=f"Absicherungs-Strike nicht abrufbar: {error}")
-        if not notierungen:
-            return replace(
-                analyse,
-                spread_reason=f"zum Strike {absicherungs_strike:.2f} kam keine Notierung",
-            )
+        # **Erst nachsehen, dann nachfragen.** Der Absicherungs-Strike liegt
+        # meistens schon im Moneyness-Band; gemessen an der eingefrorenen
+        # AAPL-Kette faellt er mitten hinein. Ihn erneut zu notieren kostete
+        # eine Anfrage umsonst und erzeugte eine Dublette in
+        # ``option_quotes`` -- die Kalibrierung mittelt ueber alle Zeilen.
+        vorhanden = find_quote(
+            analyse.quotes, strike=absicherungs_strike, expiration=termin
+        )
+        neu_abgerufen = False
+        if vorhanden is not None:
+            absicherung = vorhanden
+        else:
+            try:
+                notierungen = self._source.option_quotes(
+                    contract,
+                    termin,
+                    [absicherungs_strike],
+                    self._market_data_type,
+                    trading_class,
+                )
+            except IbkrBarSourceError as error:
+                _logger.warning(
+                    "%s: Absicherungs-Strike %.2f nicht notierbar (%s)",
+                    symbol,
+                    absicherungs_strike,
+                    error,
+                )
+                return replace(
+                    analyse, spread_reason=f"Absicherungs-Strike nicht abrufbar: {error}"
+                )
+            if not notierungen:
+                return replace(
+                    analyse,
+                    spread_reason=(
+                        f"zum Strike {absicherungs_strike:.2f} kam keine Notierung"
+                    ),
+                )
+            absicherung = notierungen[0]
+            neu_abgerufen = True
 
-        absicherung = notierungen[0]
         ergebnis = evaluate_spread(
             verkauf,
             absicherung,
@@ -273,7 +295,9 @@ class IbkrOptionsProvider:
         )
         if isinstance(ergebnis, str):
             return replace(analyse, spread_reason=ergebnis)
-        return replace(analyse, spread=ergebnis, quotes=(*analyse.quotes, absicherung))
+        # Nur eine wirklich neu abgerufene Notierung kommt dazu.
+        quotes = (*analyse.quotes, absicherung) if neu_abgerufen else analyse.quotes
+        return replace(analyse, spread=ergebnis, quotes=quotes)
 
 
 _TERMINE_IN_DER_MELDUNG = 6

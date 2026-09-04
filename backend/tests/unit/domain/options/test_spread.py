@@ -14,13 +14,17 @@ import pytest
 
 from ai_trading_analyst.domain.options import (
     REASON_CREDIT_EXCEEDS_WIDTH,
+    REASON_HEDGE_CROSSED,
     REASON_HEDGE_NOT_CHEAPER,
     REASON_HEDGE_WITHOUT_MID,
+    REASON_HEDGE_WRONG_EXPIRATION,
+    REASON_NO_HEDGE_STRIKE,
     LiquidityGrade,
     OptionQuote,
     PutSpread,
     PutStrategy,
     evaluate_spread,
+    find_quote,
     select_hedge_strike,
 )
 
@@ -75,10 +79,17 @@ class TestStrikewahl:
 
         assert gewaehlt is None
 
-    def test_bei_gleichstand_gewinnt_der_tiefere(self) -> None:
-        """Er nimmt mehr Risiko weg -- und die Wahl bleibt reproduzierbar."""
+    @pytest.mark.parametrize("gelistet", [[200.0, 210.0], [210.0, 200.0]])
+    def test_bei_gleichstand_gewinnt_der_tiefere(self, gelistet: list[float]) -> None:
+        """Ziel ist 205 -- beide liegen genau fuenf entfernt. Der tiefere
+        gewinnt: Er nimmt mehr Risiko weg.
+
+        Beide Eingabereihenfolgen, weil die Regel sonst ungeprueft bliebe:
+        Ohne die Sortierung in ``select_hedge_strike`` haengt das Ergebnis
+        daran, wie der Anbieter die Strikes liefert, und der liefert sie
+        nicht immer aufsteigend."""
         gewaehlt = select_hedge_strike(
-            [200.0, 210.0], short_strike=220.0, price=200.0, width_pct=0.10
+            gelistet, short_strike=220.0, price=300.0, width_pct=0.05
         )
 
         assert gewaehlt == pytest.approx(200.0)
@@ -153,3 +164,60 @@ class TestKeinSpread:
         )
 
         assert ergebnis == REASON_CREDIT_EXCEEDS_WIDTH
+
+
+class TestGeprueftStattGeglaubt:
+    """Der Anbieter liefert nicht immer den angefragten Kontrakt."""
+
+    def test_ein_anderer_verfall_ergibt_keinen_spread(self) -> None:
+        """Ein Spread ueber zwei Termine ist keiner: Nach dem frueheren ist
+        das Risiko nicht mehr begrenzt, waehrend ``max_loss`` als feste Zahl
+        danebenstuende."""
+        anderer = OptionQuote(
+            expiration=date(2026, 9, 18), strike=205.0, bid=0.63, ask=0.73
+        )
+
+        ergebnis = evaluate_spread(verkauf(), anderer, liquidity=LiquidityGrade.GOOD)
+
+        assert ergebnis == REASON_HEDGE_WRONG_EXPIRATION
+
+    def test_ein_strike_auf_oder_ueber_dem_verkauf_ergibt_keinen(self) -> None:
+        ergebnis = evaluate_spread(
+            verkauf(), absicherung(strike=220.0), liquidity=LiquidityGrade.GOOD
+        )
+
+        assert ergebnis == REASON_NO_HEDGE_STRIKE
+
+    def test_ein_gekreuzter_markt_ergibt_keinen(self) -> None:
+        """Brief unter Geld: Sein Mittelwert ist ein Kurs, zu dem nie
+        gehandelt wurde. Die Spannenpruefung faengt ihn nicht -- sie wird
+        negativ und liegt damit unter jeder Obergrenze; die Liquiditaetsstufe
+        fiele sogar auf GOOD."""
+        gekreuzt = absicherung(geld=1.00, brief=0.20)
+
+        ergebnis = evaluate_spread(verkauf(), gekreuzt, liquidity=LiquidityGrade.GOOD)
+
+        assert ergebnis == REASON_HEDGE_CROSSED
+
+
+class TestVorhandeneNotierung:
+    def test_sie_wird_gefunden_statt_neu_abgerufen(self) -> None:
+        """Der Absicherungs-Strike liegt meistens schon im Moneyness-Band.
+        Ihn erneut zu notieren erzeugte eine Dublette in ``option_quotes``,
+        ueber die die Kalibrierung dann mittelt."""
+        band = [absicherung(strike=s) for s in (215.0, 210.0, 205.0, 200.0)]
+
+        gefunden = find_quote(band, strike=205.0, expiration=VERFALL)
+
+        assert gefunden is not None
+        assert gefunden.strike == pytest.approx(205.0)
+
+    def test_ein_anderer_verfall_zaehlt_nicht_als_treffer(self) -> None:
+        band = [
+            OptionQuote(expiration=date(2026, 9, 18), strike=205.0, bid=0.6, ask=0.7)
+        ]
+
+        assert find_quote(band, strike=205.0, expiration=VERFALL) is None
+
+    def test_ohne_treffer_kommt_nichts_zurueck(self) -> None:
+        assert find_quote([], strike=205.0, expiration=VERFALL) is None

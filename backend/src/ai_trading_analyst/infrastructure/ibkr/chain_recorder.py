@@ -83,10 +83,14 @@ class RohNotierungenSammler:
         self.eintraege: list[dict[str, Any]] = []
 
     def __call__(self, tickers: Sequence[Any]) -> None:
-        # Der letzte Abruf gewinnt: Je Aufzeichnung wird genau ein
-        # Verfallstermin notiert, und ein zweiter Aufruf hiesse, dass der
-        # erste nicht der ist, der in der Datei steht.
-        self.eintraege = [_ticker_als_json(ticker) for ticker in tickers]
+        # **Angehaengt, nicht ersetzt.** Frueher gewann der letzte Abruf, weil
+        # es je Aufzeichnung nur einen gab. Seit ADR 0058, Festlegung 11 kann
+        # ein zweiter fuer den Absicherungs-Strike folgen -- und mit dem
+        # frueheren Verhalten stuende in der Datei genau eine Rohnotierung
+        # neben zwoelf uebersetzten. Der Test, der beide Seiten
+        # gegeneinanderhaelt, braeche dann an ihrer Laenge, und zwar erst bei
+        # der naechsten Aufzeichnung am Server.
+        self.eintraege.extend(_ticker_als_json(ticker) for ticker in tickers)
 
 
 class RecordingOptionChainSource:
