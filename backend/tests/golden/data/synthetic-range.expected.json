@@ -53,38 +53,38 @@
       "horizons": [
         {
           "confidence": "NORMAL",
-          "deduplicated_event_count": 42,
+          "deduplicated_event_count": 41,
           "drawdown": 0.03849136,
-          "held_above_entry_rate": 0.16666667,
-          "hit_rate": 0.47619048,
+          "held_above_entry_rate": 0.17073171,
+          "hit_rate": 0.48780488,
           "horizon": 5,
           "max_loss": -0.03442419,
-          "mean_return": -0.00303947,
-          "median_return": -0.0013823,
+          "mean_return": -0.00283997,
+          "median_return": -0.00113012,
           "raw_event_count": 50
         },
         {
           "confidence": "NORMAL",
-          "deduplicated_event_count": 42,
+          "deduplicated_event_count": 41,
           "drawdown": 0.09593832,
-          "held_above_entry_rate": 0.14285714,
-          "hit_rate": 0.5,
+          "held_above_entry_rate": 0.14634146,
+          "hit_rate": 0.48780488,
           "horizon": 10,
           "max_loss": -0.09593832,
-          "mean_return": -0.00201602,
-          "median_return": -0.0001244,
+          "mean_return": -0.00222763,
+          "median_return": -0.00086075,
           "raw_event_count": 50
         },
         {
           "confidence": "NORMAL",
-          "deduplicated_event_count": 42,
+          "deduplicated_event_count": 41,
           "drawdown": 0.09656551,
-          "held_above_entry_rate": 0.11904762,
-          "hit_rate": 0.45238095,
+          "held_above_entry_rate": 0.12195122,
+          "hit_rate": 0.43902439,
           "horizon": 20,
           "max_loss": -0.09656551,
-          "mean_return": -0.00568669,
-          "median_return": -0.00935993,
+          "mean_return": -0.00594957,
+          "median_return": -0.01023336,
           "raw_event_count": 50
         }
       ],
@@ -597,9 +597,7 @@
         330
       ],
       [
-        364
-      ],
-      [
+        364,
         368
       ],
       [
@@ -743,9 +741,7 @@
       ],
       [
         1650,
-        1654
-      ],
-      [
+        1654,
         1656
       ],
       [

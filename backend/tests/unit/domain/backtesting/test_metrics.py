@@ -145,9 +145,9 @@ class TestGruppierung:
     def test_gruppiert_nach_exakter_kombination(self) -> None:
         rsi_only = frozenset({SignalType.RSI_CROSS})
         decisions = [
-            HistoricalDecision(index=1, combination=COMBO, signal_events=frozenset()),
-            HistoricalDecision(index=2, combination=rsi_only, signal_events=frozenset()),
-            HistoricalDecision(index=10, combination=COMBO, signal_events=frozenset()),
+            HistoricalDecision(index=1, combination=COMBO, signal_firings=frozenset()),
+            HistoricalDecision(index=2, combination=rsi_only, signal_firings=frozenset()),
+            HistoricalDecision(index=10, combination=COMBO, signal_firings=frozenset()),
         ]
         grouped = group_by_combination(decisions)
         assert grouped[COMBO] == (1, 10)

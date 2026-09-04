@@ -3525,3 +3525,55 @@ class TestChartKommando:
         assert "Nicht in der Watchlist gefunden" not in fehler
         # Kein Verzeichnis anlegen, bevor der Lauf ueberhaupt moeglich ist.
         assert not (projekt / "charts").exists()
+
+    def test_schreibt_je_symbol_eine_datei(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Der glueckliche Pfad: Bestand lesen, Nutzlast bauen, Datei schreiben."""
+        series = kerzenreihe([100.0 + i * 0.5 for i in range(60)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli,
+            "build_market_data_provider",
+            lambda *a, **k: FakeProvider(series, symbole=("AAPL", "MSFT")),
+        )
+        config = write_config(projekt, provider="ibkr")
+        ziel = projekt / "charts"
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "AAPL", "--output", str(ziel)]
+        )
+
+        assert exit_code == 0
+        assert (ziel / "signalchart-aapl.html").exists()
+        # Nur das angeforderte Symbol, obwohl der Anbieter zwei kennt.
+        assert not (ziel / "signalchart-msft.html").exists()
+        assert "AAPL:" in capsys.readouterr().out
+
+    def test_ein_unbekanntes_symbol_legt_kein_verzeichnis_an(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        series = kerzenreihe([100.0 + i * 0.5 for i in range(60)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+        config = write_config(projekt, provider="ibkr")
+        ziel = projekt / "charts"
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "GIBTESNICHT",
+             "--output", str(ziel)]
+        )
+
+        assert exit_code == 2
+        assert "GIBTESNICHT" in capsys.readouterr().err
+        assert not ziel.exists()

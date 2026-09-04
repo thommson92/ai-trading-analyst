@@ -87,16 +87,26 @@ class TestNutzlast:
         assert "gate" not in payload["kerzen"][21]
 
     def test_folgetrigger_derselben_episode_sind_als_solche_erkennbar(self) -> None:
-        """Zwei Entscheidungspunkte auf derselben Kreuzung: Nur der erste
-        zaehlt, der zweite gehoert sichtbar zur selben Episode."""
-        payload = build_chart_payload(
-            "TEST", _serie({20: _kandidat_indikatoren()}), PARAMS
-        )
-        kandidaten = [k for k in payload["kerzen"] if k.get("sig") and "gate" not in k]
-        erste = [k for k in kandidaten if k["first"]]
+        """Zwei Entscheidungspunkte auf geteilter Grundlage.
 
-        assert len(erste) == payload["episoden"]
-        assert all(k["ep"] == kandidaten[0]["ep"] for k in kandidaten) or payload["episoden"] > 1
+        Die Kreuzung feuert auf 20 und erneut auf 22. Punkt 22 sieht beide
+        Feuerungen, teilt also die auf 20 mit dem ersten Punkt -- eine
+        Episode, ein gezaehltes Ereignis, zwei Dreiecke. Genau diese
+        Unterscheidung ist der Zweck des Charts, und sie ist der Grund, warum
+        der Test die Werte einzeln nennt statt sie gegeneinander zu
+        rechnen: Zwei abgeleitete Groessen koennen gemeinsam falsch sein.
+        """
+        payload = build_chart_payload(
+            "TEST",
+            _serie({20: _kandidat_indikatoren(), 22: _kandidat_indikatoren()}),
+            PARAMS,
+        )
+
+        assert payload["kerzen"][20]["first"] is True
+        assert payload["kerzen"][22]["first"] is False
+        assert payload["kerzen"][20]["ep"] == payload["kerzen"][22]["ep"]
+        assert payload["treffer"] == 2
+        assert payload["episoden"] == 1
 
     def test_geprueft_zaehlt_nur_erste_tageskerzen(self) -> None:
         """``geprueft`` sind die ausgewerteten Kerzen, ``treffer`` die

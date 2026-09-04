@@ -724,7 +724,7 @@ ausgewiesen und nicht durch Zusammenlegen kaschiert
 Entscheidungspunkte auf derselben Bewegung sind **ein** Ereignis:
 
 > Zwei aufeinanderfolgende Entscheidungspunkte gehören zur selben **Episode**,
-> wenn sie mindestens ein **identisches Signalereignis** teilen — denselben
+> wenn sie mindestens eine **identische Feuerung** teilen — denselben
 > Signaltyp an derselben Kerze. Gezählt wird der **erste** Trigger einer
 > Episode; er liefert auch die Signalkombination der Episode und, nach
 > Abschnitt 4.2, den Einstiegskurs.
@@ -735,7 +735,16 @@ dazwischen liegen. Zwei Trigger auf eigenen, frischen Kreuzungen bleiben zwei
 Ereignisse, auch wenn sie dicht folgen. Der frühere Fünf-Kerzen-Cooldown
 konnte das nicht unterscheiden — er trennte nach Kalender.
 
-`NO_RECENT_EMA_DOWNCROSS` trägt als Position immer die Entscheidungskerze
+**Verglichen werden alle tatsächlichen Feuerungen, nicht die gespeicherte
+früheste Fundstelle je Typ** — dieselbe Unterscheidung wie bei T1
+(Abschnitt 3.6) und aus demselben Grund. Feuert `RSI_CROSS` auf `26`, `29`
+und `32`, so sieht der Entscheidungspunkt `30` die Feuerungen auf `26` und
+`29`, der Punkt `32` die auf `29` und `32`. Beide werten die Kreuzung auf
+`29` aus und gehören zusammen. Die gespeicherte Fundstelle nennt für `30`
+aber `26` und für `32` dann `29` — nach ihr hätten die beiden nichts gemein,
+und die Episode zerfiele genau dort, wo sie hält.
+
+`NO_RECENT_EMA_DOWNCROSS` feuert immer an der Entscheidungskerze
 (Abschnitt 3.3) und kann deshalb nie zwei Entscheidungspunkte verketten. Das
 ist richtig so: Ein Kriterium, das an jeder Kerze neu gilt, sagt nichts über
 gemeinsame Grundlage.
@@ -755,13 +764,14 @@ episode = {
 }
 ```
 
-Die genaue Position jedes einzelnen Signalereignisses innerhalb des
+Die Position des **ersten** Auftretens je Signaltyp innerhalb des
 Sechs-Kerzen-Fensters (z. B. „`RSI_CROSS` auf `t-4`") wird **zusätzlich**
-gespeichert — für Audit und Bericht. Für die Frage, ob zwei historische
-Instanzen als „identische Signalkombination" gelten (Doc 07), bleibt sie ohne
-Bedeutung; für die **Episodenbildung** ist sie seit ADR 0057 dagegen
-maßgeblich. Für die Gruppierung im
-Backtesting zählt ausschließlich die Menge der aufgetretenen Signaltypen.
+gespeichert — für Audit und Bericht. Sie ist die Berichtssicht und für keine
+Regel maßgeblich: nicht für die Frage, ob zwei historische Instanzen als
+„identische Signalkombination" gelten (Doc 07, dort zählt allein die Menge
+der Signaltypen), nicht für die Frische (Abschnitt 3.6) und nicht für die
+Episodenbildung. Beide letzteren fragen nach den **tatsächlichen
+Feuerungen**.
 
 **Beispielhafte Datenstruktur:**
 

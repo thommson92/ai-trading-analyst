@@ -97,9 +97,13 @@ Entscheidungspunkte:
 | | AAPL | MSFT |
 |---|---|---|
 | ohne Torbedingungen (ADR 0056) | 51 | 55 |
-| nur T1 (Frische) | 29 | 27 |
+| nur T1 (Frische) | 30 | 30 |
 | nur T2 (Bestätigung) | 45 | 49 |
 | **T1 und T2 zusammen** | **29** | **27** |
+
+T1 trägt den weitaus größten Teil, aber nicht alles: Über die Frische hinaus
+entfernt die Bestätigung noch einen weiteren Punkt bei AAPL und drei bei
+MSFT. Beide Tore werden gebraucht.
 
 Von den vier beanstandeten Stellen fallen der 28.08. (②) sowie die Nachzügler
 vom 17.06. und 25.08. weg. Die vier klar guten Ausbrüche der Reihe —
@@ -137,16 +141,33 @@ Der pauschale Fünf-Kerzen-Cooldown **entfällt**. An seine Stelle tritt die
 Ereignis-Verkettung:
 
 > Zwei aufeinanderfolgende Entscheidungspunkte gehören zur selben **Episode**,
-> wenn sie mindestens ein **identisches Signalereignis** teilen — denselben
+> wenn sie mindestens eine **identische Feuerung** teilen — denselben
 > Signaltyp an derselben Kerze. Gezählt wird der **erste** Trigger einer
 > Episode.
 
 Das ist der Unterschied zwischen „liegt nahe beieinander" und „beruht auf
 demselben". Fall ① wird zu einer Episode, weil die drei Trigger nachweislich
 dieselben Kreuzungen auswerten. Die letzten beiden Trigger aus ④ bleiben ein
-eigenes Ereignis, weil sie kein Ereignis mit den vorherigen teilen — obwohl
+eigenes Ereignis, weil sie keine Feuerung mit den vorherigen teilen — obwohl
 sie zeitlich dicht folgen. Ein Cooldown hätte hier nach Kalender getrennt oder
 zusammengefasst, ohne den Grund zu kennen.
+
+**Verglichen werden alle tatsächlichen Feuerungen**, genau wie bei T1 und aus
+demselben Grund. Die für Bericht und Audit gespeicherte Position nennt je
+Signaltyp nur die **früheste** Fundstelle im Fenster; zwei Entscheidungspunkte
+können deshalb dieselbe Kreuzung auswerten und dort trotzdem verschiedene
+Zahlen tragen, wenn einer von beiden zusätzlich eine ältere Fundstelle sieht.
+Nach der gespeicherten Position zerfiele die Episode genau dort, wo sie hält —
+gemessen an der eingefrorenen Reihe `synthetic-range` in zwei von 79 Fällen,
+und die Abweichung geht immer in dieselbe Richtung: zu viele gezählte
+Ereignisse, also genau das, was die Regel verhindern soll.
+
+Der Nachbarvergleich genügt für die transitive Hülle: Teilen sich der erste
+und der dritte Punkt eine Feuerung `(X, k)`, so liegt `k` auch im Fenster des
+mittleren — die Fenster sind zusammenhängende Kerzenbereiche —, `X` feuert
+dort ebenfalls an `k`, und die Kette schließt sich über die Nachbarn. Dieser
+Schluss hält nur, weil **jede** Feuerung geführt wird; mit der frühesten
+Fundstelle wäre er falsch.
 
 Gemessen ergibt das für AAPL **21 Episoden** aus 51 rohen Triggern; der
 Cooldown kam auf 22. Die Zahl ist fast dieselbe — der Gewinn liegt nicht in

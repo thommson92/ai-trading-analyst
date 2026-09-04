@@ -1629,8 +1629,8 @@ def command_chart(args: argparse.Namespace) -> int:
         print(
             "market_data.provider steht auf "
             f"'{config.market_data.provider}'. Der Chart zeigt den gespeicherten "
-            "Bestand -- entweder market_data.provider auf 'ibkr' stellen oder "
-            "zuerst 'backfill' laufen lassen.",
+            "Bestand -- entweder '--provider ibkr' mitgeben, market_data.provider "
+            "auf 'ibkr' stellen oder zuerst 'backfill' laufen lassen.",
             file=sys.stderr,
         )
         return 2

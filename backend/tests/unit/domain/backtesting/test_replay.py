@@ -87,7 +87,7 @@ class TestEpisodenbildung:
         return HistoricalDecision(
             index=index,
             combination=EXPECTED_COMBINATION,
-            signal_events=frozenset(
+            signal_firings=frozenset(
                 SignalEvent(signal_type=typ, candle_index=kerze) for typ, kerze in ereignisse
             ),
         )
@@ -148,3 +148,31 @@ class TestEpisodenbildung:
 
     def test_leere_liste_bleibt_leer(self) -> None:
         assert group_into_episodes([]) == ()
+
+    def test_eine_aeltere_fundstelle_im_fenster_zerreisst_die_episode_nicht(self) -> None:
+        """Der Fall, an dem die gespeicherte fruehste Fundstelle scheitert.
+
+        Dieselbe Kreuzung feuert auf 26, 29 und 32. Die Fenster:
+
+        * 30 sieht ``[25..30]`` -- Feuerungen auf 26 und 29
+        * 32 sieht ``[27..32]`` -- Feuerungen auf 29 und 32
+
+        Beide werten die Kreuzung auf **29** aus, gehoeren also zusammen.
+        ``signal_events`` fuehrte aber je Typ nur die fruehste Fundstelle: 26
+        beim einen, 29 beim anderen -- der Schnitt waere leer und die Episode
+        zerfiele in zwei. ``signal_firings`` fuehrt jede Feuerung und findet
+        die geteilte Grundlage.
+        """
+        series = make_series(
+            40,
+            indicator_overrides={
+                26: RSI_AND_EMA_CROSS_FIRE,
+                29: RSI_AND_EMA_CROSS_FIRE,
+                32: RSI_AND_EMA_CROSS_FIRE,
+            },
+        )
+        entscheidungen = find_historical_decisions(series, PARAMS)
+        assert [d.index for d in entscheidungen] == [26, 30, 32]
+
+        episoden = group_into_episodes(entscheidungen)
+        assert [[e.index for e in episode] for episode in episoden] == [[26, 30, 32]]

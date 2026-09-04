@@ -407,8 +407,12 @@ _VORLAGE = """<!doctype html>
   function zeigeTip(i, cx, cy) {
     const k = K[i], d = new Date(k.t), z = (v, n = 2) => (v == null ? "&mdash;" : v.toFixed(n));
     const tag = d.toLocaleDateString("de-DE", {day:"2-digit",month:"short",year:"numeric"});
-    const uhr = d.toLocaleTimeString("de-DE", {hour:"2-digit",minute:"2-digit"});
-    let h = `<span class="datum">${tag} &middot; ${uhr} &middot; Kerze ${k.d}</span>` +
+    // Bewusst ohne Uhrzeit: Der Zeitstempel ist der *Beginn* der Kerze (09:30 ET),
+    // die Hinweiszeile nennt ihren *Schluss* (12:45 ET), und der Browser rechnete
+    // beides in seine eigene Zone um. Drei Anker fuer dieselbe Kerze in einem
+    // Werkzeug, das gegen einen echten Chart gehalten wird. Datum plus
+    // Tageskerzennummer benennt sie eindeutig und braucht keine Zone.
+    let h = `<span class="datum">${tag} &middot; ${k.d}. Tageskerze</span>` +
       `O ${z(k.o)}&nbsp; H ${z(k.h)}<br>L ${z(k.l)}&nbsp; <b>C ${z(k.c)}</b><br>` +
       `EMA5 ${z(k.e5)}&nbsp; EMA20 ${z(k.e20)}<br>RSI ${z(k.rsi,1)}&nbsp; MA ${z(k.rma,1)}`;
     if (k.sig) {

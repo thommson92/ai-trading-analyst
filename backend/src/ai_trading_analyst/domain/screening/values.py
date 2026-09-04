@@ -129,6 +129,24 @@ class ScreeningResult:
     status: ScreeningStatus
     fired_signal_types: frozenset[SignalType] = frozenset()
     signal_events: tuple[SignalEvent, ...] = ()
+    """Je Signaltyp das **erste** Auftreten im Fenster -- fuer Audit und
+    Bericht. Das ist die Menge, die gespeichert wird."""
+    signal_firings: frozenset[SignalEvent] = frozenset()
+    """**Jedes** tatsaechliche Feuern, nicht nur das erste je Typ.
+
+    Regeln fragen hierhin, Berichte nach ``signal_events``. Die Trennung ist
+    kein Doppel, sondern der Unterschied zwischen "wann wurde es zuerst
+    gesehen" und "worauf beruht diese Entscheidung": Die Frische
+    (Abschnitt 3.6) und die Episodenbildung (Abschnitt 4.3) haengen beide am
+    tatsaechlichen Feuern, und beide bekaemen mit der gespeicherten fruehesten
+    Fundstelle ein falsches Ergebnis.
+
+    **Wird nicht persistiert.** Ein aus der Datenbank gelesenes
+    ``ScreeningResult`` traegt hier eine leere Menge -- was richtig ist, denn
+    die Regeln rechnen auf der Kerzenfolge und nie auf gespeicherten Zeilen.
+    Wer je Episoden aus geladenen Ergebnissen bilden wollte, bekaeme jede
+    Entscheidung als eigene Episode; der Weg dorthin fuehrt ueber
+    ``find_historical_decisions``."""
     reason: str | None = None
     affected_index: int | None = None
 

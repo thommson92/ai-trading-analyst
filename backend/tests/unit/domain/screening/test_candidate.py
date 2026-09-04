@@ -131,6 +131,35 @@ class TestZaehlungDerSignaltypen:
         assert len(rsi_ereignisse) == 1
         assert rsi_ereignisse[0].candle_index == DECISION_INDEX - 5
 
+    def test_die_feuerungen_fuehren_jedes_auftreten_die_ereignisse_nur_das_erste(self) -> None:
+        """Dieselbe Lage, zwei Sichten -- und der Unterschied ist beabsichtigt.
+
+        ``signal_events`` ist die Berichtssicht: je Typ die erste Fundstelle,
+        genau so gespeichert. ``signal_firings`` ist die Regelsicht: jedes
+        Auftreten. Frische (Abschnitt 3.6) und Episodenbildung (Abschnitt 4.3)
+        haengen an der zweiten -- mit der ersten faenden sie eine geteilte
+        Grundlage nicht, die es gibt.
+        """
+        series = build_series(
+            SERIES_LENGTH,
+            indicator_overrides={
+                DECISION_INDEX - 5: rsi_cross_fires(),
+                DECISION_INDEX - 3: rsi_cross_fires(),
+                DECISION_INDEX - 1: rsi_cross_fires(),
+            },
+        )
+        result = evaluate_candidate(series, DECISION_INDEX, PARAMS)
+        rsi_feuerungen = sorted(
+            firing.candle_index
+            for firing in result.signal_firings
+            if firing.signal_type is SignalType.RSI_CROSS
+        )
+        assert rsi_feuerungen == [
+            DECISION_INDEX - 5,
+            DECISION_INDEX - 3,
+            DECISION_INDEX - 1,
+        ]
+
 
 class TestUeberverkaufterRsi:
     """Signal D -- Fensterkriterium wie A bis C (G1-Pruefvorlage Abschnitt 2.4)."""

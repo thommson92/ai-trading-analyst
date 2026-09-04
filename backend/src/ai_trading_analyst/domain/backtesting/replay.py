@@ -37,14 +37,21 @@ def is_decision_point(series: CandleSeries, t: int) -> bool:
 class HistoricalDecision:
     """Ein historischer Entscheidungspunkt.
 
-    Traegt neben der Signalkombination auch die einzelnen Signalereignisse --
-    die Episodenbildung fragt danach, *welche* Kreuzung ausgewertet wurde,
-    nicht nur, welche Typen zusammenkamen.
+    Traegt neben der Signalkombination auch die einzelnen Feuerungen -- die
+    Episodenbildung fragt danach, *welche* Kreuzung ausgewertet wurde, nicht
+    nur, welche Typen zusammenkamen.
+
+    ``signal_firings`` und nicht ``signal_events``: Gebraucht wird **jedes**
+    Feuern im Fenster, nicht das erste je Typ. Werteten zwei
+    Entscheidungspunkte dieselbe Kreuzung aus, haette aber einer von beiden
+    fuer denselben Signaltyp noch eine aeltere Fundstelle im Fenster, so
+    stuende dort eine andere Position -- und die geteilte Grundlage bliebe
+    unsichtbar. Die Episoden zerfielen genau dort, wo sie zusammengehoeren.
     """
 
     index: int
     combination: SignalCombination
-    signal_events: frozenset[SignalEvent]
+    signal_firings: frozenset[SignalEvent]
 
 
 def find_historical_decisions(
@@ -69,7 +76,7 @@ def find_historical_decisions(
                 HistoricalDecision(
                     index=t,
                     combination=result.fired_signal_types,
-                    signal_events=frozenset(result.signal_events),
+                    signal_firings=result.signal_firings,
                 )
             )
     return tuple(decisions)
@@ -81,7 +88,7 @@ def group_into_episodes(
     """Buendelt Entscheidungspunkte, die dieselbe Bewegung auswerten.
 
     Zwei aufeinanderfolgende Entscheidungspunkte gehoeren zur selben Episode,
-    wenn sie mindestens ein **identisches Signalereignis** teilen -- denselben
+    wenn sie mindestens eine **identische Feuerung** teilen -- denselben
     Signaltyp an derselben Kerze (Abschnitt 4.3). Gezaehlt wird spaeter der
     erste Trigger jeder Episode.
 
@@ -92,22 +99,27 @@ def group_into_episodes(
     (ADR 0057).
 
     **Der Nachbarvergleich genuegt fuer die transitive Huelle.** Teilen sich
-    der erste und der dritte Entscheidungspunkt ein Ereignis ``(X, k)``, dann
+    der erste und der dritte Entscheidungspunkt eine Feuerung ``(X, k)``, dann
     liegt ``k`` auch im Fenster jedes dazwischenliegenden Punktes -- die
-    Fenster sind zusammenhaengende Kerzenbereiche, und ein Ereignis, das zwei
+    Fenster sind zusammenhaengende Kerzenbereiche, und eine Kerze, die zwei
     von ihnen enthalten, enthalten auch alle dazwischen. Der mittlere Punkt
-    fuehrt dieses Ereignis also ebenfalls und verkettet die Kette bereits
-    ueber den Nachbarvergleich.
+    fuehrt diese Feuerung also ebenfalls und verkettet die Kette bereits ueber
+    den Nachbarvergleich.
 
-    ``NO_RECENT_EMA_DOWNCROSS`` traegt als Position immer die
-    Entscheidungskerze und kann deshalb nie zwei Punkte verketten -- richtig
-    so: Ein Kriterium, das an jeder Kerze neu gilt, sagt nichts ueber
-    gemeinsame Grundlage.
+    Dieser Schluss haelt nur, weil ``signal_firings`` **jede** Feuerung fuehrt:
+    ``X`` feuert bei allen dreien an ``k``, und damit steht ``(X, k)`` bei
+    allen dreien auch drin. Mit der fuer den Bericht gespeicherten fruehesten
+    Fundstelle je Typ waere er falsch -- dort haette der mittlere Punkt
+    moeglicherweise eine aeltere Position vermerkt und die Kette zerrissen.
+
+    ``NO_RECENT_EMA_DOWNCROSS`` feuert immer an der Entscheidungskerze und kann
+    deshalb nie zwei Punkte verketten -- richtig so: Ein Kriterium, das an
+    jeder Kerze neu gilt, sagt nichts ueber gemeinsame Grundlage.
     """
     episodes: list[list[HistoricalDecision]] = []
     for decision in decisions:
         vorgaenger = episodes[-1][-1] if episodes else None
-        if vorgaenger is not None and (vorgaenger.signal_events & decision.signal_events):
+        if vorgaenger is not None and (vorgaenger.signal_firings & decision.signal_firings):
             episodes[-1].append(decision)
         else:
             episodes.append([decision])

@@ -177,9 +177,10 @@ def evaluate_candidate(
     window = range(window_start, t + 1)
     fired_types: set[SignalType] = set()
     signal_positions: dict[SignalType, int] = {}
-    # Fuer die Frische zaehlt das juengste *tatsaechliche* Feuern, nicht die
-    # fuer den Bericht gespeicherte fruehste Fundstelle (Abschnitt 3.6).
-    latest_crossing_firing: int | None = None
+    # Jedes tatsaechliche Feuern, nicht nur das erste je Typ. Frische
+    # (Abschnitt 3.6) und Episodenbildung (Abschnitt 4.3) haengen beide daran;
+    # die gespeicherte fruehste Fundstelle taugt fuer keines von beidem.
+    firings: set[SignalEvent] = set()
     try:
         for signal_type, signal_fn in _WINDOW_SIGNAL_FUNCTIONS.items():
             for i in window:
@@ -187,14 +188,12 @@ def evaluate_candidate(
                     continue
                 fired_types.add(signal_type)
                 signal_positions.setdefault(signal_type, i)
-                if signal_type in CROSSING_SIGNALS and (
-                    latest_crossing_firing is None or i > latest_crossing_firing
-                ):
-                    latest_crossing_firing = i
+                firings.add(SignalEvent(signal_type=signal_type, candle_index=i))
         for signal_type, signal_fn in _DECISION_CANDLE_FUNCTIONS.items():
             if signal_fn(series, t):
                 fired_types.add(signal_type)
                 signal_positions.setdefault(signal_type, t)
+                firings.add(SignalEvent(signal_type=signal_type, candle_index=t))
     except DataIncompleteError as exc:
         return ScreeningResult(
             status=ScreeningStatus.UNKNOWN_DATA_INCOMPLETE,
@@ -212,18 +211,20 @@ def evaluate_candidate(
             status=ScreeningStatus.NOT_CANDIDATE,
             fired_signal_types=frozenset(fired_types),
             signal_events=events,
+            signal_firings=frozenset(firings),
         )
 
-    gate_reason = _failed_gates(series, t, latest_crossing_firing)
+    gate_reason = _failed_gates(series, t, frozenset(firings))
     return ScreeningResult(
         status=ScreeningStatus.NOT_CANDIDATE if gate_reason else ScreeningStatus.CANDIDATE,
         fired_signal_types=frozenset(fired_types),
         signal_events=events,
+        signal_firings=frozenset(firings),
         reason=gate_reason,
     )
 
 
-def _failed_gates(series: CandleSeries, t: int, latest_crossing_firing: int | None) -> str | None:
+def _failed_gates(series: CandleSeries, t: int, firings: frozenset[SignalEvent]) -> str | None:
     """Die Torbedingungen an der Entscheidungskerze (Abschnitt 3.6).
 
     Liefert ``None``, wenn beide gelten, sonst die Gruende als ein Wert fuer
@@ -239,10 +240,10 @@ def _failed_gates(series: CandleSeries, t: int, latest_crossing_firing: int | No
     """
     gruende = []
 
-    if (
-        latest_crossing_firing is None
-        or t - latest_crossing_firing > MAX_CROSSING_SIGNAL_AGE_CANDLES
-    ):
+    kreuzungen = [
+        firing.candle_index for firing in firings if firing.signal_type in CROSSING_SIGNALS
+    ]
+    if not kreuzungen or t - max(kreuzungen) > MAX_CROSSING_SIGNAL_AGE_CANDLES:
         gruende.append(GATE_STALE_CROSSING_SIGNALS)
 
     ema20 = series.indicator(t).ema20
