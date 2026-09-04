@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
@@ -33,6 +34,7 @@ from ai_trading_analyst.domain.backtesting import (
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.options import (
     LiquidityGrade,
+    OptionQuote,
     OptionsAnalysis,
     OptionsStatus,
     PutStrategy,
@@ -2026,3 +2028,156 @@ class TestOptionsanalyse:
         persisted = self._rundlauf(uow_factory, "OPTAUS", None)
 
         assert persisted.options is None
+
+
+class TestRohnotierungen:
+    """Die abgerufenen Notierungen in ihrer eigenen Tabelle (ADR 0058,
+    Festlegung 1).
+
+    Sie werden **geschrieben, aber nicht zurueckgelesen**: Die Kalibrierung
+    fragt die Tabelle, nicht das Domaenenobjekt. Deshalb prueft dieser Test
+    gegen SQL und nicht gegen einen Rundlauf -- ein Rundlauf koennte gar
+    nichts finden, und das saehe wie ein Fehler aus, wo Absicht ist.
+    """
+
+    @staticmethod
+    def _notierung(strike: float, **kwargs: Any) -> OptionQuote:
+        vorgabe: dict[str, Any] = {
+            "expiration": date(2026, 10, 2),
+            "strike": strike,
+            "bid": 1.80,
+            "ask": 1.90,
+            "delta": -0.25,
+            "implied_volatility": 0.31,
+            "open_interest": 500,
+            "volume": 60,
+        }
+        return OptionQuote(**{**vorgabe, **kwargs})
+
+    def _schreibe(
+        self,
+        uow_factory: UowFactory,
+        symbol: str,
+        *notierungen: OptionQuote,
+    ) -> uuid.UUID:
+        stock = make_stock(symbol)
+        run = make_run()
+        outcome = StockScreeningOutcome(
+            analysis_run_id=run.id,
+            stock=stock,
+            result=ScreeningResult(status=ScreeningStatus.CANDIDATE),
+            decision_candle_index=258,
+            evaluated_at=datetime.now(UTC),
+            signal_rule_version=SIGNAL_RULE_VERSION,
+            options=OptionsAnalysis(
+                status=OptionsStatus.COMPLETED,
+                evaluated_at=datetime.now(UTC),
+                underlying_price=100.0,
+                expiration=date(2026, 10, 2),
+                quotes=notierungen,
+            ),
+        )
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(outcome)
+            uow.commit()
+        return run.id
+
+    def test_jede_abgerufene_notierung_landet_in_der_tabelle(
+        self, uow_factory: UowFactory, session_factory: sessionmaker[Session]
+    ) -> None:
+        self._schreibe(
+            uow_factory,
+            "ROHVOLL",
+            self._notierung(96.0),
+            self._notierung(92.0),
+            self._notierung(80.0, delta=-0.05),
+        )
+
+        with session_factory() as session:
+            zeilen = session.execute(
+                text(
+                    "SELECT strike, delta FROM option_quotes ORDER BY position"
+                )
+            ).all()
+
+        assert [float(strike) for strike, _ in zeilen] == [96.0, 92.0, 80.0]
+        # Vorzeichenbehaftet, wie der Anbieter ihn liefert -- hier steht, was
+        # ankam, nicht, was die Bewertung daraus machte.
+        assert [float(delta) for _, delta in zeilen] == [-0.25, -0.25, -0.05]
+
+    def test_fehlende_felder_bleiben_leer_und_werden_nicht_zu_null(
+        self, uow_factory: UowFactory, session_factory: sessionmaker[Session]
+    ) -> None:
+        """Ein ``NULL``, das als ``0.0`` zurueckkaeme, saehe fuer die
+        Kalibrierung wie ein gemessenes Delta von null aus."""
+        self._schreibe(
+            uow_factory,
+            "ROHLEER",
+            self._notierung(
+                92.0,
+                bid=None,
+                delta=None,
+                implied_volatility=None,
+                open_interest=None,
+                volume=None,
+            ),
+        )
+
+        with session_factory() as session:
+            (zeile,) = session.execute(
+                text(
+                    "SELECT bid, ask, delta, implied_volatility, open_interest, volume "
+                    "FROM option_quotes"
+                )
+            ).all()
+
+        bid, ask, delta, iv, oi, volumen = zeile
+        assert bid is None
+        assert delta is None
+        assert iv is None
+        assert oi is None
+        assert volumen is None
+        # Der gelieferte Wert bleibt daneben stehen -- fehlend ist nicht alles.
+        assert float(ask) == pytest.approx(1.90)
+
+    def test_ohne_optionsanalyse_entsteht_keine_zeile(
+        self, uow_factory: UowFactory, session_factory: sessionmaker[Session]
+    ) -> None:
+        stock = make_stock("ROHAUS")
+        run = make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(
+                StockScreeningOutcome(
+                    analysis_run_id=run.id,
+                    stock=stock,
+                    result=ScreeningResult(status=ScreeningStatus.NOT_CANDIDATE),
+                    decision_candle_index=258,
+                    evaluated_at=datetime.now(UTC),
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                )
+            )
+            uow.commit()
+
+        with session_factory() as session:
+            anzahl = session.execute(text("SELECT count(*) FROM option_quotes")).scalar_one()
+
+        assert anzahl == 0
+
+    def test_das_domaenenobjekt_kommt_bewusst_ohne_sie_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Nagelt die Asymmetrie fest, statt sie dem naechsten Leser als Fehler
+        erscheinen zu lassen: ``OptionsAnalysis.quotes`` ist eine
+        Schreibrichtung. Wer sie eines Tages zurueckliest, aendert damit das
+        Verhalten jedes Aufrufers -- und soll hier darueber stolpern."""
+        run_id = self._schreibe(uow_factory, "ROHRUND", self._notierung(92.0))
+
+        with uow_factory() as uow:
+            (persisted,) = uow.screening_results.list_for_run(run_id)
+
+        assert persisted.options is not None
+        assert persisted.options.quotes == ()

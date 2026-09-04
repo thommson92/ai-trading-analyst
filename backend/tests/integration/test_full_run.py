@@ -15,6 +15,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date
 
+from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
+
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.domain.analysis import MarketDataProviderError, RunStatus, Stock
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -204,3 +207,71 @@ def test_vollstaendiges_scheitern_vor_screeningbeginn_wird_nicht_teilweise_persi
         persisted_run = uow.analysis_runs.get(summary.run.id)
     assert persisted_run is not None
     assert persisted_run.status == RunStatus.FAILED
+
+
+def test_der_lauf_legt_die_abgerufenen_rohnotierungen_ab(
+    uow_factory: UowFactory,
+    scoring_params: ScoringParameters,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Die Kette vom Abruf bis in die Tabelle, an einem Stueck (ADR 0058,
+    Festlegung 1).
+
+    Die Domaenen- und Repository-Tests decken die beiden Enden ab; dieser
+    deckt die Verdrahtung dazwischen. Ohne ihn bliebe eine Umstellung im
+    Application-Layer, die ``options`` nicht mehr durchreicht, unbemerkt --
+    alle uebrigen Zusicherungen ueber die Optionsanalyse blieben gruen, weil
+    sie an den Spalten der Elternzeile haengen und nicht an dieser Tabelle.
+
+    Geprueft wird gegen SQL und nicht gegen das Domaenenobjekt: Die
+    Notierungen werden bewusst nicht zurueckgelesen.
+    """
+    use_case = RunAnalysisUseCase(
+        FixtureMarketDataProvider(),
+        FixtureEarningsProvider(reference_date=lambda: _FIXTURE_DECISION_DATE),
+        FixtureResearchProvider(),
+        FixtureTechnicalInterpreter(),
+        FixtureFundamentalDataProvider(),
+        FixtureAnalystRecommendationsProvider(),
+        FixtureOptionsProvider(OptionsParameters()),
+        uow_factory,
+        _PARAMS,
+        _EARNINGS_PARAMS,
+        _TECHNICAL_PARAMS,
+        _BACKTEST_PARAMS,
+        scoring_params,
+    )
+
+    summary = use_case.execute()
+
+    fixcand = next(o for o in summary.outcomes if o.stock.symbol == "FIXCAND")
+    assert fixcand.options is not None
+
+    with session_factory() as session:
+        zeilen = session.execute(
+            text(
+                "SELECT q.strike FROM option_quotes q "
+                "JOIN screening_results r ON r.id = q.screening_result_id "
+                "JOIN stocks s ON s.id = r.stock_id "
+                "WHERE s.symbol = 'FIXCAND' ORDER BY q.position"
+            )
+        ).scalars().all()
+
+    # Mehr Notierungen als Vorschlaege -- das ist der ganze Punkt der
+    # Festlegung: Der Rest verschwand bisher nach der Auswertung.
+    assert len(zeilen) > len(fixcand.options.strategies)
+    assert [float(strike) for strike in zeilen] == [
+        quote.strike for quote in fixcand.options.quotes
+    ]
+
+    # Ein Titel ohne Kandidatenstatus bekommt keine Optionsanalyse und
+    # deshalb auch keine Notierungen.
+    with session_factory() as session:
+        ohne = session.execute(
+            text(
+                "SELECT count(*) FROM option_quotes q "
+                "JOIN screening_results r ON r.id = q.screening_result_id "
+                "JOIN stocks s ON s.id = r.stock_id WHERE s.symbol = 'FIXNOCAND'"
+            )
+        ).scalar_one()
+    assert ohne == 0

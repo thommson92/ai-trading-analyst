@@ -24,6 +24,7 @@ from ai_trading_analyst.domain.options import (
     expirations_in_window,
     select_expiration,
     select_strikes,
+    unzureichend,
 )
 from ai_trading_analyst.domain.technical import PriceZone, ZoneKind, ZoneStrength
 
@@ -561,3 +562,81 @@ class TestParameterAmErgebnis:
         assert analyse.parameters["min_delta"] == pytest.approx(0.10)
         assert analyse.parameters["max_days_to_expiration"] == pytest.approx(60.0)
         assert analyse.parameters["target_days_to_expiration"] == pytest.approx(35.0)
+
+
+class TestRohnotierungenAmErgebnis:
+    """Jede abgerufene Notierung bleibt am Ergebnis (ADR 0058, Festlegung 1).
+
+    Der Abruf holt bis zu ``max_strikes`` Kontrakte und empfiehlt hoechstens
+    ``max_suggestions``. Bisher verschwand der Rest; genau er traegt die
+    Auskunft, die die Kalibrierung des Bewertungsmodells braucht.
+    """
+
+    def test_auch_die_verworfenen_notierungen_bleiben_erhalten(self) -> None:
+        """Die 0,05-Notierung faellt unter ``min_delta`` aus der Bewertung --
+        aus ``quotes`` faellt sie nicht."""
+        quotes = [
+            notierung(96.0, delta=-0.35),
+            notierung(92.0, delta=-0.22),
+            notierung(80.0, delta=-0.05),
+        ]
+
+        analyse = build_options_analysis(
+            quotes,
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert analyse.status is OptionsStatus.COMPLETED
+        # Nach Rendite sortiert: gleiche Praemie, niedrigerer Strike, also
+        # hoehere Rendite. Die Abrufreihenfolge ist eine andere -- siehe unten.
+        assert [s.strike for s in analyse.strategies] == [92.0, 96.0]
+        assert [q.strike for q in analyse.quotes] == [96.0, 92.0, 80.0]
+
+    def test_die_reihenfolge_des_abrufs_bleibt(self) -> None:
+        """``select_strikes`` liefert absteigend, die naechstliegenden zuerst.
+        Die Rangfolge der *Vorschlaege* ist eine andere Sortierung -- beide
+        duerfen sich nicht vermischen."""
+        analyse = build_options_analysis(
+            [notierung(96.0), notierung(92.0), notierung(88.0)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert [q.strike for q in analyse.quotes] == [96.0, 92.0, 88.0]
+
+    def test_auch_ein_lauf_ohne_einen_brauchbaren_vorschlag_behaelt_sie(self) -> None:
+        """Gerade dann: Ein Lauf, in dem keine einzige Notierung taugte, sagt
+        ueber den Anbieter mehr aus als einer, in dem alles glattging."""
+        analyse = build_options_analysis(
+            [notierung(96.0, delta=None), notierung(92.0, bid=None)],
+            price=100.0,
+            expiration=date(2026, 10, 2),
+            as_of=STICHTAG,
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+        )
+
+        assert analyse.status is OptionsStatus.INSUFFICIENT_DATA
+        assert analyse.strategies == ()
+        assert [q.strike for q in analyse.quotes] == [96.0, 92.0]
+
+    def test_ohne_abruf_bleibt_die_menge_leer(self) -> None:
+        """``unzureichend`` wird auch vor dem Abruf gerufen -- kein Termin im
+        Fenster, kein Strike im Band. Leer heisst dort "nicht abgerufen" und
+        nicht "nichts gestellt"; welcher Fall vorliegt, sagt ``reason``."""
+        analyse = unzureichend(
+            "kein Strike im Moneyness-Band",
+            evaluated_at=BEWERTET_AM,
+            parameters=PARAMETER,
+            underlying_price=100.0,
+        )
+
+        assert analyse.quotes == ()
+        assert analyse.reason == "kein Strike im Moneyness-Band"
