@@ -276,8 +276,14 @@ def steigende_preise(count: int) -> list[float]:
 def wendepreise() -> list[float]:
     """Lange fallend, am Ende steil steigend -- so kreuzen EMA5 und EMA20, der
     Kurs durchbricht die EMA20 und der RSI kreuzt seine Glaettung, alles
-    innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten."""
-    return [300.0 - index for index in range(254)] + [50.0 + index * 25.0 for index in range(6)]
+    innerhalb der letzten sechs Kerzen. Das ergibt einen Kandidaten.
+
+    Die Wende liegt bewusst **kurz** vor dem Ende: Seit ADR 0057 verlangt die
+    Torbedingung der Frische ein Kaufsignal auf ``t`` oder ``t-1``. Bei einer
+    laengeren Aufwaertsphase waeren die Kreuzungen am Entscheidungspunkt
+    bereits abgelaufen.
+    """
+    return [300.0 - index for index in range(256)] + [50.0 + index * 25.0 for index in range(3)]
 
 
 class _FakeEngine:
@@ -3477,3 +3483,97 @@ class TestOptionsKommando:
 
         assert exit_code == 0
         assert "OPTIONS_ANNUALIZED_RETURN" in capsys.readouterr().out
+
+
+class TestChartKommando:
+    def test_symbole_und_ziel_werden_eingelesen(self) -> None:
+        args = build_parser().parse_args(
+            ["chart", "--symbols", "AAPL,MSFT", "--output", "/tmp/charts"]
+        )
+
+        assert args.symbols == "AAPL,MSFT"
+        assert args.output == "/tmp/charts"
+        assert args.handler is cli.command_chart
+
+    def test_ohne_symbole_bricht_der_parser_ab(self) -> None:
+        """Ein Chart ueber die ganze Watchlist waere kein Werkzeug zum
+        Hinsehen, sondern ein Verzeichnis voller Dateien."""
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["chart"])
+
+    def test_das_ziel_hat_eine_vorgabe(self) -> None:
+        args = build_parser().parse_args(["chart", "--symbols", "AAPL"])
+        assert args.output == "charts"
+
+    def test_verweigert_den_lauf_wenn_der_anbieter_nicht_ibkr_ist(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Wie beim Backtest: Der Fixture-Anbieter kennt nur Kunstsymbole.
+        Ohne diese Pruefung meldete das Kommando fuer jedes echte Symbol
+        'Nicht in der Watchlist gefunden' und schoebe die Schuld auf die
+        Watchlist statt auf den Anbieter."""
+        config = write_config(projekt, provider="fixture")
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "AAPL",
+             "--output", str(projekt / "charts")]
+        )
+
+        assert exit_code == 2
+        fehler = capsys.readouterr().err
+        assert "'fixture'" in fehler
+        assert "Nicht in der Watchlist gefunden" not in fehler
+        # Kein Verzeichnis anlegen, bevor der Lauf ueberhaupt moeglich ist.
+        assert not (projekt / "charts").exists()
+
+    def test_schreibt_je_symbol_eine_datei(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Der glueckliche Pfad: Bestand lesen, Nutzlast bauen, Datei schreiben."""
+        series = kerzenreihe([100.0 + i * 0.5 for i in range(60)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli,
+            "build_market_data_provider",
+            lambda *a, **k: FakeProvider(series, symbole=("AAPL", "MSFT")),
+        )
+        config = write_config(projekt, provider="ibkr")
+        ziel = projekt / "charts"
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "AAPL", "--output", str(ziel)]
+        )
+
+        assert exit_code == 0
+        assert (ziel / "signalchart-aapl.html").exists()
+        # Nur das angeforderte Symbol, obwohl der Anbieter zwei kennt.
+        assert not (ziel / "signalchart-msft.html").exists()
+        assert "AAPL:" in capsys.readouterr().out
+
+    def test_ein_unbekanntes_symbol_legt_kein_verzeichnis_an(
+        self,
+        projekt: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        series = kerzenreihe([100.0 + i * 0.5 for i in range(60)])
+        monkeypatch.setattr(cli, "_open_database", lambda: _FakeEngine())
+        monkeypatch.setattr(cli, "build_session_factory", lambda engine: None)
+        monkeypatch.setattr(
+            cli, "build_market_data_provider", lambda *a, **k: FakeProvider(series)
+        )
+        config = write_config(projekt, provider="ibkr")
+        ziel = projekt / "charts"
+
+        exit_code = main(
+            ["--config", str(config), "chart", "--symbols", "GIBTESNICHT",
+             "--output", str(ziel)]
+        )
+
+        assert exit_code == 2
+        assert "GIBTESNICHT" in capsys.readouterr().err
+        assert not ziel.exists()

@@ -548,7 +548,6 @@ class TestBacktestParameter:
         config = AppConfig(indicators=INDICATORS)
         params = build_backtest_params(config)
         assert params.horizons == config.backtesting.horizons
-        assert params.cooldown_candles == config.backtesting.cooldown_candles
         assert params.minimum_sample_size == config.backtesting.minimum_sample_size
         assert (
             params.normal_confidence_sample_size == config.backtesting.normal_confidence_sample_size

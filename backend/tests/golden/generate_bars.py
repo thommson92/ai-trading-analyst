@@ -8,7 +8,8 @@ darf davon nicht abhaengen -- er soll auf jedem Rechner ohne Netz laufen.
 Was der Golden Master leistet, haengt an dieser Unterscheidung:
 
 * **Was er leistet:** Er friert das *Verfahren* ein. Aendert sich die
-  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, der Cooldown oder
+  Kerzenbildung, die Indikatorrechnung, die Kandidatenregel, die
+  Episodenbildung oder
   eine Kennzahl, weicht das Ergebnis ab und ein Test bricht. Dafuer genuegen
   erzeugte Kursreihen vollstaendig -- die Rechnung kennt den Unterschied
   nicht.
@@ -49,7 +50,7 @@ Golden Master bewachen soll.
 Der Backtest stuft jede Signalkombination nach ihrer Stichprobengroesse ein,
 und die drei Stufen verhalten sich **unterschiedlich**:
 
-* unter 10 deduplizierten Ereignissen: ``INSUFFICIENT_DATA``, und dann gibt
+* unter 10 gezaehlten Ereignissen: ``INSUFFICIENT_DATA``, und dann gibt
   es fuer diese Kombination **keine einzige** Kennzahl
   (``metrics.py``, ``has_reliable_basis``),
 * 10 bis 29: ``LOW_SAMPLE`` mit vollstaendigen Kennzahlen,
@@ -68,14 +69,16 @@ hinweg alle drei Stufen aufgezeichnet sind."""
 KURZE_REIHE = 400
 """800 Kerzen -- 250 Warm-up, 550 auswertbare Entscheidungspunkte."""
 
-LANGE_REIHE = 900
-"""1800 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
+LANGE_REIHE = 1200
+"""2400 Kerzen. Ab hier kommt die haeufigste Kombination ueber 30 Ereignisse
 und damit auf ``NORMAL``.
 
-Mit der Regel aus ADR 0056 musste diese Zahl von 700 steigen: Die
-Ereignisse verteilen sich seither auf 12 statt 4 Kombinationen, und bei 700
-Handelstagen kam die staerkste nur noch auf 29 -- eines zu wenig. Gemessen:
-700 -> 29, 800 -> 34, 900 -> 44.
+Die Zahl ist zweimal gestiegen, beide Male aus demselben Grund: Die Regel
+wurde schaerfer, also braucht dieselbe Aussage mehr Historie. Mit ADR 0056
+verteilten sich die Ereignisse auf 12 statt 4 Kombinationen (700 -> 900); mit
+den Torbedingungen aus ADR 0057 fallen zusaetzlich rund vierzig Prozent der
+Entscheidungspunkte weg. Gemessen unter der heutigen Regel:
+900 -> 28, 1200 -> 43.
 
 Das ist kein Datentrick, sondern der sichtbare Preis der neuen Regel -- an
 echten Kursen wird die Signalstatistik je Kombination aus demselben Grund

@@ -83,7 +83,6 @@ _EARNINGS_PARAMS = EarningsFilterParameters(configured_exclusion_candles=20, can
 _SERIES_LENGTH = 11
 _BACKTEST_PARAMS = BacktestParameters(
     horizons=(2,),
-    cooldown_candles=5,
     minimum_sample_size=1,
     normal_confidence_sample_size=2,
     history_years=5,
@@ -1443,7 +1442,6 @@ class TestBacktestImTageslauf:
             provider,
             backtest_params=BacktestParameters(
                 horizons=(2,),
-                cooldown_candles=5,
                 minimum_sample_size=1,
                 normal_confidence_sample_size=2,
                 history_years=0,

@@ -272,7 +272,6 @@ class BacktestingConfig(_Section):
 
     history_years: PositiveInt = 5
     horizons: tuple[PositiveInt, ...] = (5, 10, 20)
-    cooldown_candles: PositiveInt = 5
     minimum_sample_size: PositiveInt = 10
     normal_confidence_sample_size: PositiveInt = 30
 

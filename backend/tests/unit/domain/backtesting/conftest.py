@@ -14,8 +14,13 @@ from ai_trading_analyst.domain.screening import Candle, CandleSeries, IndicatorV
 _EPOCH = datetime(2024, 1, 1, tzinfo=UTC)
 _TIMEFRAME = timedelta(minutes=195)
 
-BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
-RSI_AND_EMA_CROSS_FIRE = IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+BASELINE_EMA = 99.0
+"""Wie in ``screening/conftest.py``: Die EMAs liegen unter dem Baseline-
+Schlusskurs von 100, damit die Torbedingung T2 (``close > ema20``, ADR 0057)
+in ruhiger Lage erfuellt ist."""
+
+BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=BASELINE_EMA, ema20=BASELINE_EMA)
+RSI_AND_EMA_CROSS_FIRE = IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=110.0, ema20=BASELINE_EMA)
 
 
 def make_series(

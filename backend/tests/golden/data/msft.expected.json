@@ -52,40 +52,40 @@
       "history_start": "2025-01-02T09:30:00-05:00",
       "horizons": [
         {
-          "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 11,
-          "drawdown": 0.02751697,
-          "held_above_entry_rate": 0.0,
-          "hit_rate": 0.45454545,
+          "confidence": "INSUFFICIENT_DATA",
+          "deduplicated_event_count": 9,
+          "drawdown": null,
+          "held_above_entry_rate": null,
+          "hit_rate": null,
           "horizon": 5,
-          "max_loss": -0.02470243,
-          "mean_return": -0.00312331,
-          "median_return": -0.00347351,
-          "raw_event_count": 20
+          "max_loss": null,
+          "mean_return": null,
+          "median_return": null,
+          "raw_event_count": 13
         },
         {
-          "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 11,
-          "drawdown": 0.05555669,
-          "held_above_entry_rate": 0.0,
-          "hit_rate": 0.54545455,
+          "confidence": "INSUFFICIENT_DATA",
+          "deduplicated_event_count": 9,
+          "drawdown": null,
+          "held_above_entry_rate": null,
+          "hit_rate": null,
           "horizon": 10,
-          "max_loss": -0.05555669,
-          "mean_return": -0.00114965,
-          "median_return": 0.00256916,
-          "raw_event_count": 20
+          "max_loss": null,
+          "mean_return": null,
+          "median_return": null,
+          "raw_event_count": 13
         },
         {
-          "confidence": "LOW_SAMPLE",
-          "deduplicated_event_count": 11,
-          "drawdown": 0.09323542,
-          "held_above_entry_rate": 0.0,
-          "hit_rate": 0.45454545,
+          "confidence": "INSUFFICIENT_DATA",
+          "deduplicated_event_count": 9,
+          "drawdown": null,
+          "held_above_entry_rate": null,
+          "hit_rate": null,
           "horizon": 20,
-          "max_loss": -0.09323542,
-          "mean_return": -0.00987936,
-          "median_return": -0.0038199,
-          "raw_event_count": 20
+          "max_loss": null,
+          "mean_return": null,
+          "median_return": null,
+          "raw_event_count": 13
         }
       ],
       "signal_types": [
@@ -241,7 +241,7 @@
       "horizons": [
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 4,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -249,11 +249,11 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 10
+          "raw_event_count": 3
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 4,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -261,11 +261,11 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 10
+          "raw_event_count": 3
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 4,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -273,7 +273,7 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 10
+          "raw_event_count": 3
         }
       ],
       "signal_types": [
@@ -336,7 +336,7 @@
       "horizons": [
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 7,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -344,11 +344,11 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 22
+          "raw_event_count": 8
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 7,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -356,11 +356,11 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 22
+          "raw_event_count": 8
         },
         {
           "confidence": "INSUFFICIENT_DATA",
-          "deduplicated_event_count": 6,
+          "deduplicated_event_count": 3,
           "drawdown": null,
           "held_above_entry_rate": null,
           "hit_rate": null,
@@ -368,7 +368,7 @@
           "max_loss": null,
           "mean_return": null,
           "median_return": null,
-          "raw_event_count": 22
+          "raw_event_count": 8
         }
       ],
       "signal_types": [
@@ -582,6 +582,100 @@
     "rsi_ma": 64.02203188
   },
   "last_candle": "2026-09-01T09:30:00-04:00",
+  "replay": {
+    "episodes": [
+      [
+        275,
+        277
+      ],
+      [
+        303,
+        305,
+        307
+      ],
+      [
+        343,
+        345
+      ],
+      [
+        397,
+        401
+      ],
+      [
+        453,
+        454,
+        456
+      ],
+      [
+        464,
+        466
+      ],
+      [
+        480,
+        482
+      ],
+      [
+        503
+      ],
+      [
+        525,
+        527
+      ],
+      [
+        571
+      ],
+      [
+        577
+      ],
+      [
+        627
+      ],
+      [
+        669
+      ],
+      [
+        681
+      ],
+      [
+        745
+      ],
+      [
+        757
+      ],
+      [
+        779
+      ]
+    ],
+    "raw_decision_indices": [
+      275,
+      277,
+      303,
+      305,
+      307,
+      343,
+      345,
+      397,
+      401,
+      453,
+      454,
+      456,
+      464,
+      466,
+      480,
+      482,
+      503,
+      525,
+      527,
+      571,
+      577,
+      627,
+      669,
+      681,
+      745,
+      757,
+      779
+    ]
+  },
   "screening": {
     "candidates": [
       {
@@ -677,29 +771,6 @@
         "timestamp": "2025-07-25T12:45:00-04:00"
       },
       {
-        "candle_index": 279,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            279
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            274
-          ],
-          [
-            "RSI_CROSS",
-            275
-          ]
-        ],
-        "timestamp": "2025-07-28T09:30:00-04:00"
-      },
-      {
         "candle_index": 302,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -746,29 +817,6 @@
         "timestamp": "2025-08-13T09:30:00-04:00"
       },
       {
-        "candle_index": 304,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            304
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            301
-          ],
-          [
-            "RSI_CROSS",
-            302
-          ]
-        ],
-        "timestamp": "2025-08-13T12:45:00-04:00"
-      },
-      {
         "candle_index": 305,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -790,29 +838,6 @@
           ]
         ],
         "timestamp": "2025-08-14T09:30:00-04:00"
-      },
-      {
-        "candle_index": 306,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            306
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            301
-          ],
-          [
-            "RSI_CROSS",
-            302
-          ]
-        ],
-        "timestamp": "2025-08-14T12:45:00-04:00"
       },
       {
         "candle_index": 307,
@@ -861,98 +886,6 @@
         "timestamp": "2025-08-28T12:45:00-04:00"
       },
       {
-        "candle_index": 327,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            327
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            326
-          ],
-          [
-            "RSI_CROSS",
-            323
-          ]
-        ],
-        "timestamp": "2025-08-29T09:30:00-04:00"
-      },
-      {
-        "candle_index": 328,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            328
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            326
-          ],
-          [
-            "RSI_CROSS",
-            323
-          ]
-        ],
-        "timestamp": "2025-08-29T12:45:00-04:00"
-      },
-      {
-        "candle_index": 330,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            330
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            326
-          ],
-          [
-            "RSI_CROSS",
-            330
-          ]
-        ],
-        "timestamp": "2025-09-02T12:45:00-04:00"
-      },
-      {
-        "candle_index": 331,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            331
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            326
-          ],
-          [
-            "RSI_CROSS",
-            330
-          ]
-        ],
-        "timestamp": "2025-09-03T09:30:00-04:00"
-      },
-      {
         "candle_index": 334,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -976,29 +909,6 @@
         "timestamp": "2025-09-04T12:45:00-04:00"
       },
       {
-        "candle_index": 335,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            335
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            334
-          ],
-          [
-            "RSI_CROSS",
-            330
-          ]
-        ],
-        "timestamp": "2025-09-05T09:30:00-04:00"
-      },
-      {
         "candle_index": 343,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -1020,29 +930,6 @@
           ]
         ],
         "timestamp": "2025-09-11T09:30:00-04:00"
-      },
-      {
-        "candle_index": 344,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            344
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            343
-          ],
-          [
-            "RSI_CROSS",
-            341
-          ]
-        ],
-        "timestamp": "2025-09-11T12:45:00-04:00"
       },
       {
         "candle_index": 345,
@@ -1101,210 +988,6 @@
         "timestamp": "2025-09-12T12:45:00-04:00"
       },
       {
-        "candle_index": 347,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            345
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            347
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            343
-          ]
-        ],
-        "timestamp": "2025-09-15T09:30:00-04:00"
-      },
-      {
-        "candle_index": 348,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            345
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            348
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            343
-          ]
-        ],
-        "timestamp": "2025-09-15T12:45:00-04:00"
-      },
-      {
-        "candle_index": 349,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            345
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            349
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            345
-          ]
-        ],
-        "timestamp": "2025-09-16T09:30:00-04:00"
-      },
-      {
-        "candle_index": 350,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            345
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            350
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            345
-          ]
-        ],
-        "timestamp": "2025-09-16T12:45:00-04:00"
-      },
-      {
-        "candle_index": 368,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            366
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            368
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            366
-          ],
-          [
-            "RSI_CROSS",
-            366
-          ]
-        ],
-        "timestamp": "2025-09-29T12:45:00-04:00"
-      },
-      {
-        "candle_index": 369,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            366
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            369
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            366
-          ],
-          [
-            "RSI_CROSS",
-            366
-          ]
-        ],
-        "timestamp": "2025-09-30T09:30:00-04:00"
-      },
-      {
-        "candle_index": 370,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            366
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            370
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            366
-          ],
-          [
-            "RSI_CROSS",
-            366
-          ]
-        ],
-        "timestamp": "2025-09-30T12:45:00-04:00"
-      },
-      {
-        "candle_index": 371,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            366
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            371
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            366
-          ],
-          [
-            "RSI_CROSS",
-            366
-          ]
-        ],
-        "timestamp": "2025-10-01T09:30:00-04:00"
-      },
-      {
         "candle_index": 397,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -1349,29 +1032,6 @@
           ]
         ],
         "timestamp": "2025-10-20T12:45:00-04:00"
-      },
-      {
-        "candle_index": 399,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            399
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            397
-          ],
-          [
-            "RSI_CROSS",
-            396
-          ]
-        ],
-        "timestamp": "2025-10-21T09:30:00-04:00"
       },
       {
         "candle_index": 400,
@@ -1428,29 +1088,6 @@
           ]
         ],
         "timestamp": "2025-10-22T09:30:00-04:00"
-      },
-      {
-        "candle_index": 402,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            400
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            402
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            397
-          ]
-        ],
-        "timestamp": "2025-10-22T12:45:00-04:00"
       },
       {
         "candle_index": 432,
@@ -1520,29 +1157,6 @@
           ]
         ],
         "timestamp": "2025-12-01T09:30:00-05:00"
-      },
-      {
-        "candle_index": 455,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            455
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            453
-          ],
-          [
-            "RSI_CROSS",
-            451
-          ]
-        ],
-        "timestamp": "2025-12-01T12:45:00-05:00"
       },
       {
         "candle_index": 456,
@@ -1675,62 +1289,6 @@
         "timestamp": "2025-12-09T09:30:00-05:00"
       },
       {
-        "candle_index": 467,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            465
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            467
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            464
-          ],
-          [
-            "RSI_CROSS",
-            463
-          ]
-        ],
-        "timestamp": "2025-12-09T12:45:00-05:00"
-      },
-      {
-        "candle_index": 468,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            465
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            468
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            464
-          ],
-          [
-            "RSI_CROSS",
-            463
-          ]
-        ],
-        "timestamp": "2025-12-10T09:30:00-05:00"
-      },
-      {
         "candle_index": 480,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -1808,90 +1366,6 @@
           ]
         ],
         "timestamp": "2025-12-19T09:30:00-05:00"
-      },
-      {
-        "candle_index": 483,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            481
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            483
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            480
-          ],
-          [
-            "RSI_CROSS",
-            480
-          ]
-        ],
-        "timestamp": "2025-12-19T12:45:00-05:00"
-      },
-      {
-        "candle_index": 484,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            481
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            484
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            480
-          ],
-          [
-            "RSI_CROSS",
-            480
-          ]
-        ],
-        "timestamp": "2025-12-22T09:30:00-05:00"
-      },
-      {
-        "candle_index": 485,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            481
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            485
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            480
-          ],
-          [
-            "RSI_CROSS",
-            480
-          ]
-        ],
-        "timestamp": "2025-12-22T12:45:00-05:00"
       },
       {
         "candle_index": 503,
@@ -2062,52 +1536,6 @@
         "timestamp": "2026-01-26T12:45:00-05:00"
       },
       {
-        "candle_index": 529,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            527
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            529
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            525
-          ]
-        ],
-        "timestamp": "2026-01-27T09:30:00-05:00"
-      },
-      {
-        "candle_index": 530,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            527
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            530
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            525
-          ]
-        ],
-        "timestamp": "2026-01-27T12:45:00-05:00"
-      },
-      {
         "candle_index": 570,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -2164,75 +1592,6 @@
         "timestamp": "2026-02-26T09:30:00-05:00"
       },
       {
-        "candle_index": 572,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            572
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            570
-          ],
-          [
-            "RSI_CROSS",
-            569
-          ]
-        ],
-        "timestamp": "2026-02-26T12:45:00-05:00"
-      },
-      {
-        "candle_index": 573,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            573
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            570
-          ],
-          [
-            "RSI_CROSS",
-            569
-          ]
-        ],
-        "timestamp": "2026-02-27T09:30:00-05:00"
-      },
-      {
-        "candle_index": 574,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            574
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            570
-          ],
-          [
-            "RSI_CROSS",
-            569
-          ]
-        ],
-        "timestamp": "2026-02-27T12:45:00-05:00"
-      },
-      {
         "candle_index": 577,
         "fired_signal_types": [
           "EMA5_EMA20_CROSS",
@@ -2277,98 +1636,6 @@
           ]
         ],
         "timestamp": "2026-03-03T12:45:00-05:00"
-      },
-      {
-        "candle_index": 579,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            577
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            579
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            575
-          ]
-        ],
-        "timestamp": "2026-03-04T09:30:00-05:00"
-      },
-      {
-        "candle_index": 580,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            577
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            580
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            575
-          ]
-        ],
-        "timestamp": "2026-03-04T12:45:00-05:00"
-      },
-      {
-        "candle_index": 581,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            577
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            581
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            577
-          ]
-        ],
-        "timestamp": "2026-03-05T09:30:00-05:00"
-      },
-      {
-        "candle_index": 582,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            577
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            582
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            577
-          ]
-        ],
-        "timestamp": "2026-03-05T12:45:00-05:00"
       },
       {
         "candle_index": 622,
@@ -2440,141 +1707,6 @@
         "timestamp": "2026-04-08T12:45:00-04:00"
       },
       {
-        "candle_index": 629,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            627
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            629
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            627
-          ]
-        ],
-        "timestamp": "2026-04-09T09:30:00-04:00"
-      },
-      {
-        "candle_index": 635,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            633
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            635
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            633
-          ],
-          [
-            "RSI_CROSS",
-            633
-          ]
-        ],
-        "timestamp": "2026-04-14T09:30:00-04:00"
-      },
-      {
-        "candle_index": 636,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            633
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            636
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            633
-          ],
-          [
-            "RSI_CROSS",
-            633
-          ]
-        ],
-        "timestamp": "2026-04-14T12:45:00-04:00"
-      },
-      {
-        "candle_index": 637,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            633
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            637
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            633
-          ],
-          [
-            "RSI_CROSS",
-            633
-          ]
-        ],
-        "timestamp": "2026-04-15T09:30:00-04:00"
-      },
-      {
-        "candle_index": 638,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            633
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            638
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            633
-          ],
-          [
-            "RSI_CROSS",
-            633
-          ]
-        ],
-        "timestamp": "2026-04-15T12:45:00-04:00"
-      },
-      {
         "candle_index": 669,
         "fired_signal_types": [
           "EMA5_EMA20_CROSS",
@@ -2629,62 +1761,6 @@
           ]
         ],
         "timestamp": "2026-05-07T12:45:00-04:00"
-      },
-      {
-        "candle_index": 671,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            669
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            671
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            669
-          ],
-          [
-            "RSI_CROSS",
-            669
-          ]
-        ],
-        "timestamp": "2026-05-08T09:30:00-04:00"
-      },
-      {
-        "candle_index": 672,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            669
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            672
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            669
-          ],
-          [
-            "RSI_CROSS",
-            669
-          ]
-        ],
-        "timestamp": "2026-05-08T12:45:00-04:00"
       },
       {
         "candle_index": 681,
@@ -2743,202 +1819,6 @@
         "timestamp": "2026-05-15T12:45:00-04:00"
       },
       {
-        "candle_index": 683,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            681
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            683
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            681
-          ],
-          [
-            "RSI_CROSS",
-            681
-          ]
-        ],
-        "timestamp": "2026-05-18T09:30:00-04:00"
-      },
-      {
-        "candle_index": 684,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            681
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            684
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            681
-          ],
-          [
-            "RSI_CROSS",
-            681
-          ]
-        ],
-        "timestamp": "2026-05-18T12:45:00-04:00"
-      },
-      {
-        "candle_index": 685,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            681
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            685
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            681
-          ],
-          [
-            "RSI_CROSS",
-            681
-          ]
-        ],
-        "timestamp": "2026-05-19T09:30:00-04:00"
-      },
-      {
-        "candle_index": 686,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            681
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            686
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            681
-          ],
-          [
-            "RSI_CROSS",
-            681
-          ]
-        ],
-        "timestamp": "2026-05-19T12:45:00-04:00"
-      },
-      {
-        "candle_index": 700,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            697
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            700
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            697
-          ],
-          [
-            "RSI_CROSS",
-            697
-          ]
-        ],
-        "timestamp": "2026-05-29T12:45:00-04:00"
-      },
-      {
-        "candle_index": 701,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            697
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            701
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            697
-          ],
-          [
-            "RSI_CROSS",
-            697
-          ]
-        ],
-        "timestamp": "2026-06-01T09:30:00-04:00"
-      },
-      {
-        "candle_index": 702,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            697
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            702
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            697
-          ],
-          [
-            "RSI_CROSS",
-            697
-          ]
-        ],
-        "timestamp": "2026-06-01T12:45:00-04:00"
-      },
-      {
         "candle_index": 744,
         "fired_signal_types": [
           "EMA5_EMA20_CROSS",
@@ -2985,75 +1865,6 @@
         "timestamp": "2026-07-02T09:30:00-04:00"
       },
       {
-        "candle_index": 746,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            744
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            746
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            743
-          ]
-        ],
-        "timestamp": "2026-07-02T12:45:00-04:00"
-      },
-      {
-        "candle_index": 747,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            744
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            747
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            743
-          ]
-        ],
-        "timestamp": "2026-07-06T09:30:00-04:00"
-      },
-      {
-        "candle_index": 748,
-        "fired_signal_types": [
-          "EMA5_EMA20_CROSS",
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT"
-        ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            744
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            748
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            743
-          ]
-        ],
-        "timestamp": "2026-07-06T12:45:00-04:00"
-      },
-      {
         "candle_index": 757,
         "fired_signal_types": [
           "NO_RECENT_EMA_DOWNCROSS",
@@ -3098,29 +1909,6 @@
           ]
         ],
         "timestamp": "2026-07-13T12:45:00-04:00"
-      },
-      {
-        "candle_index": 759,
-        "fired_signal_types": [
-          "NO_RECENT_EMA_DOWNCROSS",
-          "PRICE_EMA20_BREAKOUT",
-          "RSI_CROSS"
-        ],
-        "signal_events": [
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            759
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            754
-          ],
-          [
-            "RSI_CROSS",
-            757
-          ]
-        ],
-        "timestamp": "2026-07-14T09:30:00-04:00"
       },
       {
         "candle_index": 779,
@@ -3177,6 +1965,550 @@
           ]
         ],
         "timestamp": "2026-07-28T12:45:00-04:00"
+      }
+    ],
+    "gated": [
+      {
+        "candle_index": 279,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-07-28T09:30:00-04:00"
+      },
+      {
+        "candle_index": 304,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2025-08-13T12:45:00-04:00"
+      },
+      {
+        "candle_index": 306,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-08-14T12:45:00-04:00"
+      },
+      {
+        "candle_index": 327,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-08-29T09:30:00-04:00"
+      },
+      {
+        "candle_index": 328,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2025-08-29T12:45:00-04:00"
+      },
+      {
+        "candle_index": 330,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-09-02T12:45:00-04:00"
+      },
+      {
+        "candle_index": 331,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-09-03T09:30:00-04:00"
+      },
+      {
+        "candle_index": 335,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-09-05T09:30:00-04:00"
+      },
+      {
+        "candle_index": 344,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:close_not_above_ema20",
+        "timestamp": "2025-09-11T12:45:00-04:00"
+      },
+      {
+        "candle_index": 347,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-15T09:30:00-04:00"
+      },
+      {
+        "candle_index": 348,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-15T12:45:00-04:00"
+      },
+      {
+        "candle_index": 349,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-16T09:30:00-04:00"
+      },
+      {
+        "candle_index": 350,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-16T12:45:00-04:00"
+      },
+      {
+        "candle_index": 368,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-29T12:45:00-04:00"
+      },
+      {
+        "candle_index": 369,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-30T09:30:00-04:00"
+      },
+      {
+        "candle_index": 370,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-09-30T12:45:00-04:00"
+      },
+      {
+        "candle_index": 371,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-10-01T09:30:00-04:00"
+      },
+      {
+        "candle_index": 399,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-10-21T09:30:00-04:00"
+      },
+      {
+        "candle_index": 402,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-10-22T12:45:00-04:00"
+      },
+      {
+        "candle_index": 455,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2025-12-01T12:45:00-05:00"
+      },
+      {
+        "candle_index": 467,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-12-09T12:45:00-05:00"
+      },
+      {
+        "candle_index": 468,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2025-12-10T09:30:00-05:00"
+      },
+      {
+        "candle_index": 483,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-12-19T12:45:00-05:00"
+      },
+      {
+        "candle_index": 484,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-12-22T09:30:00-05:00"
+      },
+      {
+        "candle_index": 485,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2025-12-22T12:45:00-05:00"
+      },
+      {
+        "candle_index": 529,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-01-27T09:30:00-05:00"
+      },
+      {
+        "candle_index": 530,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-01-27T12:45:00-05:00"
+      },
+      {
+        "candle_index": 572,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-02-26T12:45:00-05:00"
+      },
+      {
+        "candle_index": 573,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2026-02-27T09:30:00-05:00"
+      },
+      {
+        "candle_index": 574,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2026-02-27T12:45:00-05:00"
+      },
+      {
+        "candle_index": 579,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-03-04T09:30:00-05:00"
+      },
+      {
+        "candle_index": 580,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-03-04T12:45:00-05:00"
+      },
+      {
+        "candle_index": 581,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-03-05T09:30:00-05:00"
+      },
+      {
+        "candle_index": 582,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-03-05T12:45:00-05:00"
+      },
+      {
+        "candle_index": 629,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2026-04-09T09:30:00-04:00"
+      },
+      {
+        "candle_index": 635,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-04-14T09:30:00-04:00"
+      },
+      {
+        "candle_index": 636,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-04-14T12:45:00-04:00"
+      },
+      {
+        "candle_index": 637,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-04-15T09:30:00-04:00"
+      },
+      {
+        "candle_index": 638,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-04-15T12:45:00-04:00"
+      },
+      {
+        "candle_index": 671,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-08T09:30:00-04:00"
+      },
+      {
+        "candle_index": 672,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals+close_not_above_ema20",
+        "timestamp": "2026-05-08T12:45:00-04:00"
+      },
+      {
+        "candle_index": 683,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-18T09:30:00-04:00"
+      },
+      {
+        "candle_index": 684,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-18T12:45:00-04:00"
+      },
+      {
+        "candle_index": 685,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-19T09:30:00-04:00"
+      },
+      {
+        "candle_index": 686,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-19T12:45:00-04:00"
+      },
+      {
+        "candle_index": 700,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-05-29T12:45:00-04:00"
+      },
+      {
+        "candle_index": 701,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-06-01T09:30:00-04:00"
+      },
+      {
+        "candle_index": 702,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-06-01T12:45:00-04:00"
+      },
+      {
+        "candle_index": 746,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-07-02T12:45:00-04:00"
+      },
+      {
+        "candle_index": 747,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-07-06T09:30:00-04:00"
+      },
+      {
+        "candle_index": 748,
+        "fired_signal_types": [
+          "EMA5_EMA20_CROSS",
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-07-06T12:45:00-04:00"
+      },
+      {
+        "candle_index": 759,
+        "fired_signal_types": [
+          "NO_RECENT_EMA_DOWNCROSS",
+          "PRICE_EMA20_BREAKOUT",
+          "RSI_CROSS"
+        ],
+        "reason": "gate:stale_crossing_signals",
+        "timestamp": "2026-07-14T09:30:00-04:00"
       },
       {
         "candle_index": 781,
@@ -3186,24 +2518,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            779
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            781
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            777
-          ],
-          [
-            "RSI_CROSS",
-            779
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-07-29T09:30:00-04:00"
       },
       {
@@ -3214,24 +2529,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            779
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            782
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            777
-          ],
-          [
-            "RSI_CROSS",
-            779
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-07-29T12:45:00-04:00"
       },
       {
@@ -3242,24 +2540,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            779
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            783
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            779
-          ],
-          [
-            "RSI_CROSS",
-            779
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-07-30T09:30:00-04:00"
       },
       {
@@ -3270,24 +2551,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            779
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            784
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            779
-          ],
-          [
-            "RSI_CROSS",
-            779
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-07-30T12:45:00-04:00"
       },
       {
@@ -3298,24 +2562,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            817
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            819
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            817
-          ],
-          [
-            "RSI_CROSS",
-            817
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-08-25T09:30:00-04:00"
       },
       {
@@ -3326,24 +2573,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            817
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            820
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            817
-          ],
-          [
-            "RSI_CROSS",
-            817
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-08-25T12:45:00-04:00"
       },
       {
@@ -3354,24 +2584,7 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            817
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            821
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            817
-          ],
-          [
-            "RSI_CROSS",
-            817
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-08-26T09:30:00-04:00"
       },
       {
@@ -3382,32 +2595,15 @@
           "PRICE_EMA20_BREAKOUT",
           "RSI_CROSS"
         ],
-        "signal_events": [
-          [
-            "EMA5_EMA20_CROSS",
-            817
-          ],
-          [
-            "NO_RECENT_EMA_DOWNCROSS",
-            822
-          ],
-          [
-            "PRICE_EMA20_BREAKOUT",
-            817
-          ],
-          [
-            "RSI_CROSS",
-            817
-          ]
-        ],
+        "reason": "gate:stale_crossing_signals",
         "timestamp": "2026-08-26T12:45:00-04:00"
       }
     ],
     "status_counts": {
-      "CANDIDATE": 111,
-      "NOT_CANDIDATE": 469,
+      "CANDIDATE": 51,
+      "NOT_CANDIDATE": 529,
       "UNKNOWN_DATA_INCOMPLETE": 250
     }
   },
-  "signal_rule_version": "g1-pruefvorlage-2026-09-02"
+  "signal_rule_version": "g1-pruefvorlage-2026-09-03"
 }

@@ -31,7 +31,14 @@ _FIXTURE_PACKAGE = "ai_trading_analyst.infrastructure.fixtures.data.v1"
 _FIXTURE_FILE = "stocks.json"
 _EPOCH = datetime(2024, 1, 2, 12, 45, tzinfo=UTC)
 _TIMEFRAME = timedelta(minutes=195)
-_BASELINE = IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+_BASELINE_EMA = 99.0
+"""Unter dem Baseline-Schlusskurs von 100: Die Torbedingung T2 der
+Kandidatenregel verlangt einen Schluss ueber dem EMA20 (ADR 0057), und ein
+Fixture-Kandidat soll die ausgelieferte Regel erfuellen, nicht eine altere."""
+
+_BASELINE = IndicatorValues(
+    rsi=50.0, rsi_ma=50.0, ema5=_BASELINE_EMA, ema20=_BASELINE_EMA
+)
 _STOCK_NAMESPACE = uuid.UUID("f6a1b2c3-0000-4000-8000-000000000001")
 
 

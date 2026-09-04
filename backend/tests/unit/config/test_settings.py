@@ -63,12 +63,18 @@ class TestBacktestingConfig:
     def test_default_horizons_match_the_specification(self) -> None:
         assert BacktestingConfig().horizons == (5, 10, 20)
 
-    def test_cooldown_matches_the_screening_lookback(self) -> None:
-        """F5: Der Cooldown entspricht der Lookback-Laenge der Kandidatenregel."""
-        assert (
-            BacktestingConfig().cooldown_candles
-            == AppConfig().screening.signal_lookback_previous_candles
-        )
+    def test_der_cooldown_ist_kein_konfigurationsschluessel_mehr(self) -> None:
+        """Seit ADR 0057 buendelt der Backtest ueber geteilte Signalereignisse.
+
+        Der Schluessel ist ersatzlos entfallen; unbekannte Schluessel sind
+        Fehler, damit eine alte Override-Datei beim Laden auffaellt statt
+        still ignoriert zu werden.
+        """
+        # Ueber ``model_validate``, weil genau so eine YAML-Datei geladen
+        # wird -- und weil ein unbekanntes Schluesselwort im Konstruktor schon
+        # der Typpruefung auffiele, nicht erst zur Laufzeit.
+        with pytest.raises(ValidationError, match="cooldown_candles"):
+            BacktestingConfig.model_validate({"cooldown_candles": 5})
 
     def test_rejects_inverted_confidence_thresholds(self) -> None:
         with pytest.raises(ValidationError, match="minimum_sample_size"):

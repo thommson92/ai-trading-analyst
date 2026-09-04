@@ -47,10 +47,20 @@ def make_candle(
     )
 
 
+BASELINE_EMA = 99.0
+"""Die Baseline-EMAs liegen **unter** dem Baseline-Schlusskurs von 100.
+
+Beides zugleich muss gelten: Ema5==Ema20 erfuellt jede Vorkerzen-
+Gleichheitsbedingung der Kreuzungen, und ``close > ema20`` erfuellt die
+Torbedingung T2 (ADR 0057). Laegen die EMAs auf dem Schlusskurs, scheiterte
+jeder Testfall an T2 -- am Markt entspricht die Lage einer Aktie, die nach
+einem Aufwaertskreuz ueber ihrem Durchschnitt notiert."""
+
+
 def baseline_indicators() -> IndicatorValues:
     """Rsi==RsiMa und Ema5==Ema20: erfuellt jede Vorkerzen-Gleichheitsbedingung,
     feuert aber selbst nie (keine strikte Ueberschreitung auf der aktuellen Kerze)."""
-    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=BASELINE_EMA, ema20=BASELINE_EMA)
 
 
 def incomplete_indicators() -> IndicatorValues:
@@ -71,15 +81,15 @@ def build_series(
 
 
 def rsi_cross_fires() -> IndicatorValues:
-    return IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+    return IndicatorValues(rsi=60.0, rsi_ma=50.0, ema5=BASELINE_EMA, ema20=BASELINE_EMA)
 
 
 def ema5_ema20_cross_fires() -> IndicatorValues:
-    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=100.0)
+    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=110.0, ema20=BASELINE_EMA)
 
 
 def rsi_oversold_fires() -> IndicatorValues:
-    return IndicatorValues(rsi=25.0, rsi_ma=50.0, ema5=100.0, ema20=100.0)
+    return IndicatorValues(rsi=25.0, rsi_ma=50.0, ema5=BASELINE_EMA, ema20=BASELINE_EMA)
 
 
 def ema_downcross_fires() -> IndicatorValues:
@@ -90,8 +100,17 @@ def ema_downcross_fires() -> IndicatorValues:
     Vorbedingung ``ema5 >= ema20`` -- dieselbe Konvention wie bei den
     Aufwaertskreuzen, nur gespiegelt. Signal C feuert dadurch nirgends mit.
     """
-    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=90.0, ema20=100.0)
+    return IndicatorValues(rsi=50.0, rsi_ma=50.0, ema5=90.0, ema20=BASELINE_EMA)
 
 
-def price_ema20_breakout_candle_at(index: int) -> Candle:
-    return make_candle(index, open=100.0, close=105.0)
+def price_ema20_breakout_candles_at(index: int) -> dict[int, Candle]:
+    """Signal B feuert an ``index`` -- dafuer braucht es **zwei** Kerzen.
+
+    Die Vorkerze muss auf oder unter dem EMA20 schliessen, die Kerze selbst
+    darueber. Die Baseline schliesst bereits ueber dem EMA20 (T2), also wird
+    die Vorkerze eigens abgesenkt.
+    """
+    return {
+        index - 1: make_candle(index - 1, open=98.0, close=98.0),
+        index: make_candle(index, open=98.0, close=105.0),
+    }

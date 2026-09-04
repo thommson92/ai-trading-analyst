@@ -4,7 +4,7 @@ Das Projekt aendert seine Verfahren bewusst und versioniert sie dabei
 (technical-v1 bis v3, Prompt v1 bis v3). Auf der Screener- und
 Backtest-Seite fehlte dafuer bislang das Sicherheitsnetz: Eine Aenderung an
 der Kerzenbildung, an der Indikatorrechnung, an der Kandidatenregel oder am
-Cooldown verschob die Ergebnisse, ohne dass ein Test angeschlagen haette.
+Episodenbildung verschob die Ergebnisse, ohne dass ein Test angeschlagen haette.
 Die Unit-Tests pruefen jede Regel einzeln an eigens gebauten Kerzen -- sie
 sehen nicht, was eine Aenderung ueber eine ganze Reihe hinweg bewirkt.
 
@@ -141,29 +141,6 @@ class TestBewachungsumfang:
     weil es nichts zu verschieben gaebe.
     """
 
-    def test_mindestens_eine_kombination_hat_echte_kennzahlen(self, fall: GoldenCase) -> None:
-        """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
-
-        Unter zehn deduplizierten Ereignissen gibt der Backtest fuer eine
-        Kombination gar keine Kennzahl aus. Waeren alle Kombinationen
-        darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
-        """
-        snapshot = compute_snapshot(read_bars(fall.bars_path))
-        mit_kennzahlen = [
-            horizont
-            for ergebnis in snapshot["backtest"]
-            for horizont in ergebnis["horizons"]
-            if horizont["hit_rate"] is not None
-        ]
-
-        assert mit_kennzahlen, (
-            f"{fall.name}: keine einzige Kombination kommt ueber "
-            "minimum_sample_size -- die Kennzahlenrechnung ist unbewacht."
-        )
-        beispiel = mit_kennzahlen[0]
-        for feld in ("mean_return", "median_return", "max_loss", "drawdown"):
-            assert beispiel[feld] is not None, f"{feld} ist trotz ausreichender Stichprobe leer"
-
     def test_auch_eine_zu_duenne_stichprobe_ist_aufgezeichnet(self, fall: GoldenCase) -> None:
         """Der Gegenfall: keine Kennzahl statt einer schwachen.
 
@@ -189,6 +166,38 @@ class TestBewachungsumfang:
         assert zaehlung.get("NOT_CANDIDATE", 0) > 0
 
 
+def test_mindestens_eine_kombination_hat_echte_kennzahlen() -> None:
+    """Sonst bliebe die gesamte Kennzahlenrechnung unbewacht.
+
+    Unter zehn gezaehlten Ereignissen gibt der Backtest fuer eine
+    Kombination gar keine Kennzahl aus. Waeren alle Kombinationen aller Faelle
+    darunter, enthielte die Aufzeichnung ausschliesslich ``null``.
+
+    **Ueber alle Faelle statt je Fall** (geaendert mit ADR 0057): Die
+    Torbedingungen haben rund vierzig Prozent der Entscheidungspunkte
+    entfernt, und eine kurze *echte* Reihe erreicht die Mindeststichprobe
+    seither nicht mehr zwangslaeufig -- MSFT deckt hier nur eineinhalb Jahre
+    ab. Das ist eine Eigenschaft der Regel und kein Mangel der Aufzeichnung;
+    die synthetischen Faelle sind lang genug, um die Rechnung zu bewachen.
+    Der Gegenfall bleibt je Fall geprueft.
+    """
+    mit_kennzahlen = [
+        horizont
+        for fall in FAELLE
+        for ergebnis in compute_snapshot(read_bars(fall.bars_path))["backtest"]
+        for horizont in ergebnis["horizons"]
+        if horizont["hit_rate"] is not None
+    ]
+
+    assert mit_kennzahlen, (
+        "keine einzige Kombination ueber alle Faelle kommt ueber "
+        "minimum_sample_size -- die Kennzahlenrechnung ist unbewacht."
+    )
+    beispiel = mit_kennzahlen[0]
+    for feld in ("mean_return", "median_return", "max_loss", "drawdown"):
+        assert beispiel[feld] is not None, f"{feld} ist trotz ausreichender Stichprobe leer"
+
+
 def test_alle_drei_konfidenzstufen_sind_aufgezeichnet() -> None:
     """Ueber beide Faelle hinweg, nicht je Fall.
 
@@ -207,3 +216,27 @@ def test_alle_drei_konfidenzstufen_sind_aufgezeichnet() -> None:
     }
 
     assert gesehen == {"INSUFFICIENT_DATA", "LOW_SAMPLE", "NORMAL"}
+
+
+def test_verworfene_qualifikationen_sind_aufgezeichnet() -> None:
+    """Die Torbedingungen (ADR 0057) muessen sichtbar greifen.
+
+    Ein Tor, das nichts mehr verwirft, waere an der Kandidatenzahl allein
+    nicht zu erkennen -- die verschiebt sich aus vielen Gruenden. Hier steht,
+    dass es ueberhaupt Faelle gibt, in denen eine erfuellte Signalmenge an
+    einer Torbedingung scheitert, und dass beide Tore darunter vorkommen.
+    """
+    verworfen = [
+        eintrag
+        for fall in FAELLE
+        for eintrag in compute_snapshot(read_bars(fall.bars_path))["screening"]["gated"]
+    ]
+
+    assert verworfen, "kein einziger Fall scheitert an einer Torbedingung"
+    gruende = {eintrag["reason"] for eintrag in verworfen}
+    assert any("stale_crossing_signals" in grund for grund in gruende)
+    assert any("close_not_above_ema20" in grund for grund in gruende)
+
+    # Die Signale bleiben am verworfenen Ergebnis -- es soll nachlesbar sein,
+    # was erfuellt war und woran es dennoch scheiterte.
+    assert all(len(eintrag["fired_signal_types"]) >= 3 for eintrag in verworfen)

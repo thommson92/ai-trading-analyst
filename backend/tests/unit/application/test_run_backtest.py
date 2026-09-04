@@ -28,7 +28,6 @@ CANDIDATE_PARAMS = CandidateRuleParameters(
 )
 BACKTEST_PARAMS = BacktestParameters(
     horizons=(5,),
-    cooldown_candles=5,
     minimum_sample_size=1,
     normal_confidence_sample_size=1,
     history_years=5,

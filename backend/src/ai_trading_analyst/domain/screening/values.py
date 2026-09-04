@@ -11,14 +11,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-09-02"
+SIGNAL_RULE_VERSION = "g1-pruefvorlage-2026-09-03"
 """Version der fachlichen Regeln, gegen die dieser Signalkern implementiert
 wurde (Datum der finalen Bestaetigung in g1-pruefvorlage.md). Wird an jedem
 persistierten Ergebnis gespeichert (Doc 10, Paragraph 8), damit spaetere
 Aenderungen an den Signalregeln in bestehenden Daten sichtbar bleiben.
 
-``2026-09-02`` gegenueber ``2026-08-06``: fuenf Kriterien statt drei, Schwelle
-drei statt zwei, Signal B ohne Gap-up-Klausel (ADR 0056)."""
+``2026-09-03`` gegenueber ``2026-09-02``: zwei Torbedingungen an der
+Entscheidungskerze, und im Backtest zaehlt die Episode statt eines pauschalen
+Cooldowns (ADR 0057). ``2026-09-02`` gegenueber ``2026-08-06``: fuenf Kriterien
+statt drei, Schwelle drei statt zwei, Signal B ohne Gap-up-Klausel
+(ADR 0056)."""
 
 
 class SignalType(StrEnum):
@@ -126,6 +129,24 @@ class ScreeningResult:
     status: ScreeningStatus
     fired_signal_types: frozenset[SignalType] = frozenset()
     signal_events: tuple[SignalEvent, ...] = ()
+    """Je Signaltyp das **erste** Auftreten im Fenster -- fuer Audit und
+    Bericht. Das ist die Menge, die gespeichert wird."""
+    signal_firings: frozenset[SignalEvent] = frozenset()
+    """**Jedes** tatsaechliche Feuern, nicht nur das erste je Typ.
+
+    Regeln fragen hierhin, Berichte nach ``signal_events``. Die Trennung ist
+    kein Doppel, sondern der Unterschied zwischen "wann wurde es zuerst
+    gesehen" und "worauf beruht diese Entscheidung": Die Frische
+    (Abschnitt 3.6) und die Episodenbildung (Abschnitt 4.3) haengen beide am
+    tatsaechlichen Feuern, und beide bekaemen mit der gespeicherten fruehesten
+    Fundstelle ein falsches Ergebnis.
+
+    **Wird nicht persistiert.** Ein aus der Datenbank gelesenes
+    ``ScreeningResult`` traegt hier eine leere Menge -- was richtig ist, denn
+    die Regeln rechnen auf der Kerzenfolge und nie auf gespeicherten Zeilen.
+    Wer je Episoden aus geladenen Ergebnissen bilden wollte, bekaeme jede
+    Entscheidung als eigene Episode; der Weg dorthin fuehrt ueber
+    ``find_historical_decisions``."""
     reason: str | None = None
     affected_index: int | None = None
 

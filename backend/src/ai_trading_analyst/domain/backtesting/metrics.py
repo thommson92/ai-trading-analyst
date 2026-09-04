@@ -1,8 +1,8 @@
 """Kennzahlenberechnung der historischen Signalprüfung (Doc 07 "Kennzahlen";
 G1-Prüfvorlage Abschnitt 4.2; CLAUDE.md "Backtesting").
 
-Reine Berechnung auf einer bereits deduplizierten Liste von
-Entscheidungspunkten -- Replay und Cooldown liegen in ``replay.py``.
+Reine Berechnung auf den gezaehlten Entscheidungspunkten -- Replay und
+Episodenbildung liegen in ``replay.py``.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from ai_trading_analyst.domain.screening import (
     qualifies,
 )
 
-from .replay import Decision, deduplicate_with_cooldown, find_historical_decisions
+from .replay import HistoricalDecision, find_historical_decisions, group_into_episodes
 from .values import (
     BacktestConfidence,
     BacktestParameters,
@@ -71,12 +71,12 @@ def _truncate_to_recent_history(
 
 
 def group_by_combination(
-    decisions: Sequence[Decision],
+    decisions: Sequence[HistoricalDecision],
 ) -> dict[SignalCombination, tuple[int, ...]]:
     """Gruppiert Entscheidungspunkte nach der exakten Signalkombination."""
     grouped: dict[SignalCombination, list[int]] = defaultdict(list)
-    for index, combination in decisions:
-        grouped[combination].append(index)
+    for decision in decisions:
+        grouped[decision.combination].append(decision.index)
     return {combination: tuple(indices) for combination, indices in grouped.items()}
 
 
@@ -89,9 +89,10 @@ def compute_horizon_metrics(
 ) -> HorizonMetrics:
     """Kennzahlen einer Signalkombination fuer einen Horizont.
 
+    ``dedup_indices`` sind die gezaehlten Episoden-Ereignisse (ADR 0057).
     ``deduplicated_event_count`` ist die Zahl der Ereignisse, die tatsaechlich
     bis zu diesem Horizont reichen -- kann je Horizont kleiner sein als die
-    Gesamtzahl der deduplizierten Ereignisse, weil ein Ereignis nahe dem Ende
+    Gesamtzahl der gezaehlten Ereignisse, weil ein Ereignis nahe dem Ende
     der Historie einen laengeren Horizont nicht mehr vollstaendig durchlaeuft.
     Unterhalb von ``minimum_sample_size`` gilt die Grundlage als nicht
     belastbar (CLAUDE.md "Daten und Ergebnisse") -- die Kennzahlen bleiben
@@ -179,10 +180,15 @@ def compute_backtest_results(
         )
 
     raw_decisions = find_historical_decisions(series, candidate_params)
-    dedup_decisions = deduplicate_with_cooldown(raw_decisions, backtest_params.cooldown_candles)
+    # Gezaehlt wird der erste Trigger jeder Episode: Er ist der Punkt, an dem
+    # die Regel erstmals ansprach, und liefert damit auch den Einstiegskurs
+    # (CLAUDE.md "Backtesting", ADR 0057).
+    counted_decisions = tuple(
+        episode[0] for episode in group_into_episodes(raw_decisions)
+    )
 
     raw_by_combination = group_by_combination(raw_decisions)
-    dedup_by_combination = group_by_combination(dedup_decisions)
+    counted_by_combination = group_by_combination(counted_decisions)
 
     history_start = series.candle(0).timestamp
     history_end = series.candle(len(series) - 1).timestamp
@@ -193,10 +199,10 @@ def compute_backtest_results(
     results = []
     for combination in qualifying_combinations:
         raw_indices = raw_by_combination.get(combination, ())
-        dedup_indices = dedup_by_combination.get(combination, ())
+        counted_indices = counted_by_combination.get(combination, ())
         horizons = tuple(
             compute_horizon_metrics(
-                series, dedup_indices, len(raw_indices), horizon, backtest_params
+                series, counted_indices, len(raw_indices), horizon, backtest_params
             )
             for horizon in backtest_params.horizons
         )

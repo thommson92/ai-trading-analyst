@@ -13,6 +13,7 @@ from ai_trading_analyst.domain.backtesting.metrics import (
     compute_horizon_metrics,
     group_by_combination,
 )
+from ai_trading_analyst.domain.backtesting.replay import HistoricalDecision
 from ai_trading_analyst.domain.backtesting.values import BacktestConfidence, BacktestParameters
 from ai_trading_analyst.domain.screening import (
     CONFIRMATION_SIGNALS,
@@ -26,7 +27,6 @@ from .conftest import make_series
 COMBO = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
 PERMISSIVE_PARAMS = BacktestParameters(
     horizons=(5,),
-    cooldown_candles=5,
     minimum_sample_size=1,
     normal_confidence_sample_size=1,
     history_years=5,
@@ -105,7 +105,6 @@ class TestKonfidenzstufen:
     def test_unterhalb_des_mindestwerts_ist_insufficient_data_ohne_kennzahlen(self) -> None:
         params = BacktestParameters(
             horizons=(1,),
-            cooldown_candles=5,
             minimum_sample_size=11,
             normal_confidence_sample_size=20,
             history_years=5,
@@ -119,7 +118,6 @@ class TestKonfidenzstufen:
     def test_zwischen_mindestwert_und_normalwert_ist_low_sample_mit_kennzahlen(self) -> None:
         params = BacktestParameters(
             horizons=(1,),
-            cooldown_candles=5,
             minimum_sample_size=5,
             normal_confidence_sample_size=20,
             history_years=5,
@@ -133,7 +131,6 @@ class TestKonfidenzstufen:
     def test_ab_dem_normalwert_ist_normal(self) -> None:
         params = BacktestParameters(
             horizons=(1,),
-            cooldown_candles=5,
             minimum_sample_size=5,
             normal_confidence_sample_size=10,
             history_years=5,
@@ -147,7 +144,11 @@ class TestKonfidenzstufen:
 class TestGruppierung:
     def test_gruppiert_nach_exakter_kombination(self) -> None:
         rsi_only = frozenset({SignalType.RSI_CROSS})
-        decisions = [(1, COMBO), (2, rsi_only), (10, COMBO)]
+        decisions = [
+            HistoricalDecision(index=1, combination=COMBO, signal_firings=frozenset()),
+            HistoricalDecision(index=2, combination=rsi_only, signal_firings=frozenset()),
+            HistoricalDecision(index=10, combination=COMBO, signal_firings=frozenset()),
+        ]
         grouped = group_by_combination(decisions)
         assert grouped[COMBO] == (1, 10)
         assert grouped[rsi_only] == (2,)
@@ -158,7 +159,6 @@ class TestVollstaendigeBerechnung:
         series = make_series(20)  # feuert nie
         params = BacktestParameters(
             horizons=(5, 10),
-            cooldown_candles=5,
             minimum_sample_size=10,
             normal_confidence_sample_size=30,
             history_years=5,
@@ -192,7 +192,6 @@ class TestVollstaendigeBerechnung:
         series = make_series(20)
         params = BacktestParameters(
             horizons=(5,),
-            cooldown_candles=5,
             minimum_sample_size=10,
             normal_confidence_sample_size=30,
             history_years=5,
@@ -228,7 +227,6 @@ class TestHistorienfenster:
         evaluated_at = cutoff_reference + timedelta(days=365)
         params = BacktestParameters(
             horizons=(5,),
-            cooldown_candles=5,
             minimum_sample_size=10,
             normal_confidence_sample_size=30,
             history_years=1,
@@ -249,7 +247,6 @@ class TestHistorienfenster:
         evaluated_at = series.candle(0).timestamp + timedelta(days=3650)
         params = BacktestParameters(
             horizons=(5,),
-            cooldown_candles=5,
             minimum_sample_size=10,
             normal_confidence_sample_size=30,
             history_years=1,

@@ -338,7 +338,7 @@ def _signalstatistik(
             f"({kuerzester.deduplicated_event_count} Ereignisse) -- Komponente entfaellt"
         )
         return fehlt(
-            f"Stichprobe zu klein ({kuerzester.deduplicated_event_count} entdoppelte Ereignisse)"
+            f"Stichprobe zu klein ({kuerzester.deduplicated_event_count} gezaehlte Ereignisse)"
         )
     if kuerzester.hit_rate is None:
         return fehlt(f"keine Trefferquote fuer Horizont {kuerzester.horizon}")

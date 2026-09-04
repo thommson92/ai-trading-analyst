@@ -177,6 +177,10 @@ from ai_trading_analyst.infrastructure.watchlists import (
 )
 from ai_trading_analyst.observability.logging_setup import configure_logging, get_logger
 from ai_trading_analyst.presentation.report_text import render_run
+from ai_trading_analyst.presentation.validation_chart import (
+    build_chart_payload,
+    render_chart_html,
+)
 
 _logger_cli = get_logger(__name__)
 
@@ -1599,6 +1603,105 @@ def _print_technical_assessment(
         print(f"    Fazit: {assessment.summary}")
     for risiko in assessment.false_signal_risks:
         print(f"    Risiko: {risiko}")
+
+
+def command_chart(args: argparse.Namespace) -> int:
+    """Schreibt den Validierungschart als HTML-Datei.
+
+    Braucht wie der Backtest den gespeicherten Bestand: Der Chart soll den
+    Verlauf zeigen, auf dem auch gerechnet wurde, nicht einen frisch
+    abgerufenen.
+    """
+    loaded = load_config(args.config)
+    config = loaded.config
+    indicators = config.require_indicators()
+    configure_logging(LoggingConfig(level="INFO", format="console"))
+
+    if args.provider is not None:
+        market_data = config.market_data.model_copy(update={"provider": args.provider})
+        config = config.model_copy(update={"market_data": market_data})
+
+    if config.market_data.provider != "ibkr":
+        # Ohne diese Pruefung meldete das Kommando fuer jedes echte Symbol
+        # "Nicht in der Watchlist gefunden" -- und schoebe die Schuld damit
+        # auf die Watchlist statt auf den Anbieter, der nur Kunstsymbole
+        # kennt.
+        print(
+            "market_data.provider steht auf "
+            f"'{config.market_data.provider}'. Der Chart zeigt den gespeicherten "
+            "Bestand -- entweder '--provider ibkr' mitgeben, market_data.provider "
+            "auf 'ibkr' stellen oder zuerst 'backfill' laufen lassen.",
+            file=sys.stderr,
+        )
+        return 2
+
+    market_data = config.market_data.model_copy(update={"source": "stored"})
+    config = config.model_copy(update={"market_data": market_data})
+
+    ziel = Path(args.output)
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+
+    def uow_factory() -> UnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
+    provider = build_market_data_provider(
+        config, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+    )
+    rule = CandidateRuleParameters(
+        required_crossing_signals=config.screening.required_crossing_signals,
+        signal_lookback_previous_candles=config.screening.signal_lookback_previous_candles,
+        warmup_candles=indicators.warmup_candles,
+    )
+
+    gewuenscht = {
+        symbol.strip().upper() for symbol in args.symbols.split(",") if symbol.strip()
+    }
+    if not gewuenscht:
+        print(f"--symbols enthaelt kein Symbol: '{args.symbols}'", file=sys.stderr)
+        return 2
+
+    geschrieben: list[Path] = []
+    try:
+        stocks = [stock for stock in provider.list_stocks() if stock.symbol in gewuenscht]
+        fehlend = gewuenscht - {stock.symbol for stock in stocks}
+        if fehlend:
+            print(
+                f"Nicht in der Watchlist gefunden: {', '.join(sorted(fehlend))}",
+                file=sys.stderr,
+            )
+        if not stocks:
+            return 2
+
+        for stock in stocks:
+            try:
+                series = provider.get_candle_series(stock)
+            except MarketDataProviderError as fehler:
+                print(f"{stock.symbol}: {fehler}", file=sys.stderr)
+                continue
+            payload = build_chart_payload(stock.symbol, series, rule)
+            # Erst hier: Ein abgebrochener Lauf soll kein leeres Verzeichnis
+            # hinterlassen.
+            ziel.mkdir(parents=True, exist_ok=True)
+            datei = ziel / f"signalchart-{stock.symbol.lower()}.html"
+            datei.write_text(render_chart_html(payload), encoding="utf-8")
+            geschrieben.append(datei)
+            print(
+                f"{stock.symbol}: {len(series)} Kerzen, "
+                f"{payload['geprueft']} geprueft, "
+                f"{payload['treffer']} Entscheidungspunkte in "
+                f"{payload['episoden']} Episoden, "
+                f"{payload['verworfen']} an einer Torbedingung verworfen "
+                f"-> {datei}"
+            )
+    finally:
+        if isinstance(provider, IbkrMarketDataProvider):
+            provider.close()
+
+    return 0 if geschrieben else 1
 
 
 def command_technical(args: argparse.Namespace) -> int:
@@ -3670,6 +3773,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zeigt je Aktie alle Signalkombinationen und Horizonte einzeln.",
     )
     backtest.set_defaults(handler=command_backtest)
+
+    chart = subparsers.add_parser(
+        "chart",
+        help="Validierungschart als HTML -- Kursverlauf mit jedem Urteil der Regel.",
+    )
+    chart.add_argument(
+        "--symbols",
+        required=True,
+        help="Kommagetrennte Symbole. Je Symbol entsteht eine HTML-Datei.",
+    )
+    chart.add_argument(
+        "--output",
+        default="charts",
+        help="Zielverzeichnis der HTML-Dateien (Vorgabe: charts).",
+    )
+    chart.add_argument(
+        "--provider",
+        choices=("fixture", "ibkr"),
+        default=None,
+        help="Uebersteuert market_data.provider nur fuer diesen Lauf.",
+    )
+    chart.set_defaults(handler=command_chart)
 
     technical = subparsers.add_parser(
         "technical",

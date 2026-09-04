@@ -7,7 +7,7 @@ ohne Datenbank, ohne TWS, ohne Netz:
       -> aggregate_intraday_bars   (Kerzenbildung, Doc 10 Paragraph 6.2)
       -> compute_indicator_values  (RSI, RSI-MA, EMA5, EMA20 -- Gate G1)
       -> evaluate_candidate        (3-aus-5-Regel, Screener)
-      -> compute_backtest_results  (Replay, Cooldown, Kennzahlen)
+      -> compute_backtest_results  (Replay, Episodenbildung, Kennzahlen)
 
 Was hier **nicht** nachgebildet wird, ist die Infrastruktur um die Kette
 herum: Repositories, Anbieteradapter, Fehlerisolation. Die haben eigene
@@ -33,6 +33,8 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestParameters,
     BacktestResult,
     compute_backtest_results,
+    find_historical_decisions,
+    group_into_episodes,
 )
 from ai_trading_analyst.domain.screening import (
     SIGNAL_RULE_VERSION,
@@ -77,7 +79,6 @@ CANDIDATE_RULE = CandidateRuleParameters(
 
 BACKTEST = BacktestParameters(
     horizons=(5, 10, 20),
-    cooldown_candles=5,
     minimum_sample_size=10,
     normal_confidence_sample_size=30,
     history_years=5,
@@ -197,9 +198,25 @@ def _screening_snapshot(series: CandleSeries) -> dict[str, Any]:
     """
     nach_status: dict[str, int] = {}
     kandidaten: list[dict[str, Any]] = []
+    verworfen: list[dict[str, Any]] = []
     for t in range(len(series)):
         ergebnis: ScreeningResult = evaluate_candidate(series, t, CANDIDATE_RULE)
         nach_status[ergebnis.status.value] = nach_status.get(ergebnis.status.value, 0) + 1
+        if ergebnis.status is ScreeningStatus.NOT_CANDIDATE and ergebnis.reason is not None:
+            # An einer Torbedingung gescheitert (ADR 0057). Ohne diese Liste
+            # bliebe unsichtbar, ob ein Tor noch greift: Ein Tor, das nichts
+            # mehr verwirft, faende sich sonst nur an der Kandidatenzahl
+            # wieder -- und die verschiebt sich aus vielen Gruenden.
+            verworfen.append(
+                {
+                    "candle_index": t,
+                    "timestamp": series.candle(t).timestamp.isoformat(),
+                    "reason": ergebnis.reason,
+                    "fired_signal_types": sorted(
+                        signal.value for signal in ergebnis.fired_signal_types
+                    ),
+                }
+            )
         if ergebnis.status is not ScreeningStatus.CANDIDATE:
             continue
         kandidaten.append(
@@ -219,7 +236,7 @@ def _screening_snapshot(series: CandleSeries) -> dict[str, Any]:
                 ),
             }
         )
-    return {"status_counts": nach_status, "candidates": kandidaten}
+    return {"status_counts": nach_status, "candidates": kandidaten, "gated": verworfen}
 
 
 def _horizon_snapshot(metrics: Any) -> dict[str, Any]:
@@ -249,6 +266,20 @@ def _backtest_snapshot(results: Sequence[BacktestResult]) -> list[dict[str, Any]
     ]
 
 
+def _replay_snapshot(series: CandleSeries) -> dict[str, Any]:
+    """Rohe Entscheidungspunkte und ihre Buendelung zu Episoden.
+
+    Die Kennzahlen allein zeigten eine falsche Buendelung nur verschwommen --
+    ueber verschobene Stichprobengroessen. Hier steht sie unmittelbar.
+    """
+    entscheidungen = find_historical_decisions(series, CANDIDATE_RULE)
+    episoden = group_into_episodes(entscheidungen)
+    return {
+        "raw_decision_indices": [entscheidung.index for entscheidung in entscheidungen],
+        "episodes": [[entscheidung.index for entscheidung in episode] for episode in episoden],
+    }
+
+
 def compute_snapshot(bars: Sequence[IntradayBar]) -> dict[str, Any]:
     """Das vollstaendige Ergebnis der Kette, als vergleichbare Struktur."""
     series = build_series(bars)
@@ -273,6 +304,7 @@ def compute_snapshot(bars: Sequence[IntradayBar]) -> dict[str, Any]:
             "ema20": _round(series.indicator(len(series) - 1).ema20),
         },
         "screening": _screening_snapshot(series),
+        "replay": _replay_snapshot(series),
         "backtest": _backtest_snapshot(ergebnisse),
     }
 
