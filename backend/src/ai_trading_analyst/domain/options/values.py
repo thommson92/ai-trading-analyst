@@ -231,6 +231,23 @@ class OptionsAnalysis:
     eigene Tabelle; ein aus der Datenbank geladenes ``OptionsAnalysis`` traegt
     hier ein leeres Tupel. Die Kalibrierung fragt die Tabelle, nicht dieses
     Feld."""
+    spread: object | None = None
+    """Der Put-Spread zum bestbewerteten Vorschlag (ADR 0058, Festlegung 11),
+    oder ``None``.
+
+    Als ``object`` typisiert und nicht als ``PutSpread``: ``spread.py``
+    braucht ``PutStrategy`` von hier, und eine Typangabe in die Gegenrichtung
+    schloesse den Kreis. Die einzige Stelle, die etwas hineinlegt, ist
+    ``spread.py`` selbst.
+
+    ``None`` heisst **nicht** "kein Spread moeglich", sondern "nicht
+    gerechnet oder nicht zustande gekommen"; warum, sagt ``spread_reason``."""
+    spread_reason: str | None = None
+    """Warum kein Spread entstand -- im Klartext, nie stillschweigend.
+
+    Der Vergleich ist eine **zusaetzliche** Auskunft: Faellt er aus, bleibt
+    der Put-Vorschlag vollstaendig. Ein Cash Secured Put ist auch ohne
+    Alternative ein Vorschlag."""
     parameters: Mapping[str, float] = field(
         default_factory=lambda: MappingProxyType({}),
     )
@@ -286,6 +303,17 @@ class OptionsParameters:
     """Geld-Brief-Spanne im Verhaeltnis zum Mittelwert, ab der gewarnt wird."""
     min_open_interest: int = 100
     min_volume: int = 10
+    hedge_width_pct: float = 0.065
+    """Zielabstand des Absicherungs-Strikes unter dem Verkauf, als Anteil des
+    **Aktienkurses** (ADR 0058, Festlegung 11).
+
+    Anteil des Kurses und nicht des Strikes, damit die Breite ueber Titel
+    hinweg dasselbe bedeutet -- ein Kursrutsch misst sich am Kurs.
+
+    6,5 Prozent sind **gewaehlt, nicht gemessen**: Bei einem Titel um 230
+    Dollar treffen sie das uebliche Strike-Raster drei Stufen unter dem
+    Verkauf und liegen damit in der Spannweite, in der ein Put-Spread ueblich
+    gehandelt wird. Was er tatsaechlich kostet, misst der Lauf."""
 
     def as_mapping(self) -> Mapping[str, float]:
         """Die Parameter zum Mitspeichern am Ergebnis."""
@@ -303,5 +331,6 @@ class OptionsParameters:
                 "max_relative_spread": self.max_relative_spread,
                 "min_open_interest": float(self.min_open_interest),
                 "min_volume": float(self.min_volume),
+                "hedge_width_pct": self.hedge_width_pct,
             }
         )

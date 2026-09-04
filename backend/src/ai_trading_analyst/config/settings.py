@@ -404,6 +404,14 @@ class OptionsConfig(_Section):
     max_strikes: PositiveInt = 12
     max_suggestions: PositiveInt = 3
     max_relative_spread: NonNegativeFloat = 0.10
+    hedge_width_pct: float = Field(default=0.065, gt=0.0, lt=1.0)
+    """Zielabstand des Absicherungs-Strikes unter dem Verkauf, als Anteil des
+    Aktienkurses (ADR 0058, Festlegung 11).
+
+    Der Absicherungs-Strike wird in einem **zweiten, gezielten** Abruf
+    notiert -- erst, nachdem der Verkaufs-Strike feststeht. Das Moneyness-Band
+    nach unten zu verbreitern haette fuer jeden Kandidaten mehr Kontrakte
+    notiert, auch fuer die ohne Vorschlag."""
     min_open_interest: PositiveInt = 100
     min_volume: PositiveInt = 10
     """Liquiditaetsschwellen. **Gesetzt, nicht gemessen** (ADR 0048): Sie

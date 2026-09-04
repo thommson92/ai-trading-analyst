@@ -152,7 +152,7 @@ class RecordingOptionChainSource:
         quotes = self._inner.option_quotes(
             contract, expiration, strikes, market_data_type, trading_class
         )
-        self._mitschnitt["option_quotes"] = {
+        abschnitt = {
             "expiration": expiration.isoformat(),
             "trading_class": trading_class,
             "market_data_type": market_data_type,
@@ -162,6 +162,15 @@ class RecordingOptionChainSource:
             "angefragte_strikes": list(strikes),
             "quotes": [_quote_als_json(quote) for quote in quotes],
         }
+        # **Der erste Abruf bleibt stehen.** Seit ADR 0058, Festlegung 11 folgt
+        # ein zweiter, gezielter fuer den Absicherungs-Strike. Wuerde er den
+        # ersten ueberschreiben, enthielte die Aufzeichnung genau eine
+        # Notierung statt des Moneyness-Bandes -- und damit nicht mehr das,
+        # wofuer sie eingefroren wird.
+        if "option_quotes" in self._mitschnitt:
+            self._mitschnitt.setdefault("weitere_option_quotes", []).append(abschnitt)
+        else:
+            self._mitschnitt["option_quotes"] = abschnitt
         if self._rohe is not None:
             # Neben den uebersetzten Notierungen, nicht statt ihrer: Der
             # Contract-Test rechnet die Uebersetzung aus den Rohfeldern nach

@@ -357,3 +357,26 @@ class TestRohNotierungen:
         kette.write()
 
         assert "rohe_notierungen" not in json.loads(ziel.read_text(encoding="utf-8"))
+
+
+class TestZweiterAbruf:
+    """Der Absicherungs-Strike (ADR 0058, Festlegung 11) kommt aus einem
+    zweiten, gezielten Aufruf von ``option_quotes``."""
+
+    def test_der_erste_abruf_bleibt_die_aufzeichnung(
+        self, tmp_path: Path
+    ) -> None:
+        """Wuerde der zweite ihn ueberschreiben, enthielte die Datei genau eine
+        Notierung statt des Moneyness-Bandes -- und damit nicht mehr das,
+        wofuer sie eingefroren wird."""
+        ziel = tmp_path / "kette.json"
+        kette = _mitschnitt(FakeQuelle(quotes=[_quote(210.0), _quote(205.0)]), ziel)
+
+        _provider(kette).options(AKTIE, price=232.14, as_of=STICHTAG)
+        kette.write()
+
+        inhalt = json.loads(ziel.read_text(encoding="utf-8"))
+        assert len(inhalt["option_quotes"]["angefragte_strikes"]) > 1
+        # Der Nachschlag steht daneben, nicht darueber.
+        (nachschlag,) = inhalt["weitere_option_quotes"]
+        assert len(nachschlag["angefragte_strikes"]) == 1

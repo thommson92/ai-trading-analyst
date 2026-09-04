@@ -73,7 +73,17 @@ class WiedergabeQuelle:
 
     def __init__(self, aufzeichnung: dict[str, Any]) -> None:
         self._daten = aufzeichnung
-        self.abgefragte_strikes: tuple[float, ...] = ()
+        self.abfragen: list[tuple[float, ...]] = []
+
+    @property
+    def abgefragte_strikes(self) -> tuple[float, ...]:
+        """Die Strikes der **ersten** Abfrage -- das Moneyness-Band.
+
+        Seit ADR 0058 Festlegung 11 folgt eine zweite, gezielte Abfrage fuer
+        den Absicherungs-Strike. Sie hier mitzuzaehlen verwaesserte die
+        Aussage der Tests, die das Band pruefen; die zweite hat ihre eigenen.
+        """
+        return self.abfragen[0] if self.abfragen else ()
 
     def option_chain(self, contract: ContractSpec) -> OptionChainStructure:
         abschnitt = self._daten["option_chain"]
@@ -101,7 +111,7 @@ class WiedergabeQuelle:
     ) -> Sequence[OptionQuote]:
         abschnitt = self._daten["option_quotes"]
         assert expiration == date.fromisoformat(abschnitt["expiration"])
-        self.abgefragte_strikes = tuple(strikes)
+        self.abfragen.append(tuple(strikes))
         return tuple(
             OptionQuote(
                 expiration=date.fromisoformat(eintrag["expiration"]),
@@ -172,6 +182,23 @@ class TestDieKetteAnEchtenAntworten:
         assert len(quelle.abgefragte_strikes) == 12
         assert max(quelle.abgefragte_strikes) == 310.0
         assert min(quelle.abgefragte_strikes) == 255.0
+
+    def test_der_absicherungs_strike_wird_gezielt_nachgefragt(self) -> None:
+        """ADR 0058, Festlegung 11: ein **zweiter** Abruf, und zwar erst,
+        nachdem der Verkaufs-Strike feststeht.
+
+        Das Moneyness-Band nach unten zu verbreitern haette fuer jeden
+        Kandidaten mehr Kontrakte notiert -- auch fuer die ohne Vorschlag.
+        Der Nachschlag kostet genau eine Anfrage, und nur dort, wo es etwas
+        abzusichern gibt.
+        """
+        quelle = WiedergabeQuelle(_aufzeichnung())
+
+        analyse = _analyse(quelle)
+
+        assert len(quelle.abfragen) == 2
+        (nachschlag,) = quelle.abfragen[1]
+        assert nachschlag < analyse.strategies[0].strike
 
     def test_kein_angefragter_strike_liegt_ueber_dem_kurs(self) -> None:
         """Ein Put ueber dem Kurs waere im Geld -- er gehoert nicht in eine
