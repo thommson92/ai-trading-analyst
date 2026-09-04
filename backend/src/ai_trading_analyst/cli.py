@@ -127,6 +127,7 @@ from ai_trading_analyst.domain.options import (
     OptionsAnalysis,
     StoredQuote,
     Verteilung,
+    daily_closes,
     realized_volatility,
     summarize_calibration,
 )
@@ -1794,18 +1795,12 @@ def _tagesschlusskurse(
     Der letzte Bar eines Tages **ist** der Tagesschluss -- eine Aggregation
     auf 195-Minuten-Kerzen braucht es dafuer nicht.
 
-    **Der Handelstag wird umgerechnet, nicht angenommen.** Was aus PostgreSQL
-    zurueckkommt, traegt die Zeitzone der Sitzung und nicht die der Boerse;
-    ``.date()` darauf ergaebe den Kalendertag in UTC. Bei regulaeren
-    Handelszeiten faellt das heute nicht auf -- 13:30 bis 21:00 UTC liegen am
-    selben Tag wie ihre New Yorker Zeit --, aber es faellt still um, sobald
-    Bars ausserhalb davon hereinkommen. ``candle_aggregation.py`` rechnet aus
-    demselben Grund um.
+    Die Ableitung selbst steht in ``domain.options.daily_closes`` und nicht
+    hier: Der historische Backtest braucht dieselbe, nur auf gebildeten
+    Kerzen statt auf nativen Bars. Zwei Fassungen waeren zwei Definitionen
+    von "Tagesschluss".
     """
-    je_tag: dict[date, float] = {}
-    for bar in bars:
-        je_tag[bar.start.astimezone(boersenzeit).date()] = bar.close
-    return sorted(je_tag.items())
+    return daily_closes([(bar.start, bar.close) for bar in bars], timezone=boersenzeit)
 
 
 def _als_beobachtung(
