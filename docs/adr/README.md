@@ -92,6 +92,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0055](0055-put-vorschlag-und-signalzahl-in-der-ergebnismeldung.md) | Put-Vorschlag und Signalzahl in der Ergebnismeldung | Angenommen (Blockformat mit Leerzeilen; löst ADR 0040 beim Signaltypen-Punkt und ADR 0047 bei „keine Rohdaten" ab) |
 | [0056](0056-kaufsignale-und-zusatzkriterien.md) | Fünf Kriterien, drei müssen erfüllt sein — Signal B ohne Gap-up-Klausel | Angenommen (ersetzt die 2-aus-3-Regel und die Signal-B-Formel aus ADR 0010 sowie die Signal-Teilwerte aus ADR 0045; Cooldown-Aussage durch [0057](0057-torbedingungen-und-episoden.md) abgelöst) |
 | [0057](0057-torbedingungen-und-episoden.md) | Torbedingungen an der Entscheidungskerze, Episoden statt Cooldown | Angenommen (Frische und Schlusskurs über EMA 20 als Filter ohne neue Signaltypen; Ereignis-Verkettung ersetzt den Cooldown; ATR-Stärkefilter geprüft und verworfen) |
+| [0058](0058-optionsvorschlaege-im-rueckblick.md) | Optionsvorschläge im Rückblick — modelliert, gekennzeichnet, gemessen | Angenommen (elf Festlegungen; Rohnotierungen ab sofort speichern; Skew erst messen, Strukturvergleich zunächst nur live; keine Zinsannahme; eigene Tabelle und Version) |
 
 ## Offene Entscheidungen
 
