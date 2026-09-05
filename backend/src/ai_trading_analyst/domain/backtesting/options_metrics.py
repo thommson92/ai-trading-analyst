@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from types import MappingProxyType
 from uuid import UUID
@@ -160,7 +160,9 @@ def summarize_variant(
     )
 
 
-def assumptions_of(params: OptionsBacktestParameters) -> Mapping[str, str]:
+def assumptions_of(
+    params: OptionsBacktestParameters, backtest_params: BacktestParameters
+) -> Mapping[str, str]:
     """Was aus demselben Kurspfad eine andere Zahl macht.
 
     Oeffentlich, weil die Ausgabe sie auch dann braucht, wenn keine einzige
@@ -182,6 +184,15 @@ def assumptions_of(params: OptionsBacktestParameters) -> Mapping[str, str]:
             "gewinnmitnahme": f"{params.take_profit_fraction:.2f}",
             "rueckkauf": f"{params.stop_multiple:.1f}x",
             "ziel_delta": f"{params.target_delta:.2f}",
+            # **Auch die Schwellen.** Sie entscheiden, ab wann eine Kennzahl
+            # ueberhaupt ausgewiesen wird. Stuenden sie nicht hier, waere eine
+            # gespeicherte Messung nicht mehr selbsterklaerend: Wer spaeter
+            # ``minimum_sample_size`` in der Konfiguration hebt, laese
+            # dieselben Zeilen anders eingestuft, ohne dass sich an ihnen
+            # etwas geaendert haette (``CLAUDE.md``: Versionierung an jedem
+            # Ergebnis).
+            "mindeststichprobe": str(backtest_params.minimum_sample_size),
+            "normale_stichprobe": str(backtest_params.normal_confidence_sample_size),
         }
     )
 
@@ -235,6 +246,31 @@ class PooledMetrics:
     confidence: BacktestConfidence
 
 
+def thresholds_of(
+    assumptions: Mapping[str, str], fallback: BacktestParameters
+) -> BacktestParameters:
+    """Die Schwellen, mit denen **diese Messung** eingestuft wurde.
+
+    Wer eine gespeicherte Messung liest, muss sie mit ihren eigenen Schwellen
+    lesen und nicht mit denen von heute. Sonst stuenden in derselben Antwort
+    Kombinationszeilen, die beim Schreiben als ``NORMAL`` galten, neben
+    Aktienzeilen, die beim Lesen auf ``INSUFFICIENT_DATA`` fallen -- fuer
+    dieselben Trades.
+
+    ``fallback`` deckt Messungen aus der Zeit vor dieser Festlegung ab. Sie
+    haben die Schluessel nicht, und dann ist die heutige Konfiguration die
+    einzige Auskunft, die es gibt -- geraten wird nichts.
+    """
+    try:
+        minimum = int(assumptions["mindeststichprobe"])
+        normal = int(assumptions["normale_stichprobe"])
+    except (KeyError, ValueError):
+        return fallback
+    return replace(
+        fallback, minimum_sample_size=minimum, normal_confidence_sample_size=normal
+    )
+
+
 def pool_trades(
     trades: Sequence[OptionTrade], params: BacktestParameters
 ) -> PooledMetrics:
@@ -282,7 +318,7 @@ def compute_options_backtest_results(
     Geliefert werden **alle** moeglichen Kombinationen, auch leere -- kein
     stillschweigendes Weglassen (Projektkonvention aus ``metrics.py``).
     """
-    annahmen = assumptions_of(options_params)
+    annahmen = assumptions_of(options_params, backtest_params)
     ergebnisse: list[OptionsBacktestResult] = []
     for kombination in qualifying_combinations(required_crossing_signals):
         eintraege = trades_by_combination.get(kombination, ())

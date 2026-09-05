@@ -483,6 +483,14 @@ class FakeOptionsBacktestResultRepository:
             if scope.stock_id is None
         )
 
+    def get_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> tuple[OptionsBacktestScope, Mapping[str, str]] | None:
+        for scope, ergebnisse in self.added:
+            if scope.measurement_id == measurement_id and scope.stock_id is None:
+                return scope, (ergebnisse[0].assumptions if ergebnisse else {})
+        return None
+
     def list_for_stock(
         self, measurement_id: uuid.UUID, stock_id: uuid.UUID
     ) -> tuple[OptionsBacktestResult, ...]:

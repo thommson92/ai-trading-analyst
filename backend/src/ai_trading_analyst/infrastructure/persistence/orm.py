@@ -817,11 +817,15 @@ class OptionsBacktestResultOrm(Base):
     managed_outcomes: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=True)
 
     assumptions: Mapped[dict[str, str]] = mapped_column(JSONB)
-    """Volatilitaetsaufschlag, Kalender, Raster, Abschlag. Ohne sie ist die
-    Zeile nicht deutbar -- und sie ist das einzige, was zwei Messungen
-    desselben Tages voneinander unterscheidet."""
+    """Volatilitaetsaufschlag, Kalender, Raster, Abschlag und die Schwellen
+    der Stichprobengroesse. Ohne sie ist die Zeile nicht deutbar -- und sie
+    sind das einzige, was zwei Messungen desselben Tages voneinander
+    unterscheidet."""
 
-    stock: Mapped[StockOrm | None] = relationship()
+    # Bewusst **keine** ``relationship`` auf die Aktie: Gelesen wird ueber
+    # ``stock_id``, und eine Beziehung, die niemand benutzt, ist ein N+1, das
+    # auf seinen ersten unbedachten Zugriff wartet. Das Symbol holt der
+    # Aufrufer in einem Zug ueber ``stocks.list_all()``.
 
 
 class OptionsBacktestTradeOrm(Base):
@@ -873,7 +877,7 @@ class OptionsBacktestTradeOrm(Base):
     managed_profit: Mapped[float]
     managed_exit_index: Mapped[int]
 
-    stock: Mapped[StockOrm] = relationship()
+    # Ebenfalls keine ``relationship`` -- siehe ``OptionsBacktestResultOrm``.
 
 
 class DispatcherRunOrm(Base):

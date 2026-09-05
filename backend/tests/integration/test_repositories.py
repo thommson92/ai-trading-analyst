@@ -28,6 +28,7 @@ from ai_trading_analyst.domain.analysts import (
 )
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
+    BacktestParameters,
     BacktestResult,
     HorizonMetrics,
     OptionsBacktestResult,
@@ -2462,7 +2463,15 @@ class TestOptionsBacktestResultRepository:
                 if belastbar
                 else BacktestConfidence.INSUFFICIENT_DATA
             ),
-            assumptions=assumptions_of(OptionsBacktestParameters(volatility_uplift=1.25)),
+            assumptions=assumptions_of(
+                OptionsBacktestParameters(volatility_uplift=1.25),
+                BacktestParameters(
+                    horizons=(5, 10, 20),
+                    minimum_sample_size=10,
+                    normal_confidence_sample_size=30,
+                    history_years=5,
+                ),
+            ),
         )
 
     @staticmethod

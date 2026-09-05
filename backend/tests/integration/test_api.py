@@ -668,3 +668,108 @@ class TestBacktestJeAktie:
             uow.commit()
 
         assert client.get("/api/v1/stocks/APILEER/chart").status_code == 404
+
+
+class TestBacktestansichtGegenEchteDaten:
+    """Die Zweige, die das Doppel in ``test_cli.py`` nicht erreicht."""
+
+    def test_eine_aktie_ohne_trade_verschwindet_nicht_aus_der_uebersicht(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        """Der Kopf nennt die Zahl der Aktien; zeigte die Liste weniger,
+        erführe niemand, welche fehlen. Eine Aktie ohne vollständigen Trade
+        ist kein Fehler -- kein Verfall im Fenster, zu wenig Historie."""
+        mit, ohne = make_stock("APIMIT"), make_stock("APIOHNETRADE")
+        messung = uuid.uuid4()
+        with uow_factory() as uow:
+            uow.stocks.add(mit)
+            uow.stocks.add(ohne)
+            _messung(uow, mit, messung=messung)
+            # Ergebniszeile ohne eine einzige Tradezeile.
+            uow.options_backtest_results.add(
+                OptionsBacktestScope(
+                    measurement_id=messung,
+                    measured_at=datetime(2026, 9, 5, 18, 0, tzinfo=UTC),
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                    stock_id=ohne.id,
+                    stocks=1,
+                    history_start=datetime(2025, 1, 2, 14, 30, tzinfo=UTC),
+                    history_end=datetime(2026, 9, 4, 20, 0, tzinfo=UTC),
+                ),
+                compute_options_backtest_results(
+                    {},
+                    options_params=OptionsBacktestParameters(),
+                    backtest_params=BACKTEST_PARAMS,
+                    required_crossing_signals=2,
+                ),
+            )
+            uow.commit()
+
+        antwort = client.get(f"/api/v1/options-backtests/{messung}").json()
+
+        symbole = [zeile["symbol"] for zeile in antwort["stocks"]]
+        assert "APIOHNETRADE" in symbole
+        (leer,) = [z for z in antwort["stocks"] if z["symbol"] == "APIOHNETRADE"]
+        assert leer["trades"] == 0
+        assert leer["confidence"] == "INSUFFICIENT_DATA"
+        assert leer["managed"] is None
+
+    def test_die_messung_wird_mit_ihren_eigenen_schwellen_gelesen(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        """Sonst stünden Kombinationszeilen, die beim Schreiben als belastbar
+        galten, neben Aktienzeilen, die beim Lesen durchfallen -- für dieselben
+        Trades. Die Schwellen stehen deshalb in den Annahmen."""
+        stock = make_stock("APISCHWELLE")
+        messung = uuid.uuid4()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            _messung(uow, stock, messung=messung, trades=12)
+            uow.commit()
+
+        antwort = client.get(f"/api/v1/options-backtests/{messung}").json()
+
+        assert antwort["measurement"]["assumptions"]["mindeststichprobe"] == "10"
+        (zeile,) = antwort["stocks"]
+        # Zwölf Trades: über der Mindeststichprobe von zehn, unter der
+        # Schwelle für volle Konfidenz (dreißig). Kennzahlen gibt es damit,
+        # aber die Einstufung sagt dazu, worauf sie stehen.
+        assert zeile["confidence"] == "LOW_SAMPLE"
+        assert zeile["managed"] is not None
+
+    def test_eine_bestimmte_messung_laesst_sich_anfordern(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        """Wer aus der Übersicht kommt, hat dort eine Messung gewählt."""
+        stock = make_stock("APIZWEI")
+        alt, neu = uuid.uuid4(), uuid.uuid4()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            _messung(uow, stock, messung=alt, trades=11)
+            _messung(uow, stock, messung=neu, trades=14)
+            uow.commit()
+
+        gewaehlt = client.get(
+            f"/api/v1/stocks/APIZWEI/backtest?measurement_id={alt}"
+        ).json()
+        juengste = client.get("/api/v1/stocks/APIZWEI/backtest").json()
+
+        assert gewaehlt["measurement"]["measurement_id"] == str(alt)
+        assert gewaehlt["pooled"]["trades"] == 11
+        # Ohne Angabe die jüngste -- beide Messungen tragen denselben
+        # Zeitstempel, also steht hier nur, dass eine von beiden kommt.
+        assert juengste["measurement"]["measurement_id"] in {str(alt), str(neu)}
+
+    def test_eine_unbekannte_messung_am_aktienendpunkt_ist_ein_404(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("APIUNBEKANNT")
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.commit()
+
+        antwort = client.get(
+            f"/api/v1/stocks/APIUNBEKANNT/backtest?measurement_id={uuid.uuid4()}"
+        )
+
+        assert antwort.status_code == 404

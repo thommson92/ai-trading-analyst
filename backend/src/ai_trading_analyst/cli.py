@@ -115,6 +115,7 @@ from ai_trading_analyst.domain.analysis import (
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
+    BacktestParameters,
     OptionsBacktestScope,
 )
 from ai_trading_analyst.domain.backtesting.options_metrics import (
@@ -2042,7 +2043,7 @@ def command_options_backtest(args: argparse.Namespace) -> int:
         )
 
     ergebnisse = rechne(je_kombination)
-    _print_optionsbacktest(ergebnisse, ausgewertet, options_params)
+    _print_optionsbacktest(ergebnisse, ausgewertet, options_params, backtest_params)
 
     # **Angehaengt, nie ueberschrieben** (Festlegung 9). Jeder Aufruf ist eine
     # eigene Messung: Zwei Laeufe mit verschiedenem Volatilitaetsaufschlag
@@ -2054,12 +2055,28 @@ def command_options_backtest(args: argparse.Namespace) -> int:
     ende = max(schluss for _, schluss in zeitraum.values())
     with uow_factory() as uow:
         for stock, eigene in je_aktie.items():
+            # **Erst die Aktie, dann ihre Ergebnisse.** Die id kommt vom
+            # Anbieter und ist aus dem Symbol gerechnet, nicht aus der
+            # Datenbank gelesen: Eine Aktie, die noch nie erfolgreich
+            # gescreent wurde, steht nicht in ``stocks``, und beide neuen
+            # Tabellen haben einen Fremdschluessel darauf. Ohne diese Zeilen
+            # bricht der ganze Messlauf am Ende an einer
+            # ForeignKeyViolation ab -- gerechnet ist dann alles, gespeichert
+            # nichts.
+            #
+            # Zurueckgelesen wird bewusst: ``add`` ist idempotent nach
+            # **Symbol**, nicht nach id. Stand die Aktie schon mit einer
+            # anderen id da -- etwa aus einem Fixture-Lauf --, gilt deren id,
+            # und ``stock.id`` zeigte ins Leere.
+            uow.stocks.add(stock)
+            gespeichert = uow.stocks.get_by_symbol(stock.symbol)
+            stock_id = stock.id if gespeichert is None else gespeichert.id
             anfang, schluss = zeitraum[stock]
             bereich = OptionsBacktestScope(
                 measurement_id=messung,
                 measured_at=gemessen_am,
                 signal_rule_version=SIGNAL_RULE_VERSION,
-                stock_id=stock.id,
+                stock_id=stock_id,
                 stocks=1,
                 history_start=anfang,
                 history_end=schluss,
@@ -2098,6 +2115,7 @@ def _print_optionsbacktest(
     ergebnisse: Sequence[OptionsBacktestResult],
     aktien: int,
     params: OptionsBacktestParameters,
+    backtest_params: BacktestParameters,
 ) -> None:
     mit_episoden = [e for e in ergebnisse if e.episodes]
     gesamt_episoden = sum(e.episodes for e in mit_episoden)
@@ -2111,7 +2129,7 @@ def _print_optionsbacktest(
     print("Alle Praemien sind MODELLIERT -- es gibt keine Notierung aus der Vergangenheit.")
     # Auch bei null Episoden: Die Annahmen sagen, was versucht wurde, und
     # ohne sie stuende ein leeres Ergebnis ohne Erklaerung da.
-    for name, wert in assumptions_of(params).items():
+    for name, wert in assumptions_of(params, backtest_params).items():
         print(f"  {name:24} {wert}")
 
     print()

@@ -48,6 +48,10 @@ def get_chart_market_data(request: Request) -> MarketDataProvider:
     Der Composition Root setzt ``market_data.source`` fuer diesen Anbieter
     fest auf ``stored``. Ein Webdienst, der die TWS-Client-ID belegt, waere
     gefaehrlicher als kein Chart (ADR 0052).
+
+    ``app.state`` haelt eine **Fabrik**, keinen fertigen Anbieter: Er haengt
+    an der Watchlist-Datei, und ein fehlendes Verzeichnis soll den Chart
+    kosten und nicht den Start des Dienstes.
     """
-    provider: MarketDataProvider = request.app.state.chart_market_data
-    return provider
+    fabrik: Callable[[], MarketDataProvider] = request.app.state.chart_market_data
+    return fabrik()

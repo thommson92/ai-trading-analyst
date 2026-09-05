@@ -59,6 +59,21 @@ class MarketDataProviderError(Exception):
     """
 
 
+class MarketDataUnavailableError(MarketDataProviderError):
+    """Nicht die Aktie fehlt, sondern die Quelle ist gerade nicht erreichbar.
+
+    **Unterklasse und nicht Geschwister:** Jede bestehende Fehlerisolation
+    faengt weiterhin, was sie bisher fing -- ein Datenbankabriss darf einen
+    Screening-Lauf so wenig abreissen wie zuvor.
+
+    Der Unterschied zaehlt dort, wo jemand die Auskunft liest. "Fuer diese
+    Aktie sind keine Bars gespeichert" ist eine Aussage ueber die Datenlage;
+    "die Datenbank antwortet nicht" ist ein Betriebsproblem. Beides als
+    dasselbe zu melden hiesse, einen Ausfall als Befund auszugeben -- und in
+    der API einen 404 zu schicken, wo ein 503 hingehoert.
+    """
+
+
 class HistoricalBarSource(Protocol):
     """Liefert native Intraday-Bars einer Aktie, aeltester Bar zuerst.
 
@@ -372,6 +387,12 @@ class OptionsBacktestResultRepository(Protocol):
         der Bereich ihrer Gesamtzeile samt Annahmen. Die Annahmen kommen mit,
         weil sie das einzige sind, was zwei Messungen desselben Tages
         unterscheidet."""
+        ...
+
+    def get_measurement(
+        self, measurement_id: UUID
+    ) -> tuple[OptionsBacktestScope, Mapping[str, str]] | None:
+        """Der Kopf einer Messung, oder ``None``."""
         ...
 
     def list_for_stock(

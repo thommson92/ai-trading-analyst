@@ -18,7 +18,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ai_trading_analyst.domain.analysis import UnitOfWork
-from ai_trading_analyst.domain.backtesting import BacktestParameters, pool_trades
+from ai_trading_analyst.domain.backtesting import (
+    BacktestParameters,
+    pool_trades,
+    thresholds_of,
+)
 
 from ..dependencies import get_backtest_parameters, get_unit_of_work_factory
 from ..schemas import (
@@ -76,22 +80,38 @@ def get_measurement(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Messung ohne Gesamtzeile -- unvollstaendig gespeichert.",
             )
-        kopf = gesamt[0][0]
+        kopf, kopfergebnis = gesamt[0]
+        # Mit den Schwellen **dieser** Messung, nicht denen von heute: Sonst
+        # stuenden Kombinationszeilen, die beim Schreiben als belastbar
+        # galten, neben Aktienzeilen, die beim Lesen durchfallen -- fuer
+        # dieselben Trades.
+        schwellen = thresholds_of(kopfergebnis.assumptions, backtest_params)
         trades_je_aktie = uow.options_backtest_results.list_trades_for_measurement(
             measurement_id
         )
+        # **Alle Aktien der Messung, nicht nur die mit Trades.** Eine Aktie,
+        # deren Episoden zu keinem vollstaendigen Trade fuehrten -- kein
+        # Verfall im Fenster, zu wenig Historie --, hat Ergebniszeilen, aber
+        # keine Tradezeilen. Sie einfach wegzulassen hiesse, dass der Kopf
+        # vierzig Aktien nennt und die Liste siebenunddreissig zeigt, ohne
+        # dass jemand erfaehrt, welche fehlen.
+        bekannte = {
+            bereich.stock_id
+            for bereich, _ in zeilen
+            if bereich.stock_id is not None
+        }
         symbole = {stock.id: stock.symbol for stock in uow.stocks.list_all()}
         aktien = [
             OptionsStockRowResponse.from_domain(
                 stock_id,
                 symbole.get(stock_id, "?"),
-                pool_trades(list(trades), backtest_params),
+                pool_trades(list(trades_je_aktie.get(stock_id, ())), schwellen),
             )
-            for stock_id, trades in trades_je_aktie.items()
+            for stock_id in bekannte
         ]
         return OptionsMeasurementDetailResponse(
             measurement=OptionsMeasurementResponse.from_domain(
-                kopf, gesamt[0][1].assumptions
+                kopf, kopfergebnis.assumptions
             ),
             overall=[
                 OptionsCombinationResponse.from_domain(ergebnis)
@@ -105,8 +125,15 @@ def get_measurement(
         )
 
 
-def _rangfolge(zeile: OptionsStockRowResponse) -> tuple[int, float]:
+def _rangfolge(zeile: OptionsStockRowResponse) -> tuple[int, float, str]:
+    """Rendite absteigend, ohne belastbare Stichprobe ans Ende.
+
+    Das Symbol als letztes Merkmal: Ohne es haengt die Reihenfolge zweier
+    gleich guter Aktien -- und die des ganzen Endes -- an der Reihenfolge, in
+    der die Datenbank ihre Zeilen liefert. Zwei Aufrufe ergaeben dann
+    verschiedene Listen fuer dieselbe Messung.
+    """
     if zeile.managed is None or zeile.managed.mean_return_on_capital is None:
-        return (1, 0.0)
-    return (0, -zeile.managed.mean_return_on_capital)
+        return (1, 0.0, zeile.symbol)
+    return (0, -zeile.managed.mean_return_on_capital, zeile.symbol)
 

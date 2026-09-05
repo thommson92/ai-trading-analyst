@@ -392,7 +392,11 @@ class TestTradesOhneErreichteMarke:
         assert trade is not None
         assert trade.held_outcome is TradeOutcome.ASSIGNED
         assert trade.managed_outcome is TradeOutcome.CLOSED_AT_EXPIRATION
-        assert trade.managed_exit_index == trade.managed_exit_index
+        # Ausgestiegen wird an der Abrechnungskerze, nicht irgendwo davor:
+        # Die Glattstellung ist die **Schlussregel** und keine weitere Marke.
+        assert series.candle(trade.managed_exit_index).close == pytest.approx(
+            trade.underlying_at_expiration
+        )
         assert trade.managed_profit == pytest.approx(trade.held_profit)
 
     def test_der_rueckkauf_am_verfall_kostet_seine_spanne(self) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -11,10 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
+    MarketDataUnavailableError,
     Stock,
     UnitOfWork,
 )
-from ai_trading_analyst.domain.backtesting import BacktestParameters, pool_trades
+from ai_trading_analyst.domain.backtesting import (
+    BacktestParameters,
+    pool_trades,
+    thresholds_of,
+)
 from ai_trading_analyst.domain.screening import CandidateRuleParameters
 from ai_trading_analyst.presentation.validation_chart import build_chart_payload
 
@@ -34,6 +40,8 @@ from ..schemas import (
     SignalBacktestResponse,
     StockBacktestResponse,
 )
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/stocks", tags=["stocks"])
 
@@ -119,19 +127,14 @@ def get_stock_backtest(
             )
         kombinationen = uow.options_backtest_results.list_for_stock(messung_id, aktie.id)
         trades = uow.options_backtest_results.list_trades_for_stock(messung_id, aktie.id)
-        kopf = next(
-            (
-                (bereich, annahmen)
-                for bereich, annahmen in uow.options_backtest_results.list_measurements()
-                if bereich.measurement_id == messung_id
-            ),
-            None,
-        )
+        kopf = uow.options_backtest_results.get_measurement(messung_id)
         if kopf is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Messung nicht gefunden."
             )
-        gepoolt = pool_trades([trade for _, trade in trades], backtest_params)
+        # Mit den Schwellen dieser Messung, nicht denen von heute.
+        schwellen = thresholds_of(kopf[1], backtest_params)
+        gepoolt = pool_trades([trade for _, trade in trades], schwellen)
         return StockBacktestResponse(
             symbol=gesucht,
             signal_backtests=signal_backtests,
@@ -174,6 +177,16 @@ def get_stock_chart(
         aktie = _aktie_oder_404(uow, gesucht)
     try:
         series = market_data.get_candle_series(aktie)
+    except MarketDataUnavailableError as fehler:
+        # **Zuerst der Ausfall.** Ein Datenbankabriss als 404 zu melden hiesse,
+        # ein Betriebsproblem als Befund auszugeben -- unsichtbar fuer jede
+        # Ueberwachung. Und der Wortlaut bleibt drinnen: Eine
+        # SQLAlchemy-Meldung nennt Anweisung, Tabelle und Spalten.
+        _logger.error("Chart fuer %s nicht lesbar: %s", gesucht, fehler)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Der Kursbestand ist gerade nicht lesbar.",
+        ) from fehler
     except MarketDataProviderError as fehler:
         # Kein 500: Dass fuer diese Aktie keine Kerzen im Bestand liegen, ist
         # eine Auskunft ueber die Datenlage und kein Fehler des Dienstes.

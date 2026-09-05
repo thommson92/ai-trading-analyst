@@ -1881,6 +1881,27 @@ class SqlAlchemyOptionsBacktestResultRepository:
             )
         return messungen
 
+    def get_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> tuple[OptionsBacktestScope, Mapping[str, str]] | None:
+        """Der Kopf **einer** Messung.
+
+        Gezielt statt ueber ``list_measurements``: Sonst laedt jede Anfrage
+        nach einer Aktie alle Gesamtzeilen der ganzen Tabelle, um eine
+        herauszusuchen.
+        """
+        row = self._session.execute(
+            select(OptionsBacktestResultOrm)
+            .where(
+                OptionsBacktestResultOrm.measurement_id == measurement_id,
+                OptionsBacktestResultOrm.stock_id.is_(None),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return _bereich_aus_zeile(row), MappingProxyType(dict(row.assumptions))
+
     def list_for_stock(
         self, measurement_id: uuid.UUID, stock_id: uuid.UUID
     ) -> Sequence[OptionsBacktestResult]:

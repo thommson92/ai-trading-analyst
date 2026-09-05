@@ -8,6 +8,7 @@ from .options_metrics import (
     VariantMetrics,
     kombinationskuerzel,
     pool_trades,
+    thresholds_of,
 )
 from .replay import (
     HistoricalDecision,
@@ -42,4 +43,5 @@ __all__ = [
     "is_decision_point",
     "kombinationskuerzel",
     "pool_trades",
+    "thresholds_of",
 ]

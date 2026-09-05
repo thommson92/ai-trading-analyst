@@ -641,6 +641,13 @@ def build_app() -> FastAPI:
     Webdienst, der die TWS-Client-ID belegte oder auf Zuruf einen Lauf mit
     Fixture-Daten in die Produktivdatenbank schriebe, waere gefaehrlicher als
     kein Dashboard.
+
+    **Eine Ausnahme, und sie ist eng gefasst:** Der Validierungschart braucht
+    Kerzen. Dafuer entsteht **ein** Marktdatenanbieter, dessen Quelle fest auf
+    ``stored`` steht -- er liest die Datenbank und kann die TWS nicht
+    erreichen. Er wird **beim ersten Aufruf** gebaut und nicht beim Start:
+    Ueber ``build_watchlist`` haengt er an der Watchlist-Datei, und ein
+    fehlendes Verzeichnis soll den Chart kosten, nicht den ganzen Dienst.
     """
     loaded = load_config()
     secrets = load_secrets()
@@ -683,16 +690,30 @@ def build_app() -> FastAPI:
         ),
         warmup_candles=indicators.warmup_candles,
     )
-    # **Fest auf den Bestand.** Der Chart braucht Kerzen, und die liegen in
-    # der Datenbank; ein Webdienst, der dafuer die TWS-Client-ID belegte,
-    # waere gefaehrlicher als kein Chart (ADR 0052). Der Anbieter bleibt
-    # ``ibkr``, damit die Kerzenbildung dieselbe ist -- nur die Quelle nicht.
+    # **Fest auf den Bestand, und erst auf Zuruf.** Der Chart braucht Kerzen,
+    # und die liegen in der Datenbank; ein Webdienst, der dafuer die
+    # TWS-Client-ID belegte, waere gefaehrlicher als kein Chart (ADR 0052).
+    # Der Anbieter bleibt ``ibkr``, damit die Kerzenbildung dieselbe ist --
+    # nur die Quelle nicht.
+    #
+    # Gebaut wird er beim ersten Aufruf: ``build_watchlist`` liest die
+    # Watchlist-Dateien und wirft ohne sie. Beim Start gebaut, koennte ein
+    # fehlendes Verzeichnis den ganzen Dienst am Hochfahren hindern -- den
+    # Chart zu verlieren ist genug.
     nur_bestand = loaded.config.model_copy(
         update={"market_data": loaded.config.market_data.model_copy(update={"source": "stored"})}
     )
-    app.state.chart_market_data = build_market_data_provider(
-        nur_bestand, indicators, project_root(loaded.source_path), uow_factory=uow_factory
-    )
+
+    @cache
+    def chart_market_data() -> MarketDataProvider:
+        return build_market_data_provider(
+            nur_bestand,
+            indicators,
+            project_root(loaded.source_path),
+            uow_factory=uow_factory,
+        )
+
+    app.state.chart_market_data = chart_market_data
     return app
 
 
