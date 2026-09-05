@@ -98,5 +98,18 @@ export function formatGeld(wert: number | null): string {
 }
 
 export function formatDatum(iso: string): string {
-  return new Date(iso).toLocaleDateString('de-DE', { dateStyle: 'medium' });
+  // Ein reines Datum (`2026-03-06`) liest JavaScript als UTC-Mitternacht und
+  // verschiebt es damit in westlichen Zeitzonen auf den Vortag. Hier steht
+  // aber ein Handelstag, kein Zeitpunkt -- er hat keine Zeitzone, und ein
+  // Tag Versatz wäre schlicht das falsche Datum.
+  const nurDatum = /^\d{4}-\d{2}-\d{2}$/.exec(iso);
+  const zeitpunkt =
+    nurDatum === null
+      ? new Date(iso)
+      : new Date(
+          Number(iso.slice(0, 4)),
+          Number(iso.slice(5, 7)) - 1,
+          Number(iso.slice(8, 10)),
+        );
+  return zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'medium' });
 }

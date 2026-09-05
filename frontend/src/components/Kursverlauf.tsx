@@ -36,7 +36,8 @@ interface Punkt {
   ema20: number | null;
   rsi: number | null;
   rsiMa: number | null;
-  treffer: number | null;
+  ersterTrigger: number | null;
+  folgeTrigger: number | null;
   verworfen: number | null;
   einstieg: number | null;
 }
@@ -53,7 +54,19 @@ function baueReihe(daten: Chartdaten, einstiege: Set<number>): Punkt[] {
     // Getrennte Reihen statt einer Reihe mit Farbe: So steht in der Legende,
     // was ein Punkt bedeutet, und ein verworfener Punkt sieht nie aus wie
     // ein Treffer.
-    treffer: kerze.sig !== undefined && kerze.gate === undefined ? kerze.c : null,
+    //
+    // Erster Trigger einer Episode und Folgetrigger sind ebenfalls getrennt:
+    // Gezählt wird nur der erste (ADR 0057), und der Unterschied zwischen
+    // roher und gezählter Stichprobe ist genau das, was der Chart zeigen
+    // soll. Der CLI-Chart unterscheidet sie aus demselben Grund.
+    ersterTrigger:
+      kerze.sig !== undefined && kerze.gate === undefined && kerze.first === true
+        ? kerze.c
+        : null,
+    folgeTrigger:
+      kerze.sig !== undefined && kerze.gate === undefined && kerze.first !== true
+        ? kerze.c
+        : null,
     verworfen: kerze.gate !== undefined ? kerze.c : null,
     einstieg: einstiege.has(i) ? kerze.c : null,
   }));
@@ -68,8 +81,13 @@ function Achsenbeschriftung(wert: unknown, reihe: Punkt[]): string {
   return punkt === undefined ? '' : formatDatum(punkt.datum);
 }
 
-function Zahlbeschriftung(wert: unknown, stellen: number): string {
-  return typeof wert === 'number' ? wert.toFixed(stellen) : '–';
+// **`null` statt Strich.** recharts baut die Tooltip-Nutzlast je Reihe, nicht
+// je vorhandenem Wert -- und verwirft eine Zeile nur, wenn der Formatter
+// `null` liefert. Ein Strich ist ein Wert: Mit ihm stünde über jeder der rund
+// 2.500 signallosen Kerzen "Entscheidungspunkt –", und das ist eine Aussage,
+// die es nicht gibt.
+function Zahlbeschriftung(wert: unknown, stellen: number): string | null {
+  return typeof wert === 'number' ? wert.toFixed(stellen) : null;
 }
 
 interface Eigenschaften {
@@ -145,7 +163,8 @@ export function Kursverlauf({ daten, trades }: Eigenschaften): React.ReactElemen
             isAnimationActive={false}
           />
           <Scatter dataKey="verworfen" name="an einer Torbedingung verworfen" fill="var(--gate)" />
-          <Scatter dataKey="treffer" name="Entscheidungspunkt" fill="var(--treffer)" />
+          <Scatter dataKey="folgeTrigger" name="Folgetrigger derselben Episode" fill="var(--gate)" />
+          <Scatter dataKey="ersterTrigger" name="erster Trigger der Episode" fill="var(--treffer)" />
           <Scatter dataKey="einstieg" name="simulierter Einstieg" fill="var(--einstieg)" />
           {/* Der Strike als Punkt am Einstieg: Eine Linie bis zum Verfall
               braucht den Verfallsindex, und den kennt der Chartpayload
@@ -158,6 +177,11 @@ export function Kursverlauf({ daten, trades }: Eigenschaften): React.ReactElemen
               r={2}
               fill="var(--einstieg)"
               stroke="none"
+              // Ohne dies verwirft recharts einen Punkt ausserhalb der
+              // Achse stillschweigend. Ein Strike liegt immer unter dem
+              // Einstiegskurs; nahe dem Tiefpunkt der Reihe faellt er unter
+              // das Achsenminimum, und der Punkt fehlte ohne Hinweis.
+              ifOverflow="extendDomain"
             />
           ))}
         </ComposedChart>

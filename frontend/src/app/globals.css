@@ -327,9 +327,12 @@ table.aktienvergleich td {
 }
 
 /* Breite Tabellen scrollen in ihrem eigenen Kasten, damit die Seite selbst
-   nie seitwaerts laeuft. */
+   nie seitwaerts laeuft. Die Liste ist vollstaendig: Der Signal-Backtest hat
+   acht Spalten, die Kombinationstabelle sieben -- ohne `.breit` schoeben
+   gerade sie die Seite auf schmalem Fenster zur Seite. */
 .tradeliste,
-.reiterinhalt {
+.reiterinhalt,
+.breit {
   overflow-x: auto;
 }
 

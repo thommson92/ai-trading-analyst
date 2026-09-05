@@ -15,6 +15,9 @@ import { listStockReports, type Page, type ReportSummary } from '@/lib/api';
 function HistorieInhalt(): ReactNode {
   const suchparameter = useSearchParams();
   const symbol = suchparameter.get('symbol');
+  // Wer aus der Gesamtuebersicht kommt, hat dort eine Messung gewaehlt. Ohne
+  // sie zeigte diese Seite die juengste -- andere Zahlen, gleiche Aktie.
+  const messung = suchparameter.get('messung');
   const [seite, setSeite] = useState<Page<ReportSummary> | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
 
@@ -60,8 +63,16 @@ function HistorieInhalt(): ReactNode {
       )}
       {/* Der Backtest haengt nicht an der Berichtshistorie: Eine Aktie, die
           nie Kandidat war, hat trotzdem Kerzen -- und damit Trigger, die sich
-          im Rueckblick pruefen lassen. */}
-      <Backtestansicht symbol={symbol} />
+          im Rueckblick pruefen lassen.
+
+          `key` ist kein Beiwerk: Ohne ihn ueberlebten Trades, Kursverlauf und
+          eine alte Fehlermeldung den Symbolwechsel, und die Zahlen der einen
+          Aktie stuenden unter der Ueberschrift der anderen. */}
+      <Backtestansicht
+        key={`${symbol}:${messung ?? ''}`}
+        symbol={symbol}
+        messungId={messung}
+      />
     </>
   );
 }

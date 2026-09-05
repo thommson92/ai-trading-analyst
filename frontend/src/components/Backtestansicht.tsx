@@ -66,7 +66,13 @@ function Tradetabelle({ backtest }: { backtest: AktienBacktest }): ReactNode {
   );
 }
 
-export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
+export function Backtestansicht({
+  symbol,
+  messungId,
+}: {
+  symbol: string;
+  messungId?: string | null;
+}): ReactNode {
   const [backtest, setBacktest] = useState<AktienBacktest | null>(null);
   const [chart, setChart] = useState<Chartdaten | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -77,7 +83,7 @@ export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
 
   useEffect(() => {
     let abgemeldet = false;
-    getAktienBacktest(symbol)
+    getAktienBacktest(symbol, messungId ?? undefined)
       .then((geladen) => {
         if (!abgemeldet) setBacktest(geladen);
       })
@@ -98,7 +104,7 @@ export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
     return () => {
       abgemeldet = true;
     };
-  }, [symbol]);
+  }, [symbol, messungId]);
 
   if (fehler !== null) {
     return <p role="alert">Backtest nicht abrufbar: {fehler}</p>;
@@ -123,7 +129,9 @@ export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
         Was der <strong>Kurs</strong> nach einem Trigger tat. Gemessen an den
         gespeicherten Kerzen – hier ist nichts modelliert.
       </p>
-      <Signalbacktest ergebnisse={backtest.signal_backtests} />
+      <div className="breit">
+        <Signalbacktest ergebnisse={backtest.signal_backtests} />
+      </div>
 
       <h2>Optionsbacktest</h2>
       {backtest.measurement === null || backtest.pooled === null ? (
@@ -162,6 +170,7 @@ export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
               Kombination.
             </p>
           ) : (
+            <div className="breit">
             <table className="kombinationen">
               <thead>
                 <tr>
@@ -197,6 +206,7 @@ export function Backtestansicht({ symbol }: { symbol: string }): ReactNode {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           <Tradetabelle backtest={backtest} />
         </>

@@ -27,7 +27,7 @@ import { formatGeld } from '@/lib/format';
 
 const KLASSEN = 16;
 
-interface Klasse {
+export interface Klasse {
   von: number;
   bis: number;
   mitte: number;
@@ -37,7 +37,10 @@ interface Klasse {
   gewinn: number;
 }
 
-function klassiere(werte: readonly number[]): Klasse[] {
+// Exportiert, damit sie prüfbar ist. In jsdom hat `ResponsiveContainer` die
+// Breite null und zeichnet keinen einzigen Balken -- ein Test über die
+// gerenderte Komponente könnte über die Zählung gar nichts aussagen.
+export function klassiere(werte: readonly number[]): Klasse[] {
   if (werte.length === 0) return [];
   const kleinster = Math.min(...werte);
   const groesster = Math.max(...werte);
@@ -107,9 +110,14 @@ export function Ergebnisverteilung({
           />
           <YAxis allowDecimals={false} stroke="var(--gedaempft)" fontSize={12} width={32} />
           <Tooltip
-            labelFormatter={(wert: unknown) =>
-              typeof wert === 'number' ? formatGeld(wert) : '–'
-            }
+            // Die Spanne, nicht die Mitte: Eine Mitte liest sich leicht als
+            // der Wert, den die Trades hatten.
+            labelFormatter={(wert: unknown) => {
+              const klasse = klassen.find((k) => k.mitte === wert);
+              return klasse === undefined
+                ? '–'
+                : `${formatGeld(klasse.von)} bis ${formatGeld(klasse.bis)}`;
+            }}
             formatter={(wert: unknown, name: unknown) => [String(wert), String(name)]}
             contentStyle={{
               background: 'var(--grund)',
