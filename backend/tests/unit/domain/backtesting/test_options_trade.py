@@ -335,7 +335,7 @@ class TestBekannteKalenderfaelle:
         assert third_friday(jahr, monat) == date(jahr, monat, tag)
 
 
-class TestRueckfallAufDieGrundlinie:
+class TestTradesOhneErreichteMarke:
     """Trades, die **keine** der beiden Marken erreichen.
 
     ADR 0058 Festlegung 7 nennt genau sie als Zweck des Backtests: Die
@@ -369,8 +369,18 @@ class TestRueckfallAufDieGrundlinie:
         assert trade.managed_outcome is TradeOutcome.TAKE_PROFIT
         assert 0.0 < trade.managed_profit < trade.held_profit
 
-    def test_auch_bei_andienung_faellt_er_auf_die_grundlinie_zurueck(self) -> None:
-        """Ein Absturz ohne erreichten Stop: Der Verlust ist der volle."""
+    def test_bei_andienung_wird_die_gemanagte_variante_glattgestellt(self) -> None:
+        """Ein Absturz ohne erreichten Stop -- der Fall, an dem sich die
+        Varianten ueberhaupt unterscheiden koennen (ADR 0058, Nachtrag zu
+        Festlegung 7).
+
+        Die Grundlinie nimmt die Andienung hin, die gemanagte Variante kauft
+        zum inneren Wert zurueck. Ohne Ausfuehrungsabschlag ist das
+        **derselbe** Betrag: Der Zeitwert ist am Verfallstag null, und die
+        Auszahlung eines angedienten Puts ist genau sein innerer Wert. Der
+        Unterschied liegt nicht in der Zahl, sondern darin, dass hier Bargeld
+        steht und dort hundert Aktien.
+        """
         weit = OptionsBacktestParameters(
             take_profit_fraction=0.99, stop_multiple=100.0, execution_haircut=0.0
         )
@@ -381,7 +391,51 @@ class TestRueckfallAufDieGrundlinie:
 
         assert trade is not None
         assert trade.held_outcome is TradeOutcome.ASSIGNED
-        assert trade.managed_outcome is TradeOutcome.ASSIGNED
+        assert trade.managed_outcome is TradeOutcome.CLOSED_AT_EXPIRATION
+        # Ausgestiegen wird an der Abrechnungskerze, nicht irgendwo davor:
+        # Die Glattstellung ist die **Schlussregel** und keine weitere Marke.
+        assert series.candle(trade.managed_exit_index).close == pytest.approx(
+            trade.underlying_at_expiration
+        )
+        assert trade.managed_profit == pytest.approx(trade.held_profit)
+
+    def test_der_rueckkauf_am_verfall_kostet_seine_spanne(self) -> None:
+        """Mit Abschlag trennen sich die beiden Zahlen: Die Glattstellung ist
+        eine Transaktion, die Andienung ist keine. Sie faellt deshalb
+        schlechter aus als das Halten -- und das ist keine Schwaeche des
+        Managements, sondern der Preis dafuer, in Bargeld zu enden."""
+        mit_abschlag = OptionsBacktestParameters(
+            take_profit_fraction=0.99, stop_multiple=100.0, execution_haircut=0.02
+        )
+        closes = _schwankend(VORLAUF + 10) + [40.0] * 70
+
+        trade = simulate_put_sale(
+            handelsreihe(closes), VORLAUF, mit_abschlag, exchange_timezone=NEW_YORK
+        )
+
+        assert trade is not None
+        assert trade.managed_outcome is TradeOutcome.CLOSED_AT_EXPIRATION
+        assert trade.managed_profit < trade.held_profit
+        innerer_wert = trade.strike - trade.underlying_at_expiration
+        assert trade.managed_profit == pytest.approx(
+            (trade.premium - innerer_wert * 1.02) * 100
+        )
+
+    def test_ein_wertlos_verfallender_put_wird_nicht_zurueckgekauft(self) -> None:
+        """Innerer Wert null heisst: kein Kontrakt, der zurueckzukaufen waere.
+        Hier faellt die gemanagte Variante mit der Grundlinie zusammen, und
+        zwar zu Recht -- ein Abschlag auf nichts waere eine erfundene
+        Gebuehr."""
+        ohne_marken = OptionsBacktestParameters(
+            take_profit_fraction=0.999, stop_multiple=1000.0, execution_haircut=0.02
+        )
+        series = handelsreihe(_schwankend(VORLAUF + 80))
+
+        trade = simulate_put_sale(series, VORLAUF, ohne_marken, exchange_timezone=NEW_YORK)
+
+        assert trade is not None
+        assert trade.held_outcome is TradeOutcome.EXPIRED_WORTHLESS
+        assert trade.managed_outcome is TradeOutcome.EXPIRED_WORTHLESS
         assert trade.managed_profit == pytest.approx(trade.held_profit)
 
 

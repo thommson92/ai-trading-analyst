@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .v1 import analysis_runs, reports, stocks, system
+from .v1 import analysis_runs, options_backtests, reports, stocks, system
 
 
 def create_app(dashboard_directory: Path | None = None) -> FastAPI:
@@ -23,6 +23,7 @@ def create_app(dashboard_directory: Path | None = None) -> FastAPI:
     """
     app = FastAPI(title="AI Trading Analyst", version="0.1.0")
     app.include_router(analysis_runs.router)
+    app.include_router(options_backtests.router)
     app.include_router(reports.router)
     app.include_router(stocks.router)
     app.include_router(system.router)

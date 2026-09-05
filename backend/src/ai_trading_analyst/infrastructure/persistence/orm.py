@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from ai_trading_analyst.domain.analysis import RunStatus
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.backtesting.options_trade import TradeOutcome
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
     FundamentalStatus,
@@ -749,6 +750,134 @@ class BacktestResultOrm(Base):
     Zeilen die Wahrheit ueber sich selbst sagen, sobald E3 entschieden ist."""
 
     stock: Mapped[StockOrm] = relationship()
+
+
+class OptionsBacktestResultOrm(Base):
+    """Ergebnis des Optionsbacktests je Aktie und Signalkombination
+    (ADR 0058, Festlegung 9).
+
+    **Eigene Tabelle und nicht die Spalten der echten Optionsanalyse.** Jede
+    Zahl hier ist modelliert; eine modellierte Praemie darf nirgends neben
+    einer notierten stehen, ohne dass man beide unterscheiden kann.
+
+    ``stock_id`` ist ``NULL`` in der Zeile **ueber alle Aktien** einer
+    Messung. Sie wird aus den Einzeltrades gerechnet und nicht aus den
+    Aktienzeilen gemittelt -- ein Mittel von Mitteln gewichtete eine Aktie mit
+    drei Trades so schwer wie eine mit dreissig.
+
+    **Kein Unique-Constraint.** Bei den Screening-Ergebnissen schuetzt einer
+    gegen stilles Ueberschreiben; hier gibt es nichts zu ueberschreiben. Jeder
+    Aufruf bekommt eine frische ``measurement_id``, und zwei Laeufe mit
+    verschiedenem Volatilitaetsaufschlag sind zwei Befunde und nicht ein
+    korrigierter (``CLAUDE.md``: Unveraenderlichkeit).
+    """
+
+    __tablename__ = "options_backtest_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    measurement_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    """Bindet zusammen, was ein Aufruf erzeugt hat."""
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    stock_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("stocks.id"), nullable=True, index=True
+    )
+    stocks: Mapped[int]
+    """Wie viele Aktien beigetragen haben -- 1 an einer Aktienzeile."""
+    signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
+    signal_rule_version: Mapped[str]
+    options_backtest_version: Mapped[str]
+    """Getrennt von der Signalregel-Version: Verfallskalender, Strike-Raster
+    und Managementregeln aendern die Zahlen, ohne dass sich an den
+    Einstiegspunkten etwas aendert."""
+    history_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    history_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    episodes: Mapped[int]
+    trades: Mapped[int]
+    without_trade: Mapped[int]
+    confidence: Mapped[BacktestConfidence] = mapped_column(_enum_column(BacktestConfidence))
+
+    # Die Kennzahlen je Variante. **Zahlen als Spalten, Verteilung als
+    # JSONB** -- nach demselben Kriterium wie bei ``option_quotes``: Nach der
+    # Rendite wird sortiert und gefiltert, sobald zwei Aktien
+    # nebeneinanderstehen; die Ausgangsverteilung wird im Ganzen gelesen.
+    held_win_rate: Mapped[float | None]
+    held_mean_profit: Mapped[float | None]
+    held_median_profit: Mapped[float | None]
+    held_total_profit: Mapped[float | None]
+    held_worst_profit: Mapped[float | None]
+    held_mean_return_on_capital: Mapped[float | None]
+    held_outcomes: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=True)
+
+    managed_win_rate: Mapped[float | None]
+    managed_mean_profit: Mapped[float | None]
+    managed_median_profit: Mapped[float | None]
+    managed_total_profit: Mapped[float | None]
+    managed_worst_profit: Mapped[float | None]
+    managed_mean_return_on_capital: Mapped[float | None]
+    managed_outcomes: Mapped[dict[str, int] | None] = mapped_column(JSONB, nullable=True)
+
+    assumptions: Mapped[dict[str, str]] = mapped_column(JSONB)
+    """Volatilitaetsaufschlag, Kalender, Raster, Abschlag und die Schwellen
+    der Stichprobengroesse. Ohne sie ist die Zeile nicht deutbar -- und sie
+    sind das einzige, was zwei Messungen desselben Tages voneinander
+    unterscheidet."""
+
+    # Bewusst **keine** ``relationship`` auf die Aktie: Gelesen wird ueber
+    # ``stock_id``, und eine Beziehung, die niemand benutzt, ist ein N+1, das
+    # auf seinen ersten unbedachten Zugriff wartet. Das Symbol holt der
+    # Aufrufer in einem Zug ueber ``stocks.list_all()``.
+
+
+class OptionsBacktestTradeOrm(Base):
+    """Ein einzelner simulierter Put-Verkauf (ADR 0058, Nachtrag zu
+    Festlegung 9).
+
+    **Eigene Tabelle statt JSONB an der Ergebniszeile** -- nach dem Kriterium,
+    das dieses Projekt sonst auch anlegt (``option_quotes``): Ueber diese
+    Zeilen wird gruppiert, gefiltert und aggregiert. Genau daraus entsteht die
+    eine Zahl je Aktie, die ein Vergleich zwischen Aktien braucht und die sich
+    aus den Kennzahlen je Kombination nicht mitteln laesst.
+
+    ``stock_id`` ist hier **nicht** nullbar: Ein Trade gehoert immer zu genau
+    einer Aktie. Die Zeile ueber alle Aktien gibt es nur bei den Kennzahlen,
+    und sie entsteht aus eben diesen Trades.
+
+    Jede Zahl ist modelliert -- Praemie, Delta und Volatilitaet kommen aus dem
+    Preismodell, nicht von einem Anbieter. Nur ``underlying_at_entry`` und
+    ``underlying_at_expiration`` sind gemessen; sie stehen deshalb daneben.
+    """
+
+    __tablename__ = "options_backtest_trades"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    measurement_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"), index=True)
+    signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
+    """Die Kombination der Episode, aus der dieser Trade entstand."""
+
+    entry_index: Mapped[int]
+    entry_date: Mapped[date] = mapped_column(Date)
+    underlying_at_entry: Mapped[float]
+    """Gemessen -- der Schluss der Entscheidungskerze."""
+    strike: Mapped[float]
+    delta: Mapped[float]
+    volatility: Mapped[float]
+    """Die **unterstellte** implizite: realisierte mal Aufschlag."""
+    premium: Mapped[float]
+    """Nach Ausfuehrungsabschlag vereinnahmt."""
+    capital_at_risk: Mapped[float]
+    expiration: Mapped[date] = mapped_column(Date)
+    days_to_expiration: Mapped[int]
+    underlying_at_expiration: Mapped[float]
+    """Gemessen."""
+
+    held_outcome: Mapped[TradeOutcome] = mapped_column(_enum_column(TradeOutcome))
+    held_profit: Mapped[float]
+    managed_outcome: Mapped[TradeOutcome] = mapped_column(_enum_column(TradeOutcome))
+    managed_profit: Mapped[float]
+    managed_exit_index: Mapped[int]
+
+    # Ebenfalls keine ``relationship`` -- siehe ``OptionsBacktestResultOrm``.
 
 
 class DispatcherRunOrm(Base):

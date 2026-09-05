@@ -195,12 +195,58 @@ ohne dass eine Zinsannahme nötig wäre. Der Verzicht wird am Ergebnis vermerkt.
 
 | Variante | Regel |
 |---|---|
-| **Grundlinie** | halten bis Verfall |
-| **Gemanagt** | Gewinnmitnahme bei **33 %** der Prämie; Rückkauf, wenn der Optionspreis das **Dreifache** der vereinnahmten Prämie erreicht |
+| **Grundlinie** | halten bis Verfall, Andienung wird hingenommen |
+| **Gemanagt** | Gewinnmitnahme bei **33 %** der Prämie; Rückkauf, wenn der Optionspreis das **Dreifache** der vereinnahmten Prämie erreicht; **greift keines von beiden, wird am Verfallstag glattgestellt** |
 
 Die Grundlinie ist kein Beiwerk: Ohne sie hätte die gemanagte Variante keinen
 Bezugspunkt. Erst der Abstand zwischen beiden sagt, ob das Management etwas
 beiträgt oder nur Transaktionskosten erzeugt.
+
+**Nachtrag vom 2026-09-04: die Glattstellung am Verfallstag.** In der ersten
+Fassung endete die gemanagte Variante auf der Grundlinie, wenn weder Marke
+erreicht wurde: Sie trug dann Zahl für Zahl das Ergebnis der Variante, gegen
+die sie sich beweisen soll, und die Variante, die sich über Rückkaufregeln
+definiert, kaufte am Ende nichts zurück.
+
+**Wie oft das eintritt, ist gemessen — und es ist selten.** Über die vier
+Golden-Master-Fälle (AAPL und MSFT als echte Ausschnitte, dazu die beiden
+erzeugten Reihen) entstehen aus 131 Episoden 127 Trades. Genau **einer**
+davon erreicht keine der beiden Marken. Der Grund ist die Gewinnmitnahme bei
+33 %: Ein verkaufter Put verliert ein Drittel seines Werts schon durch das
+Altern allein, und fast jeder Pfad läuft dort hindurch, bevor der Verfall
+kommt.
+
+Die Regel bleibt trotzdem richtig, aber aus einem anderen Grund als dem
+zunächst angenommenen. Sie beseitigt keinen häufigen Fall, sondern einen
+**stillen Rückfall**: einen Ausgang, den die Variante nicht selbst
+entscheidet. Und sie hängt an den Parametern — 33 % und das Dreifache sind
+konfiguriert, nicht in Stein; mit weiteren Marken wächst der Anteil, und dann
+wäre der Rückfall keine Randerscheinung mehr, sondern der Regelfall.
+
+Die Glattstellung schließt zugleich eine offene Größe mitten in der Kennzahl:
+Was eine Andienung wert ist, hängt davon ab, ob die Aktie gewollt war — eine
+Frage, die Festlegung 10 an anderer Stelle stellt und die der Backtest nicht
+beantworten kann. Nach der Glattstellung endet jeder gemanagte Trade in
+Bargeld, und die Zahlen sind über alle Trades hinweg vergleichbar.
+
+Drei Randbedingungen, damit daraus keine neue Annahme wird:
+
+* **Der Rückkaufpreis ist der innere Wert**, nicht der Modellpreis. Am
+  Verfallstag steht er fest, sobald der Schlusskurs feststeht; das Preismodell
+  wäre hier eine Annahme, wo es keine braucht.
+* **Läuft der Put wertlos aus, geschieht nichts.** Innerer Wert null heißt
+  kein Kontrakt, der zurückzukaufen wäre — die gemanagte Variante ist dann
+  identisch mit der Grundlinie, und das ist kein Mangel, sondern die
+  Wirklichkeit.
+* **Der Ausführungsabschlag greift** wie bei jedem anderen Rückkauf
+  (Festlegung 8). Er ist proportional und bei einem tief im Geld liegenden Put
+  eher zu hoch als zu niedrig — die Verzerrung geht zu Lasten der gemanagten
+  Variante, und die Richtung ist benannt.
+
+**Die Grundlinie bleibt unangetastet.** Sie ist die bewusst regellose Referenz;
+ihr Wert liegt darin, dass sie nichts entscheidet. Baute man ihr eine
+Entscheidung ein, gäbe es keine Größe mehr, gegen die das Management sich
+beweisen muss. Der Nachtrag hebt `OPTIONS_BACKTEST_VERSION` auf `v2`.
 
 **Ein chartbasierter Ausstieg** — Schluss unter dem EMA 20 oder unter der
 Unterstützungszone — wird **nicht** simuliert. Er war vorgeschlagen und ist
@@ -243,6 +289,26 @@ keiner Stelle neben einer notierten stehen, ohne dass man beide unterscheiden
 kann. An jeder Zeile stehen die Modellversion, die Volatilitätsannahme samt
 Aufschlag, die Kalender- und Rasterannahme sowie die Signalregel-Version des
 zugrunde liegenden Triggers.
+
+**Nachtrag vom 2026-09-05: die Einzeltrades werden mitgespeichert.** Die
+Festlegung sprach von „den Ergebnissen", und umgesetzt waren das zunächst die
+Kennzahlen je Signalkombination. Zwei Dinge gehen damit nicht:
+
+* **Aktien lassen sich nicht vergleichen.** Die Kennzahlen stehen je
+  Kombination; eine Zahl je Aktie über alle Kombinationen entstünde nur als
+  Mittel von Mitteln und gewichtete eine Aktie mit drei Trades so schwer wie
+  eine mit dreißig. Aus den Einzeltrades ist sie exakt.
+* **Man sieht nicht, warum eine Zahl herauskam.** Eine Trefferquote von 81 %
+  neben einem Gesamtergebnis unter null ist ein Befund, den erst der
+  schlechteste Einzeltrade erklärt.
+
+Die Trades landen in einer **zweiten Tabelle** derselben Messung, nicht als
+JSONB in der Ergebniszeile: Über sie wird gruppiert, gefiltert und aggregiert,
+und genau das ist das Kriterium, nach dem in diesem Projekt zwischen Spalte
+und JSONB entschieden wird (`option_quotes`). Sie sind gleichermaßen
+modelliert wie die Kennzahlen und tragen dieselbe `measurement_id`; keine
+Zeile darf je neben einer notierten Prämie stehen, ohne dass man beide
+unterscheiden kann.
 
 ### 10. Woran die Strukturwahl live festgemacht wird
 

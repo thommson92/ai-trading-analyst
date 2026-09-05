@@ -37,12 +37,18 @@ from ai_trading_analyst.domain.options import (
 )
 from ai_trading_analyst.domain.screening import CandleSeries
 
-OPTIONS_BACKTEST_VERSION = "optionsbacktest-v1"
+OPTIONS_BACKTEST_VERSION = "optionsbacktest-v2"
 """Version des Simulationsverfahrens, an jedem Ergebnis zu speichern.
 
 Sie deckt Verfallskalender, Strike-Raster, Volatilitaetsannahme,
 Ausfuehrungsabschlag und die Managementregeln ab -- alles, was aus demselben
 Kurspfad eine andere Zahl macht.
+
+``v2`` stellt die gemanagte Variante am Verfallstag glatt, statt sie auf die
+Grundlinie zurueckfallen zu lassen (ADR 0058, Nachtrag zu Festlegung 7). Bei
+den vorgegebenen Marken aendert das genau einen von 127 gemessenen Trades --
+die Nummer steigt trotzdem, weil dieselben Eingangsdaten sonst je nach Fassung
+zwei verschiedene Zahlen ergaeben.
 """
 
 
@@ -68,6 +74,11 @@ class TradeOutcome(StrEnum):
     reine Optionsverlust."""
     TAKE_PROFIT = "TAKE_PROFIT"
     STOPPED_OUT = "STOPPED_OUT"
+    CLOSED_AT_EXPIRATION = "CLOSED_AT_EXPIRATION"
+    """Am Verfallstag im Geld glattgestellt statt angedient (ADR 0058,
+    Nachtrag zu Festlegung 7). Nur die gemanagte Variante kennt diesen
+    Ausgang -- die Grundlinie nimmt die Andienung hin, und genau darin
+    besteht der Unterschied."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +147,9 @@ class OptionTrade:
     managed_outcome: TradeOutcome
     managed_profit: float
     managed_exit_index: int
-    """Gemanagt: Gewinnmitnahme oder Rueckkauf, sonst wie die Grundlinie."""
+    """Gemanagt: Gewinnmitnahme, Rueckkauf -- oder Glattstellung am
+    Verfallstag. Ein Ausgang auf der Grundlinie ist hier nicht mehr
+    moeglich."""
 
     underlying_at_expiration: float
 
@@ -225,8 +238,6 @@ def simulate_put_sale(
         params=params,
         exchange_timezone=exchange_timezone,
     )
-    if gemanagt is None:
-        gemanagt = (gehalten_ergebnis, gehalten_gewinn, verfallsindex)
 
     return OptionTrade(
         entry_index=entry_index,
@@ -338,11 +349,18 @@ def _gemanagt(
     volatility: float,
     params: OptionsBacktestParameters,
     exchange_timezone: ZoneInfo,
-) -> tuple[TradeOutcome, float, int] | None:
-    """Der erste Ausstieg nach Gewinnmitnahme oder Rueckkaufregel.
+) -> tuple[TradeOutcome, float, int]:
+    """Der erste Ausstieg nach Gewinnmitnahme, Rueckkaufregel -- oder am Ende
+    die Glattstellung.
 
-    ``None``, wenn keine der beiden Marken erreicht wurde -- dann gilt die
-    Grundlinie.
+    **Sie schliesst nicht in die Grundlinie zurueck.** Bis zum Nachtrag zu
+    ADR 0058, Festlegung 7 tat sie genau das -- und trug dann Zahl fuer Zahl
+    das Ergebnis der Variante, gegen die sie sich beweisen soll. Gemessen ist
+    der Fall selten: ueber die vier Golden-Master-Faelle erreicht genau einer
+    von 127 Trades keine der beiden Marken, weil ein Put schon durchs Altern
+    ein Drittel seines Werts verliert. Beseitigt wird deshalb kein haeufiger
+    Fall, sondern ein **stiller Rueckfall** -- ein Ausgang, den diese Variante
+    nicht selbst entscheidet. Mit weiteren Marken waechst sein Anteil.
 
     Beide Marken stehen am **Modellpreis** der Option, nicht am Kurs der
     Aktie. Das ist der Punkt der gemanagten Variante: Sie reagiert auf den
@@ -376,7 +394,31 @@ def _gemanagt(
             return TradeOutcome.TAKE_PROFIT, _rueckkauf(preis, vereinnahmt, params), i
         if preis >= stoppmarke:
             return TradeOutcome.STOPPED_OUT, _rueckkauf(preis, vereinnahmt, params), i
-    return None
+
+    # **Die Glattstellung am Verfallstag** (ADR 0058, Nachtrag zu Festlegung
+    # 7). Der Preis ist der **innere Wert**, nicht der Modellpreis: Am
+    # Verfallstag steht er fest, sobald der Schlusskurs feststeht, und das
+    # Modell waere hier eine Annahme, wo es keine braucht.
+    #
+    # Zehn Minuten vor Handelsschluss statt am Schluss selbst waere eine
+    # Genauigkeit, die die Daten nicht haben -- die Kerzen laufen ueber 195
+    # Minuten, zwei je Handelstag. Der Tagesschluss ist das Feinste, was
+    # existiert.
+    innerer_wert = max(strike - series.candle(expiration_index).close, 0.0)
+    if innerer_wert <= 0.0:
+        # Nichts zurueckzukaufen, also auch keine Transaktion und kein
+        # Abschlag. Hier faellt die gemanagte Variante mit der Grundlinie
+        # zusammen, und das ist kein Mangel, sondern die Wirklichkeit.
+        return (
+            TradeOutcome.EXPIRED_WORTHLESS,
+            vereinnahmt * KONTRAKTGROESSE,
+            expiration_index,
+        )
+    return (
+        TradeOutcome.CLOSED_AT_EXPIRATION,
+        _rueckkauf(innerer_wert, vereinnahmt, params),
+        expiration_index,
+    )
 
 
 def _rueckkauf(

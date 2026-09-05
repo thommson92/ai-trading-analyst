@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -3790,8 +3790,62 @@ class TestOptionsKalibrierungRaender:
         assert "keine Grundlage" in ausgabe
 
 
+class _SammelndeMessung:
+    """Nimmt entgegen, was der Messlauf ablegen will (ADR 0058, Festlegung 9).
+
+    Die Tests fuehren keine Datenbank -- ``build_session_factory`` ist auf
+    ``None`` gesetzt. Bis Festlegung 9 umgesetzt war, machte das nichts, weil
+    der Lauf nur druckte. Jetzt schreibt er, und ohne dieses Doppel praegte
+    der Test die Zeile "der Messlauf legt nichts ab" ein, die gerade nicht
+    mehr gilt.
+    """
+
+    zeilen: ClassVar[list[tuple[Any, tuple[Any, ...]]]] = []
+    trades: ClassVar[list[tuple[Any, dict[Any, Any]]]] = []
+    aktien: ClassVar[list[Any]] = []
+
+    def __init__(self, session_factory: Any) -> None:
+        pass
+
+    def __enter__(self) -> Any:
+        self.options_backtest_results = self
+        # Beide Tabellen haben einen Fremdschluessel auf ``stocks``. Ohne die
+        # Aktie bricht der Messlauf am Ende ab -- der Grund, warum das
+        # Kommando sie selbst anlegt.
+        self.stocks = self
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        return None
+
+    def add_trades(self, scope: Any, trades: Any) -> None:
+        type(self).trades.append((scope, dict(trades)))
+
+    def add(self, *args: Any) -> None:
+        # Doppelbelegung wie in der echten Unit of Work: ``uow.stocks.add``
+        # und ``uow.options_backtest_results.add`` sind hier dasselbe Objekt.
+        if len(args) == 1:
+            type(self).aktien.append(args[0])
+            return
+        scope, results = args
+        type(self).zeilen.append((scope, tuple(results)))
+
+    def get_by_symbol(self, symbol: str) -> Any:
+        return next((a for a in type(self).aktien if a.symbol == symbol), None)
+
+    def commit(self) -> None:
+        pass
+
+
 class TestOptionsBacktestKommando:
     """Der Messlauf ueber die simulierten Put-Verkaeufe (ADR 0058, Stufe 1)."""
+
+    @pytest.fixture(autouse=True)
+    def _ohne_datenbank(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _SammelndeMessung.zeilen = []
+        _SammelndeMessung.trades = []
+        _SammelndeMessung.aktien = []
+        monkeypatch.setattr(cli, "SqlAlchemyUnitOfWork", _SammelndeMessung)
 
     def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
         args = build_parser().parse_args(["options-backtest"])
@@ -3849,6 +3903,24 @@ class TestOptionsBacktestKommando:
         # Und der Hinweis, dass keine dieser Praemien je notiert wurde.
         assert "MODELLIERT" in ausgabe
         assert "Kriterienbuchstaben" in ausgabe
+
+        # Und der Lauf legt ab, was er gemessen hat (Festlegung 9): je Aktie
+        # eine Reihe und eine ueber alle zusammen, unter **einer** Messung.
+        bereiche = [bereich for bereich, _ in _SammelndeMessung.zeilen]
+        assert len(bereiche) == 2
+        assert {b.stock_id is None for b in bereiche} == {True, False}
+        assert len({b.measurement_id for b in bereiche}) == 1
+        (gesamt,) = [b for b in bereiche if b.stock_id is None]
+        assert gesamt.stocks == 1
+        # Die Einzeltrades gehen mit, und **nur** zur Aktie: Die Gesamtzeile
+        # entsteht aus ihnen und ist keiner (Nachtrag zu Festlegung 9).
+        assert all(bereich.stock_id is not None for bereich, _ in _SammelndeMessung.trades)
+        # **Die Aktie wird selbst angelegt.** Beide Tabellen haben einen
+        # Fremdschluessel auf ``stocks``, und eine Aktie, die noch nie
+        # erfolgreich gescreent wurde, steht dort nicht. Ohne diesen Schritt
+        # bricht der ganze Messlauf am Ende an einer ForeignKeyViolation ab --
+        # gerechnet ist dann alles, gespeichert nichts.
+        assert [a.symbol for a in _SammelndeMessung.aktien] == ["AAPL"]
 
     def test_der_symbolfilter_grenzt_ein(
         self,

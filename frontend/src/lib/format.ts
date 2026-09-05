@@ -3,7 +3,7 @@
 // Keine Fachlogik (Doc 12): Hier wird nichts gerechnet, nichts eingestuft
 // und nichts ergaenzt. Was fehlt, bleibt fehlend und bekommt einen Strich.
 
-import type { Recommendation, RunStatus } from '@/lib/api';
+import type { Ausgang, Konfidenz, Recommendation, RunStatus } from '@/lib/api';
 
 export const LAUFSTATUS_TEXT: Record<RunStatus, string> = {
   SCHEDULED: 'eingeplant',
@@ -66,4 +66,50 @@ export function formatScore(wert: number | null): string {
 
 export function formatEmpfehlung(stufe: Recommendation | null): string {
   return stufe === null ? '–' : EMPFEHLUNG_TEXT[stufe];
+}
+
+export const KONFIDENZ_TEXT: Record<Konfidenz, string> = {
+  INSUFFICIENT_DATA: 'zu wenig Daten',
+  LOW_SAMPLE: 'kleine Stichprobe',
+  NORMAL: 'belastbar',
+};
+
+export const AUSGANG_TEXT: Record<Ausgang, string> = {
+  EXPIRED_WORTHLESS: 'wertlos verfallen',
+  ASSIGNED: 'angedient',
+  TAKE_PROFIT: 'Gewinnmitnahme',
+  STOPPED_OUT: 'zurückgekauft',
+  CLOSED_AT_EXPIRATION: 'am Verfall glattgestellt',
+};
+
+export function formatProzent(wert: number | null, stellen = 1): string {
+  // Ein Strich und keine Null: Ohne Grundlage gibt es keine Quote, und 0 %
+  // waere die schlechteste statt einer fehlenden.
+  return wert === null ? '–' : `${(wert * 100).toFixed(stellen)} %`;
+}
+
+export function formatGeld(wert: number | null): string {
+  if (wert === null) return '–';
+  const vorzeichen = wert < 0 ? '−' : '';
+  return `${vorzeichen}${Math.abs(wert).toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} $`;
+}
+
+export function formatDatum(iso: string): string {
+  // Ein reines Datum (`2026-03-06`) liest JavaScript als UTC-Mitternacht und
+  // verschiebt es damit in westlichen Zeitzonen auf den Vortag. Hier steht
+  // aber ein Handelstag, kein Zeitpunkt -- er hat keine Zeitzone, und ein
+  // Tag Versatz wäre schlicht das falsche Datum.
+  const nurDatum = /^\d{4}-\d{2}-\d{2}$/.exec(iso);
+  const zeitpunkt =
+    nurDatum === null
+      ? new Date(iso)
+      : new Date(
+          Number(iso.slice(0, 4)),
+          Number(iso.slice(5, 7)) - 1,
+          Number(iso.slice(8, 10)),
+        );
+  return zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'medium' });
 }

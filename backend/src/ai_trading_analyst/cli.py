@@ -113,7 +113,11 @@ from ai_trading_analyst.domain.analysis import (
     UnitOfWork,
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
-from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.backtesting import (
+    BacktestConfidence,
+    BacktestParameters,
+    OptionsBacktestScope,
+)
 from ai_trading_analyst.domain.backtesting.options_metrics import (
     SIGNAL_BUCHSTABEN,
     OptionsBacktestResult,
@@ -158,6 +162,7 @@ from ai_trading_analyst.domain.scheduling import (
 )
 from ai_trading_analyst.domain.scoring import ANALYST_BUY_SHARE_LABEL, analyst_buy_share
 from ai_trading_analyst.domain.screening import (
+    SIGNAL_RULE_VERSION,
     CandidateRuleParameters,
     IndicatorValues,
     IntradayBar,
@@ -1971,6 +1976,12 @@ def command_options_backtest(args: argparse.Namespace) -> int:
     )
 
     je_kombination: dict[frozenset[SignalType], list[OptionTrade | None]] = defaultdict(list)
+    # Je Aktie eine eigene Auswertung -- Festlegung 9 und die Frage, mit der
+    # ein Vergleich zwischen Aktien ueberhaupt erst moeglich wird. Die Zeile
+    # ueber alle entsteht daneben aus denselben Einzeltrades, nicht als
+    # Mittel der Aktienzeilen.
+    je_aktie: dict[Stock, dict[frozenset[SignalType], list[OptionTrade | None]]] = {}
+    zeitraum: dict[Stock, tuple[datetime, datetime]] = {}
     ausgewertet = 0
     try:
         stocks = list(provider.list_stocks())
@@ -1995,13 +2006,19 @@ def command_options_backtest(args: argparse.Namespace) -> int:
                 print(f"{stock.symbol}: {fehler}", file=sys.stderr)
                 continue
             episoden = group_into_episodes(find_historical_decisions(series, rule))
+            eigene: dict[frozenset[SignalType], list[OptionTrade | None]] = defaultdict(list)
             for episode in episoden:
                 erster = episode[0]
-                je_kombination[erster.combination].append(
-                    simulate_put_sale(
-                        series, erster.index, options_params, exchange_timezone=boersenzeit
-                    )
+                trade = simulate_put_sale(
+                    series, erster.index, options_params, exchange_timezone=boersenzeit
                 )
+                je_kombination[erster.combination].append(trade)
+                eigene[erster.combination].append(trade)
+            je_aktie[stock] = eigene
+            zeitraum[stock] = (
+                series.candle(0).timestamp,
+                series.candle(len(series) - 1).timestamp,
+            )
             ausgewertet += 1
             print(
                 f"{stock.symbol}: {len(series)} Kerzen, {len(episoden)} Episoden",
@@ -2015,13 +2032,82 @@ def command_options_backtest(args: argparse.Namespace) -> int:
         print("Keine Aktie ausgewertet.", file=sys.stderr)
         return 1
 
-    ergebnisse = compute_options_backtest_results(
-        je_kombination,
-        options_params=options_params,
-        backtest_params=backtest_params,
-        required_crossing_signals=rule.required_crossing_signals,
-    )
-    _print_optionsbacktest(ergebnisse, ausgewertet, options_params)
+    def rechne(
+        eintraege: Mapping[frozenset[SignalType], Sequence[OptionTrade | None]],
+    ) -> tuple[OptionsBacktestResult, ...]:
+        return compute_options_backtest_results(
+            eintraege,
+            options_params=options_params,
+            backtest_params=backtest_params,
+            required_crossing_signals=rule.required_crossing_signals,
+        )
+
+    ergebnisse = rechne(je_kombination)
+    _print_optionsbacktest(ergebnisse, ausgewertet, options_params, backtest_params)
+
+    # **Angehaengt, nie ueberschrieben** (Festlegung 9). Jeder Aufruf ist eine
+    # eigene Messung: Zwei Laeufe mit verschiedenem Volatilitaetsaufschlag
+    # sind zwei Befunde und nicht ein korrigierter, und das Ergebnis gehoert
+    # ohnehin als Band ueber mehrere Aufschlaege gelesen.
+    messung = uuid.uuid4()
+    gemessen_am = datetime.now(UTC)
+    beginn = min(anfang for anfang, _ in zeitraum.values())
+    ende = max(schluss for _, schluss in zeitraum.values())
+    with uow_factory() as uow:
+        for stock, eigene in je_aktie.items():
+            # **Erst die Aktie, dann ihre Ergebnisse.** Die id kommt vom
+            # Anbieter und ist aus dem Symbol gerechnet, nicht aus der
+            # Datenbank gelesen: Eine Aktie, die noch nie erfolgreich
+            # gescreent wurde, steht nicht in ``stocks``, und beide neuen
+            # Tabellen haben einen Fremdschluessel darauf. Ohne diese Zeilen
+            # bricht der ganze Messlauf am Ende an einer
+            # ForeignKeyViolation ab -- gerechnet ist dann alles, gespeichert
+            # nichts.
+            #
+            # Zurueckgelesen wird bewusst: ``add`` ist idempotent nach
+            # **Symbol**, nicht nach id. Stand die Aktie schon mit einer
+            # anderen id da -- etwa aus einem Fixture-Lauf --, gilt deren id,
+            # und ``stock.id`` zeigte ins Leere.
+            uow.stocks.add(stock)
+            gespeichert = uow.stocks.get_by_symbol(stock.symbol)
+            stock_id = stock.id if gespeichert is None else gespeichert.id
+            anfang, schluss = zeitraum[stock]
+            bereich = OptionsBacktestScope(
+                measurement_id=messung,
+                measured_at=gemessen_am,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                stock_id=stock_id,
+                stocks=1,
+                history_start=anfang,
+                history_end=schluss,
+            )
+            uow.options_backtest_results.add(bereich, rechne(eigene))
+            # Die Einzeltrades daneben (Nachtrag zu Festlegung 9). Aus ihnen
+            # entsteht die eine Zahl je Aktie, die ein Vergleich zwischen
+            # Aktien braucht -- Kennzahlen je Kombination lassen sich dafuer
+            # nicht mitteln. ``None`` faellt hier weg: Eine Episode ohne Trade
+            # ist in ``without_trade`` gezaehlt und hat keine Zeile.
+            uow.options_backtest_results.add_trades(
+                bereich,
+                {
+                    kombination: [t for t in eintraege if t is not None]
+                    for kombination, eintraege in eigene.items()
+                },
+            )
+        uow.options_backtest_results.add(
+            OptionsBacktestScope(
+                measurement_id=messung,
+                measured_at=gemessen_am,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                stock_id=None,
+                stocks=ausgewertet,
+                history_start=beginn,
+                history_end=ende,
+            ),
+            ergebnisse,
+        )
+        uow.commit()
+    print(f"\nGespeichert als Messung {messung}.", file=sys.stderr)
     return 0
 
 
@@ -2029,6 +2115,7 @@ def _print_optionsbacktest(
     ergebnisse: Sequence[OptionsBacktestResult],
     aktien: int,
     params: OptionsBacktestParameters,
+    backtest_params: BacktestParameters,
 ) -> None:
     mit_episoden = [e for e in ergebnisse if e.episodes]
     gesamt_episoden = sum(e.episodes for e in mit_episoden)
@@ -2042,7 +2129,7 @@ def _print_optionsbacktest(
     print("Alle Praemien sind MODELLIERT -- es gibt keine Notierung aus der Vergangenheit.")
     # Auch bei null Episoden: Die Annahmen sagen, was versucht wurde, und
     # ohne sie stuende ein leeres Ergebnis ohne Erklaerung da.
-    for name, wert in assumptions_of(params).items():
+    for name, wert in assumptions_of(params, backtest_params).items():
         print(f"  {name:24} {wert}")
 
     print()

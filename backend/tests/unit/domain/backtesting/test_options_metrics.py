@@ -220,4 +220,29 @@ class TestErgebnisJeKombination:
         annahmen = ergebnisse[0].assumptions
         assert annahmen["volatilitaetsaufschlag"] == "1.42"
         assert annahmen["kalender"] == "monatsverfaelle-dritter-freitag"
-        assert annahmen["version"] == "optionsbacktest-v1"
+        assert annahmen["version"] == "optionsbacktest-v2"
+
+
+class TestDieAusgaengeZaehlenVollstaendig:
+    """Jeder Trade landet in genau einem Zaehler.
+
+    Der Anlass ist ein eigener Fehler: ``CLOSED_AT_EXPIRATION`` kam mit dem
+    Nachtrag zu ADR 0058, Festlegung 7 dazu und wurde von keinem der vier
+    bestehenden Zaehler erfasst. Die Differenz zu ``trades`` saehe aus wie ein
+    Rundungsfehler statt wie ein Ausgang -- und in einer Uebersicht, die die
+    Ausgaenge nebeneinanderstellt, waere sie unsichtbar.
+    """
+
+    @pytest.mark.parametrize("ausgang", list(TradeOutcome))
+    def test_jeder_ausgang_hat_einen_zaehler(self, ausgang: TradeOutcome) -> None:
+        kennzahlen = summarize_variant([1.0], [10_000.0], [ausgang])
+
+        assert kennzahlen is not None
+        assert (
+            kennzahlen.expired_worthless
+            + kennzahlen.assigned
+            + kennzahlen.take_profits
+            + kennzahlen.stops
+            + kennzahlen.closed_at_expiration
+            == kennzahlen.trades
+        ), f"{ausgang.value} wird von keinem Zaehler erfasst"

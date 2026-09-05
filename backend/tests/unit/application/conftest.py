@@ -8,8 +8,8 @@ Statusuebergaenge, Fehlerisolation), nicht die Persistenz selbst (dafuer
 from __future__ import annotations
 
 import uuid
-from collections import Counter
-from collections.abc import Sequence
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
 from typing import Self
@@ -24,6 +24,7 @@ from ai_trading_analyst.domain.analysis import (
     FundamentalDataProviderError,
     IntradayBarRepository,
     MarketDataProviderError,
+    OptionsBacktestResultRepository,
     OptionsDataProviderError,
     ProcessingErrorRepository,
     ResearchProviderError,
@@ -37,7 +38,12 @@ from ai_trading_analyst.domain.analysis import (
     TechnicalInterpreterError,
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
-from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.backtesting import (
+    BacktestResult,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+)
+from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
@@ -49,6 +55,7 @@ from ai_trading_analyst.domain.screening import (
     IndicatorValues,
     IntradayBar,
     ScreeningStatus,
+    SignalType,
 )
 from ai_trading_analyst.domain.technical import (
     PriceZone,
@@ -427,6 +434,95 @@ class FakeBacktestResultRepository:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
 
 
+class FakeOptionsBacktestResultRepository:
+    """ADR 0058, Festlegung 9. Sammelt, was ihm gegeben wird -- ohne
+    Ueberschreiben, denn genau das tut die echte auch nicht."""
+
+    def __init__(self) -> None:
+        self.added: list[tuple[OptionsBacktestScope, tuple[OptionsBacktestResult, ...]]] = []
+        self.trades: list[
+            tuple[OptionsBacktestScope, Mapping[frozenset[SignalType], tuple[OptionTrade, ...]]]
+        ] = []
+
+    def add(
+        self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
+    ) -> None:
+        self.added.append((scope, tuple(results)))
+
+    def add_trades(
+        self,
+        scope: OptionsBacktestScope,
+        trades: Mapping[frozenset[SignalType], Sequence[OptionTrade]],
+    ) -> None:
+        if scope.stock_id is None:
+            raise ValueError("Einzeltrades brauchen eine Aktie.")
+        self.trades.append((scope, {k: tuple(v) for k, v in trades.items()}))
+
+    def list_trades_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> tuple[tuple[frozenset[SignalType], OptionTrade], ...]:
+        return tuple(
+            (kombination, trade)
+            for scope, je_kombination in self.trades
+            if scope.measurement_id == measurement_id and scope.stock_id == stock_id
+            for kombination, eintraege in je_kombination.items()
+            for trade in eintraege
+        )
+
+    def latest_measurement_id(self) -> uuid.UUID | None:
+        if not self.added:
+            return None
+        return self.added[-1][0].measurement_id
+
+    def list_measurements(
+        self,
+    ) -> tuple[tuple[OptionsBacktestScope, Mapping[str, str]], ...]:
+        return tuple(
+            (scope, ergebnisse[0].assumptions if ergebnisse else {})
+            for scope, ergebnisse in self.added
+            if scope.stock_id is None
+        )
+
+    def get_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> tuple[OptionsBacktestScope, Mapping[str, str]] | None:
+        for scope, ergebnisse in self.added:
+            if scope.measurement_id == measurement_id and scope.stock_id is None:
+                return scope, (ergebnisse[0].assumptions if ergebnisse else {})
+        return None
+
+    def list_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> tuple[OptionsBacktestResult, ...]:
+        return tuple(
+            ergebnis
+            for scope, ergebnisse in self.added
+            if scope.measurement_id == measurement_id and scope.stock_id == stock_id
+            for ergebnis in ergebnisse
+        )
+
+    def list_trades_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> Mapping[uuid.UUID, Sequence[OptionTrade]]:
+        je_aktie: dict[uuid.UUID, list[OptionTrade]] = defaultdict(list)
+        for scope, je_kombination in self.trades:
+            if scope.measurement_id != measurement_id or scope.stock_id is None:
+                continue
+            for eintraege in je_kombination.values():
+                je_aktie[scope.stock_id].extend(eintraege)
+        return je_aktie
+
+    def list_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> tuple[tuple[OptionsBacktestScope, OptionsBacktestResult], ...]:
+        return tuple(
+            (scope, ergebnis)
+            for scope, ergebnisse in self.added
+            if scope.measurement_id == measurement_id
+            for ergebnis in ergebnisse
+        )
+
+
 
 def _berichtskennung(report: StockReport) -> uuid.UUID:
     """Dieselbe Eindeutigkeit wie in der Datenbank: ein Bericht je Lauf und
@@ -556,6 +652,7 @@ class FakeUnitOfWork:
         screening_results: ScreeningResultRepository,
         processing_errors: ProcessingErrorRepository,
         backtest_results: BacktestResultRepository | None = None,
+        options_backtest_results: OptionsBacktestResultRepository | None = None,
         stock_reports: StockReportRepository | None = None,
     ) -> None:
         self.stocks = stocks
@@ -564,6 +661,9 @@ class FakeUnitOfWork:
         self.screening_results = screening_results
         self.processing_errors = processing_errors
         self.backtest_results = backtest_results or FakeBacktestResultRepository()
+        self.options_backtest_results = (
+            options_backtest_results or FakeOptionsBacktestResultRepository()
+        )
         self.stock_reports = stock_reports or FakeStockReportRepository()
 
     def __enter__(self) -> Self:

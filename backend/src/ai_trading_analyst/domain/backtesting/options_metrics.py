@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from types import MappingProxyType
+from uuid import UUID
 
 from ai_trading_analyst.domain.options import DEFAULT_STRIKE_GRID, HISTORICAL_CALENDAR
 from ai_trading_analyst.domain.screening import SignalType
@@ -68,6 +70,13 @@ class VariantMetrics:
     assigned: int
     take_profits: int
     stops: int
+    closed_at_expiration: int
+    """Am Verfallstag im Geld glattgestellt (ADR 0058, Nachtrag zu
+    Festlegung 7). Nur die gemanagte Variante kennt diesen Ausgang.
+
+    Ohne ihn zaehlten die uebrigen vier nicht mehr bis ``trades``, und die
+    Differenz saehe aus wie ein Rundungsfehler statt wie ein Ausgang. Ein
+    Test haelt fest, dass die Summe stimmt."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +99,36 @@ class OptionsBacktestResult:
     managed: VariantMetrics | None
     confidence: BacktestConfidence
     assumptions: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class OptionsBacktestScope:
+    """Wofuer eine Reihe von Ergebnissen gilt (ADR 0058, Festlegung 9).
+
+    Sie steht **neben** den Kennzahlen und nicht in ihnen: Dieselbe Rechnung
+    laeuft je Aktie und noch einmal ueber alle zusammen, und die Kennzahlen
+    sehen in beiden Faellen gleich aus. Was sie unterscheidet, steht hier.
+
+    ``measurement_id`` bindet zusammen, was ein Aufruf erzeugt hat. Eine
+    Neuberechnung ueberschreibt nichts, sondern legt eine neue Messung daneben
+    (``CLAUDE.md``: Unveraenderlichkeit) -- schon deshalb, weil sich zwischen
+    zwei Laeufen der Volatilitaetsaufschlag geaendert haben kann und das
+    Ergebnis als **Band** ueber mehrere Aufschlaege zu lesen ist.
+    """
+
+    measurement_id: UUID
+    measured_at: datetime
+    signal_rule_version: str
+    stock_id: UUID | None
+    """``None`` heisst: ueber alle Aktien der Messung zusammen.
+
+    Diese Zeile wird **aus den Einzeltrades** gerechnet und nicht aus den
+    Aktienzeilen gemittelt. Ein Mittel von Mitteln gewichtete eine Aktie mit
+    drei Trades so schwer wie eine mit dreissig."""
+    stocks: int
+    """Wie viele Aktien beigetragen haben -- 1 an einer Aktienzeile."""
+    history_start: datetime
+    history_end: datetime
 
 
 def summarize_variant(
@@ -115,10 +154,15 @@ def summarize_variant(
         assigned=sum(1 for o in outcomes if o is TradeOutcome.ASSIGNED),
         take_profits=sum(1 for o in outcomes if o is TradeOutcome.TAKE_PROFIT),
         stops=sum(1 for o in outcomes if o is TradeOutcome.STOPPED_OUT),
+        closed_at_expiration=sum(
+            1 for o in outcomes if o is TradeOutcome.CLOSED_AT_EXPIRATION
+        ),
     )
 
 
-def assumptions_of(params: OptionsBacktestParameters) -> Mapping[str, str]:
+def assumptions_of(
+    params: OptionsBacktestParameters, backtest_params: BacktestParameters
+) -> Mapping[str, str]:
     """Was aus demselben Kurspfad eine andere Zahl macht.
 
     Oeffentlich, weil die Ausgabe sie auch dann braucht, wenn keine einzige
@@ -140,6 +184,15 @@ def assumptions_of(params: OptionsBacktestParameters) -> Mapping[str, str]:
             "gewinnmitnahme": f"{params.take_profit_fraction:.2f}",
             "rueckkauf": f"{params.stop_multiple:.1f}x",
             "ziel_delta": f"{params.target_delta:.2f}",
+            # **Auch die Schwellen.** Sie entscheiden, ab wann eine Kennzahl
+            # ueberhaupt ausgewiesen wird. Stuenden sie nicht hier, waere eine
+            # gespeicherte Messung nicht mehr selbsterklaerend: Wer spaeter
+            # ``minimum_sample_size`` in der Konfiguration hebt, laese
+            # dieselben Zeilen anders eingestuft, ohne dass sich an ihnen
+            # etwas geaendert haette (``CLAUDE.md``: Versionierung an jedem
+            # Ergebnis).
+            "mindeststichprobe": str(backtest_params.minimum_sample_size),
+            "normale_stichprobe": str(backtest_params.normal_confidence_sample_size),
         }
     )
 
@@ -176,6 +229,78 @@ def kombinationskuerzel(kombination: SignalCombination) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PooledMetrics:
+    """Beide Varianten ueber einen Satz Trades, ohne Trennung nach Kombination.
+
+    Das ist die **eine Zahl je Aktie**, die ein Vergleich zwischen Aktien
+    braucht (ADR 0058, Nachtrag zu Festlegung 9). Sie entsteht aus den
+    Einzeltrades und nicht als Mittel der Kombinationszeilen: Ein Mittel von
+    Mitteln gewichtete eine Aktie mit drei Trades so schwer wie eine mit
+    dreissig.
+    """
+
+    trades: int
+    held: VariantMetrics | None
+    managed: VariantMetrics | None
+    confidence: BacktestConfidence
+
+
+def thresholds_of(
+    assumptions: Mapping[str, str], fallback: BacktestParameters
+) -> BacktestParameters:
+    """Die Schwellen, mit denen **diese Messung** eingestuft wurde.
+
+    Wer eine gespeicherte Messung liest, muss sie mit ihren eigenen Schwellen
+    lesen und nicht mit denen von heute. Sonst stuenden in derselben Antwort
+    Kombinationszeilen, die beim Schreiben als ``NORMAL`` galten, neben
+    Aktienzeilen, die beim Lesen auf ``INSUFFICIENT_DATA`` fallen -- fuer
+    dieselben Trades.
+
+    ``fallback`` deckt Messungen aus der Zeit vor dieser Festlegung ab. Sie
+    haben die Schluessel nicht, und dann ist die heutige Konfiguration die
+    einzige Auskunft, die es gibt -- geraten wird nichts.
+    """
+    try:
+        minimum = int(assumptions["mindeststichprobe"])
+        normal = int(assumptions["normale_stichprobe"])
+    except (KeyError, ValueError):
+        return fallback
+    return replace(
+        fallback, minimum_sample_size=minimum, normal_confidence_sample_size=normal
+    )
+
+
+def pool_trades(
+    trades: Sequence[OptionTrade], params: BacktestParameters
+) -> PooledMetrics:
+    """Fasst Trades zusammen -- dieselben Schwellen wie ueberall.
+
+    Unterhalb von ``minimum_sample_size`` bleiben **beide** Varianten
+    ``None``. Eine Trefferquote aus vier Trades ist keine Trefferquote, und
+    eine Rangliste, die sie neben eine aus vierzig stellt, ist eine
+    Einladung zum Fehlschluss.
+    """
+    konfidenz = _classify(len(trades), params)
+    if konfidenz is BacktestConfidence.INSUFFICIENT_DATA:
+        return PooledMetrics(
+            trades=len(trades), held=None, managed=None, confidence=konfidenz
+        )
+    kapitale = [trade.capital_at_risk for trade in trades]
+    return PooledMetrics(
+        trades=len(trades),
+        held=summarize_variant(
+            [t.held_profit for t in trades], kapitale, [t.held_outcome for t in trades]
+        ),
+        managed=summarize_variant(
+            [t.managed_profit for t in trades],
+            kapitale,
+            [t.managed_outcome for t in trades],
+        ),
+        confidence=konfidenz,
+    )
+
+
 def compute_options_backtest_results(
     trades_by_combination: Mapping[SignalCombination, Sequence[OptionTrade | None]],
     *,
@@ -193,7 +318,7 @@ def compute_options_backtest_results(
     Geliefert werden **alle** moeglichen Kombinationen, auch leere -- kein
     stillschweigendes Weglassen (Projektkonvention aus ``metrics.py``).
     """
-    annahmen = assumptions_of(options_params)
+    annahmen = assumptions_of(options_params, backtest_params)
     ergebnisse: list[OptionsBacktestResult] = []
     for kombination in qualifying_combinations(required_crossing_signals):
         eintraege = trades_by_combination.get(kombination, ())

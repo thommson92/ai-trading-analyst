@@ -28,6 +28,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
     MarketDataProviderError,
+    MarketDataUnavailableError,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.screening import IntradayBar
@@ -64,7 +65,10 @@ class StoredBarSource:
             # Servers -- den gesamten Screening-Lauf mitsamt aller bis dahin
             # geprueften Aktien ab. Der Live-Pfad hat dieses Loch nicht, weil
             # dort jede Bibliotheksausnahme als IbkrBarSourceError ankommt.
-            raise MarketDataProviderError(
+            # Als Unterklasse, damit jede bestehende Isolation weiterhin
+            # greift -- aber unterscheidbar: Dass die Datenbank nicht
+            # antwortet, ist kein Befund ueber diese Aktie.
+            raise MarketDataUnavailableError(
                 f"Der Bestand von '{contract.symbol}' ist nicht lesbar: {error}"
             ) from error
 

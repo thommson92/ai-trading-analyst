@@ -15,7 +15,13 @@ from typing import Protocol
 from uuid import UUID
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
-from ai_trading_analyst.domain.backtesting import BacktestResult
+from ai_trading_analyst.domain.backtesting import (
+    BacktestResult,
+    OptionsBacktestResult,
+    OptionsBacktestScope,
+    SignalCombination,
+)
+from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, StoredQuote
@@ -50,6 +56,21 @@ class MarketDataProviderError(Exception):
 
     Wird vom Application-Layer pro Aktie isoliert (Fehlerisolation) -- ein
     Fehler bei einer Aktie darf den Lauf nicht insgesamt scheitern lassen.
+    """
+
+
+class MarketDataUnavailableError(MarketDataProviderError):
+    """Nicht die Aktie fehlt, sondern die Quelle ist gerade nicht erreichbar.
+
+    **Unterklasse und nicht Geschwister:** Jede bestehende Fehlerisolation
+    faengt weiterhin, was sie bisher fing -- ein Datenbankabriss darf einen
+    Screening-Lauf so wenig abreissen wie zuvor.
+
+    Der Unterschied zaehlt dort, wo jemand die Auskunft liest. "Fuer diese
+    Aktie sind keine Bars gespeichert" ist eine Aussage ueber die Datenlage;
+    "die Datenbank antwortet nicht" ist ein Betriebsproblem. Beides als
+    dasselbe zu melden hiesse, einen Ausfall als Befund auszugeben -- und in
+    der API einen 404 zu schicken, wo ein 503 hingehoert.
     """
 
 
@@ -336,6 +357,81 @@ class BacktestResultRepository(Protocol):
     def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
 
 
+class OptionsBacktestResultRepository(Protocol):
+    """Ergebnisse des Optionsbacktests (ADR 0058, Festlegung 9).
+
+    **Eigene Tabelle, nie die Spalten der echten Optionsanalyse.** Jede Zahl
+    hier ist modelliert -- die Praemie gerechnet, der Verfallskalender
+    konstruiert, das Strike-Raster angenommen. Eine modellierte Praemie darf
+    an keiner Stelle neben einer notierten stehen, ohne dass man beide
+    unterscheiden kann.
+
+    Geschrieben wird **angehaengt, nie ueberschrieben**: Jeder Aufruf ist eine
+    eigene Messung mit eigener ``measurement_id``. Zwei Laeufe mit
+    verschiedenem Volatilitaetsaufschlag sind zwei Befunde und nicht ein
+    korrigierter.
+    """
+
+    def add(
+        self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
+    ) -> None: ...
+
+    def latest_measurement_id(self) -> UUID | None:
+        """Die juengste Messung, oder ``None``, wenn noch keine lief."""
+        ...
+
+    def list_measurements(
+        self,
+    ) -> Sequence[tuple[OptionsBacktestScope, Mapping[str, str]]]:
+        """Die Messungen, juengste zuerst -- je Messung genau ein Eintrag:
+        der Bereich ihrer Gesamtzeile samt Annahmen. Die Annahmen kommen mit,
+        weil sie das einzige sind, was zwei Messungen desselben Tages
+        unterscheidet."""
+        ...
+
+    def get_measurement(
+        self, measurement_id: UUID
+    ) -> tuple[OptionsBacktestScope, Mapping[str, str]] | None:
+        """Der Kopf einer Messung, oder ``None``."""
+        ...
+
+    def list_for_stock(
+        self, measurement_id: UUID, stock_id: UUID
+    ) -> Sequence[OptionsBacktestResult]: ...
+
+    def list_trades_for_measurement(
+        self, measurement_id: UUID
+    ) -> Mapping[UUID, Sequence[OptionTrade]]:
+        """Alle Trades einer Messung, nach Aktie gebuendelt."""
+        ...
+
+    def add_trades(
+        self,
+        scope: OptionsBacktestScope,
+        trades: Mapping[SignalCombination, Sequence[OptionTrade]],
+    ) -> None:
+        """Die Einzeltrades einer Aktie (Nachtrag zu Festlegung 9).
+
+        Aus ihnen entsteht die eine Zahl je Aktie, die ein Vergleich zwischen
+        Aktien braucht -- die Kennzahlen je Signalkombination lassen sich dafuer
+        nicht mitteln. ``scope.stock_id`` muss gesetzt sein.
+        """
+        ...
+
+    def list_trades_for_stock(
+        self, measurement_id: UUID, stock_id: UUID
+    ) -> Sequence[tuple[SignalCombination, OptionTrade]]: ...
+
+    def list_for_measurement(
+        self, measurement_id: UUID
+    ) -> Sequence[tuple[OptionsBacktestScope, OptionsBacktestResult]]:
+        """Alle Zeilen einer Messung -- Aktienzeilen **und** die Zeile ueber
+        alle Aktien (``scope.stock_id is None``). Wer nur die eine oder die
+        andere Sorte will, filtert; sie hier zu trennen hiesse, zweimal
+        dasselbe zu fragen."""
+        ...
+
+
 class IntradayBarRepository(Protocol):
     """Speicher fuer die nativen Bars des Anbieters.
 
@@ -542,6 +638,7 @@ class UnitOfWork(Protocol):
     screening_results: ScreeningResultRepository
     processing_errors: ProcessingErrorRepository
     backtest_results: BacktestResultRepository
+    options_backtest_results: OptionsBacktestResultRepository
     stock_reports: StockReportRepository
 
     def __enter__(self) -> UnitOfWork: ...
