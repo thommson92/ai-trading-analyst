@@ -187,3 +187,183 @@ p[role='alert'] {
   color: var(--warnung);
   padding-left: 0.8rem;
 }
+
+/* --- Backtest-Ansichten (ADR 0058) ------------------------------------- */
+
+:root {
+  --ema20: #3f6fb0;
+  --rsi: #6a4fb8;
+  --treffer: #b07400;
+  --gate: #8c93a3;
+  --einstieg: #0d7a5f;
+  --gewinn: #0d7a5f;
+  --verlust: #b23a44;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ema20: #6f9ce8;
+    --rsi: #a288ea;
+    --treffer: #f2ab2e;
+    --gate: #6d7585;
+    --einstieg: #26b98d;
+    --gewinn: #26b98d;
+    --verlust: #ec5a67;
+  }
+}
+
+/* Der Modellhinweis steht ueber den Zahlen und nicht darunter: Jede Praemie
+   des Optionsbacktests ist gerechnet, und wer die Zahlen liest, muss das
+   wissen, bevor er sie liest. */
+.modellhinweis {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--warnung);
+  background: var(--flaeche);
+  color: var(--gedaempft);
+}
+
+.annahmen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.5rem 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.annahmen div {
+  border-top: 1px solid var(--linie);
+  padding-top: 0.35rem;
+}
+
+.annahmen dt {
+  color: var(--gedaempft);
+  font-size: 0.85rem;
+}
+
+.annahmen dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.blockhinweis {
+  color: var(--gedaempft);
+  margin: 0 0 0.75rem;
+}
+
+/* Keine Grundlage sieht anders aus als eine schlechte Zahl -- sonst liest
+   sich "zu wenig Daten" wie ein Ergebnis. */
+.ohne-grundlage {
+  color: var(--gedaempft);
+  font-style: italic;
+  margin: 0 0 1rem;
+}
+
+table.varianten,
+table.kombinationen,
+table.signalbacktest,
+.tradeliste table,
+table.aktienvergleich {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+}
+
+table.varianten caption {
+  text-align: left;
+  color: var(--gedaempft);
+  padding-bottom: 0.35rem;
+}
+
+table.varianten th,
+table.varianten td,
+table.kombinationen th,
+table.kombinationen td,
+table.signalbacktest th,
+table.signalbacktest td,
+.tradeliste th,
+.tradeliste td,
+table.aktienvergleich th,
+table.aktienvergleich td {
+  border-bottom: 1px solid var(--linie);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+.zahl {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ausgang {
+  color: var(--gedaempft);
+  font-size: 0.85rem;
+}
+
+.chart {
+  margin-bottom: 1.5rem;
+}
+
+.chartlegende {
+  color: var(--gedaempft);
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+}
+
+.verteilungen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.verteilung {
+  margin: 0;
+}
+
+.verteilung figcaption {
+  color: var(--gedaempft);
+  font-size: 0.9rem;
+  padding-bottom: 0.25rem;
+}
+
+/* Breite Tabellen scrollen in ihrem eigenen Kasten, damit die Seite selbst
+   nie seitwaerts laeuft. */
+.tradeliste,
+.reiterinhalt {
+  overflow-x: auto;
+}
+
+.tradeliste summary {
+  cursor: pointer;
+  color: var(--gedaempft);
+  margin-bottom: 0.5rem;
+}
+
+.reiter {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--linie);
+  margin-bottom: 1rem;
+}
+
+.reiter button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--gedaempft);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+}
+
+.reiter button[aria-selected='true'] {
+  border-bottom-color: var(--schrift);
+  color: var(--schrift);
+}
+
+/* Eine Zeile ohne belastbare Stichprobe steht am Ende der Rangliste und
+   sieht gedaempft aus: Sie hat keine Zahl, nicht eine schlechte. */
+tr.duenn td,
+tr.duenn th {
+  color: var(--gedaempft);
+}

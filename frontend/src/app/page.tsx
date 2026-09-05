@@ -3,6 +3,7 @@
 // Die Tagesuebersicht holt ihre Daten im Browser: Das Dashboard ist ein
 // statischer Export (ADR 0052), es gibt keinen Renderserver.
 
+import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { Tagesuebersicht } from '@/components/Tagesuebersicht';
@@ -70,6 +71,9 @@ export default function HomePage(): ReactNode {
   return (
     <main>
       <h1>Tagesübersicht</h1>
+      <p>
+        <Link href="/backtests">Backtests →</Link>
+      </p>
       {laedt && <p>Wird geladen …</p>}
       {fehler !== null && (
         <p role="alert">

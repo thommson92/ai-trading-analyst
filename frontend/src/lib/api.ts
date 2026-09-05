@@ -154,3 +154,169 @@ export function listStockReports(
     `/api/v1/stocks/${encodeURIComponent(symbol)}/reports${anhang}`,
   );
 }
+
+// --- Backtests (ADR 0058) ------------------------------------------------
+//
+// Zwei Backtests, und sie bleiben getrennt: Der Signal-Backtest sagt, ob das
+// Signal traegt, der Optionsbacktest, ob sich damit Geld verdienen liesse.
+// Eine gemeinsame Zahl gibt es nirgends -- weder hier noch im Backend.
+
+export type Konfidenz = 'INSUFFICIENT_DATA' | 'LOW_SAMPLE' | 'NORMAL';
+
+export type Ausgang =
+  | 'EXPIRED_WORTHLESS'
+  | 'ASSIGNED'
+  | 'TAKE_PROFIT'
+  | 'STOPPED_OUT'
+  | 'CLOSED_AT_EXPIRATION';
+
+export interface VariantenKennzahlen {
+  trades: number;
+  win_rate: number | null;
+  mean_profit: number | null;
+  median_profit: number | null;
+  total_profit: number | null;
+  worst_profit: number | null;
+  mean_return_on_capital: number | null;
+  outcomes: Record<string, number>;
+}
+
+export interface Messung {
+  measurement_id: string;
+  measured_at: string;
+  signal_rule_version: string;
+  stocks: number;
+  history_start: string;
+  history_end: string;
+  assumptions: Record<string, string>;
+}
+
+export interface Kombinationsergebnis {
+  signal_types: string[];
+  letters: string;
+  episodes: number;
+  trades: number;
+  without_trade: number;
+  confidence: Konfidenz;
+  held: VariantenKennzahlen | null;
+  managed: VariantenKennzahlen | null;
+}
+
+export interface Aktienzeile {
+  stock_id: string;
+  symbol: string;
+  trades: number;
+  confidence: Konfidenz;
+  held: VariantenKennzahlen | null;
+  managed: VariantenKennzahlen | null;
+}
+
+export interface Messungsdetail {
+  measurement: Messung;
+  overall: Kombinationsergebnis[];
+  stocks: Aktienzeile[];
+}
+
+export interface SimulierterTrade {
+  letters: string;
+  entry_index: number;
+  entry_date: string;
+  underlying_at_entry: number;
+  strike: number;
+  delta: number;
+  volatility: number;
+  premium: number;
+  capital_at_risk: number;
+  expiration: string;
+  days_to_expiration: number;
+  underlying_at_expiration: number;
+  held_outcome: Ausgang;
+  held_profit: number;
+  managed_outcome: Ausgang;
+  managed_profit: number;
+  managed_exit_index: number;
+}
+
+export interface HorizontKennzahlen {
+  horizon: number;
+  raw_event_count: number;
+  deduplicated_event_count: number;
+  hit_rate: number | null;
+  mean_return: number | null;
+  median_return: number | null;
+  max_loss: number | null;
+  drawdown: number | null;
+  held_above_entry_rate: number | null;
+  confidence: Konfidenz;
+}
+
+export interface SignalBacktest {
+  signal_types: string[];
+  letters: string;
+  signal_rule_version: string;
+  evaluated_at: string;
+  history_start: string;
+  history_end: string;
+  horizons: HorizontKennzahlen[];
+}
+
+export interface AktienBacktest {
+  symbol: string;
+  signal_backtests: SignalBacktest[];
+  measurement: Messung | null;
+  combinations: Kombinationsergebnis[];
+  pooled: Aktienzeile | null;
+  trades: SimulierterTrade[];
+}
+
+export interface Chartkerze {
+  t: string;
+  d: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  e5: number | null;
+  e20: number | null;
+  rsi: number | null;
+  rma: number | null;
+  sig?: string[];
+  ep?: number;
+  first?: boolean;
+  gate?: string;
+}
+
+export interface Chartdaten {
+  symbol: string;
+  regelversion: string;
+  kerzen: Chartkerze[];
+  geprueft: number;
+  treffer: number;
+  episoden: number;
+  verworfen: number;
+  warmup: number;
+  kriterien: Record<string, string>;
+  gruende: Record<string, string>;
+}
+
+export function listMessungen(): Promise<Messung[]> {
+  return holen<Messung[]>('/api/v1/options-backtests');
+}
+
+export function getMessung(messungId: string): Promise<Messungsdetail> {
+  return holen<Messungsdetail>(`/api/v1/options-backtests/${messungId}`);
+}
+
+export function getAktienBacktest(
+  symbol: string,
+  messungId?: string,
+): Promise<AktienBacktest> {
+  const anhang = messungId === undefined ? '' : `?measurement_id=${messungId}`;
+  return holen<AktienBacktest>(
+    `/api/v1/stocks/${encodeURIComponent(symbol)}/backtest${anhang}`,
+  );
+}
+
+export function getChart(symbol: string): Promise<Chartdaten> {
+  return holen<Chartdaten>(`/api/v1/stocks/${encodeURIComponent(symbol)}/chart`);
+}

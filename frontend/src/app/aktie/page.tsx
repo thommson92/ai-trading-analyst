@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+import { Backtestansicht } from '@/components/Backtestansicht';
 import { Berichtsliste } from '@/components/Berichtsliste';
 import { listStockReports, type Page, type ReportSummary } from '@/lib/api';
 
@@ -57,6 +58,10 @@ function HistorieInhalt(): ReactNode {
           {seite.items.length > 0 && <Berichtsliste berichte={seite.items} mitDatum />}
         </>
       )}
+      {/* Der Backtest haengt nicht an der Berichtshistorie: Eine Aktie, die
+          nie Kandidat war, hat trotzdem Kerzen -- und damit Trigger, die sich
+          im Rueckblick pruefen lassen. */}
+      <Backtestansicht symbol={symbol} />
     </>
   );
 }
