@@ -2055,17 +2055,27 @@ def command_options_backtest(args: argparse.Namespace) -> int:
     with uow_factory() as uow:
         for stock, eigene in je_aktie.items():
             anfang, schluss = zeitraum[stock]
-            uow.options_backtest_results.add(
-                OptionsBacktestScope(
-                    measurement_id=messung,
-                    measured_at=gemessen_am,
-                    signal_rule_version=SIGNAL_RULE_VERSION,
-                    stock_id=stock.id,
-                    stocks=1,
-                    history_start=anfang,
-                    history_end=schluss,
-                ),
-                rechne(eigene),
+            bereich = OptionsBacktestScope(
+                measurement_id=messung,
+                measured_at=gemessen_am,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                stock_id=stock.id,
+                stocks=1,
+                history_start=anfang,
+                history_end=schluss,
+            )
+            uow.options_backtest_results.add(bereich, rechne(eigene))
+            # Die Einzeltrades daneben (Nachtrag zu Festlegung 9). Aus ihnen
+            # entsteht die eine Zahl je Aktie, die ein Vergleich zwischen
+            # Aktien braucht -- Kennzahlen je Kombination lassen sich dafuer
+            # nicht mitteln. ``None`` faellt hier weg: Eine Episode ohne Trade
+            # ist in ``without_trade`` gezaehlt und hat keine Zeile.
+            uow.options_backtest_results.add_trades(
+                bereich,
+                {
+                    kombination: [t for t in eintraege if t is not None]
+                    for kombination, eintraege in eigene.items()
+                },
             )
         uow.options_backtest_results.add(
             OptionsBacktestScope(

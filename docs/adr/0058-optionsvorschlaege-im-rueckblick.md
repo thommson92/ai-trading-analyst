@@ -290,6 +290,26 @@ kann. An jeder Zeile stehen die Modellversion, die Volatilitätsannahme samt
 Aufschlag, die Kalender- und Rasterannahme sowie die Signalregel-Version des
 zugrunde liegenden Triggers.
 
+**Nachtrag vom 2026-09-05: die Einzeltrades werden mitgespeichert.** Die
+Festlegung sprach von „den Ergebnissen", und umgesetzt waren das zunächst die
+Kennzahlen je Signalkombination. Zwei Dinge gehen damit nicht:
+
+* **Aktien lassen sich nicht vergleichen.** Die Kennzahlen stehen je
+  Kombination; eine Zahl je Aktie über alle Kombinationen entstünde nur als
+  Mittel von Mitteln und gewichtete eine Aktie mit drei Trades so schwer wie
+  eine mit dreißig. Aus den Einzeltrades ist sie exakt.
+* **Man sieht nicht, warum eine Zahl herauskam.** Eine Trefferquote von 81 %
+  neben einem Gesamtergebnis unter null ist ein Befund, den erst der
+  schlechteste Einzeltrade erklärt.
+
+Die Trades landen in einer **zweiten Tabelle** derselben Messung, nicht als
+JSONB in der Ergebniszeile: Über sie wird gruppiert, gefiltert und aggregiert,
+und genau das ist das Kriterium, nach dem in diesem Projekt zwischen Spalte
+und JSONB entschieden wird (`option_quotes`). Sie sind gleichermaßen
+modelliert wie die Kennzahlen und tragen dieselbe `measurement_id`; keine
+Zeile darf je neben einer notierten Prämie stehen, ohne dass man beide
+unterscheiden kann.
+
 ### 10. Woran die Strukturwahl live festgemacht wird
 
 Die beiden Strukturen unterscheiden sich in genau drei Dingen: **was den

@@ -232,6 +232,31 @@ def test_die_optionsbacktest_tabelle_entsteht_durch_die_migration(engine: Engine
     assert "ix_options_backtest_results_measurement_id" in indizes
 
 
+def test_die_trade_tabelle_entsteht_mit_ihrem_eigenen_enumtyp(engine: Engine) -> None:
+    """ADR 0058, Nachtrag zu Festlegung 9 -- ``a5e2c8b40f17``.
+
+    Anders als bei den Kennzahlen gab es ``tradeoutcome`` noch nicht; die
+    Migration legt ihn an. Die Falle steckt in der Gegenrichtung:
+    ``create_table`` legt einen Enumtyp seiner Spalten selbst mit an, ein
+    zweites ``CREATE TYPE`` scheitert. Deshalb zwei Objekte, und deshalb
+    dieser Test.
+    """
+    inspektor = inspect(engine)
+
+    assert "options_backtest_trades" in inspektor.get_table_names()
+    spalten = {s["name"]: s for s in inspektor.get_columns("options_backtest_trades")}
+    # Ein Trade gehoert immer zu genau einer Aktie -- anders als eine
+    # Kennzahlenzeile, die ueber alle stehen darf.
+    assert spalten["stock_id"]["nullable"] is False
+    assert _enum_werte(engine, "tradeoutcome") == [
+        "EXPIRED_WORTHLESS",
+        "ASSIGNED",
+        "TAKE_PROFIT",
+        "STOPPED_OUT",
+        "CLOSED_AT_EXPIRATION",
+    ]
+
+
 def test_die_score_spalten_entstehen_durch_die_migration(engine: Engine) -> None:
     """ADR 0041, ADR 0045 -- vier Spalten je Score und ein neuer Enum-Typ.
 

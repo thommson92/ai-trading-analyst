@@ -38,6 +38,8 @@ from ai_trading_analyst.domain.backtesting.options_metrics import assumptions_of
 from ai_trading_analyst.domain.backtesting.options_trade import (
     OPTIONS_BACKTEST_VERSION,
     OptionsBacktestParameters,
+    OptionTrade,
+    TradeOutcome,
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.options import (
@@ -2547,6 +2549,67 @@ class TestOptionsBacktestResultRepository:
         # Kennzahlen sind etwas anderes als keine Episoden.
         assert gelesen.episodes == 11
         assert gelesen.trades == 8
+
+    @staticmethod
+    def _trade(index: int, *, gemanagt: TradeOutcome) -> OptionTrade:
+        return OptionTrade(
+            entry_index=index,
+            entry_date=date(2026, 3, 6),
+            expiration=date(2026, 4, 17),
+            days_to_expiration=42,
+            strike=95.0,
+            underlying_at_entry=100.0,
+            volatility=0.28,
+            premium=2.15,
+            delta=-0.25,
+            capital_at_risk=9_500.0,
+            held_outcome=TradeOutcome.EXPIRED_WORTHLESS,
+            held_profit=215.0,
+            managed_outcome=gemanagt,
+            managed_profit=-410.0,
+            managed_exit_index=index + 20,
+            underlying_at_expiration=102.5,
+        )
+
+    def test_die_einzeltrades_kommen_unveraendert_zurueck(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """Nachtrag zu Festlegung 9. Aus ihnen entsteht die eine Zahl je
+        Aktie, die ein Vergleich zwischen Aktien braucht."""
+        stock = make_stock("OPTTRADE")
+        messung = uuid.uuid4()
+        kombination = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+        erwartet = [
+            self._trade(120, gemanagt=TradeOutcome.TAKE_PROFIT),
+            self._trade(300, gemanagt=TradeOutcome.CLOSED_AT_EXPIRATION),
+        ]
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.options_backtest_results.add_trades(
+                self._bereich(stock.id, messung=messung), {kombination: erwartet}
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            gelesen = uow.options_backtest_results.list_trades_for_stock(messung, stock.id)
+
+        assert [trade for _, trade in gelesen] == erwartet
+        assert {k for k, _ in gelesen} == {kombination}
+
+    def test_ein_trade_ohne_aktie_wird_abgewiesen(self, uow_factory: UowFactory) -> None:
+        """Die Zeile ueber alle Aktien gibt es nur bei den Kennzahlen -- sie
+        entsteht aus den Trades und ist keiner. Ohne diese Pruefung entstuenden
+        Trades ohne Herkunft, und die Aktienansicht faende sie nie wieder."""
+        messung = uuid.uuid4()
+        with uow_factory() as uow, pytest.raises(ValueError, match="brauchen eine Aktie"):
+            uow.options_backtest_results.add_trades(
+                self._bereich(None, messung=messung),
+                {
+                    frozenset({SignalType.RSI_CROSS}): [
+                        self._trade(1, gemanagt=TradeOutcome.STOPPED_OUT)
+                    ]
+                },
+            )
 
     def test_eine_zweite_messung_ueberschreibt_die_erste_nicht(
         self, uow_factory: UowFactory

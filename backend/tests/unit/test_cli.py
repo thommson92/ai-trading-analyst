@@ -3801,6 +3801,7 @@ class _SammelndeMessung:
     """
 
     zeilen: ClassVar[list[tuple[Any, tuple[Any, ...]]]] = []
+    trades: ClassVar[list[tuple[Any, dict[Any, Any]]]] = []
 
     def __init__(self, session_factory: Any) -> None:
         pass
@@ -3815,6 +3816,9 @@ class _SammelndeMessung:
     def add(self, scope: Any, results: Any) -> None:
         type(self).zeilen.append((scope, tuple(results)))
 
+    def add_trades(self, scope: Any, trades: Any) -> None:
+        type(self).trades.append((scope, dict(trades)))
+
     def commit(self) -> None:
         pass
 
@@ -3825,6 +3829,7 @@ class TestOptionsBacktestKommando:
     @pytest.fixture(autouse=True)
     def _ohne_datenbank(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _SammelndeMessung.zeilen = []
+        _SammelndeMessung.trades = []
         monkeypatch.setattr(cli, "SqlAlchemyUnitOfWork", _SammelndeMessung)
 
     def test_die_schalter_haben_dokumentierte_vorgaben(self) -> None:
@@ -3892,6 +3897,9 @@ class TestOptionsBacktestKommando:
         assert len({b.measurement_id for b in bereiche}) == 1
         (gesamt,) = [b for b in bereiche if b.stock_id is None]
         assert gesamt.stocks == 1
+        # Die Einzeltrades gehen mit, und **nur** zur Aktie: Die Gesamtzeile
+        # entsteht aus ihnen und ist keiner (Nachtrag zu Festlegung 9).
+        assert all(bereich.stock_id is not None for bereich, _ in _SammelndeMessung.trades)
 
     def test_der_symbolfilter_grenzt_ein(
         self,

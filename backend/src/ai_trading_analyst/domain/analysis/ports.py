@@ -19,7 +19,9 @@ from ai_trading_analyst.domain.backtesting import (
     BacktestResult,
     OptionsBacktestResult,
     OptionsBacktestScope,
+    SignalCombination,
 )
+from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, StoredQuote
@@ -362,6 +364,23 @@ class OptionsBacktestResultRepository(Protocol):
     def latest_measurement_id(self) -> UUID | None:
         """Die juengste Messung, oder ``None``, wenn noch keine lief."""
         ...
+
+    def add_trades(
+        self,
+        scope: OptionsBacktestScope,
+        trades: Mapping[SignalCombination, Sequence[OptionTrade]],
+    ) -> None:
+        """Die Einzeltrades einer Aktie (Nachtrag zu Festlegung 9).
+
+        Aus ihnen entsteht die eine Zahl je Aktie, die ein Vergleich zwischen
+        Aktien braucht -- die Kennzahlen je Signalkombination lassen sich dafuer
+        nicht mitteln. ``scope.stock_id`` muss gesetzt sein.
+        """
+        ...
+
+    def list_trades_for_stock(
+        self, measurement_id: UUID, stock_id: UUID
+    ) -> Sequence[tuple[SignalCombination, OptionTrade]]: ...
 
     def list_for_measurement(
         self, measurement_id: UUID

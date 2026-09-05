@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from ai_trading_analyst.domain.analysis import RunStatus
 from ai_trading_analyst.domain.analysts import AnalystRecommendationStatus
 from ai_trading_analyst.domain.backtesting import BacktestConfidence
+from ai_trading_analyst.domain.backtesting.options_trade import TradeOutcome
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
     FundamentalStatus,
@@ -821,6 +822,58 @@ class OptionsBacktestResultOrm(Base):
     desselben Tages voneinander unterscheidet."""
 
     stock: Mapped[StockOrm | None] = relationship()
+
+
+class OptionsBacktestTradeOrm(Base):
+    """Ein einzelner simulierter Put-Verkauf (ADR 0058, Nachtrag zu
+    Festlegung 9).
+
+    **Eigene Tabelle statt JSONB an der Ergebniszeile** -- nach dem Kriterium,
+    das dieses Projekt sonst auch anlegt (``option_quotes``): Ueber diese
+    Zeilen wird gruppiert, gefiltert und aggregiert. Genau daraus entsteht die
+    eine Zahl je Aktie, die ein Vergleich zwischen Aktien braucht und die sich
+    aus den Kennzahlen je Kombination nicht mitteln laesst.
+
+    ``stock_id`` ist hier **nicht** nullbar: Ein Trade gehoert immer zu genau
+    einer Aktie. Die Zeile ueber alle Aktien gibt es nur bei den Kennzahlen,
+    und sie entsteht aus eben diesen Trades.
+
+    Jede Zahl ist modelliert -- Praemie, Delta und Volatilitaet kommen aus dem
+    Preismodell, nicht von einem Anbieter. Nur ``underlying_at_entry`` und
+    ``underlying_at_expiration`` sind gemessen; sie stehen deshalb daneben.
+    """
+
+    __tablename__ = "options_backtest_trades"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    measurement_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"), index=True)
+    signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
+    """Die Kombination der Episode, aus der dieser Trade entstand."""
+
+    entry_index: Mapped[int]
+    entry_date: Mapped[date] = mapped_column(Date)
+    underlying_at_entry: Mapped[float]
+    """Gemessen -- der Schluss der Entscheidungskerze."""
+    strike: Mapped[float]
+    delta: Mapped[float]
+    volatility: Mapped[float]
+    """Die **unterstellte** implizite: realisierte mal Aufschlag."""
+    premium: Mapped[float]
+    """Nach Ausfuehrungsabschlag vereinnahmt."""
+    capital_at_risk: Mapped[float]
+    expiration: Mapped[date] = mapped_column(Date)
+    days_to_expiration: Mapped[int]
+    underlying_at_expiration: Mapped[float]
+    """Gemessen."""
+
+    held_outcome: Mapped[TradeOutcome] = mapped_column(_enum_column(TradeOutcome))
+    held_profit: Mapped[float]
+    managed_outcome: Mapped[TradeOutcome] = mapped_column(_enum_column(TradeOutcome))
+    managed_profit: Mapped[float]
+    managed_exit_index: Mapped[int]
+
+    stock: Mapped[StockOrm] = relationship()
 
 
 class DispatcherRunOrm(Base):

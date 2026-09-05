@@ -33,6 +33,7 @@ from ai_trading_analyst.domain.backtesting import (
     OptionsBacktestScope,
     VariantMetrics,
 )
+from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
     FigureName,
@@ -105,6 +106,7 @@ from .orm import (
     IntradayBarOrm,
     OptionQuoteOrm,
     OptionsBacktestResultOrm,
+    OptionsBacktestTradeOrm,
     ProcessingErrorOrm,
     ResearchCitationOrm,
     ScreeningResultOrm,
@@ -1733,6 +1735,90 @@ class SqlAlchemyOptionsBacktestResultRepository:
             )
             for result in results
         )
+
+    def add_trades(
+        self,
+        scope: OptionsBacktestScope,
+        trades: Mapping[frozenset[SignalType], Sequence[OptionTrade]],
+    ) -> None:
+        """Die Einzeltrades einer Aktie (Nachtrag zu Festlegung 9).
+
+        ``scope.stock_id`` muss gesetzt sein: Ein Trade gehoert zu genau einer
+        Aktie. Die Zeile ueber alle Aktien gibt es nur bei den Kennzahlen --
+        und sie entsteht aus eben diesen Trades.
+        """
+        if scope.stock_id is None:
+            raise ValueError(
+                "Einzeltrades brauchen eine Aktie. Die Gesamtzeile gibt es nur "
+                "bei den Kennzahlen."
+            )
+        stock_id = scope.stock_id
+        self._session.add_all(
+            OptionsBacktestTradeOrm(
+                id=uuid.uuid4(),
+                measurement_id=scope.measurement_id,
+                stock_id=stock_id,
+                signal_types=sorted(signal.value for signal in kombination),
+                entry_index=trade.entry_index,
+                entry_date=trade.entry_date,
+                underlying_at_entry=trade.underlying_at_entry,
+                strike=trade.strike,
+                delta=trade.delta,
+                volatility=trade.volatility,
+                premium=trade.premium,
+                capital_at_risk=trade.capital_at_risk,
+                expiration=trade.expiration,
+                days_to_expiration=trade.days_to_expiration,
+                underlying_at_expiration=trade.underlying_at_expiration,
+                held_outcome=trade.held_outcome,
+                held_profit=trade.held_profit,
+                managed_outcome=trade.managed_outcome,
+                managed_profit=trade.managed_profit,
+                managed_exit_index=trade.managed_exit_index,
+            )
+            for kombination, eintraege in trades.items()
+            for trade in eintraege
+        )
+
+    def list_trades_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> Sequence[tuple[frozenset[SignalType], OptionTrade]]:
+        rows = (
+            self._session.execute(
+                select(OptionsBacktestTradeOrm)
+                .where(
+                    OptionsBacktestTradeOrm.measurement_id == measurement_id,
+                    OptionsBacktestTradeOrm.stock_id == stock_id,
+                )
+                .order_by(OptionsBacktestTradeOrm.entry_index)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            (
+                frozenset(SignalType(wert) for wert in row.signal_types),
+                OptionTrade(
+                    entry_index=row.entry_index,
+                    entry_date=row.entry_date,
+                    expiration=row.expiration,
+                    days_to_expiration=row.days_to_expiration,
+                    strike=row.strike,
+                    underlying_at_entry=row.underlying_at_entry,
+                    volatility=row.volatility,
+                    premium=row.premium,
+                    delta=row.delta,
+                    capital_at_risk=row.capital_at_risk,
+                    held_outcome=row.held_outcome,
+                    held_profit=row.held_profit,
+                    managed_outcome=row.managed_outcome,
+                    managed_profit=row.managed_profit,
+                    managed_exit_index=row.managed_exit_index,
+                    underlying_at_expiration=row.underlying_at_expiration,
+                ),
+            )
+            for row in rows
+        ]
 
     def latest_measurement_id(self) -> uuid.UUID | None:
         return self._session.execute(

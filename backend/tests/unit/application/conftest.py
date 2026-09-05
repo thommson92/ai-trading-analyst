@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
 from typing import Self
@@ -43,6 +43,7 @@ from ai_trading_analyst.domain.backtesting import (
     OptionsBacktestResult,
     OptionsBacktestScope,
 )
+from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterStatus, NextEarningsDate
 from ai_trading_analyst.domain.fundamentals import FundamentalSnapshot
 from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsParameters
@@ -54,6 +55,7 @@ from ai_trading_analyst.domain.screening import (
     IndicatorValues,
     IntradayBar,
     ScreeningStatus,
+    SignalType,
 )
 from ai_trading_analyst.domain.technical import (
     PriceZone,
@@ -438,11 +440,34 @@ class FakeOptionsBacktestResultRepository:
 
     def __init__(self) -> None:
         self.added: list[tuple[OptionsBacktestScope, tuple[OptionsBacktestResult, ...]]] = []
+        self.trades: list[
+            tuple[OptionsBacktestScope, Mapping[frozenset[SignalType], tuple[OptionTrade, ...]]]
+        ] = []
 
     def add(
         self, scope: OptionsBacktestScope, results: Sequence[OptionsBacktestResult]
     ) -> None:
         self.added.append((scope, tuple(results)))
+
+    def add_trades(
+        self,
+        scope: OptionsBacktestScope,
+        trades: Mapping[frozenset[SignalType], Sequence[OptionTrade]],
+    ) -> None:
+        if scope.stock_id is None:
+            raise ValueError("Einzeltrades brauchen eine Aktie.")
+        self.trades.append((scope, {k: tuple(v) for k, v in trades.items()}))
+
+    def list_trades_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> tuple[tuple[frozenset[SignalType], OptionTrade], ...]:
+        return tuple(
+            (kombination, trade)
+            for scope, je_kombination in self.trades
+            if scope.measurement_id == measurement_id and scope.stock_id == stock_id
+            for kombination, eintraege in je_kombination.items()
+            for trade in eintraege
+        )
 
     def latest_measurement_id(self) -> uuid.UUID | None:
         if not self.added:
