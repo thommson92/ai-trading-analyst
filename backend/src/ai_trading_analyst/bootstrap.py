@@ -56,6 +56,7 @@ from ai_trading_analyst.domain.scoring import (
     ScoringParameters,
 )
 from ai_trading_analyst.domain.screening import (
+    CandidateRuleParameters,
     IndicatorParameters,
     SessionParameters,
     SignalType,
@@ -669,6 +670,29 @@ def build_app() -> FastAPI:
     app.state.uow_factory = uow_factory
     app.state.run_overview_use_case = ReadRunOverviewUseCase(uow_factory)
     app.state.check_database_ready = check_database_ready
+    # Die Schwellen der Stichprobengroesse und die Kandidatenregel kommen aus
+    # derselben Konfiguration wie im Lauf. Eine Oberflaeche, die anders
+    # einstuft als der Lauf, der die Zahlen erzeugt hat, waere schlimmer als
+    # gar keine.
+    indicators = loaded.config.require_indicators()
+    app.state.backtest_parameters = build_backtest_params(loaded.config)
+    app.state.candidate_rule_parameters = CandidateRuleParameters(
+        required_crossing_signals=loaded.config.screening.required_crossing_signals,
+        signal_lookback_previous_candles=(
+            loaded.config.screening.signal_lookback_previous_candles
+        ),
+        warmup_candles=indicators.warmup_candles,
+    )
+    # **Fest auf den Bestand.** Der Chart braucht Kerzen, und die liegen in
+    # der Datenbank; ein Webdienst, der dafuer die TWS-Client-ID belegte,
+    # waere gefaehrlicher als kein Chart (ADR 0052). Der Anbieter bleibt
+    # ``ibkr``, damit die Kerzenbildung dieselbe ist -- nur die Quelle nicht.
+    nur_bestand = loaded.config.model_copy(
+        update={"market_data": loaded.config.market_data.model_copy(update={"source": "stored"})}
+    )
+    app.state.chart_market_data = build_market_data_provider(
+        nur_bestand, indicators, project_root(loaded.source_path), uow_factory=uow_factory
+    )
     return app
 
 

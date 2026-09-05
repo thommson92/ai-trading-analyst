@@ -365,6 +365,25 @@ class OptionsBacktestResultRepository(Protocol):
         """Die juengste Messung, oder ``None``, wenn noch keine lief."""
         ...
 
+    def list_measurements(
+        self,
+    ) -> Sequence[tuple[OptionsBacktestScope, Mapping[str, str]]]:
+        """Die Messungen, juengste zuerst -- je Messung genau ein Eintrag:
+        der Bereich ihrer Gesamtzeile samt Annahmen. Die Annahmen kommen mit,
+        weil sie das einzige sind, was zwei Messungen desselben Tages
+        unterscheidet."""
+        ...
+
+    def list_for_stock(
+        self, measurement_id: UUID, stock_id: UUID
+    ) -> Sequence[OptionsBacktestResult]: ...
+
+    def list_trades_for_measurement(
+        self, measurement_id: UUID
+    ) -> Mapping[UUID, Sequence[OptionTrade]]:
+        """Alle Trades einer Messung, nach Aktie gebuendelt."""
+        ...
+
     def add_trades(
         self,
         scope: OptionsBacktestScope,

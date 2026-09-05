@@ -8,7 +8,7 @@ Statusuebergaenge, Fehlerisolation), nicht die Persistenz selbst (dafuer
 from __future__ import annotations
 
 import uuid
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from types import TracebackType
@@ -473,6 +473,36 @@ class FakeOptionsBacktestResultRepository:
         if not self.added:
             return None
         return self.added[-1][0].measurement_id
+
+    def list_measurements(
+        self,
+    ) -> tuple[tuple[OptionsBacktestScope, Mapping[str, str]], ...]:
+        return tuple(
+            (scope, ergebnisse[0].assumptions if ergebnisse else {})
+            for scope, ergebnisse in self.added
+            if scope.stock_id is None
+        )
+
+    def list_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> tuple[OptionsBacktestResult, ...]:
+        return tuple(
+            ergebnis
+            for scope, ergebnisse in self.added
+            if scope.measurement_id == measurement_id and scope.stock_id == stock_id
+            for ergebnis in ergebnisse
+        )
+
+    def list_trades_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> Mapping[uuid.UUID, Sequence[OptionTrade]]:
+        je_aktie: dict[uuid.UUID, list[OptionTrade]] = defaultdict(list)
+        for scope, je_kombination in self.trades:
+            if scope.measurement_id != measurement_id or scope.stock_id is None:
+                continue
+            for eintraege in je_kombination.values():
+                je_aktie[scope.stock_id].extend(eintraege)
+        return je_aktie
 
     def list_for_measurement(
         self, measurement_id: uuid.UUID

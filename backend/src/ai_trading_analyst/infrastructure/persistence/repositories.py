@@ -1704,6 +1704,52 @@ def _variante_aus_spalten(
     )
 
 
+def _bereich_aus_zeile(row: OptionsBacktestResultOrm) -> OptionsBacktestScope:
+    return OptionsBacktestScope(
+        measurement_id=row.measurement_id,
+        measured_at=row.measured_at,
+        signal_rule_version=row.signal_rule_version,
+        stock_id=row.stock_id,
+        stocks=row.stocks,
+        history_start=row.history_start,
+        history_end=row.history_end,
+    )
+
+
+def _ergebnis_aus_zeile(row: OptionsBacktestResultOrm) -> OptionsBacktestResult:
+    return OptionsBacktestResult(
+        signal_types=frozenset(SignalType(wert) for wert in row.signal_types),
+        episodes=row.episodes,
+        trades=row.trades,
+        without_trade=row.without_trade,
+        held=_variante_aus_spalten(row, "held", row.trades),
+        managed=_variante_aus_spalten(row, "managed", row.trades),
+        confidence=row.confidence,
+        assumptions=MappingProxyType(dict(row.assumptions)),
+    )
+
+
+def _trade_aus_zeile(row: OptionsBacktestTradeOrm) -> OptionTrade:
+    return OptionTrade(
+        entry_index=row.entry_index,
+        entry_date=row.entry_date,
+        expiration=row.expiration,
+        days_to_expiration=row.days_to_expiration,
+        strike=row.strike,
+        underlying_at_entry=row.underlying_at_entry,
+        volatility=row.volatility,
+        premium=row.premium,
+        delta=row.delta,
+        capital_at_risk=row.capital_at_risk,
+        held_outcome=row.held_outcome,
+        held_profit=row.held_profit,
+        managed_outcome=row.managed_outcome,
+        managed_profit=row.managed_profit,
+        managed_exit_index=row.managed_exit_index,
+        underlying_at_expiration=row.underlying_at_expiration,
+    )
+
+
 class SqlAlchemyOptionsBacktestResultRepository:
     """ADR 0058, Festlegung 9. Angehaengt, nie ueberschrieben."""
 
@@ -1796,29 +1842,83 @@ class SqlAlchemyOptionsBacktestResultRepository:
             .all()
         )
         return [
-            (
-                frozenset(SignalType(wert) for wert in row.signal_types),
-                OptionTrade(
-                    entry_index=row.entry_index,
-                    entry_date=row.entry_date,
-                    expiration=row.expiration,
-                    days_to_expiration=row.days_to_expiration,
-                    strike=row.strike,
-                    underlying_at_entry=row.underlying_at_entry,
-                    volatility=row.volatility,
-                    premium=row.premium,
-                    delta=row.delta,
-                    capital_at_risk=row.capital_at_risk,
-                    held_outcome=row.held_outcome,
-                    held_profit=row.held_profit,
-                    managed_outcome=row.managed_outcome,
-                    managed_profit=row.managed_profit,
-                    managed_exit_index=row.managed_exit_index,
-                    underlying_at_expiration=row.underlying_at_expiration,
-                ),
-            )
+            (frozenset(SignalType(wert) for wert in row.signal_types), _trade_aus_zeile(row))
             for row in rows
         ]
+
+    def list_measurements(
+        self,
+    ) -> Sequence[tuple[OptionsBacktestScope, Mapping[str, str]]]:
+        """Die Messungen, juengste zuerst -- je Messung genau ein Eintrag.
+
+        Geliefert wird der Bereich der **Gesamtzeile** (``stock_id IS NULL``)
+        samt ihren Annahmen: Sie traegt die Zahl der Aktien, den vollen
+        Zeitraum und den Volatilitaetsaufschlag, und genau das braucht eine
+        Auswahlliste. Eine Messung ohne Gesamtzeile kann es nicht geben --
+        der Messlauf schreibt sie immer.
+
+        Die Annahmen kommen **mit**, nicht auf Nachfrage: Sie sind das
+        einzige, was zwei Messungen desselben Tages unterscheidet, und sie je
+        Messung einzeln nachzuladen waere eine Abfrage je Zeile.
+        """
+        rows = (
+            self._session.execute(
+                select(OptionsBacktestResultOrm)
+                .where(OptionsBacktestResultOrm.stock_id.is_(None))
+                .order_by(OptionsBacktestResultOrm.measured_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        gesehen: set[uuid.UUID] = set()
+        messungen: list[tuple[OptionsBacktestScope, Mapping[str, str]]] = []
+        for row in rows:
+            if row.measurement_id in gesehen:
+                continue
+            gesehen.add(row.measurement_id)
+            messungen.append(
+                (_bereich_aus_zeile(row), MappingProxyType(dict(row.assumptions)))
+            )
+        return messungen
+
+    def list_for_stock(
+        self, measurement_id: uuid.UUID, stock_id: uuid.UUID
+    ) -> Sequence[OptionsBacktestResult]:
+        rows = (
+            self._session.execute(
+                select(OptionsBacktestResultOrm)
+                .where(
+                    OptionsBacktestResultOrm.measurement_id == measurement_id,
+                    OptionsBacktestResultOrm.stock_id == stock_id,
+                )
+                .order_by(OptionsBacktestResultOrm.signal_types)
+            )
+            .scalars()
+            .all()
+        )
+        return [_ergebnis_aus_zeile(row) for row in rows]
+
+    def list_trades_for_measurement(
+        self, measurement_id: uuid.UUID
+    ) -> Mapping[uuid.UUID, Sequence[OptionTrade]]:
+        """Alle Trades einer Messung, nach Aktie gebuendelt.
+
+        Fuer die Gesamtuebersicht: Aus ihnen entsteht je Aktie die eine Zahl,
+        die sich aus den Kennzahlen je Kombination nicht mitteln laesst.
+        """
+        rows = (
+            self._session.execute(
+                select(OptionsBacktestTradeOrm)
+                .where(OptionsBacktestTradeOrm.measurement_id == measurement_id)
+                .order_by(OptionsBacktestTradeOrm.entry_index)
+            )
+            .scalars()
+            .all()
+        )
+        je_aktie: dict[uuid.UUID, list[OptionTrade]] = defaultdict(list)
+        for row in rows:
+            je_aktie[row.stock_id].append(_trade_aus_zeile(row))
+        return je_aktie
 
     def latest_measurement_id(self) -> uuid.UUID | None:
         return self._session.execute(
@@ -1844,28 +1944,5 @@ class SqlAlchemyOptionsBacktestResultRepository:
             .scalars()
             .all()
         )
-        return [
-            (
-                OptionsBacktestScope(
-                    measurement_id=row.measurement_id,
-                    measured_at=row.measured_at,
-                    signal_rule_version=row.signal_rule_version,
-                    stock_id=row.stock_id,
-                    stocks=row.stocks,
-                    history_start=row.history_start,
-                    history_end=row.history_end,
-                ),
-                OptionsBacktestResult(
-                    signal_types=frozenset(SignalType(v) for v in row.signal_types),
-                    episodes=row.episodes,
-                    trades=row.trades,
-                    without_trade=row.without_trade,
-                    held=_variante_aus_spalten(row, "held", row.trades),
-                    managed=_variante_aus_spalten(row, "managed", row.trades),
-                    confidence=row.confidence,
-                    assumptions=MappingProxyType(dict(row.assumptions)),
-                ),
-            )
-            for row in rows
-        ]
+        return [(_bereich_aus_zeile(row), _ergebnis_aus_zeile(row)) for row in rows]
 

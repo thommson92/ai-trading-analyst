@@ -218,6 +218,53 @@ def kombinationskuerzel(kombination: SignalCombination) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PooledMetrics:
+    """Beide Varianten ueber einen Satz Trades, ohne Trennung nach Kombination.
+
+    Das ist die **eine Zahl je Aktie**, die ein Vergleich zwischen Aktien
+    braucht (ADR 0058, Nachtrag zu Festlegung 9). Sie entsteht aus den
+    Einzeltrades und nicht als Mittel der Kombinationszeilen: Ein Mittel von
+    Mitteln gewichtete eine Aktie mit drei Trades so schwer wie eine mit
+    dreissig.
+    """
+
+    trades: int
+    held: VariantMetrics | None
+    managed: VariantMetrics | None
+    confidence: BacktestConfidence
+
+
+def pool_trades(
+    trades: Sequence[OptionTrade], params: BacktestParameters
+) -> PooledMetrics:
+    """Fasst Trades zusammen -- dieselben Schwellen wie ueberall.
+
+    Unterhalb von ``minimum_sample_size`` bleiben **beide** Varianten
+    ``None``. Eine Trefferquote aus vier Trades ist keine Trefferquote, und
+    eine Rangliste, die sie neben eine aus vierzig stellt, ist eine
+    Einladung zum Fehlschluss.
+    """
+    konfidenz = _classify(len(trades), params)
+    if konfidenz is BacktestConfidence.INSUFFICIENT_DATA:
+        return PooledMetrics(
+            trades=len(trades), held=None, managed=None, confidence=konfidenz
+        )
+    kapitale = [trade.capital_at_risk for trade in trades]
+    return PooledMetrics(
+        trades=len(trades),
+        held=summarize_variant(
+            [t.held_profit for t in trades], kapitale, [t.held_outcome for t in trades]
+        ),
+        managed=summarize_variant(
+            [t.managed_profit for t in trades],
+            kapitale,
+            [t.managed_outcome for t in trades],
+        ),
+        confidence=konfidenz,
+    )
+
+
 def compute_options_backtest_results(
     trades_by_combination: Mapping[SignalCombination, Sequence[OptionTrade | None]],
     *,

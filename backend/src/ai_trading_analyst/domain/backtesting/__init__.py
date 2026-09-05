@@ -4,7 +4,10 @@ from .metrics import compute_backtest_results, compute_horizon_metrics, group_by
 from .options_metrics import (
     OptionsBacktestResult,
     OptionsBacktestScope,
+    PooledMetrics,
     VariantMetrics,
+    kombinationskuerzel,
+    pool_trades,
 )
 from .replay import (
     HistoricalDecision,
@@ -28,6 +31,7 @@ __all__ = [
     "HorizonMetrics",
     "OptionsBacktestResult",
     "OptionsBacktestScope",
+    "PooledMetrics",
     "SignalCombination",
     "VariantMetrics",
     "compute_backtest_results",
@@ -36,4 +40,6 @@ __all__ = [
     "group_by_combination",
     "group_into_episodes",
     "is_decision_point",
+    "kombinationskuerzel",
+    "pool_trades",
 ]
