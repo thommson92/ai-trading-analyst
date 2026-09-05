@@ -37,6 +37,10 @@ solange nichts das eigene Netz verlässt
 | GET | `/api/v1/analysis-runs/{run_id}/reports` | Die Berichte dieses Laufs als Kurzliste |
 | GET | `/api/v1/reports/{report_id}` | Ein Bericht — das vollständige gespeicherte Dokument |
 | GET | `/api/v1/stocks/{symbol}/reports` | Die Berichte einer Aktie über alle Läufe, neueste zuerst, paginiert |
+| GET | `/api/v1/stocks/{symbol}/backtest` | Beide Backtests einer Aktie — Signal und Optionen, getrennt — samt Einzeltrades |
+| GET | `/api/v1/stocks/{symbol}/chart` | Der Validierungschart als reine Daten (Kerzen, Indikatoren, Entscheidungspunkte) |
+| GET | `/api/v1/options-backtests` | Die Messungen des Optionsbacktests, jüngste zuerst, mit ihren Annahmen |
+| GET | `/api/v1/options-backtests/{measurement_id}` | Eine Messung: Kombinationen über alle Aktien und die Aktienzeilen |
 | GET | `/api/v1/system/health` | Liveness — der Prozess läuft |
 | GET | `/api/v1/system/readiness` | Readiness — die Datenbank ist erreichbar |
 
@@ -89,6 +93,46 @@ Antwortschema.
 Symbol über alle Läufe hinweg. Das ist die Analysehistorie aus US-010: Jeder
 Eintrag zeigt Datum, Empfehlung und beide Scores und führt in die
 Detailansicht.
+
+### Backtests
+
+Zwei Backtests, und sie bleiben in der API **getrennt** — bis in die
+Feldnamen. Der Signal-Backtest sagt, ob das Signal trägt; der
+Optionsbacktest, ob sich damit Geld verdienen ließe. Es gibt nirgends eine
+gemeinsame Zahl, so wenig wie es eine gemeinsame Erfolgsquote aus
+Trefferquote und Halten oberhalb des Einstiegs gibt (`CLAUDE.md`).
+
+`GET /api/v1/stocks/{symbol}/backtest` liefert beides für eine Aktie, dazu
+die Einzeltrades der jüngsten Messung. Mit `?measurement_id=` gilt eine
+bestimmte statt der jüngsten. Lief noch kein Messlauf, ist `measurement`
+`null` und die Optionsseite leer — der Signal-Backtest steht trotzdem, denn
+er entsteht im Tageslauf.
+
+`GET /api/v1/options-backtests` und `/{measurement_id}` bedienen die
+Gesamtübersicht. **An jeder Messung stehen ihre Annahmen** —
+Volatilitätsaufschlag, Verfallskalender, Strike-Raster,
+Ausführungsabschlag. Sie sind das einzige, was zwei Messungen desselben
+Tages unterscheidet, und ohne sie ist keine Zahl darunter deutbar: Jede
+Prämie des Optionsbacktests ist modelliert
+([ADR 0058](adr/0058-optionsvorschlaege-im-rueckblick.md)).
+
+Die Aktienzeilen einer Messung entstehen **aus den Einzeltrades** und nicht
+als Mittel der Kombinationszeilen; ein Mittel von Mitteln gewichtete eine
+Aktie mit drei Trades so schwer wie eine mit dreißig. Sortiert kommen sie
+nach der Rendite der gemanagten Variante, Aktien ohne belastbare Stichprobe
+ans Ende — was „gut" heißt, entscheidet die API und nicht die Oberfläche.
+
+`GET /api/v1/stocks/{symbol}/chart` gibt den Payload des Validierungscharts,
+erzeugt von derselben Funktion wie `cli chart`. Die Kerzen kommen
+**ausschließlich aus dem Bestand**; ein Webdienst, der dafür die
+TWS-Client-ID belegte, wäre gefährlicher als kein Chart
+([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Geliefert wird die
+ganze Reihe — ein Fenster verschöbe die Frage, welches das richtige ist, in
+die Oberfläche.
+
+**Keiner dieser Endpunkte startet einen Messlauf.** Er läuft über die ganze
+Watchliste und fünf Jahre und entsteht über `cli options-backtest`, aus
+demselben Grund, aus dem die API keinen Analyselauf startet.
 
 ## Paginierung
 

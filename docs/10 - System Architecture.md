@@ -960,13 +960,13 @@ GET    /api/v1/system/readiness
 
 ## 6.15 Web Dashboard
 
-> **Zuschnitt des MVP:** Gebaut werden drei der zehn Hauptansichten —
-> Tagesübersicht, Detailansicht und historische Analysen pro Aktie
-> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Die Detailansicht
-> zeigt den gespeicherten Bericht mit allen achtzehn Punkten und deckt damit
-> Backtesting, Optionsstrategien und Quellen bereits inhaltlich ab; als
-> eigene Ansichten bleiben sie Zielbild, ebenso Systemstatus und
-> Konfiguration. Das Dashboard ist ausschließlich aus dem eigenen Netz
+> **Zuschnitt des MVP:** Gebaut sind vier der zehn Hauptansichten —
+> Tagesübersicht, Detailansicht, historische Analysen pro Aktie
+> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)) und seit dem
+> 2026-09-05 die **Backtesting-Ansicht**. Die Detailansicht zeigt den
+> gespeicherten Bericht mit allen achtzehn Punkten und deckt damit
+> Optionsstrategien und Quellen bereits inhaltlich ab; als eigene Ansichten
+> bleiben sie Zielbild, ebenso Systemstatus und Konfiguration. Das Dashboard ist ausschließlich aus dem eigenen Netz
 > erreichbar ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)) und wird als
 > statischer Export von der API mit ausgeliefert
 > ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)).
@@ -985,6 +985,37 @@ Das Dashboard ist eine responsive Webanwendung.
 - Quellenübersicht,
 - Systemstatus,
 - Konfiguration.
+
+### Backtesting-Ansicht
+
+Sie besteht aus zwei Teilen, und beide führen die **zwei Backtests getrennt**:
+Der Signal-Backtest sagt, ob das Signal trägt, der Optionsbacktest, ob sich
+damit Geld verdienen ließe. Eine gemeinsame Zahl gibt es nirgends — so wenig
+wie eine gemeinsame Erfolgsquote aus Trefferquote und Halten oberhalb des
+Einstiegs (§6.7, `CLAUDE.md`).
+
+**Je Aktie**, als Teil der historischen Analysen: Kursverlauf mit jedem
+Urteil der Kandidatenregel — Entscheidungspunkte, an einer Torbedingung
+verworfene Punkte ([ADR 0057](adr/0057-torbedingungen-und-episoden.md)) und
+die simulierten Einstiege —, darunter der Signal-Backtest je Horizont, der
+Optionsbacktest über alle Signalkombinationen und je Kombination, die
+Verteilung der Einzelergebnisse und die vollständige Liste der simulierten
+Trades.
+
+**Über alle Aktien**, als eigene Ansicht: Auswahl der Messung, dann zwei
+Reiter — Aktien im Vergleich und Signalkombinationen.
+
+Drei Festlegungen gelten für die Darstellung:
+
+- **Die Annahmen stehen über den Zahlen, nicht darunter.** Jede Prämie des
+  Optionsbacktests ist modelliert
+  ([ADR 0058](adr/0058-optionsvorschlaege-im-rueckblick.md)); wer die Zahlen
+  liest, muss das wissen, bevor er sie liest.
+- **Der schlechteste Einzeltrade steht offen**, nicht hinter einem
+  Aufklappen. Er ist die Zahl, die eine gute Trefferquote nicht zeigt.
+- **Keine Grundlage sieht anders aus als eine schlechte Zahl.** Unterhalb der
+  Mindeststichprobe steht gar keine Kennzahl, nicht eine niedrige, und die
+  Zeile rutscht ans Ende der Rangliste.
 
 ### Tagesübersicht
 
