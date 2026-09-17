@@ -1277,7 +1277,7 @@ diese Stufe, sobald ADR 0060 angenommen ist.
 
 ---
 
-# Stufe L — Der Weg nach draußen: Cloudflare Pages mit Access
+# Stufe L — Der Weg nach draußen: Cloudflare Workers mit Access
 
 **Noch nicht abgenommen.** Diese Stufe setzt die Anbieterentscheidung um
 ([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
@@ -1291,6 +1291,18 @@ Letztes hinauf. Vorher steht eine Attrappe dort, und an ihr wird geprüft,
 ob die Zugriffsregel wirklich greift. Wer zuerst hochlädt und dann absichert,
 hat den Stand in der Zwischenzeit öffentlich stehen — und was einmal
 abgerufen wurde, holt keine Regel zurück.
+
+**Aus Pages wurde ein Worker, und das ist gut so.** Diese Stufe war für
+Cloudflare Pages geschrieben. Die Konsole legt über „Create application"
+inzwischen einen **Worker mit statischen Dateien** an, erkennbar an der
+Adresse `<name>.<konto>.workers.dev` statt `<name>.pages.dev`; Cloudflare
+empfiehlt Workers ausdrücklich für neue Projekte. Für diesen Zweck ist der
+Worker **der bessere Ort**: Eine einzige Einstellung schützt alle seine
+Adressen einschließlich der Vorschauen — die Falle mit den zwei
+Anwendungen, die Pages hatte, entfällt —, und Vorschau-Adressen lassen sich
+ganz abschalten. Die Schritte 3 und 4 sind darauf umgestellt; **Schritt 5
+bis 8 sind noch für Pages geschrieben und werden vor ihrer Ausführung
+geprüft und umgestellt.**
 
 **Die Menüpfade sind Stand 2026-09-17.** Cloudflare hat die Konsole
 mehrfach umgebaut und „Zero Trust" in „Cloudflare One" umbenannt; ein
@@ -1378,86 +1390,94 @@ Identitätsanbieter; dann ist O3 damit beschieden.
 prüfen und die Wiederherstellungscodes in den Passwortmanager legen. Ohne
 sie sperrt ein verlorenes Telefon das Dashboard dauerhaft aus.
 
-## Schritt 3 — Das Pages-Projekt anlegen, mit einer Attrappe
-
-Der Projektname wird zu `<projekt>.pages.dev` und ist damit öffentlich
-sichtbar — **nichtssagend wählen** (E6, T9), im Stil des Teamnamens. Nicht
-`ata-dashboard`.
+## Schritt 3 — Der Worker, mit einer Attrappe
 
 **Im Browser, nicht auf dem Server.** Die Attrappe braucht keine
-Kommandozeile und keine Anmeldung auf dem Server. Ein früherer Entwurf dieser
-Stufe sah `npx wrangler login` vor — das hinterlegt eine **breite**
-Anmeldung dauerhaft im Benutzerprofil des Servers, mit weit mehr Rechten
-als das eingeengte Token aus Schritt 5. Für eine Datei mit `<h1>leer</h1>`
-ist das der falsche Tausch.
+Kommandozeile und keine Anmeldung auf dem Server. Ein früherer Entwurf sah
+`npx wrangler login` vor — das hinterlegt eine **breite** Anmeldung
+dauerhaft im Benutzerprofil des Servers, mit weit mehr Rechten als das
+eingeengte Token aus Schritt 5.
 
-Auf dem Rechner, an dem der Browser läuft, einen Ordner `attrappe` mit einer
-einzigen Datei `index.html`:
+Auf dem Rechner, an dem der Browser läuft, einen Ordner `attrappe` mit
+einer einzigen Datei `index.html`:
 
 ```html
 <h1>leer</h1>
 ```
 
-Dann in der Cloudflare-Konsole unter **Workers & Pages → Create application
-→ Get started → Drag and drop your files**: Projektnamen eingeben, den
-Ordner hineinziehen, **Deploy site**.
+In der Cloudflare-Konsole unter **Workers & Pages → Create application →
+Get started → Drag and drop your files** den Ordner hineinziehen und
+bereitstellen. Heraus kommt ein Worker unter
+`<name>.<konto>.workers.dev`.
 
-Danach nennt die Konsole zwei Adressen: die des Deployments
-(`<hash>.<projekt>.pages.dev`) und die des Projekts
-(`<projekt>.pages.dev`). **Beide notieren** — sie sind der Gegenstand des
-nächsten Schritts. Ist der gewünschte Name vergeben, hängt Cloudflare eine
-Kennung an; maßgeblich ist die Adresse, die dort steht.
+**Beide Namen landen in der Adresse und sind öffentlich:** der des Workers
+und die Konto-Subdomain, die Cloudflare aus dem Kontonamen ableitet. Beide
+nichtssagend halten (E6, T9).
 
-**Nur für die Attrappe.** Das Hochladen per Drag-and-drop ist auf 1.000
-Dateien begrenzt. Der Datenbaum hat heute 719 und wächst mit jedem Bericht;
-er geht in Schritt 6 über das Token hinauf.
+## Schritt 4 — Die Zugriffsregel
 
-## Schritt 4 — Die Zugriffsregel, und die Falle darin
+### 4a — Vorschau-Adressen abschalten
 
-**Hier wird am häufigsten falsch abgebogen.** Im Pages-Projekt unter
-*Settings → Enable access policy* gibt es einen Schalter. Er legt eine
-Access-Anwendung an — **aber nur für die Vorschau-Deployments**
-(`*.<projekt>.pages.dev`). Der Produktivname `<projekt>.pages.dev` bleibt
-davon **unberührt und öffentlich**. Wer nur diesen Schalter setzt, hat den
-Datenbaum offen im Netz und ein gutes Gefühl.
+Jede neue Version eines Workers bekommt eine eigene Vorschau-Adresse
+(`<kennung>-<name>.<konto>.workers.dev`). Gebraucht wird hier keine — der
+Upload geht direkt auf den Produktivstand. Und jede, die es nicht gibt, muss
+auch niemand absichern.
 
-Es braucht deshalb **zwei** Anwendungen:
+Im Worker unter **Settings → Domains & Routes → Preview URLs → Disable**.
 
-1. **Vorschau:** der Schalter im Pages-Projekt. Er erzeugt die Anwendung
-   für `*.<projekt>.pages.dev`.
-2. **Produktiv:** in Cloudflare One unter *Access controls → Applications →
-   Create new application → Self-hosted and private → Add public hostname*
-   eine zweite Anwendung. Unter **Public
-   hostname** im Feld **Subdomain** das Sternchen **löschen**, sodass genau
-   `<projekt>.pages.dev` dort steht.
+**Das ist mehr als Aufräumen.** Wegen des stabilen Salts stehen alle je
+hochgeladenen Fassungen unter demselben Schlüssel. Abgeschaltete
+Vorschau-Adressen machen alte Versionen **unerreichbar**, auch wenn
+Cloudflare sie weiter aufbewahrt. Ob sich alte Versionen darüber hinaus
+löschen lassen, ist nicht dokumentiert und bleibt ein Punkt für den PoC.
 
-Für beide Anwendungen dieselbe Richtlinie: Action **Allow**, Include →
-**Emails** → genau die eine Adresse (P1: genau ein erlaubter Nutzer).
-Session Duration auf **24 Stunden** (8.3). Als Login method nur den in
-Schritt 2 gewählten Anbieter zulassen — steht One-time PIN daneben offen,
-ist die Anmeldung so stark wie das schwächere von beidem.
+### 4b — Den Worker hinter Access stellen
+
+Im Worker unter dem Reiter **Access → Protect this Worker behind Access →
+All traffic**. Die Einstellung schützt nach Cloudflares Beschreibung
+**jede** Adresse des Workers: `workers.dev`, Vorschauen, Routen und eigene
+Domains.
+
+**Die Falle dieser Stufe steht hier, und sie ist schlimmer als die von
+Pages.** Als Richtlinie bietet die Schnellauswahl **Cloudflare account**
+und **Email domain** an. „Email domain" lässt jeden zu, der eine
+bestätigte Adresse unter dieser Domain hat. Bei einem Freemail-Anbieter
+sind das **Millionen Menschen** — die Anmeldung wäre formal eingerichtet
+und praktisch offen. **Hier „Cloudflare account" wählen**, nie „Email
+domain". Das ist der sichere Ausgangspunkt, nicht das Ziel.
+
+### 4c — Die Anwendung auf genau eine Person schärfen
+
+Die Schnelleinstellung legt im Hintergrund eine Access-Anwendung an, die
+sich in **Cloudflare One unter Access controls → Applications** bearbeiten
+lässt. Dort:
+
+- **Policy:** die Regel „Cloudflare account" ersetzen durch Action
+  **Allow**, Include → **Emails** → genau die Adresse, die der Test in
+  Schritt 2 angezeigt hat (P1). Nicht ergänzen, **ersetzen** — Access
+  lässt durch, wer **irgendeine** Regel erfüllt.
+- **Login methods:** nur **GitHub**. Steht One-time PIN daneben offen, ist
+  die Anmeldung so stark wie das schwächere von beidem (E2).
+- **Session Duration:** 24 Stunden (8.3).
 
 ### Die Prüfung, ohne die dieser Schritt nichts wert ist
 
-**Ein privates Fenster, und beide Adressen einzeln:**
+**Ein privates Fenster:**
 
 ```
-https://<projekt>.pages.dev
-https://<hash>.<projekt>.pages.dev
+https://<name>.<konto>.workers.dev
 ```
 
-Erwartet wird **beide Male** die Anmeldemaske unter
-`<team>.cloudflareaccess.com`, nicht die Attrappe. Wer stattdessen
-`<h1>leer</h1>` sieht, hat eine ungeschützte Adresse gefunden — dann fehlt
-eine der beiden Anwendungen, und der nächste Schritt darf nicht stattfinden.
+Erwartet wird die Anmeldemaske unter `<team>.cloudflareaccess.com` mit
+**GitHub als einziger Möglichkeit** — nicht die Attrappe. Nach der
+Anmeldung erscheint `leer`.
 
-Zusätzlich vom Smartphone, aus dem Mobilfunknetz: Auch dort erst die
-Anmeldung, danach die Attrappe. Das prüft nebenbei, ob die Anmeldung auf
-dem Gerät überhaupt praktikabel ist.
+Dasselbe **vom Smartphone aus dem Mobilfunknetz**. Und einmal mit einem
+**anderen** GitHub-Konto oder ohne Anmeldung abbrechen: Dann darf `leer`
+nicht erscheinen.
 
-**Abnahmekriterium dieses Schritts:** Keine der beiden Adressen liefert
-Inhalt ohne vorherige Anmeldung — geprüft in einem Fenster, das keine
-Sitzung mitbringt.
+**Abnahmekriterium:** Ohne Anmeldung kein Inhalt, und mit einer fremden
+Identität auch nicht — geprüft in einem Fenster ohne Sitzung.
 
 ## Schritt 5 — Das Token für den Server
 
