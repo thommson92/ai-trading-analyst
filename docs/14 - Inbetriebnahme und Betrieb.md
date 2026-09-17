@@ -1381,30 +1381,36 @@ sie sperrt ein verlorenes Telefon das Dashboard dauerhaft aus.
 ## Schritt 3 — Das Pages-Projekt anlegen, mit einer Attrappe
 
 Der Projektname wird zu `<projekt>.pages.dev` und ist damit öffentlich
-sichtbar — **nichtssagend wählen** (E6, T9). Etwas wie `mst-7f3a`, nicht
+sichtbar — **nichtssagend wählen** (E6, T9), im Stil des Teamnamens. Nicht
 `ata-dashboard`.
 
-Auf dem Server, in einem leeren Verzeichnis:
+**Im Browser, nicht auf dem Server.** Die Attrappe braucht keine
+Kommandozeile und keine Anmeldung auf dem Server. Ein früherer Entwurf dieser
+Stufe sah `npx wrangler login` vor — das hinterlegt eine **breite**
+Anmeldung dauerhaft im Benutzerprofil des Servers, mit weit mehr Rechten
+als das eingeengte Token aus Schritt 5. Für eine Datei mit `<h1>leer</h1>`
+ist das der falsche Tausch.
 
-```powershell
-cd C:\Users\Administrator\Documents\TradingViewAnalyzer
-New-Item -ItemType Directory -Force var\attrappe | Out-Null
-Set-Content var\attrappe\index.html "<h1>leer</h1>"
+Auf dem Rechner, an dem der Browser läuft, einen Ordner `attrappe` mit einer
+einzigen Datei `index.html`:
 
-cd var\attrappe
-npx wrangler login
-npx wrangler pages project create <projekt> --production-branch main
-npx wrangler pages deploy . --project-name <projekt> --branch main --commit-dirty true
+```html
+<h1>leer</h1>
 ```
 
-`wrangler login` öffnet den Browser und meldet interaktiv an — für diesen
-Schritt ist das richtig; das Token kommt erst in Schritt 5, wenn der
-Server ohne Aufsicht hochlädt.
+Dann in der Cloudflare-Konsole unter **Workers & Pages → Create application
+→ Get started → Drag and drop your files**: Projektnamen eingeben, den
+Ordner hineinziehen, **Deploy site**.
 
-Die Ausgabe nennt zwei Adressen: die des Deployments
+Danach nennt die Konsole zwei Adressen: die des Deployments
 (`<hash>.<projekt>.pages.dev`) und die des Projekts
-(`<projekt>.pages.dev`). **Beide notieren.** Sie sind der Gegenstand des
-nächsten Schritts.
+(`<projekt>.pages.dev`). **Beide notieren** — sie sind der Gegenstand des
+nächsten Schritts. Ist der gewünschte Name vergeben, hängt Cloudflare eine
+Kennung an; maßgeblich ist die Adresse, die dort steht.
+
+**Nur für die Attrappe.** Das Hochladen per Drag-and-drop ist auf 1.000
+Dateien begrenzt. Der Datenbaum hat heute 719 und wächst mit jedem Bericht;
+er geht in Schritt 6 über das Token hinauf.
 
 ## Schritt 4 — Die Zugriffsregel, und die Falle darin
 
