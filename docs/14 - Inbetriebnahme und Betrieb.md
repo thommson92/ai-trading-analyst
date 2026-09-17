@@ -1460,6 +1460,21 @@ lässt. Dort:
   die Anmeldung so stark wie das schwächere von beidem (E2).
 - **Session Duration:** 24 Stunden (8.3).
 
+**Zwei Editoren, und man landet leicht im falschen.** Die Regel (wer darf)
+ist eine **Richtlinie** und wird im Richtlinien-Editor gepflegt; die
+Anmeldemethoden und die Sitzungsdauer gehören dagegen zur **Anwendung** —
+dort im Abschnitt *Configure how users will authenticate*. Im
+Richtlinien-Editor sucht man sie vergeblich.
+
+Im Richtlinien-Editor außerdem darauf achten, dass **keine leere
+Include-Zeile** stehen bleibt („Selector is… / Value is…"). Sie tut
+vermutlich nichts, aber eine Zugriffsregel ist die falsche Stelle für
+„vermutlich" — mit dem Papierkorb daneben entfernen.
+
+Eine gespeicherte Richtlinie wirkt erst, wenn sie **an der Anwendung
+hängt**. Dort unter *Access policies* die neue anhängen und die alte
+„Cloudflare account" **entfernen**.
+
 ### Die Prüfung, ohne die dieser Schritt nichts wert ist
 
 **Ein privates Fenster:**
