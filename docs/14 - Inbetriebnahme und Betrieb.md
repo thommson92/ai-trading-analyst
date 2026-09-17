@@ -1292,6 +1292,12 @@ ob die Zugriffsregel wirklich greift. Wer zuerst hochlädt und dann absichert,
 hat den Stand in der Zwischenzeit öffentlich stehen — und was einmal
 abgerufen wurde, holt keine Regel zurück.
 
+**Die Menüpfade sind Stand 2026-09-17.** Cloudflare hat die Konsole
+mehrfach umgebaut und „Zero Trust" in „Cloudflare One" umbenannt; ein
+Menüpunkt, der hier nicht mehr zu finden ist, ist wahrscheinlich verschoben
+und nicht verschwunden. Maßgeblich ist dann die Cloudflare-Dokumentation,
+nicht diese Seite.
+
 **Keine Geheimnisse in den Chat.** Passphrase, API-Token und
 Wiederherstellungscodes bleiben im Passwortmanager. Für Rückfragen genügt
 immer die Fehlermeldung ohne den Wert.
@@ -1342,8 +1348,8 @@ App*:
 Registrieren, die **Client ID** notieren, dann ein **Client secret**
 erzeugen. Beides in den Passwortmanager — das Secret erscheint nur einmal.
 
-**In Zero Trust** unter *Settings → Authentication → Login methods → Add new
-→ GitHub*: die Client ID in das Feld **App ID**, das Secret in **Client
+**In Cloudflare One** (vormals Zero Trust) unter *Integrations → Identity
+providers → Add new identity provider → GitHub*: die Client ID in das Feld **App ID**, das Secret in **Client
 secret**, speichern, dann **Finish setup** — dort erteilt GitHub den Zugriff
 auf Organisationen und E-Mail-Adressen.
 
@@ -1413,8 +1419,9 @@ Es braucht deshalb **zwei** Anwendungen:
 
 1. **Vorschau:** der Schalter im Pages-Projekt. Er erzeugt die Anwendung
    für `*.<projekt>.pages.dev`.
-2. **Produktiv:** in Zero Trust unter *Access → Applications → Add an
-   application → Self-hosted* eine zweite Anwendung. Unter **Public
+2. **Produktiv:** in Cloudflare One unter *Access controls → Applications →
+   Create new application → Self-hosted and private → Add public hostname*
+   eine zweite Anwendung. Unter **Public
    hostname** im Feld **Subdomain** das Sternchen **löschen**, sodass genau
    `<projekt>.pages.dev` dort steht.
 
