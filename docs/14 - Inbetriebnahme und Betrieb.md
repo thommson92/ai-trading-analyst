@@ -1119,12 +1119,18 @@ und den LAN-Build sofort wiederherstellen.
 New-Item -ItemType Directory -Force ..\var\dashboard | Out-Null
 
 # Die alte Oberflaeche zuerst weg, den Datenbaum aber stehen lassen.
+# **Das Sternchen am Pfad und -Force sind beide noetig.** Microsoft
+# dokumentiert -Exclude als wirksam nur dort, wo der Befehl den *Inhalt*
+# eines Elements adressiert; ohne das Sternchen ist das Verhalten
+# versionsabhaengig, und greift die Ausnahme nicht, loescht die Zeile
+# 'data' mit. -Force nimmt versteckte Eintraege mit, die sonst liegen
+# blieben und weiter mit hinausgingen.
 # 'Copy-Item -Force' ueberschreibt nur gleichnamige Dateien, und die Namen
 # der Next-Buendel tragen einen Hash je Build -- ohne dieses Aufraeumen
 # blieben die Buendel *jedes* frueheren Builds liegen und gingen bei jedem
 # Upload mit hinaus. Das Verzeichnis 'data' gehoert dem Exportschritt, der
 # darin selbst aufraeumt.
-Get-ChildItem ..\var\dashboard -Exclude data | Remove-Item -Recurse -Force
+Get-ChildItem ..\var\dashboard\* -Force -Exclude data | Remove-Item -Recurse -Force
 
 Copy-Item -Recurse -Force out\* ..\var\dashboard\
 npm run build          # ohne die Variable -- das ist wieder der LAN-Build
@@ -1707,16 +1713,27 @@ Dokument anklicken, Antwort-Header:
 - `Content-Security-Policy` mit `default-src 'none'` und
   `frame-ancestors 'none'`
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
+- `Strict-Transport-Security` mit einem `max-age` im Jahresbereich
 - bei einer Datei unter `/data/` zusätzlich `Cache-Control: no-store`
+
+Die Dateien unter `/data/` erscheinen im Netzwerkreiter erst **nach** der
+Passphrase — vorher hat die Seite nur ihr eigenes HTML geholt.
 
 **Zwei Zugeständnisse stehen darin, beide gemessen und begründet.**
 `script-src` erlaubt `'unsafe-inline'`: Next legt je Seite sieben
 Inline-Skripte mit den RSC-Nutzdaten ab, die sich mit jedem Build ändern.
 Hashes wären nur über einen Generator zu halten, dessen Fehler das Dashboard
-beim Anbieter unbrauchbar machte — und der Gegenwert ist klein, weil das
-Frontend nirgends rohes HTML einsetzt und React jeden Berichtstext maskiert.
-`style-src` erlaubt es ebenfalls, weil `recharts` zur Laufzeit
-`style`-Attribute auf die SVG-Elemente setzt.
+beim Anbieter unbrauchbar machte. `style-src` erlaubt es ebenfalls, weil
+`recharts` zur Laufzeit `style`-Attribute auf die SVG-Elemente setzt.
+
+**Das Zugeständnis öffnet zwei Senken, nicht eine**, und beide sind heute
+verschlossen: eingeschleustes rohes HTML — das Frontend setzt nirgends
+welches ein, React maskiert jeden Berichtstext — und **`javascript:`-URLs**,
+die `script-src` bewertet und `'unsafe-inline'` erlaubt. Jedes `href` und
+`src` hat heute ein konstantes Präfix. Die zweite Bedingung fällt, sobald
+Quellen-URLs aus Berichten klickbar werden; das ist bei „Quellenbindung" der
+naheliegende nächste Schritt, und der Berichtstext stammt aus einem
+Sprachmodell.
 
 Ein Test in `frontend/src/lib/sicherheitsheader.test.ts` bewacht beides: die
 Richtlinie selbst und die Annahme, auf der das Zugeständnis ruht — wer

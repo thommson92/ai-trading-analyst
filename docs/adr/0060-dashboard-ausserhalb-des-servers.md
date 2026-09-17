@@ -442,8 +442,11 @@ beschieden: GitHub als Identitätsanbieter.
    ist bei `script-src` nicht zu vermeiden (Next legt je Seite sieben
    Inline-Skripte ab, die sich mit jedem Build ändern) und bei `style-src`
    ebenfalls nötig (`recharts` setzt zur Laufzeit `style`-Attribute).
-   Zugelassen wurde es als bewusstes Zugeständnis, weil das Frontend
-   nirgends rohes HTML einsetzt — ein Test bewacht genau diese Annahme.
+   Zugelassen wurde es als bewusstes Zugeständnis, weil die beiden Senken,
+   die es öffnet, heute verschlossen sind: Das Frontend setzt nirgends rohes
+   HTML ein, und jedes `href`/`src` hat ein konstantes Präfix — sonst ließe
+   `'unsafe-inline'` eine `javascript:`-URL aus Berichtsdaten zu. Zwei Tests
+   bewachen genau diese beiden Annahmen.
    Alles Übrige ist streng: `default-src 'none'`, kein `eval`, keine fremde
    Herkunft, `frame-ancestors 'none'`, `no-store` für den Datenbaum.
 2. **Der Upload aus dem Exportschritt heraus** (Entscheidung **E4**).

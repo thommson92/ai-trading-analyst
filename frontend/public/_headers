@@ -1,10 +1,12 @@
 # Sicherheits-Header fuer die Auslieferung ausserhalb des Servers
 # (ADR 0060, Spike-Bericht Abschnitt 8.3, Anforderung G).
 #
-# Cloudflare Workers liest diese Datei aus dem Asset-Verzeichnis und liefert
-# sie selbst nicht aus. Sie liegt hier in `public/`, damit `next build` sie
-# nach `out/` kopiert -- und damit sie fuer beide Datenmodi gilt, auch fuer
-# das LAN-Dashboard, wo sie folgenlos bleibt.
+# Cloudflare Workers liest diese Datei aus dem Asset-Verzeichnis, wertet sie
+# aus und liefert sie selbst nicht aus. Sie liegt hier in `public/`, damit
+# `next build` sie nach `out/` kopiert. Im LAN-Dashboard liegt sie dadurch
+# ebenfalls mit -- dort kennt FastAPI sie nicht als Sonderfall, sie ist also
+# unter `/_headers` schlicht abrufbar und bewirkt nichts. Harmlos: Sie steht
+# ohnehin oeffentlich im Repository.
 #
 # **Was diese Header nicht leisten:** Sie schuetzen nicht gegen einen
 # gestohlenen Deploy-Token. Wer beim Anbieter schreiben darf, ersetzt diese
@@ -12,27 +14,58 @@
 # des Deployments liegt (N19) -- nicht die CSP.
 
 /*
-  # 'unsafe-inline' fuer Skripte ist eine bewusste Zugestaendnis-Entscheidung
-  # vom 2026-09-17: Next legt je Seite sieben Inline-Skripte mit den
-  # RSC-Nutzdaten ab, und sie aendern sich mit jedem Build (die Bau-Kennung
-  # steckt darin). Hashes waeren nur mit einem Generator zu halten, dessen
-  # Fehler das Dashboard beim Anbieter unbrauchbar machte. Der Gegenwert ist
-  # klein: Es gibt im Frontend kein `dangerouslySetInnerHTML` und kein
-  # `innerHTML`, React maskiert jeden Berichtstext -- eingeschleuster Code
-  # hat keinen Weg zur Ausfuehrung. Externe Skripte und `eval` bleiben
-  # verboten, und das ist hier der wirksame Teil.
+  # **Zu 'unsafe-inline' bei den Skripten.** Next legt je Seite sieben
+  # Inline-Skripte mit den RSC-Nutzdaten ab, und sie aendern sich mit jedem
+  # Build -- die Bau-Kennung steckt darin. Hashes waeren nur ueber einen
+  # Generator zu halten, dessen Fehler das Dashboard beim Anbieter
+  # unbrauchbar machte.
   #
-  # 'unsafe-inline' fuer Styles, weil `recharts` zur Laufzeit
+  # Das Zugestaendnis oeffnet **zwei** Senken, nicht eine, und beide sind
+  # heute verschlossen:
+  #
+  #   1. Eingeschleustes rohes HTML. Es gibt im Frontend kein
+  #      `dangerouslySetInnerHTML` und kein `innerHTML`; React maskiert
+  #      jeden Berichtstext, auch den vom Sprachmodell erzeugten.
+  #   2. **`javascript:`-URLs.** Die bewertet `script-src`, und
+  #      `'unsafe-inline'` erlaubt sie. Jedes `href` und `src` im Frontend
+  #      hat heute ein konstantes Praefix (`/`), eine Schema-Injektion aus
+  #      Daten ist damit ausgeschlossen. Sobald Quellen-URLs aus Berichten
+  #      klickbar werden -- der naheliegende naechste Schritt bei
+  #      "Quellenbindung" --, faellt diese Bedingung.
+  #
+  # `sicherheitsheader.test.ts` bewacht beide Senken. Wer eine davon
+  # oeffnet, bekommt einen roten Test mit der Begruendung.
+  #
+  # `script-src-attr 'none'` nimmt dem Zugestaendnis den Teil, der hier nicht
+  # gebraucht wird: Inline-Ereignisbehandler (`onclick=`). Im Export gibt es
+  # davon keinen einzigen -- React haengt Zuhoerer per `addEventListener` an.
+  #
+  # 'unsafe-inline' bei den Styles, weil `recharts` zur Laufzeit
   # `style`-Attribute auf die SVG-Elemente setzt. Ohne das bliebe der
-  # Kursverlauf ohne Groesse -- und zwar erst beim Anbieter sichtbar.
-  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  # Kursverlauf ohne Groesse, und zwar erst beim Anbieter sichtbar. Enger
+  # ginge `style-src-elem 'self'` daneben -- im Export gibt es kein einziges
+  # `<style>`-Element; das waere aber am laufenden Dashboard zu pruefen,
+  # bevor es hier steht.
+  #
+  # `worker-src 'none'` ausdruecklich: Es faellt ueber `child-src` auf
+  # `script-src` zurueck, **nicht** auf `default-src` -- ohne diese Zeile
+  # waeren Worker von 'self' erlaubt statt verboten.
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; font-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  # HSTS steht hier und nicht in der Anbieterkonsole: So ist es versioniert
+  # und geht bei einem Anbieterwechsel nicht verloren.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
 
 # Der Datenbaum gehoert in keinen Zwischenspeicher, der ihn ueberdauert:
 # Auf einem geteilten Geraet bliebe sonst das Chiffrat liegen, und es steht
 # unter demselben Schluessel wie jeder andere Stand (stabiles Salt).
+#
+# Im verschluesselten Modus liegt jede Datei flach unter `data/<32 Hex>`,
+# dazu `data/manifest.head.json` -- alles von diesem Muster gedeckt.
 /data/*
   Cache-Control: no-store
