@@ -1723,6 +1723,12 @@ Richtlinie selbst und die Annahme, auf der das Zugeständnis ruht — wer
 `dangerouslySetInnerHTML` einführt, bekommt einen roten Test mit der
 Begründung.
 
+**Am 2026-09-17 beim Anbieter geprüft:** Die Konsole bleibt leer, es wird
+also nichts blockiert; alle Header stehen am Dokument, `Cache-Control:
+no-store` an den Dateien unter `/data/`; und der Kursverlauf zeichnet
+unverändert — das war die Probe auf `style-src`, denn `recharts` hätte ohne
+das Zugeständnis seine Größen nicht setzen können.
+
 **Wogegen diese Header nicht helfen:** gegen einen gestohlenen Deploy-Token.
 Wer beim Anbieter schreiben darf, ersetzt `_headers` mit demselben Upload.
 Dagegen steht die Zugriffsregel, die außerhalb des Deployments liegt.
