@@ -1434,9 +1434,11 @@ außen ist beides nicht zu unterscheiden.
 **Verlässlich ist erst Schritt 6b:** `wrangler` nennt nach dem Upload die
 Vorschau-Adresse der neuen Version, wenn es eine gibt. Nennt es keine,
 sind die Vorschauen aus — und mit `"preview_urls": false` in der
-Konfigurationsdatei sind sie es danach ohnehin. Bis dahin gilt: Selbst
-eingeschaltete Vorschauen liegen nach Cloudflares Beschreibung hinter
-derselben Access-Anwendung (4b, *All traffic*).
+Konfigurationsdatei sind sie es danach ohnehin.
+
+**Am 2026-09-17 so geprüft:** Die Ausgabe nannte nur die
+`workers.dev`-Adresse und keine Vorschau-Adresse. Damit ist der Punkt
+erledigt.
 
 **Das ist mehr als Aufräumen.** Wegen des stabilen Salts stehen alle je
 hochgeladenen Fassungen unter demselben Schlüssel. Abgeschaltete
@@ -1517,9 +1519,12 @@ Erst jetzt, und mit möglichst wenig Rechten. In der Cloudflare-Konsole unter
 - TTL: ein Ablaufdatum setzen, damit ein vergessenes Token nicht ewig gilt
 
 **Nicht die Vorlage „Edit Cloudflare Workers" nehmen.** Sie bringt
-KV-, R2- und Routen-Rechte mit, die hier niemand braucht. Meldet `wrangler`
-beim ersten Upload eine fehlende Berechtigung, wird **genau diese** ergänzt
-— die Fehlermeldung nennt sie.
+KV-, R2- und Routen-Rechte mit, die hier niemand braucht.
+
+**Am 2026-09-17 auf dem Server bestätigt:** `Workers Scripts: Edit` allein
+genügt für `wrangler deploy`, sofern `CLOUDFLARE_ACCOUNT_ID` gesetzt ist —
+weitere Rechte wie `Account Settings: Read` oder `Memberships: Read`
+braucht es dafür nicht.
 
 Dazu die **Konto-Kennung** (Account ID) aus der Übersicht des Kontos. Sie
 ist kein Geheimnis, gehört aber ebenfalls nicht ins Repository.
@@ -1551,8 +1556,12 @@ New-Item -ItemType Directory -Force var\cloudflare, var\attrappe | Out-Null
 Set-Content var\attrappe\index.html "<h1>leer</h1>"
 ```
 
-Dann `var\cloudflare\wrangler.jsonc` mit diesem Inhalt anlegen, `<name>`
-durch den Namen des Workers ersetzen:
+Dann `var\cloudflare\wrangler.jsonc` anlegen — **mit absolutem Pfad**.
+Mit einem relativen greift der Befehl ins Leere, sobald man schon im
+Zielverzeichnis steht, und der Fehler scrollt beim nächsten Befehl weg.
+Wie sich das äußert, steht am Ende dieses Schritts.
+
+Inhalt, `<name>` durch den Namen des Workers ersetzen:
 
 ```jsonc
 {
@@ -1596,6 +1605,35 @@ Remove-Variable eingabe
 Beim ersten Aufruf fragt `npx`, ob es `wrangler` herunterladen darf.
 `@4` hält die Hauptversion fest; ab 4.34 gilt die Grenze von 20.000 Dateien
 je Version.
+
+Die Ausgabe nennt das Asset-Verzeichnis, das `wrangler` tatsächlich gelesen
+hat. **Der Pfad in `assets.directory` wird relativ zur Konfigurationsdatei
+aufgelöst** (am 2026-09-17 so beobachtet), und weil der Aufruf ohnehin aus
+deren Verzeichnis kommt, stimmen beide Lesarten überein.
+
+### Wenn etwas schiefgeht
+
+**`fetch failed`, und im Protokoll steht `"configFileType":"none"`.** Dann
+hat `wrangler` die Konfigurationsdatei nicht gefunden und ist in seine
+Selbsterkennung gelaufen, die Vorlagen aus dem Netz holt — der Netzwerkfehler
+ist die Folge, nicht die Ursache. Nachsehen, ob die Datei wirklich im
+Arbeitsverzeichnis liegt.
+
+**`fetch failed` ohne diesen Eintrag.** Dann erst die Erreichbarkeit prüfen,
+und zwar getrennt für PowerShell und Node:
+
+```powershell
+(Invoke-WebRequest https://api.cloudflare.com/client/v4/ -UseBasicParsing).StatusCode
+node -e "fetch('https://api.cloudflare.com/client/v4/').then(r=>console.log('HTTP',r.status)).catch(e=>console.log('FEHLER:',e.message))"
+```
+
+Ein **HTTP 400** ist hier das *gute* Ergebnis: Es ist Cloudflares Antwort auf
+einen Aufruf ohne Endpunkt und belegt, dass die Verbindung steht.
+
+**Nur ein einzelnes Sternchen nach `Read-Host`.** Dann ist das Token nicht
+angekommen — `Read-Host -AsSecureString` zeigt eines je Zeichen, bei einem
+Token also um vierzig. Prüfbar mit `$env:CLOUDFLARE_API_TOKEN.Length`, was
+nur eine Zahl ausgibt.
 
 **Prüfung nach dem Upload, alle drei:**
 
