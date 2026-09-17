@@ -1279,7 +1279,22 @@ diese Stufe, sobald ADR 0060 angenommen ist.
 
 # Stufe L — Der Weg nach draußen: Cloudflare Workers mit Access
 
-**Noch nicht abgenommen.** Diese Stufe setzt die Anbieterentscheidung um
+**Abgenommen am 2026-09-17.** Der Datenbaum steht bei Cloudflare hinter der
+GitHub-Anmeldung, und alle Abnahmekriterien sind erfüllt: Ohne Anmeldung
+kommt niemand an Inhalte (geprüft am Rechner, am Smartphone im Mobilfunknetz
+und mit abgebrochener Anmeldung), die Passphrase öffnet den Stand, ein
+Schlusskurs stimmt mit der Datenbank überein, im Netzwerkreiter stehen nur
+opake Namen und Binärantworten — und **AK16 ist erfüllt**: Vom Eingeben der
+Passphrase bis zum sichtbaren Stand vergeht auf dem Smartphone **unter einer
+Sekunde**, gegen ein Ziel von zwei.
+
+Damit ist die Behauptung von ADR 0060 belegt: Echte Daten kommen an, und
+unterwegs war nichts davon lesbar.
+
+**Offen bleiben** die Sicherheits-Header (Anforderung G) und der Upload aus
+dem Exportschritt heraus — bis dahin ist Schritt 6 Handarbeit.
+
+Diese Stufe setzt die Anbieterentscheidung um
 ([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
 2026-09-09: Cloudflare Pages mit Cloudflare Access). Sie ist zugleich
 Phase 2 des Proof of Concept aus Abschnitt 11 des
