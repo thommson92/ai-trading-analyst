@@ -1277,6 +1277,457 @@ diese Stufe, sobald ADR 0060 angenommen ist.
 
 ---
 
+# Stufe L — Der Weg nach draußen: Cloudflare Workers mit Access
+
+**Abgenommen am 2026-09-17.** Der Datenbaum steht bei Cloudflare hinter der
+GitHub-Anmeldung, und alle Abnahmekriterien sind erfüllt: Ohne Anmeldung
+kommt niemand an Inhalte (geprüft am Rechner, am Smartphone im Mobilfunknetz
+und mit abgebrochener Anmeldung), die Passphrase öffnet den Stand, ein
+Schlusskurs stimmt mit der Datenbank überein, im Netzwerkreiter stehen nur
+opake Namen und Binärantworten — und **AK16 ist erfüllt**: Vom Eingeben der
+Passphrase bis zum sichtbaren Stand vergeht auf dem Smartphone **unter einer
+Sekunde**, gegen ein Ziel von zwei.
+
+Damit ist die Behauptung von ADR 0060 belegt: Echte Daten kommen an, und
+unterwegs war nichts davon lesbar.
+
+**Offen bleiben** die Sicherheits-Header (Anforderung G) und der Upload aus
+dem Exportschritt heraus — bis dahin ist Schritt 6 Handarbeit.
+
+Diese Stufe setzt die Anbieterentscheidung um
+([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
+2026-09-09: Cloudflare Pages mit Cloudflare Access). Sie ist zugleich
+Phase 2 des Proof of Concept aus Abschnitt 11 des
+[Spike-Berichts](requirements/f12-externes-hosting-spike.md) — erst wenn sie
+durch ist, kann ADR 0060 angenommen werden.
+
+**Die Reihenfolge ist hier die halbe Sicherheit.** Der Datenbaum geht als
+Letztes hinauf. Vorher steht eine Attrappe dort, und an ihr wird geprüft,
+ob die Zugriffsregel wirklich greift. Wer zuerst hochlädt und dann absichert,
+hat den Stand in der Zwischenzeit öffentlich stehen — und was einmal
+abgerufen wurde, holt keine Regel zurück.
+
+**Aus Pages wurde ein Worker, und das ist gut so.** Diese Stufe war für
+Cloudflare Pages geschrieben. Die Konsole legt über „Create application"
+inzwischen einen **Worker mit statischen Dateien** an, erkennbar an der
+Adresse `<name>.<konto>.workers.dev` statt `<name>.pages.dev`; Cloudflare
+empfiehlt Workers ausdrücklich für neue Projekte. Für diesen Zweck ist der
+Worker **der bessere Ort**: Eine einzige Einstellung schützt alle seine
+Adressen einschließlich der Vorschauen — die Falle mit den zwei
+Anwendungen, die Pages hatte, entfällt —, und Vorschau-Adressen lassen sich
+ganz abschalten. Alle Schritte sind darauf umgestellt und gegen die
+Cloudflare-Dokumentation geprüft (Stand 2026-09-17).
+
+**Die Menüpfade sind Stand 2026-09-17.** Cloudflare hat die Konsole
+mehrfach umgebaut und „Zero Trust" in „Cloudflare One" umbenannt; ein
+Menüpunkt, der hier nicht mehr zu finden ist, ist wahrscheinlich verschoben
+und nicht verschwunden. Maßgeblich ist dann die Cloudflare-Dokumentation,
+nicht diese Seite.
+
+**Keine Geheimnisse in den Chat.** Passphrase, API-Token und
+Wiederherstellungscodes bleiben im Passwortmanager. Für Rückfragen genügt
+immer die Fehlermeldung ohne den Wert.
+
+## Schritt 1 — Ein eigenes Cloudflare-Konto
+
+**Ein neues Konto, nicht ein vorhandenes.** Der Grund steht in der
+Anbieterevaluation: Das Recht `Cloudflare Pages: Edit` gilt **kontoweit**
+und lässt sich nicht auf ein Projekt einengen. In einem Konto, das nur
+dieses eine Projekt enthält, sind „kontoweit" und „projektweit" dasselbe —
+ein gestohlenes Token kostet dann nichts außerhalb dieses Dashboards.
+Liegen dort auch andere Domains, kostet es die.
+
+Beim ersten Aufruf von **Zero Trust** verlangt Cloudflare einen
+**Teamnamen**; daraus wird `<team>.cloudflareaccess.com`, und dort landet
+die Anmeldemaske. Der Name gehört deshalb zu T9: **nichtssagend**, kein
+Bezug zu Trading, Börse, Aktien oder zum eigenen Namen. Er lässt sich
+später nur mit Mühe ändern.
+
+Wählen Sie den **Free**-Tarif von Zero Trust. Er deckt 50 Nutzer; gebraucht
+wird einer.
+
+## Schritt 2 — Identitätsanbieter festlegen (offene Frage O3)
+
+Access braucht eine Stelle, die die Anmeldung durchführt. Eingebaut ist
+**One-time PIN** — ein Einmalcode per E-Mail. Entscheidung **E2** wollte
+das ausdrücklich nur als Rückfall, weil damit das E-Mail-Postfach der
+einzige Faktor ist.
+
+**Gewählt: GitHub als Identitätsanbieter** (Entscheidung des Inhabers vom
+2026-09-10, damit ist O3 beschieden). Das Konto existiert bereits — dasselbe,
+in dem dieses Repository liegt —, es kann Passkeys und Authenticator-App,
+und es entsteht keine neue Identität, die gepflegt werden muss.
+
+Die Einrichtung hat zwei Hälften: eine OAuth-Anwendung bei GitHub, und der
+Eintrag davon in Zero Trust. **Der Teamname aus Schritt 1 muss dafür
+feststehen** — er steckt in der Rückruf-Adresse.
+
+**Bei GitHub** unter *Settings → Developer settings → OAuth Apps → New OAuth
+App*:
+
+| Feld | Wert |
+|---|---|
+| Application name | Was bei der Anmeldung angezeigt wird. Nichtssagend halten (T9) |
+| Homepage URL | `https://<team>.cloudflareaccess.com` |
+| Authorization callback URL | `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback` |
+
+Registrieren, die **Client ID** notieren, dann ein **Client secret**
+erzeugen. Beides in den Passwortmanager — das Secret erscheint nur einmal.
+
+**In Cloudflare One** (vormals Zero Trust) unter *Integrations → Identity
+providers → Add new identity provider → GitHub*: die Client ID in das Feld **App ID**, das Secret in **Client
+secret**, speichern, dann **Finish setup** — dort erteilt GitHub den Zugriff
+auf Organisationen und E-Mail-Adressen.
+
+### Die Prüfung, und warum sie vor der Zugriffsregel kommt
+
+Neben der angelegten Anmeldemethode steht **Test**. Diesen Knopf drücken
+und die zurückgegebene Identität ansehen.
+
+**Der Grund ist eine Falle, die sonst erst beim Aussperren auffällt:** Die
+Zugriffsregel in Schritt 4 lässt genau **eine E-Mail-Adresse** zu. Welche
+Adresse GitHub zurückgibt, hängt aber von den Einstellungen des Kontos ab —
+wer *Keep my email addresses private* gesetzt hat, wird unter Umständen mit
+einer `users.noreply.github.com`-Adresse geführt. Steht in der Regel dann
+die private Adresse, meldet Access folgerichtig ab, und zwar jedes Mal.
+
+Deshalb: **Die Adresse, die der Test anzeigt, ist die Adresse, die in die
+Regel gehört** — nicht die, die man erwartet hätte.
+
+**Was man dabei wissen sollte:** Damit hängen Repository und Dashboard an
+demselben Konto. Wer es übernimmt, hat beides. Das Repository ist
+öffentlich und das Dashboard Chiffrat — der Schaden ist begrenzt, aber die
+Kopplung ist real. Wer sie nicht will, nimmt ein zweites Konto bei einem
+Identitätsanbieter; dann ist O3 damit beschieden.
+
+**Vor dem nächsten Schritt:** Zwei-Faktor-Anmeldung im gewählten Konto
+prüfen und die Wiederherstellungscodes in den Passwortmanager legen. Ohne
+sie sperrt ein verlorenes Telefon das Dashboard dauerhaft aus.
+
+## Schritt 3 — Der Worker, mit einer Attrappe
+
+**Im Browser, nicht auf dem Server.** Die Attrappe braucht keine
+Kommandozeile und keine Anmeldung auf dem Server. Ein früherer Entwurf sah
+`npx wrangler login` vor — das hinterlegt eine **breite** Anmeldung
+dauerhaft im Benutzerprofil des Servers, mit weit mehr Rechten als das
+eingeengte Token aus Schritt 5.
+
+Auf dem Rechner, an dem der Browser läuft, einen Ordner `attrappe` mit
+einer einzigen Datei `index.html`:
+
+```html
+<h1>leer</h1>
+```
+
+In der Cloudflare-Konsole unter **Workers & Pages → Create application →
+Get started → Drag and drop your files** den Ordner hineinziehen und
+bereitstellen. Heraus kommt ein Worker unter
+`<name>.<konto>.workers.dev`.
+
+**Beide Namen landen in der Adresse und sind öffentlich:** der des Workers
+und die Konto-Subdomain, die Cloudflare aus dem Kontonamen ableitet. Beide
+nichtssagend halten (E6, T9).
+
+## Schritt 4 — Die Zugriffsregel
+
+### 4a — Vorschau-Adressen abschalten
+
+Jede neue Version eines Workers bekommt eine eigene Vorschau-Adresse
+(`<kennung>-<name>.<konto>.workers.dev`). Gebraucht wird hier keine — der
+Upload geht direkt auf den Produktivstand. Und jede, die es nicht gibt, muss
+auch niemand absichern.
+
+Im Worker unter **Settings → Domains & Routes → Preview URLs → Disable**.
+
+**Die Probe darauf ist zweideutig, und das sollte man wissen.** Eine
+Vorschau-Adresse lautet
+`<Versionskennung verkürzt>-<Worker>.<Konto>.workers.dev`. Ruft man eine
+selbst gebildete auf und bekommt „nicht gefunden", kann das heißen, dass
+die Vorschauen aus sind — oder dass die Adresse falsch geraten war. Von
+außen ist beides nicht zu unterscheiden.
+
+**Verlässlich ist erst Schritt 6b:** `wrangler` nennt nach dem Upload die
+Vorschau-Adresse der neuen Version, wenn es eine gibt. Nennt es keine,
+sind die Vorschauen aus — und mit `"preview_urls": false` in der
+Konfigurationsdatei sind sie es danach ohnehin.
+
+**Am 2026-09-17 so geprüft:** Die Ausgabe nannte nur die
+`workers.dev`-Adresse und keine Vorschau-Adresse. Damit ist der Punkt
+erledigt.
+
+**Das ist mehr als Aufräumen.** Wegen des stabilen Salts stehen alle je
+hochgeladenen Fassungen unter demselben Schlüssel. Abgeschaltete
+Vorschau-Adressen machen alte Versionen **unerreichbar**, auch wenn
+Cloudflare sie weiter aufbewahrt. Ob sich alte Versionen darüber hinaus
+löschen lassen, ist nicht dokumentiert und bleibt ein Punkt für den PoC.
+
+### 4b — Den Worker hinter Access stellen
+
+Im Worker unter dem Reiter **Access → Protect this Worker behind Access →
+All traffic**. Die Einstellung schützt nach Cloudflares Beschreibung
+**jede** Adresse des Workers: `workers.dev`, Vorschauen, Routen und eigene
+Domains.
+
+**Die Falle dieser Stufe steht hier, und sie ist schlimmer als die von
+Pages.** Als Richtlinie bietet die Schnellauswahl **Cloudflare account**
+und **Email domain** an. „Email domain" lässt jeden zu, der eine
+bestätigte Adresse unter dieser Domain hat. Bei einem Freemail-Anbieter
+sind das **Millionen Menschen** — die Anmeldung wäre formal eingerichtet
+und praktisch offen. **Hier „Cloudflare account" wählen**, nie „Email
+domain". Das ist der sichere Ausgangspunkt, nicht das Ziel.
+
+### 4c — Die Anwendung auf genau eine Person schärfen
+
+Die Schnelleinstellung legt im Hintergrund eine Access-Anwendung an, die
+sich in **Cloudflare One unter Access controls → Applications** bearbeiten
+lässt. Dort:
+
+- **Policy:** die Regel „Cloudflare account" ersetzen durch Action
+  **Allow**, Include → **Emails** → genau die Adresse, die der Test in
+  Schritt 2 angezeigt hat (P1). Nicht ergänzen, **ersetzen** — Access
+  lässt durch, wer **irgendeine** Regel erfüllt.
+- **Login methods:** nur **GitHub**. Steht One-time PIN daneben offen, ist
+  die Anmeldung so stark wie das schwächere von beidem (E2).
+- **Session Duration:** 24 Stunden (8.3).
+
+**Zwei Editoren, und man landet leicht im falschen.** Die Regel (wer darf)
+ist eine **Richtlinie** und wird im Richtlinien-Editor gepflegt; die
+Anmeldemethoden und die Sitzungsdauer gehören dagegen zur **Anwendung** —
+dort im Abschnitt *Configure how users will authenticate*. Im
+Richtlinien-Editor sucht man sie vergeblich.
+
+Im Richtlinien-Editor außerdem darauf achten, dass **keine leere
+Include-Zeile** stehen bleibt („Selector is… / Value is…"). Sie tut
+vermutlich nichts, aber eine Zugriffsregel ist die falsche Stelle für
+„vermutlich" — mit dem Papierkorb daneben entfernen.
+
+Eine gespeicherte Richtlinie wirkt erst, wenn sie **an der Anwendung
+hängt**. Dort unter *Access policies* die neue anhängen und die alte
+„Cloudflare account" **entfernen**.
+
+### Die Prüfung, ohne die dieser Schritt nichts wert ist
+
+**Ein privates Fenster:**
+
+```
+https://<name>.<konto>.workers.dev
+```
+
+Erwartet wird die Anmeldemaske unter `<team>.cloudflareaccess.com` mit
+**GitHub als einziger Möglichkeit** — nicht die Attrappe. Nach der
+Anmeldung erscheint `leer`.
+
+Dasselbe **vom Smartphone aus dem Mobilfunknetz**. Und einmal mit einem
+**anderen** GitHub-Konto oder ohne Anmeldung abbrechen: Dann darf `leer`
+nicht erscheinen.
+
+**Abnahmekriterium:** Ohne Anmeldung kein Inhalt, und mit einer fremden
+Identität auch nicht — geprüft in einem Fenster ohne Sitzung.
+
+## Schritt 5 — Das Token für den Server
+
+Erst jetzt, und mit möglichst wenig Rechten. In der Cloudflare-Konsole unter
+*My Profile → API Tokens → Create Token → Create Custom Token*:
+
+- Permissions: **Account → Workers Scripts → Edit**
+- Account Resources: **Include → dieses eine Konto**
+- TTL: ein Ablaufdatum setzen, damit ein vergessenes Token nicht ewig gilt
+
+**Nicht die Vorlage „Edit Cloudflare Workers" nehmen.** Sie bringt
+KV-, R2- und Routen-Rechte mit, die hier niemand braucht.
+
+**Am 2026-09-17 auf dem Server bestätigt:** `Workers Scripts: Edit` allein
+genügt für `wrangler deploy`, sofern `CLOUDFLARE_ACCOUNT_ID` gesetzt ist —
+weitere Rechte wie `Account Settings: Read` oder `Memberships: Read`
+braucht es dafür nicht.
+
+Dazu die **Konto-Kennung** (Account ID) aus der Übersicht des Kontos. Sie
+ist kein Geheimnis, gehört aber ebenfalls nicht ins Repository.
+
+Das Token erscheint **genau einmal** und kommt in den Passwortmanager —
+**noch nicht in die `.env`**. Solange der Upload von Hand läuft, wird es je
+Sitzung eingegeben. Ein Geheimnis, das erst ein künftiger Code braucht,
+liegt bis dahin nicht auf der Platte.
+
+**Was das Token nicht kann, und das ist der Punkt:** Es darf den Worker
+neu bereitstellen. Die Access-Anwendung davor darf es **nicht** anfassen.
+Wer es stiehlt, kann den Inhalt ersetzen — nicht die Anmeldung abschalten
+(N19).
+
+## Schritt 6 — Hochladen, zuerst noch einmal die Attrappe
+
+### 6a — Die Konfigurationsdatei, außerhalb des Repositorys
+
+`wrangler deploy` braucht für den unbeaufsichtigten Betrieb eine
+Konfigurationsdatei — die Kurzform `--assets` funktioniert laut
+Dokumentation **nur interaktiv**. Die Datei nennt den Worker beim Namen,
+und Name plus Konto-Subdomain **sind** die Adresse des Dashboards. In einem
+öffentlichen Repository wäre sie auffindbar (T9). Sie liegt deshalb unter
+`var\`, das `.gitignore` ausschließt.
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+New-Item -ItemType Directory -Force var\cloudflare, var\attrappe | Out-Null
+Set-Content var\attrappe\index.html "<h1>leer</h1>"
+```
+
+Dann `var\cloudflare\wrangler.jsonc` anlegen — **mit absolutem Pfad**.
+Mit einem relativen greift der Befehl ins Leere, sobald man schon im
+Zielverzeichnis steht, und der Fehler scrollt beim nächsten Befehl weg.
+Wie sich das äußert, steht am Ende dieses Schritts.
+
+Inhalt, `<name>` durch den Namen des Workers ersetzen:
+
+```jsonc
+{
+  "name": "<name>",
+  "compatibility_date": "2026-09-17",
+  "workers_dev": true,
+  // Ausdruecklich, und das ist die Falle dieser Datei: preview_urls folgt
+  // ohne Angabe dem Wert von workers_dev, also true. Ein Upload ohne diese
+  // Zeile schaltete die in Schritt 4a abgeschalteten Vorschauen
+  // stillschweigend wieder ein.
+  "preview_urls": false,
+  "assets": { "directory": "../attrappe" }
+}
+```
+
+### 6b — Die Attrappe über den Server hochladen
+
+**Warum noch einmal die Attrappe:** Dieser Durchgang prüft alles, was neu
+ist — Token, Konfiguration, `wrangler` auf Windows — und vor allem, ob der
+Upload an der Absicherung aus Schritt 4 etwas ändert. Geht dabei etwas
+schief, steht draußen `leer` und nicht der Datenbaum.
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer\var\cloudflare
+
+# Das Token ueber Read-Host, nicht als Zeile: Windows PowerShell 5.1
+# schreibt jede eingegebene Befehlszeile in eine Verlaufsdatei auf der
+# Platte -- auch eine mit dem Token darin. Die Eingabe ueber Read-Host
+# landet dort nicht.
+$eingabe = Read-Host "Cloudflare-Token" -AsSecureString
+$env:CLOUDFLARE_API_TOKEN = [System.Net.NetworkCredential]::new("", $eingabe).Password
+$env:CLOUDFLARE_ACCOUNT_ID = "<Konto-Kennung>"
+$env:WRANGLER_SEND_METRICS = "false"
+
+npx wrangler@4 deploy
+
+Remove-Item Env:\CLOUDFLARE_API_TOKEN
+Remove-Variable eingabe
+```
+
+Beim ersten Aufruf fragt `npx`, ob es `wrangler` herunterladen darf.
+`@4` hält die Hauptversion fest; ab 4.34 gilt die Grenze von 20.000 Dateien
+je Version.
+
+Die Ausgabe nennt das Asset-Verzeichnis, das `wrangler` tatsächlich gelesen
+hat. **Der Pfad in `assets.directory` wird relativ zur Konfigurationsdatei
+aufgelöst** (am 2026-09-17 so beobachtet), und weil der Aufruf ohnehin aus
+deren Verzeichnis kommt, stimmen beide Lesarten überein.
+
+### Wenn etwas schiefgeht
+
+**`fetch failed`, und im Protokoll steht `"configFileType":"none"`.** Dann
+hat `wrangler` die Konfigurationsdatei nicht gefunden und ist in seine
+Selbsterkennung gelaufen, die Vorlagen aus dem Netz holt — der Netzwerkfehler
+ist die Folge, nicht die Ursache. Nachsehen, ob die Datei wirklich im
+Arbeitsverzeichnis liegt.
+
+**`fetch failed` ohne diesen Eintrag.** Dann erst die Erreichbarkeit prüfen,
+und zwar getrennt für PowerShell und Node:
+
+```powershell
+(Invoke-WebRequest https://api.cloudflare.com/client/v4/ -UseBasicParsing).StatusCode
+node -e "fetch('https://api.cloudflare.com/client/v4/').then(r=>console.log('HTTP',r.status)).catch(e=>console.log('FEHLER:',e.message))"
+```
+
+Ein **HTTP 400** ist hier das *gute* Ergebnis: Es ist Cloudflares Antwort auf
+einen Aufruf ohne Endpunkt und belegt, dass die Verbindung steht.
+
+**Nur ein einzelnes Sternchen nach `Read-Host`.** Dann ist das Token nicht
+angekommen — `Read-Host -AsSecureString` zeigt eines je Zeichen, bei einem
+Token also um vierzig. Prüfbar mit `$env:CLOUDFLARE_API_TOKEN.Length`, was
+nur eine Zahl ausgibt.
+
+**Prüfung nach dem Upload, alle drei:**
+
+1. **Privates Fenster** auf die Adresse: weiterhin erst GitHub, dann `leer`.
+2. Im Worker unter **Settings → Domains & Routes**: Preview URLs stehen
+   weiterhin auf **disabled**.
+3. Unter **Access** ist der Worker weiterhin geschützt.
+
+Schlägt eine davon fehl, geht der Datenbaum nicht hinauf.
+
+### 6c — Der echte Datenbaum
+
+In `var\cloudflare\wrangler.jsonc` die eine Zeile ändern:
+
+```jsonc
+  "assets": { "directory": "../dashboard" }
+```
+
+und denselben Upload wie in 6b wiederholen. `var\dashboard` enthält seit
+Stufe K die Oberfläche im Zero-Knowledge-Build und darunter `data\` mit dem
+verschlüsselten Baum. Der Zustandsvermerk liegt daneben und geht **nicht**
+mit hinauf.
+
+`/aktie/` findet `aktie/index.html` von selbst: Die Voreinstellung
+`auto-trailing-slash` bildet genau das ab, was der statische Export mit
+`trailingSlash: true` erzeugt.
+
+**Abnahmekriterien** — dieselben wie in Stufe K, Schritt 4b, nur diesmal
+über das Netz und vom Smartphone:
+
+- Nach der GitHub-Anmeldung erscheint die Passphrase-Abfrage.
+- Die Passphrase öffnet den Stand; ein Chart zeigt echte Kurse.
+- Im Reiter *Netzwerk* nur opake Dateinamen und Binärantworten.
+- Die Dauer bis zum geöffneten Stand auf dem Smartphone (**AK16**, Ziel:
+  unter zwei Sekunden) — die Messung, die bisher nicht möglich war.
+
+**Noch offen und nicht Teil dieser Abnahme:** die Sicherheits-Header
+(Anforderung G). Workers liest dafür eine `_headers`-Datei im
+Asset-Verzeichnis und liefert sie selbst nicht aus; welche
+`Content-Security-Policy` der statische Export verträgt, muss gemessen
+werden.
+
+## Schritt 7 — Alte Versionen
+
+**Löschen lassen sie sich nicht, erreichbar sind sie aber auch nicht.**
+Jeder Upload ist eine neue Version des Workers, und Cloudflare bewahrt sie
+auf; ein Weg, einzelne zu löschen, ist nicht dokumentiert. Erreichbar wäre
+eine alte Version nur über ihre Vorschau-Adresse — und die sind seit
+Schritt 4a abgeschaltet und bleiben es dank `"preview_urls": false`.
+
+Das ist der Grund, warum diese Zeile in der Konfigurationsdatei die
+wichtigste ist: Wegen des stabilen Salts stehen alle je hochgeladenen
+Fassungen unter demselben Schlüssel.
+
+**Zu prüfen nach jedem Upload von Hand:** Preview URLs stehen auf
+*disabled*. Sobald der Exportschritt den Upload übernimmt, gehört diese
+Prüfung in denselben Schritt.
+
+## Schritt 8 — Die Notfallkarte
+
+In den Passwortmanager, neben die Passphrase:
+
+| Lage | Handgriff |
+|---|---|
+| Verdacht auf Datenabfluss | In Cloudflare One die Richtlinie der Anwendung leeren oder auf **Block** stellen — wirkt sofort, braucht keinen Upload |
+| Token verloren | Token in der Konsole widerrufen; Inhalt und Anmeldung bleiben unberührt |
+| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, `cli publish --full`, hochladen. **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
+| Alles abschalten | Worker in der Konsole löschen (*Settings → Delete*); der Server merkt davon nichts |
+| Server soll nicht mehr exportieren | `--dashboard-export none` in der Aufgabenplanung (Stufe K, Schritt 5) |
+
+## Was danach noch offen ist
+
+Der Upload läuft nach dieser Stufe **von Hand**. Der Exportschritt kennt
+bislang nur `target: none | directory`. Sobald diese Stufe abgenommen ist,
+folgt die Umsetzung des Datenwegs (Entscheidung **E4**: `wrangler` als
+Unterprozess, wie hier von Hand erprobt, oder HTTP aus Python) samt Prüfung
+der Vorschau-Adressen nach jedem Upload, den Sicherheits-Headern und der
+Schaltung im Tageslauf (Stufe K, Schritt 5).
+
 # Laufender Betrieb
 
 ## Betriebszustand

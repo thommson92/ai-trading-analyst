@@ -1,6 +1,9 @@
 # ADR 0060: Das Dashboard läuft außerhalb des Servers — Snapshot je Lauf, ausgehend hochgeladen, Anmeldung an der Kante, Zero-Knowledge als Zielstufe
 
-- Status: Vorgeschlagen
+- Status: **Angenommen am 2026-09-17** (vorgeschlagen am 2026-09-06; die
+  sieben Entscheidungspunkte am 2026-09-07 beschieden, der Proof of
+  Concept beim Anbieter am 2026-09-17 abgeschlossen — siehe den Nachtrag
+  am Ende und Doc 14, Stufe L)
 - Datum: 2026-09-06
 
 ## Kontext
@@ -395,3 +398,58 @@ Schlüssel, und die alten Dateien verschwinden als verwaist.
 
 Der Status dieses ADR bleibt **Vorgeschlagen**. Punkt 10 bindet die Annahme
 an den Proof of Concept beim Anbieter, und der steht aus.
+
+---
+
+## Nachtrag vom 2026-09-17 — angenommen, der PoC ist durch
+
+Der Proof of Concept aus Abschnitt 11 des Spike-Berichts ist beim Anbieter
+durchgeführt und abgenommen (Doc 14, **Stufe L**). Damit ist dieses ADR
+**angenommen**, und was oben unter „Was dieses ADR ablöst" steht, gilt ab
+jetzt.
+
+**Gewählt wurde Cloudflare Workers mit Cloudflare Access**
+([Anbieterevaluation](../requirements/f12-hosting-anbieter-evaluation.md)),
+nicht Cloudflare Pages: Die Konsole legt inzwischen Worker mit statischen
+Dateien an, und für diesen Zweck ist das der bessere Ort — eine einzige
+Einstellung schützt jede Adresse des Workers einschließlich der Vorschauen,
+und Vorschau-Adressen lassen sich ganz abschalten.
+
+**Belegt ist damit die Kernbehauptung dieses ADR:** Echte Analysedaten
+stehen außerhalb des Servers zur Verfügung, ohne dass der Server eine
+eingehende Freigabe bekommen hat — und unterwegs war nichts davon lesbar.
+Von 686 Dateien unter `data/` ist genau eine lesbarer Text: der
+Klartextkopf. Die Anmeldung hat in fünf Proben niemanden ohne GitHub
+durchgelassen, und der Schlüssel entsteht erst im Browser.
+
+**AK16 ist erfüllt und deutlich übertroffen:** Vom Eingeben der Passphrase
+bis zum sichtbaren Stand vergeht auf dem Smartphone **unter einer Sekunde**
+gegen ein Ziel von zwei.
+
+**Die beiden Entscheidungen, die noch offen waren, sind es nicht mehr.**
+**O1** (Lizenzlage) ist am 2026-09-09 beschieden: Ein Anbieter, der
+ausschließlich Chiffrat sieht, ist kein Empfänger der Daten. Die Lesart
+trägt **Stufe 2 und nur diese** — aus der Reihenfolgeentscheidung E1 wird
+damit eine Bedingung: `dashboard_export.encrypt` darf nicht `false` werden,
+solange Finnhub-Abgeleitetes im Baum steht. **O3** ist am 2026-09-10
+beschieden: GitHub als Identitätsanbieter.
+
+**Was die Umsetzung noch schuldig bleibt** — Umsetzung, nicht Entscheidung:
+
+1. **Sicherheits-Header** (Abschnitt 8.3, Anforderung G). Workers liest
+   dafür eine `_headers`-Datei im Asset-Verzeichnis; welche
+   `Content-Security-Policy` der statische Export ohne `'unsafe-inline'`
+   verträgt, ist ungemessen.
+2. **Der Upload aus dem Exportschritt heraus** (Entscheidung **E4**).
+   Erprobt ist `wrangler` als Unterprozess; bis zum Einbau ist Schritt 6
+   der Stufe L Handarbeit, und der Exportschritt bleibt im Tageslauf
+   abgeschaltet.
+
+**Ein Restrisiko hat sich durch die Anbieterwahl verschärft und steht hier
+ausdrücklich:** Alte Worker-Versionen lassen sich bei Cloudflare **nicht
+löschen**. Wegen des stabilen Salts (Nachtrag vom 2026-09-08) stehen alle je
+hochgeladenen Fassungen unter demselben Schlüssel. Unerreichbar sind sie nur,
+solange die Vorschau-Adressen abgeschaltet bleiben — was die
+Konfigurationsdatei mit `"preview_urls": false` erzwingt, weil der
+Vorgabewert dem eingeschalteten `workers_dev` folgt. Wer eine verratene
+Passphrase wirklich loswerden will, löscht den ganzen Worker.

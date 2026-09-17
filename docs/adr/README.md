@@ -94,7 +94,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0057](0057-torbedingungen-und-episoden.md) | Torbedingungen an der Entscheidungskerze, Episoden statt Cooldown | Angenommen (Frische und Schlusskurs über EMA 20 als Filter ohne neue Signaltypen; Ereignis-Verkettung ersetzt den Cooldown; ATR-Stärkefilter geprüft und verworfen) |
 | [0058](0058-optionsvorschlaege-im-rueckblick.md) | Optionsvorschläge im Rückblick — modelliert, gekennzeichnet, gemessen | Angenommen (elf Festlegungen; Rohnotierungen ab sofort speichern; Skew erst messen, Strukturvergleich zunächst nur live; keine Zinsannahme; eigene Tabelle und Version) |
 | [0059](0059-fernzugang-dashboard-overlay-netz.md) | Fernzugang zum Dashboard über ein identitätsgebundenes Overlay-Netz — keine öffentliche Erreichbarkeit | Vorgeschlagen, am 2026-09-07 **zurückgestellt** (Neubewertung von ADR 0049; Grundlage: [Spike-Bericht F12](../requirements/f12-externer-zugriff-spike.md), dort Abschnitt 15 zum Stand. Für das Dashboard nicht weiterverfolgt — der Weg verlangt Client-Software je Gerät —, für die Fernwartung des Servers offen. Weder angenommen noch abgelehnt; angenommen löste er die Expositionsaussage aus 0049 ab und ersetzte Punkt 3 aus 0052) |
-| [0060](0060-dashboard-ausserhalb-des-servers.md) | Das Dashboard läuft außerhalb des Servers — Snapshot je Lauf, ausgehend hochgeladen, Anmeldung an der Kante, Zero-Knowledge als Zielstufe | Vorgeschlagen (zweiter Ansatz zu F12; Grundlage: [Spike-Bericht](../requirements/f12-externes-hosting-spike.md); die sieben Entscheidungspunkte sind am 2026-09-07 beschieden — siehe den Nachtrag —, die Annahme hängt weiter am Proof of Concept beim Anbieter) |
+| [0060](0060-dashboard-ausserhalb-des-servers.md) | Das Dashboard läuft außerhalb des Servers — Snapshot je Lauf, ausgehend hochgeladen, Anmeldung an der Kante, Zero-Knowledge als Zielstufe | **Angenommen am 2026-09-17** (zweiter Ansatz zu F12; Grundlage: [Spike-Bericht](../requirements/f12-externes-hosting-spike.md) und [Anbieterevaluation](../requirements/f12-hosting-anbieter-evaluation.md); die sieben Entscheidungspunkte am 2026-09-07 beschieden, der PoC beim Anbieter am 2026-09-17 abgenommen — Doc 14, Stufe L. Löst die Expositionsaussage aus 0049 ab; 0052 und 0053 bleiben in Kraft) |
 
 ## Offene Entscheidungen
 
@@ -224,7 +224,10 @@ ADR, sobald die nötigen Informationen vorliegen:
   offen. Der zweite — das Dashboard läuft außerhalb des Servers, der Server
   lädt nach jedem Lauf nur ausgehend einen Snapshot hoch — steht als
   [ADR 0060](0060-dashboard-ausserhalb-des-servers.md) mit
-  [Spike-Bericht](../requirements/f12-externes-hosting-spike.md); seine
-  sieben Entscheidungspunkte hat der Inhaber am 2026-09-07 beschieden, die
-  Annahme hängt am Proof of Concept beim Anbieter. **Bis eine
-  der beiden Entscheidungen angenommen ist, gilt ADR 0049 unverändert.**
+  [Spike-Bericht](../requirements/f12-externes-hosting-spike.md) — ist am
+  **2026-09-17 angenommen**, nachdem der Proof of Concept beim Anbieter
+  durchgeführt war (Doc 14, Stufe L). **Damit ist die Neubewertung
+  entschieden:** Die Aussage „keine Exposition, keine eigene
+  Authentifizierung" aus ADR 0049 gilt jetzt als „der Server bleibt ohne
+  Exposition; das Dashboard läuft zusätzlich außerhalb, hinter der
+  Anmeldung des Anbieters". ADR 0049 wird nicht rückwirkend geändert.
