@@ -1,0 +1,38 @@
+# Sicherheits-Header fuer die Auslieferung ausserhalb des Servers
+# (ADR 0060, Spike-Bericht Abschnitt 8.3, Anforderung G).
+#
+# Cloudflare Workers liest diese Datei aus dem Asset-Verzeichnis und liefert
+# sie selbst nicht aus. Sie liegt hier in `public/`, damit `next build` sie
+# nach `out/` kopiert -- und damit sie fuer beide Datenmodi gilt, auch fuer
+# das LAN-Dashboard, wo sie folgenlos bleibt.
+#
+# **Was diese Header nicht leisten:** Sie schuetzen nicht gegen einen
+# gestohlenen Deploy-Token. Wer beim Anbieter schreiben darf, ersetzt diese
+# Datei mit demselben Upload. Dagegen steht die Zugriffsregel, die ausserhalb
+# des Deployments liegt (N19) -- nicht die CSP.
+
+/*
+  # 'unsafe-inline' fuer Skripte ist eine bewusste Zugestaendnis-Entscheidung
+  # vom 2026-09-17: Next legt je Seite sieben Inline-Skripte mit den
+  # RSC-Nutzdaten ab, und sie aendern sich mit jedem Build (die Bau-Kennung
+  # steckt darin). Hashes waeren nur mit einem Generator zu halten, dessen
+  # Fehler das Dashboard beim Anbieter unbrauchbar machte. Der Gegenwert ist
+  # klein: Es gibt im Frontend kein `dangerouslySetInnerHTML` und kein
+  # `innerHTML`, React maskiert jeden Berichtstext -- eingeschleuster Code
+  # hat keinen Weg zur Ausfuehrung. Externe Skripte und `eval` bleiben
+  # verboten, und das ist hier der wirksame Teil.
+  #
+  # 'unsafe-inline' fuer Styles, weil `recharts` zur Laufzeit
+  # `style`-Attribute auf die SVG-Elemente setzt. Ohne das bliebe der
+  # Kursverlauf ohne Groesse -- und zwar erst beim Anbieter sichtbar.
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Cross-Origin-Opener-Policy: same-origin
+
+# Der Datenbaum gehoert in keinen Zwischenspeicher, der ihn ueberdauert:
+# Auf einem geteilten Geraet bliebe sonst das Chiffrat liegen, und es steht
+# unter demselben Schluessel wie jeder andere Stand (stabiles Salt).
+/data/*
+  Cache-Control: no-store

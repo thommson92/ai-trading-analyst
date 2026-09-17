@@ -1291,8 +1291,11 @@ Sekunde**, gegen ein Ziel von zwei.
 Damit ist die Behauptung von ADR 0060 belegt: Echte Daten kommen an, und
 unterwegs war nichts davon lesbar.
 
-**Offen bleiben** die Sicherheits-Header (Anforderung G) und der Upload aus
-dem Exportschritt heraus — bis dahin ist Schritt 6 Handarbeit.
+**Die Sicherheits-Header sind seit dem 2026-09-17 dabei** — sie liegen als
+`frontend/public/_headers` im Repository und werden von `next build` nach
+`out/` kopiert, gehen also mit jedem Upload mit. Workers liest die Datei und
+liefert sie selbst nicht aus. **Offen bleibt** der Upload aus dem
+Exportschritt heraus; bis dahin ist Schritt 6 Handarbeit.
 
 Diese Stufe setzt die Anbieterentscheidung um
 ([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
@@ -1685,11 +1688,35 @@ mit hinauf.
 - Die Dauer bis zum geöffneten Stand auf dem Smartphone (**AK16**, Ziel:
   unter zwei Sekunden) — die Messung, die bisher nicht möglich war.
 
-**Noch offen und nicht Teil dieser Abnahme:** die Sicherheits-Header
-(Anforderung G). Workers liest dafür eine `_headers`-Datei im
-Asset-Verzeichnis und liefert sie selbst nicht aus; welche
-`Content-Security-Policy` der statische Export verträgt, muss gemessen
-werden.
+### Die Sicherheits-Header
+
+Sie liegen als `frontend/public/_headers` im Repository und kommen über
+`next build` in den Export; hochzuladen ist nichts Zusätzliches. Nach dem
+ersten Upload einmal prüfen — Entwicklerwerkzeuge, Reiter *Netzwerk*, das
+Dokument anklicken, Antwort-Header:
+
+- `Content-Security-Policy` mit `default-src 'none'` und
+  `frame-ancestors 'none'`
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
+- bei einer Datei unter `/data/` zusätzlich `Cache-Control: no-store`
+
+**Zwei Zugeständnisse stehen darin, beide gemessen und begründet.**
+`script-src` erlaubt `'unsafe-inline'`: Next legt je Seite sieben
+Inline-Skripte mit den RSC-Nutzdaten ab, die sich mit jedem Build ändern.
+Hashes wären nur über einen Generator zu halten, dessen Fehler das Dashboard
+beim Anbieter unbrauchbar machte — und der Gegenwert ist klein, weil das
+Frontend nirgends rohes HTML einsetzt und React jeden Berichtstext maskiert.
+`style-src` erlaubt es ebenfalls, weil `recharts` zur Laufzeit
+`style`-Attribute auf die SVG-Elemente setzt.
+
+Ein Test in `frontend/src/lib/sicherheitsheader.test.ts` bewacht beides: die
+Richtlinie selbst und die Annahme, auf der das Zugeständnis ruht — wer
+`dangerouslySetInnerHTML` einführt, bekommt einen roten Test mit der
+Begründung.
+
+**Wogegen diese Header nicht helfen:** gegen einen gestohlenen Deploy-Token.
+Wer beim Anbieter schreiben darf, ersetzt `_headers` mit demselben Upload.
+Dagegen steht die Zugriffsregel, die außerhalb des Deployments liegt.
 
 ## Schritt 7 — Alte Versionen
 
