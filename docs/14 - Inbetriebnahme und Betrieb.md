@@ -1424,6 +1424,20 @@ auch niemand absichern.
 
 Im Worker unter **Settings → Domains & Routes → Preview URLs → Disable**.
 
+**Die Probe darauf ist zweideutig, und das sollte man wissen.** Eine
+Vorschau-Adresse lautet
+`<Versionskennung verkürzt>-<Worker>.<Konto>.workers.dev`. Ruft man eine
+selbst gebildete auf und bekommt „nicht gefunden", kann das heißen, dass
+die Vorschauen aus sind — oder dass die Adresse falsch geraten war. Von
+außen ist beides nicht zu unterscheiden.
+
+**Verlässlich ist erst Schritt 6b:** `wrangler` nennt nach dem Upload die
+Vorschau-Adresse der neuen Version, wenn es eine gibt. Nennt es keine,
+sind die Vorschauen aus — und mit `"preview_urls": false` in der
+Konfigurationsdatei sind sie es danach ohnehin. Bis dahin gilt: Selbst
+eingeschaltete Vorschauen liegen nach Cloudflares Beschreibung hinter
+derselben Access-Anwendung (4b, *All traffic*).
+
 **Das ist mehr als Aufräumen.** Wegen des stabilen Salts stehen alle je
 hochgeladenen Fassungen unter demselben Schlüssel. Abgeschaltete
 Vorschau-Adressen machen alte Versionen **unerreichbar**, auch wenn
