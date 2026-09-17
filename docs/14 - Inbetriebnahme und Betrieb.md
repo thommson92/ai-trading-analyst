@@ -1300,9 +1300,8 @@ empfiehlt Workers ausdrücklich für neue Projekte. Für diesen Zweck ist der
 Worker **der bessere Ort**: Eine einzige Einstellung schützt alle seine
 Adressen einschließlich der Vorschauen — die Falle mit den zwei
 Anwendungen, die Pages hatte, entfällt —, und Vorschau-Adressen lassen sich
-ganz abschalten. Die Schritte 3 und 4 sind darauf umgestellt; **Schritt 5
-bis 8 sind noch für Pages geschrieben und werden vor ihrer Ausführung
-geprüft und umgestellt.**
+ganz abschalten. Alle Schritte sind darauf umgestellt und gegen die
+Cloudflare-Dokumentation geprüft (Stand 2026-09-17).
 
 **Die Menüpfade sind Stand 2026-09-17.** Cloudflare hat die Konsole
 mehrfach umgebaut und „Zero Trust" in „Cloudflare One" umbenannt; ein
@@ -1496,89 +1495,161 @@ Identität auch nicht — geprüft in einem Fenster ohne Sitzung.
 
 ## Schritt 5 — Das Token für den Server
 
-Erst jetzt, und mit möglichst wenig Rechten. In der Cloudflare-Konsole
-unter *My Profile → API Tokens → Create Token → Create Custom Token*:
+Erst jetzt, und mit möglichst wenig Rechten. In der Cloudflare-Konsole unter
+*My Profile → API Tokens → Create Token → Create Custom Token*:
 
-- Permissions: **Account → Cloudflare Pages → Edit**
+- Permissions: **Account → Workers Scripts → Edit**
 - Account Resources: **Include → dieses eine Konto**
 - TTL: ein Ablaufdatum setzen, damit ein vergessenes Token nicht ewig gilt
 
-Das Token erscheint **genau einmal**. In den Passwortmanager, dann in die
-`.env` im Projektwurzelverzeichnis:
+**Nicht die Vorlage „Edit Cloudflare Workers" nehmen.** Sie bringt
+KV-, R2- und Routen-Rechte mit, die hier niemand braucht. Meldet `wrangler`
+beim ersten Upload eine fehlende Berechtigung, wird **genau diese** ergänzt
+— die Fehlermeldung nennt sie.
 
-```
-ATA_DASHBOARD_PUBLISH_TOKEN=<das Token>
-CLOUDFLARE_ACCOUNT_ID=<die Konto-Kennung aus der Konsole>
-```
+Dazu die **Konto-Kennung** (Account ID) aus der Übersicht des Kontos. Sie
+ist kein Geheimnis, gehört aber ebenfalls nicht ins Repository.
 
-`wrangler` liest `CLOUDFLARE_API_TOKEN` und `CLOUDFLARE_ACCOUNT_ID` aus der
-Umgebung. Solange der Upload von Hand läuft, wird das Token beim Aufruf
-gesetzt; der spätere Exportschritt bekommt es über `ATA_`-Namen wie alle
-anderen Geheimnisse auch.
+Das Token erscheint **genau einmal** und kommt in den Passwortmanager —
+**noch nicht in die `.env`**. Solange der Upload von Hand läuft, wird es je
+Sitzung eingegeben. Ein Geheimnis, das erst ein künftiger Code braucht,
+liegt bis dahin nicht auf der Platte.
 
-**Was das Token nicht kann, und das ist der Punkt:** Es darf Deployments
-anlegen und löschen. Es darf die Access-Anwendungen **nicht** anfassen. Wer
-es stiehlt, kann den Inhalt ersetzen — nicht die Anmeldung davor abschalten
+**Was das Token nicht kann, und das ist der Punkt:** Es darf den Worker
+neu bereitstellen. Die Access-Anwendung davor darf es **nicht** anfassen.
+Wer es stiehlt, kann den Inhalt ersetzen — nicht die Anmeldung abschalten
 (N19).
 
-## Schritt 6 — Den echten Datenbaum hochladen
+## Schritt 6 — Hochladen, zuerst noch einmal die Attrappe
 
-Erst wenn Schritt 4 sauber durchgelaufen ist.
+### 6a — Die Konfigurationsdatei, außerhalb des Repositorys
+
+`wrangler deploy` braucht für den unbeaufsichtigten Betrieb eine
+Konfigurationsdatei — die Kurzform `--assets` funktioniert laut
+Dokumentation **nur interaktiv**. Die Datei nennt den Worker beim Namen,
+und Name plus Konto-Subdomain **sind** die Adresse des Dashboards. In einem
+öffentlichen Repository wäre sie auffindbar (T9). Sie liegt deshalb unter
+`var\`, das `.gitignore` ausschließt.
 
 ```powershell
 cd C:\Users\Administrator\Documents\TradingViewAnalyzer
-$env:CLOUDFLARE_API_TOKEN = "<Token aus dem Passwortmanager>"
-$env:CLOUDFLARE_ACCOUNT_ID = "<Konto-Kennung>"
-
-cd var\dashboard
-npx wrangler pages deploy . --project-name <projekt> --branch main --commit-dirty true
-
-Remove-Item Env:\CLOUDFLARE_API_TOKEN
+New-Item -ItemType Directory -Force var\cloudflare, var\attrappe | Out-Null
+Set-Content var\attrappe\index.html "<h1>leer</h1>"
 ```
 
-`var\dashboard` enthält seit Stufe K beides: die Oberfläche im
-Zero-Knowledge-Build und darunter `data\` mit dem verschlüsselten Baum.
-Der Zustandsvermerk liegt außerhalb und geht **nicht** mit hinauf — das ist
-in Stufe K geprüft worden und bleibt hier richtig.
+Dann `var\cloudflare\wrangler.jsonc` mit diesem Inhalt anlegen, `<name>`
+durch den Namen des Workers ersetzen:
 
-Rechnen Sie beim ersten Mal mit rund 30 MB.
+```jsonc
+{
+  "name": "<name>",
+  "compatibility_date": "2026-09-17",
+  "workers_dev": true,
+  // Ausdruecklich, und das ist die Falle dieser Datei: preview_urls folgt
+  // ohne Angabe dem Wert von workers_dev, also true. Ein Upload ohne diese
+  // Zeile schaltete die in Schritt 4a abgeschalteten Vorschauen
+  // stillschweigend wieder ein.
+  "preview_urls": false,
+  "assets": { "directory": "../attrappe" }
+}
+```
 
-**Abnahmekriterien:** Nach der Anmeldung erscheint das Dashboard, die
-Passphrase öffnet den Stand, und ein Chart zeigt echte Kurse (dieselben
-Prüfungen wie in Stufe K, Schritt 4b — nur diesmal über das Netz). Im
-Reiter *Netzwerk* stehen weiterhin nur opake Dateinamen und Binärantworten.
+### 6b — Die Attrappe über den Server hochladen
 
-## Schritt 7 — Alte Deployments entfernen
-
-**Nicht optional, und der Grund ist die Konstruktion des Datenbaums.** Alle
-je hochgeladenen Fassungen sind unter **demselben** Schlüssel verschlüsselt
-(stabiles Salt, siehe ADR 0060, Nachtrag vom 2026-09-08). Eine unbegrenzte
-Deployment-Historie ist deshalb kein Altlastenproblem, sondern ein
-wachsendes Archiv, das eine einzige verlorene Passphrase vollständig
-aufschließt. Vorschau-Adressen bleiben dauerhaft erreichbar, bis das
-Deployment gelöscht ist.
+**Warum noch einmal die Attrappe:** Dieser Durchgang prüft alles, was neu
+ist — Token, Konfiguration, `wrangler` auf Windows — und vor allem, ob der
+Upload an der Absicherung aus Schritt 4 etwas ändert. Geht dabei etwas
+schief, steht draußen `leer` und nicht der Datenbaum.
 
 ```powershell
-npx wrangler pages deployment list --project-name <projekt>
-npx wrangler pages deployment delete <deployment-id> --project-name <projekt>
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer\var\cloudflare
+
+# Das Token ueber Read-Host, nicht als Zeile: Windows PowerShell 5.1
+# schreibt jede eingegebene Befehlszeile in eine Verlaufsdatei auf der
+# Platte -- auch eine mit dem Token darin. Die Eingabe ueber Read-Host
+# landet dort nicht.
+$eingabe = Read-Host "Cloudflare-Token" -AsSecureString
+$env:CLOUDFLARE_API_TOKEN = [System.Net.NetworkCredential]::new("", $eingabe).Password
+$env:CLOUDFLARE_ACCOUNT_ID = "<Konto-Kennung>"
+$env:WRANGLER_SEND_METRICS = "false"
+
+npx wrangler@4 deploy
+
+Remove-Item Env:\CLOUDFLARE_API_TOKEN
+Remove-Variable eingabe
 ```
 
-Der jüngste Stand eines Zweigs lässt sich nicht löschen — gemeint ist die
-Historie dahinter, nicht der aktuelle Stand. Ab hundert Deployments wird
-auch das Löschen des Projekts schwierig; einmal im Monat aufräumen genügt,
-solange von Hand hochgeladen wird. Sobald der Exportschritt den Upload
-übernimmt, gehört das Aufräumen in denselben Schritt.
+Beim ersten Aufruf fragt `npx`, ob es `wrangler` herunterladen darf.
+`@4` hält die Hauptversion fest; ab 4.34 gilt die Grenze von 20.000 Dateien
+je Version.
+
+**Prüfung nach dem Upload, alle drei:**
+
+1. **Privates Fenster** auf die Adresse: weiterhin erst GitHub, dann `leer`.
+2. Im Worker unter **Settings → Domains & Routes**: Preview URLs stehen
+   weiterhin auf **disabled**.
+3. Unter **Access** ist der Worker weiterhin geschützt.
+
+Schlägt eine davon fehl, geht der Datenbaum nicht hinauf.
+
+### 6c — Der echte Datenbaum
+
+In `var\cloudflare\wrangler.jsonc` die eine Zeile ändern:
+
+```jsonc
+  "assets": { "directory": "../dashboard" }
+```
+
+und denselben Upload wie in 6b wiederholen. `var\dashboard` enthält seit
+Stufe K die Oberfläche im Zero-Knowledge-Build und darunter `data\` mit dem
+verschlüsselten Baum. Der Zustandsvermerk liegt daneben und geht **nicht**
+mit hinauf.
+
+`/aktie/` findet `aktie/index.html` von selbst: Die Voreinstellung
+`auto-trailing-slash` bildet genau das ab, was der statische Export mit
+`trailingSlash: true` erzeugt.
+
+**Abnahmekriterien** — dieselben wie in Stufe K, Schritt 4b, nur diesmal
+über das Netz und vom Smartphone:
+
+- Nach der GitHub-Anmeldung erscheint die Passphrase-Abfrage.
+- Die Passphrase öffnet den Stand; ein Chart zeigt echte Kurse.
+- Im Reiter *Netzwerk* nur opake Dateinamen und Binärantworten.
+- Die Dauer bis zum geöffneten Stand auf dem Smartphone (**AK16**, Ziel:
+  unter zwei Sekunden) — die Messung, die bisher nicht möglich war.
+
+**Noch offen und nicht Teil dieser Abnahme:** die Sicherheits-Header
+(Anforderung G). Workers liest dafür eine `_headers`-Datei im
+Asset-Verzeichnis und liefert sie selbst nicht aus; welche
+`Content-Security-Policy` der statische Export verträgt, muss gemessen
+werden.
+
+## Schritt 7 — Alte Versionen
+
+**Löschen lassen sie sich nicht, erreichbar sind sie aber auch nicht.**
+Jeder Upload ist eine neue Version des Workers, und Cloudflare bewahrt sie
+auf; ein Weg, einzelne zu löschen, ist nicht dokumentiert. Erreichbar wäre
+eine alte Version nur über ihre Vorschau-Adresse — und die sind seit
+Schritt 4a abgeschaltet und bleiben es dank `"preview_urls": false`.
+
+Das ist der Grund, warum diese Zeile in der Konfigurationsdatei die
+wichtigste ist: Wegen des stabilen Salts stehen alle je hochgeladenen
+Fassungen unter demselben Schlüssel.
+
+**Zu prüfen nach jedem Upload von Hand:** Preview URLs stehen auf
+*disabled*. Sobald der Exportschritt den Upload übernimmt, gehört diese
+Prüfung in denselben Schritt.
 
 ## Schritt 8 — Die Notfallkarte
 
-In den Passwortmanager, neben die Passphrase, in dieser Reihenfolge:
+In den Passwortmanager, neben die Passphrase:
 
 | Lage | Handgriff |
 |---|---|
-| Verdacht auf Datenabfluss | Access-Anwendungen auf **Allow: niemand** stellen — wirkt sofort und braucht keinen Upload |
-| Token verloren | Token in der Konsole widerrufen; der Inhalt draußen bleibt, die Anmeldung davor ebenfalls |
-| Passphrase verloren | Neue erzeugen, `.env` ändern, `cli publish --full`, danach **alle** alten Deployments löschen — sonst bleibt der alte Schlüssel gültig |
-| Alles abschalten | Pages-Projekt löschen (`npx wrangler pages project delete <projekt> --yes`); der Server merkt davon nichts |
+| Verdacht auf Datenabfluss | In Cloudflare One die Richtlinie der Anwendung leeren oder auf **Block** stellen — wirkt sofort, braucht keinen Upload |
+| Token verloren | Token in der Konsole widerrufen; Inhalt und Anmeldung bleiben unberührt |
+| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, `cli publish --full`, hochladen. **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
+| Alles abschalten | Worker in der Konsole löschen (*Settings → Delete*); der Server merkt davon nichts |
 | Server soll nicht mehr exportieren | `--dashboard-export none` in der Aufgabenplanung (Stufe K, Schritt 5) |
 
 ## Was danach noch offen ist
@@ -1586,7 +1657,8 @@ In den Passwortmanager, neben die Passphrase, in dieser Reihenfolge:
 Der Upload läuft nach dieser Stufe **von Hand**. Der Exportschritt kennt
 bislang nur `target: none | directory`. Sobald diese Stufe abgenommen ist,
 folgt die Umsetzung des Datenwegs (Entscheidung **E4**: `wrangler` als
-Unterprozess oder HTTP aus Python) samt Aufräumen alter Deployments und der
+Unterprozess, wie hier von Hand erprobt, oder HTTP aus Python) samt Prüfung
+der Vorschau-Adressen nach jedem Upload, den Sicherheits-Headern und der
 Schaltung im Tageslauf (Stufe K, Schritt 5).
 
 # Laufender Betrieb
