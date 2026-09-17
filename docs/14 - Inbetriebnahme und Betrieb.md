@@ -1117,6 +1117,15 @@ und den LAN-Build sofort wiederherstellen.
 
 ```powershell
 New-Item -ItemType Directory -Force ..\var\dashboard | Out-Null
+
+# Die alte Oberflaeche zuerst weg, den Datenbaum aber stehen lassen.
+# 'Copy-Item -Force' ueberschreibt nur gleichnamige Dateien, und die Namen
+# der Next-Buendel tragen einen Hash je Build -- ohne dieses Aufraeumen
+# blieben die Buendel *jedes* frueheren Builds liegen und gingen bei jedem
+# Upload mit hinaus. Das Verzeichnis 'data' gehoert dem Exportschritt, der
+# darin selbst aufraeumt.
+Get-ChildItem ..\var\dashboard -Exclude data | Remove-Item -Recurse -Force
+
 Copy-Item -Recurse -Force out\* ..\var\dashboard\
 npm run build          # ohne die Variable -- das ist wieder der LAN-Build
 ```
