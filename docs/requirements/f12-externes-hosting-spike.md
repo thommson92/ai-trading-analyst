@@ -1,11 +1,12 @@
 # F12 — Dashboard außerhalb des Servers: Spike-Bericht
 
-- Status: **Spike abgeschlossen.** Der daraus abgeleitete Vorschlag steht
-  in [ADR 0060](../adr/0060-dashboard-ausserhalb-des-servers.md) mit Status
-  „Vorgeschlagen"; die sieben Entscheidungspunkte hat der Inhaber am
-  2026-09-07 beschieden — **Abschnitt 10.3**. Die Annahme des ADR hängt
-  weiter am Proof of Concept beim Anbieter. Dieses Dokument ist die
-  Grundlage dafür und bleibt als Beleg erhalten, wie
+- Status: **Erledigt.** [ADR 0060](../adr/0060-dashboard-ausserhalb-des-servers.md)
+  ist am **2026-09-17 angenommen**: Die sieben Entscheidungspunkte hat der
+  Inhaber am 2026-09-07 beschieden (**Abschnitt 10.3**), O1 und O3 folgten
+  (**Abschnitt 10.4**), und der Proof of Concept aus Abschnitt 11 ist beim
+  Anbieter durchgeführt und abgenommen — Doc 14, **Stufe L**, und die
+  [Anbieterevaluation](f12-hosting-anbieter-evaluation.md). Dieses Dokument
+  bleibt als Beleg erhalten, wie
   [earnings-anbieter-evaluation.md](earnings-anbieter-evaluation.md) und
   [g3-entscheidungsvorlage.md](g3-entscheidungsvorlage.md).
 - Datum: 2026-09-06
