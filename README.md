@@ -477,22 +477,31 @@ Dieselbe Oberfläche liest ihn, gebaut mit einer anderen Bauvariablen:
 # Stufe 2: die Oberfläche nimmt ausschließlich Chiffrat an
 cd frontend && NEXT_PUBLIC_DATENMODUS=verschluesselt npm run build
 
-# Den Datenbaum von Hand schreiben (der Tageslauf tut es am Ende jedes Laufs)
+# Den Datenbaum von Hand schreiben und senden
+# (der Tageslauf tut beides am Ende jedes Laufs)
 cd backend
-ATA_DASHBOARD_EXPORT_PASSPHRASE=… .venv/bin/python -m ai_trading_analyst.cli \
-    publish --directory var/dashboard
+.venv/bin/python -m ai_trading_analyst.cli publish
+
+# Nur schreiben, nichts senden -- ohne Netz und ohne neue Fassung draußen
+.venv/bin/python -m ai_trading_analyst.cli publish --no-upload
 ```
 
-Eingeschaltet wird der Schritt über `dashboard_export` in
-`config/default.yaml`; ausgeliefert steht er auf `none`. Steht `encrypt` auf
-`true` — die Voreinstellung —, verlangt der Export die Passphrase aus
-`ATA_DASHBOARD_EXPORT_PASSPHRASE` und bricht ohne sie ab: Es gibt bewusst
-keinen stillen Rückfall auf Klartext. `--full` verwirft den bekannten Stand
-und schreibt jede Datei neu; ohne den Schalter entsteht nur, was sich
-geändert hat.
+Geschaltet wird über `--dashboard-export` in der Aufgabenplanung, nicht in
+`config/default.yaml` — die Datei ist im öffentlichen Repository versioniert.
+Drei Werte: `cloudflare` schreibt und sendet, `directory` schreibt nur (die
+Rückfallstufe, wenn der Weg nach draußen klemmt), `none` ist der
+Notausschalter. Ausgeliefert steht er auf `none`.
 
-Was **nicht** dazugehört, solange der PoC aussteht: kein Anbieterkonto, kein
-Token, kein Upload. Der Weg endet im Verzeichnis.
+Steht `encrypt` auf `true` — die Voreinstellung —, verlangt der Export die
+Passphrase aus `ATA_DASHBOARD_EXPORT_PASSPHRASE` und bricht ohne sie ab: Es
+gibt bewusst keinen stillen Rückfall auf Klartext. `--full` verwirft den
+bekannten Stand und schreibt jede Datei neu; ohne den Schalter entsteht nur,
+was sich geändert hat.
+
+Der Upload läuft über `wrangler` als Unterprozess — damit ist Node nicht nur
+Bauwerkzeug, sondern Teil der produktiven Kette (ADR 0052, Nachtrag). Er
+braucht drei `ATA_`-Werte (Token, Konto, Worker-Name) und ein `npm ci` im
+Frontend. Die Einrichtung beim Anbieter steht in Doc 14, Stufe L.
 
 ### Tests mit echtem PostgreSQL
 

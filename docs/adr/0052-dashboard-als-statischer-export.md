@@ -92,3 +92,37 @@ gespeicherte Berichte anzeigt, ist keine dieser Fähigkeiten nötig.
   Kommt die externe Erreichbarkeit, kommen Reverse Proxy und TLS zurück auf
   den Tisch, und mit ihnen darf auch die Container-Frage erneut gestellt
   werden.
+
+---
+
+## Nachtrag vom 2026-09-18 — Node ist auch Auslieferungswerkzeug
+
+**Punkt 2 stimmt nicht mehr ganz.** „Node ist Bauwerkzeug, nicht Laufzeit"
+galt, solange der Export auf dem Server liegen blieb. Seit der Umsetzung von
+Entscheidung **E4** aus [ADR 0060](0060-dashboard-ausserhalb-des-servers.md)
+lädt der Exportschritt den Datenbaum selbst zum Anbieter hoch, und er tut es
+mit `wrangler` — einem Node-Werkzeug, das als Unterprozess läuft. Dieser
+Nachtrag war in ADR 0060 ausdrücklich angekündigt.
+
+**Was sich genau ändert und was nicht:**
+
+- Node läuft weiterhin **nicht als Dienst**. Es gibt keinen dauerhaften
+  Node-Prozess, keinen zweiten Port, keine zweite Laufzeit neben `uvicorn`.
+- Node läuft aber **im nächtlichen Tageslauf mit**, einmal je Lauf, für die
+  Dauer eines Uploads. Das ist der Unterschied zu „nur beim Aktualisieren".
+- Damit wird aus der Konsequenz „Node muss auf dem Server installiert sein,
+  sonst gibt es keinen Build" eine schärfere: **Fehlt Node oder fehlt
+  `npm ci` im Frontend, bleibt der Datenbaum liegen.** Der Lauf gilt
+  trotzdem als erledigt und meldet „Dashboard nicht gesendet" — die
+  Fehlerisolation aus ADR 0060, Punkt 2 deckt auch diesen Fall.
+- `wrangler` ist deshalb eine **Entwicklungsabhängigkeit des Frontends** und
+  keine Ad-hoc-Installation: Die Fassung steht in `frontend/package-lock.json`,
+  die CI installiert sie bei jedem Lauf, der Audit-Job sieht sie sich
+  wöchentlich an. Ein `npx wrangler@4` hätte bei jedem Nachladen eine
+  ungeprüfte Fassung in den produktiven Lauf geholt.
+- `npm ci` gehört seitdem **immer** in den Aktualisierungsablauf, nicht nur
+  bei Änderungen am Frontend (Doc 14, „Aktualisierung").
+
+**Der Grundsatz von Punkt 2 bleibt**: Die Anwendung selbst hängt nicht an
+Node. Fällt es aus, laufen Screening, Analyse, Bericht, Meldung und der
+LAN-Dienst vollständig weiter — nur der Weg nach draußen ist zu.

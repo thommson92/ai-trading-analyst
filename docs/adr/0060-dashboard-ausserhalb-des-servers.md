@@ -449,10 +449,8 @@ beschieden: GitHub als Identitätsanbieter.
    bewachen genau diese beiden Annahmen.
    Alles Übrige ist streng: `default-src 'none'`, kein `eval`, keine fremde
    Herkunft, `frame-ancestors 'none'`, `no-store` für den Datenbaum.
-2. **Der Upload aus dem Exportschritt heraus** (Entscheidung **E4**).
-   Erprobt ist `wrangler` als Unterprozess; bis zum Einbau ist Schritt 6
-   der Stufe L Handarbeit, und der Exportschritt bleibt im Tageslauf
-   abgeschaltet.
+2. ~~**Der Upload aus dem Exportschritt heraus**~~ — **erledigt am
+   2026-09-18.** Siehe den Nachtrag unten.
 
 **Ein Restrisiko hat sich durch die Anbieterwahl verschärft und steht hier
 ausdrücklich:** Alte Worker-Versionen lassen sich bei Cloudflare **nicht
@@ -462,3 +460,78 @@ solange die Vorschau-Adressen abgeschaltet bleiben — was die
 Konfigurationsdatei mit `"preview_urls": false` erzwingt, weil der
 Vorgabewert dem eingeschalteten `workers_dev` folgt. Wer eine verratene
 Passphrase wirklich loswerden will, löscht den ganzen Worker.
+
+---
+
+## Nachtrag vom 2026-09-18 — E4 umgesetzt, die Kette schließt sich
+
+**Der Server sendet jetzt selbst.** Damit ist Punkt 2 der Schuldenliste
+erledigt und die Entscheidung **E4** auf den Datenweg **DW2** festgelegt:
+`wrangler` als Unterprozess, genau so, wie Doc 14, Stufe L es von Hand
+erprobt hat. DW1 — ein Upload aus Python heraus — bleibt der schmalere Weg
+und wird hier nicht gegangen: Cloudflares Schnittstelle für statische
+Dateien ist mehrstufig (Version anlegen, Hash-Manifest melden, fehlende
+Dateien senden, bereitstellen), und sie ohne das Werkzeug nachzubauen hieße,
+ein Stück Anbieter-Protokoll zu pflegen, das der Anbieter selbst pflegt.
+
+**Damit tritt Node in die produktive Kette.** Das zieht den in ADR 0052
+vorgesehenen Nachtrag zu dessen Punkt 2 nach sich: Node ist nicht mehr nur
+Bauwerkzeug, sondern läuft im nächtlichen Tageslauf mit. Die Fassung ist
+gepinnt — `wrangler` liegt als Entwicklungsabhängigkeit im Frontend und
+damit in dessen Lock-Datei, die CI prüft und der Audit-Job wöchentlich
+ansieht. Ein `npx wrangler@4`, wie es von Hand erprobt wurde, hätte
+stattdessen bei jedem Nachladen eine ungeprüfte Fassung in den Lauf geholt
+und ihn ans Netz gehängt.
+
+**Ein drittes Ziel statt eines zweiten Schalters.** `dashboard_export.target`
+kennt jetzt `none | directory | cloudflare`. Geschaltet wird wie bei den
+Anbietern über ein Argument der Aufgabenplanung. Die mittlere Stufe ist
+dabei mehr als ein Zwischenschritt: Sie ist die Rückfallebene, die den Baum
+weiter schreibt, wenn der Weg nach draußen klemmt — besser als ein Export,
+der ganz ausbleibt.
+
+**Drei Ausgänge, drei Meldungen.** Der Kanal trägt weiterhin keine Inhalte
+und keinen Link ([ADR 0040](0040-inhalt-der-ergebnismeldung.md)) und
+zusätzlich nicht die Adresse des Dashboards (E6) — wohl aber die
+Unterscheidung, die für das Handeln zählt: *nicht geschrieben* (Server und
+Anbieter stehen gleich), *geschrieben, nicht gesendet* (der Server ist
+voraus), *gesendet, aber Vorschau-Adressen aktiv*. Der dritte ist kein
+Transportfehler, sondern ein Sicherheitsbefund. Keiner der drei lässt den
+Lauf scheitern; das Ergebnis steht zu diesem Zeitpunkt in der Datenbank.
+
+**Die Prüfung der Vorschau-Adressen sitzt jetzt im Schritt**, wie Doc 14,
+Stufe L, Schritt 7 es verlangt — und sie besteht aus zwei ungleichen
+Hälften. Die tragende ist, dass der Exportschritt die Konfigurationsdatei
+**selbst schreibt**, vor jedem Upload: `"preview_urls": false` ist damit
+eine Konstante im Code und keine Datei, die von Hand stimmen muss. Die
+zweite liest die Ausgabe des Werkzeugs und meldet jede `*.workers.dev`-
+Adresse, deren erstes Namensglied nicht der Worker-Name ist. Sie hängt
+damit an der **Form der Adresse** und nicht am Wortlaut des Werkzeugs, und
+sie ist ausdrücklich nur die Kanarienvogel-Schicht über der ersten.
+
+**Zwei Zusagen, die vorher niemand gegeben hatte**, weil es keinen
+Unterprozess gab:
+
+1. **Das fremde Werkzeug sieht keine `ATA_`-Variable.** Der Unterprozess
+   bekommt nicht die eigene Umgebung, sondern eine Erlaubnisliste. Die
+   Passphrase des Datenbaums — das einzige Schloss vor den Daten — geht
+   damit nie an einen Prozess, der mit dem Anbieter spricht. `NODE_OPTIONS`
+   steht ebenfalls nicht darauf.
+2. **Ohne Oberfläche geht nichts hinaus.** Fehlen `index.html` oder
+   `_headers` im Verzeichnis, bricht der Schritt ab, bevor das Werkzeug
+   startet. Sonst läge draußen Chiffrat ohne etwas, das es anzeigt — oder
+   eine Seite ohne ihre Sicherheits-Header, und das fiele niemandem auf.
+
+**Was bewusst nicht gebaut wurde: „nur hochladen, wenn sich etwas geändert
+hat".** Das Manifest trägt den Exportzeitpunkt und ändert sich in jedem
+Lauf; die Regel träfe nie zu und wäre toter Code. Eine Regel, die das
+Manifest ausnähme, ließe draußen einen alten „Stand" stehen — das wäre
+schlechter als eine Worker-Version mehr. Das verschärfte Restrisiko oben
+bleibt davon unberührt: Jeder Lauf erzeugt eine Fassung, und keine davon
+lässt sich löschen.
+
+**Ebenfalls nicht gebaut: der nächtliche Bau der Oberfläche.** `npm run
+build` im Zero-Knowledge-Modus bleibt Handarbeit aus Doc 14, Stufe K,
+Schritt 2. Wer das Frontend ändert und diesen Schritt vergisst, schickt eine
+alte Oberfläche mit neuen Daten hinaus — der Upload prüft nur, dass
+überhaupt eine da ist, nicht welche.
