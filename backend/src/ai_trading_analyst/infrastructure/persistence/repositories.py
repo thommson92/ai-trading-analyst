@@ -1482,7 +1482,7 @@ def _group_rows_into_results(rows: Sequence[BacktestResultOrm]) -> tuple[Backtes
         defaultdict(list)
     )
     for row in rows:
-        signal_types = frozenset(SignalType(value) for value in row.signal_types)
+        signal_types = _signal_types_aus_spalte(row.signal_types)
         grouped[(row.stock_id, signal_types, row.evaluated_at)].append(row)
 
     results = []
@@ -1617,7 +1617,7 @@ class SqlAlchemyBacktestResultRepository:
         self._session = session
 
     def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
-        sorted_signal_types = sorted(signal_type.value for signal_type in result.signal_types)
+        sorted_signal_types = _signal_types_als_spalte(result.signal_types)
         rows = [
             BacktestResultOrm(
                 id=uuid.uuid4(),
@@ -1662,7 +1662,7 @@ class SqlAlchemyBacktestResultRepository:
                 id=uuid.uuid4(),
                 stock_id=episode.stock_id,
                 analysis_run_id=analysis_run_id,
-                signal_types=sorted(signal.value for signal in episode.signal_types),
+                signal_types=_signal_types_als_spalte(episode.signal_types),
                 signal_rule_version=episode.signal_rule_version,
                 evaluated_at=episode.evaluated_at,
                 entry_at=episode.entry_at,
@@ -1696,21 +1696,30 @@ class SqlAlchemyBacktestResultRepository:
         return _group_rows_into_episodes(rows)
 
 
+def _signal_types_als_spalte(kombination: frozenset[SignalType]) -> list[str]:
+    """Die gespeicherte Form einer Signalkombination: sortierte Werte."""
+    return sorted(signal.value for signal in kombination)
+
+
+def _signal_types_aus_spalte(werte: Sequence[str]) -> frozenset[SignalType]:
+    return frozenset(SignalType(wert) for wert in werte)
+
+
 def _group_rows_into_episodes(rows: Sequence[BacktestEpisodeOrm]) -> tuple[BacktestEpisode, ...]:
-    """Fasst Zeilen (eine je Horizont) wieder zu einer Episode zusammen --
-    in der Reihenfolge, in der die Zeilen kamen."""
-    grouped: dict[tuple[datetime, datetime, frozenset[SignalType]], list[BacktestEpisodeOrm]] = {}
+    """Fasst Zeilen (eine je Horizont) wieder zu einer Episode zusammen.
+
+    Eine Episode ist innerhalb einer Auswertung durch ihre Einstiegskerze
+    bestimmt -- der erste Trigger einer Episode kommt nur einmal vor. Die
+    Zeilen kommen sortiert (Auswertung absteigend, Einstieg und Horizont
+    aufsteigend); die Gruppen behalten diese Reihenfolge.
+    """
+    grouped: dict[tuple[datetime, datetime], list[BacktestEpisodeOrm]] = defaultdict(list)
     for row in rows:
-        schluessel = (
-            row.evaluated_at,
-            row.entry_at,
-            frozenset(SignalType(value) for value in row.signal_types),
-        )
-        grouped.setdefault(schluessel, []).append(row)
+        grouped[(row.evaluated_at, row.entry_at)].append(row)
     return tuple(
         BacktestEpisode(
             stock_id=group_rows[0].stock_id,
-            signal_types=signal_types,
+            signal_types=_signal_types_aus_spalte(group_rows[0].signal_types),
             signal_rule_version=group_rows[0].signal_rule_version,
             evaluated_at=evaluated_at,
             entry_at=entry_at,
@@ -1725,10 +1734,10 @@ def _group_rows_into_episodes(rows: Sequence[BacktestEpisodeOrm]) -> tuple[Backt
                     drawdown=row.drawdown,
                     held_above_entry=row.held_above_entry,
                 )
-                for row in sorted(group_rows, key=lambda r: r.horizon)
+                for row in group_rows
             ),
         )
-        for (evaluated_at, entry_at, signal_types), group_rows in grouped.items()
+        for (evaluated_at, entry_at), group_rows in grouped.items()
     )
 
 

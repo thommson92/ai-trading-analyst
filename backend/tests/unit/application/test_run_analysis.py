@@ -1452,7 +1452,7 @@ class TestBacktestImTageslauf:
             series_by_symbol={"ALT": make_series(_SERIES_LENGTH, candidate=True)},
         )
         # Nullstunden-Fenster: Die Kerzen von 2024 liegen ausserhalb, obwohl
-        # sie da sind. Genau der Fall, den compute_backtest_results meldet.
+        # sie da sind. Genau der Fall, den compute_backtest meldet.
         use_case, *_ = _build_use_case(
             provider,
             backtest_params=BacktestParameters(

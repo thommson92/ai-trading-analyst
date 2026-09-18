@@ -46,16 +46,18 @@ Zwei Befunde aus der Analyse vom 2026-09-18 prägen die Form:
    verbunden — im Frontend über Epochenzahlen, nie über Zeichenketten.
 3. **Eine Rechnung.** `compute_episode_outcome(series, t, horizon)` liefert
    das Ergebnis eines Ereignisses; `compute_horizon_metrics` mittelt
-   ausschließlich darüber, `compute_backtest` gibt Aggregate und Episoden
-   gemeinsam zurück. `compute_backtest_results` bleibt als Hülle für
-   Aufrufer, die nur die Kennzahlen brauchen. Der Golden Master friert seit
+   ausschließlich darüber; `compute_backtest` rechnet jedes Episodenergebnis
+   genau einmal und leitet die Aggregate daraus ab. Der Golden Master friert seit
    dieser Änderung auch die Episoden ein; die Aggregate blieben dabei
    byteidentisch.
 4. **Erreicht die Historie einen Horizont nicht, sind seine Werte `NULL`** —
    die Zeile steht trotzdem. Ein fehlender Eintrag sähe aus wie ein nie
    gerechneter. Die Aggregate zählen solche Ereignisse wie bisher nicht mit.
-5. **Persistiert in derselben Transaktion wie die Aggregate** — im Tageslauf
-   mit Lauf-ID, bei `cli backtest` ohne.
+5. **Persistiert in derselben Transaktion wie die Aggregate, nur im
+   Tageslauf.** `cli backtest` schreibt weiterhin allein die Aggregate: Er
+   läuft über die ganze Watchlist, und jeder Aufruf hängte sonst rund 7 MB
+   an den Export — das Wachstum in Punkt 6 ist am Tageslauf bemessen, nicht
+   an Handläufen.
 6. **Export und API geben alle Auswertungen heraus.** In
    `stocks/{name}/backtest.json` und `GET /api/v1/stocks/{symbol}/backtest`
    steht `episode_evaluations`: je Auswertungszeitpunkt die Episodenliste,
@@ -77,5 +79,8 @@ Zwei Befunde aus der Analyse vom 2026-09-18 prägen die Form:
   nur zusätzlich gespeichert. Die Aggregate im Golden Master sind unverändert.
 - Der Bericht (ADR 0039) bleibt unverändert; die Episoden gehören zur
   Aktienseite, nicht zum Kandidatenbericht.
-- Was folgt: der Kerzenchart mit Episoden-Markern (ADR 0064, Phase 5) und
-  der Backtest-Explorer (Phase 6) lesen `episode_evaluations`.
+- Was folgt: der Kerzenchart mit Episoden-Markern und der Backtest-Explorer
+  des Redesigns lesen `episode_evaluations`; die Chartbibliothek bekommt
+  ein eigenes ADR, bevor ihre Phase beginnt.
+- Die Horizonte einer Episode stehen aufsteigend — in der Rechnung wie in
+  der Datenbank, unabhängig von der Reihenfolge in der Konfiguration.

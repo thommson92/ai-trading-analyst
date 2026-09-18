@@ -766,7 +766,9 @@ class BacktestEpisodeOrm(Base):
     __tablename__ = "backtest_episodes"
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"), index=True)
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
+    """Kein eigener Index: Der zusammengesetzte unten fuehrt ``stock_id`` an
+    und bedient jede Suche nach der Aktie."""
     analysis_run_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=True, index=True
     )

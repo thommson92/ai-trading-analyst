@@ -126,6 +126,12 @@ class EpisodeHorizonOutcome:
     drawdown: float | None
     held_above_entry: bool | None
 
+    @property
+    def reached(self) -> bool:
+        """Hat die Historie den Horizont erreicht? Der eine Begriff dafuer --
+        wer einzelne Felder auf ``None`` prueft, prueft eine Zeile zu viel."""
+        return self.return_pct is not None
+
 
 @dataclass(frozen=True, slots=True)
 class BacktestEpisode:

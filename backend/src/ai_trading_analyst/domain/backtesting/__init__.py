@@ -1,8 +1,8 @@
 """Historische Signalprüfung (Doc 07; G1-Prüfvorlage Abschnitt 4; CLAUDE.md "Backtesting")."""
 
 from .metrics import (
+    aggregate_outcomes,
     compute_backtest,
-    compute_backtest_results,
     compute_episode_outcome,
     compute_horizon_metrics,
     group_by_combination,
@@ -47,8 +47,8 @@ __all__ = [
     "PooledMetrics",
     "SignalCombination",
     "VariantMetrics",
+    "aggregate_outcomes",
     "compute_backtest",
-    "compute_backtest_results",
     "compute_episode_outcome",
     "compute_horizon_metrics",
     "find_historical_decisions",

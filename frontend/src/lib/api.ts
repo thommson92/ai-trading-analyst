@@ -317,9 +317,37 @@ export interface SignalBacktest {
   horizons: HorizontKennzahlen[];
 }
 
+/** Ein Horizont einer Episode; alles null, wenn die Historie ihn nicht erreicht. */
+export interface EpisodenHorizont {
+  horizon: number;
+  return_pct: number | null;
+  max_loss: number | null;
+  drawdown: number | null;
+  held_above_entry: boolean | null;
+}
+
+/** Ein gezaehltes Ereignis des Signal-Backtests (ADR 0061). */
+export interface BacktestEpisode {
+  entry_at: string;
+  entry_close: number;
+  signal_types: string[];
+  letters: string;
+  trigger_count: number;
+  last_trigger_at: string;
+  horizons: EpisodenHorizont[];
+}
+
+/** Die Episoden einer Auswertung; die Liste steht je Auswertung, juengste zuerst. */
+export interface Episodenauswertung {
+  evaluated_at: string;
+  signal_rule_version: string;
+  episodes: BacktestEpisode[];
+}
+
 export interface AktienBacktest {
   symbol: string;
   signal_backtests: SignalBacktest[];
+  episode_evaluations: Episodenauswertung[];
   measurement: Messung | null;
   combinations: Kombinationsergebnis[];
   pooled: Aktienzeile | null;

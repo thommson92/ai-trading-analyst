@@ -255,7 +255,7 @@ def test_die_episoden_decken_die_stichprobe_der_kennzahlen() -> None:
                 episode
                 for episode in snapshot["episodes"]
                 if episode["signal_types"] == ergebnis["signal_types"]
-                and episode["horizons"][0]["return_pct"] is not None
+                and min(episode["horizons"], key=lambda h: h["horizon"])["return_pct"] is not None
             ]
             assert len(vollstaendige) == kuerzester["deduplicated_event_count"], (
                 f"{fall.name}: {ergebnis['signal_types']}"

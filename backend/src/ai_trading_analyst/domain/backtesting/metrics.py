@@ -98,9 +98,25 @@ def compute_horizon_metrics(
     horizon: int,
     params: BacktestParameters,
 ) -> HorizonMetrics:
-    """Kennzahlen einer Signalkombination fuer einen Horizont.
+    """Kennzahlen einer Signalkombination fuer einen Horizont, gerechnet
+    ueber die Einstiegskerzen ``dedup_indices`` (die gezaehlten Episoden,
+    ADR 0057)."""
+    return aggregate_outcomes(
+        [compute_episode_outcome(series, t, horizon) for t in dedup_indices],
+        raw_event_count,
+        horizon,
+        params,
+    )
 
-    ``dedup_indices`` sind die gezaehlten Episoden-Ereignisse (ADR 0057).
+
+def aggregate_outcomes(
+    outcomes: Sequence[EpisodeHorizonOutcome],
+    raw_event_count: int,
+    horizon: int,
+    params: BacktestParameters,
+) -> HorizonMetrics:
+    """Die Kennzahlen aus bereits gerechneten Episodenergebnissen.
+
     ``deduplicated_event_count`` ist die Zahl der Ereignisse, die tatsaechlich
     bis zu diesem Horizont reichen -- kann je Horizont kleiner sein als die
     Gesamtzahl der gezaehlten Ereignisse, weil ein Ereignis nahe dem Ende
@@ -114,15 +130,14 @@ def compute_horizon_metrics(
     drawdowns: list[float] = []
     held_above_entry_flags: list[bool] = []
 
-    for t in dedup_indices:
-        outcome = compute_episode_outcome(series, t, horizon)
+    for outcome in outcomes:
         if (
             outcome.return_pct is None
             or outcome.max_loss is None
             or outcome.drawdown is None
             or outcome.held_above_entry is None
         ):
-            continue
+            continue  # Horizont nicht erreicht (``reached``), gilt fuer alle vier Felder
         returns.append(outcome.return_pct)
         max_losses.append(outcome.max_loss)
         drawdowns.append(outcome.drawdown)
@@ -174,13 +189,14 @@ def compute_backtest(
     signal_rule_version: str,
     evaluated_at: datetime,
 ) -> BacktestComputation:
-    """Replay, Episodenbildung, Kennzahlen **und** die Episoden selbst.
+    """Replay, Episodenbildung, die Episoden selbst und daraus die Kennzahlen.
 
-    Liefert immer alle moeglichen Signalkombinationen, auch mit null
-    Ereignissen -- kein stillschweigendes Weglassen (Projektkonvention).
-    Die Episoden stehen daneben (ADR 0061): je gezaehltem Ereignis der
-    Einstieg und sein Ergebnis je Horizont, aus derselben Rechnung wie die
-    Kennzahlen.
+    **Eine Rechnung** (ADR 0061): Jedes Episodenergebnis entsteht genau
+    einmal; die Kennzahlen je Kombination und Horizont mitteln ueber diese
+    Ergebnisse. Liefert immer alle moeglichen Signalkombinationen, auch mit
+    null Ereignissen -- kein stillschweigendes Weglassen (Projektkonvention).
+    Die Horizonte stehen aufsteigend, unabhaengig von der Konfiguration --
+    so kommen sie auch aus der Datenbank zurueck.
     """
     series = _truncate_to_recent_history(series, backtest_params.history_years, evaluated_at)
     if len(series) == 0:
@@ -191,40 +207,11 @@ def compute_backtest(
 
     raw_decisions = find_historical_decisions(series, candidate_params)
     episodes = group_into_episodes(raw_decisions)
+    horizons = tuple(sorted(backtest_params.horizons))
+
     # Gezaehlt wird der erste Trigger jeder Episode: Er ist der Punkt, an dem
     # die Regel erstmals ansprach, und liefert damit auch den Einstiegskurs
     # (CLAUDE.md "Backtesting", ADR 0057).
-    counted_decisions = tuple(episode[0] for episode in episodes)
-
-    raw_by_combination = group_by_combination(raw_decisions)
-    counted_by_combination = group_by_combination(counted_decisions)
-
-    history_start = series.candle(0).timestamp
-    history_end = series.candle(len(series) - 1).timestamp
-
-    kombinationen = qualifying_combinations(candidate_params.required_crossing_signals)
-    results = []
-    for combination in kombinationen:
-        raw_indices = raw_by_combination.get(combination, ())
-        counted_indices = counted_by_combination.get(combination, ())
-        horizons = tuple(
-            compute_horizon_metrics(
-                series, counted_indices, len(raw_indices), horizon, backtest_params
-            )
-            for horizon in backtest_params.horizons
-        )
-        results.append(
-            BacktestResult(
-                stock_id=stock_id,
-                signal_types=combination,
-                signal_rule_version=signal_rule_version,
-                evaluated_at=evaluated_at,
-                history_start=history_start,
-                history_end=history_end,
-                horizons=horizons,
-            )
-        )
-
     einzelne = tuple(
         BacktestEpisode(
             stock_id=stock_id,
@@ -236,29 +223,43 @@ def compute_backtest(
             trigger_count=len(episode),
             last_trigger_at=series.candle(episode[-1].index).timestamp,
             horizons=tuple(
-                compute_episode_outcome(series, episode[0].index, horizon)
-                for horizon in backtest_params.horizons
+                compute_episode_outcome(series, episode[0].index, horizon) for horizon in horizons
             ),
         )
         for episode in episodes
     )
-    return BacktestComputation(results=tuple(results), episodes=einzelne)
 
+    raw_by_combination = group_by_combination(raw_decisions)
+    counted_by_combination: dict[SignalCombination, list[BacktestEpisode]] = defaultdict(list)
+    for einzelfall in einzelne:
+        counted_by_combination[einzelfall.signal_types].append(einzelfall)
 
-def compute_backtest_results(
-    series: CandleSeries,
-    stock_id: UUID,
-    candidate_params: CandidateRuleParameters,
-    backtest_params: BacktestParameters,
-    signal_rule_version: str,
-    evaluated_at: datetime,
-) -> tuple[BacktestResult, ...]:
-    """Nur die Kennzahlen -- fuer Aufrufer, die die Episoden nicht brauchen."""
-    return compute_backtest(
-        series,
-        stock_id=stock_id,
-        candidate_params=candidate_params,
-        backtest_params=backtest_params,
-        signal_rule_version=signal_rule_version,
-        evaluated_at=evaluated_at,
-    ).results
+    history_start = series.candle(0).timestamp
+    history_end = series.candle(len(series) - 1).timestamp
+
+    results = tuple(
+        BacktestResult(
+            stock_id=stock_id,
+            signal_types=combination,
+            signal_rule_version=signal_rule_version,
+            evaluated_at=evaluated_at,
+            history_start=history_start,
+            history_end=history_end,
+            horizons=tuple(
+                aggregate_outcomes(
+                    [
+                        ergebnis
+                        for einzelfall in counted_by_combination.get(combination, ())
+                        for ergebnis in einzelfall.horizons
+                        if ergebnis.horizon == horizon
+                    ],
+                    len(raw_by_combination.get(combination, ())),
+                    horizon,
+                    backtest_params,
+                )
+                for horizon in horizons
+            ),
+        )
+        for combination in qualifying_combinations(candidate_params.required_crossing_signals)
+    )
+    return BacktestComputation(results=results, episodes=einzelne)

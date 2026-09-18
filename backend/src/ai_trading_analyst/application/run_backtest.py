@@ -83,8 +83,10 @@ class BacktestUseCase:
                 uow.stocks.add(stock)
                 for result in results:
                     uow.backtest_results.add(result)
-                # Ohne Lauf-Bindung, wie die Kennzahlen (ADR 0038, ADR 0061).
-                uow.backtest_results.add_episodes(rechnung.episodes)
+                # Keine Episoden aus dem Handlauf (ADR 0061, Entscheidung 5):
+                # Er laeuft ueber die ganze Watchlist, und jeder Aufruf haengte
+                # sonst rund 7 MB an den Export -- die Episoden gehoeren zum
+                # Tageslauf, an dem ihr Wachstum bemessen ist.
                 uow.commit()
         except Exception as error:  # Systemgrenze: eine Aktie, nicht der Lauf
             _logger.warning("%s: %s -- %s", stock.symbol, type(error).__name__, error)

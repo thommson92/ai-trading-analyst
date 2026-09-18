@@ -61,7 +61,6 @@ def upgrade() -> None:
         sa.Column("drawdown", sa.Float(), nullable=True),
         sa.Column("held_above_entry", sa.Boolean(), nullable=True),
     )
-    op.create_index("ix_backtest_episodes_stock_id", "backtest_episodes", ["stock_id"])
     op.create_index(
         "ix_backtest_episodes_analysis_run_id", "backtest_episodes", ["analysis_run_id"]
     )
@@ -75,5 +74,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_backtest_episodes_stock_evaluated", table_name="backtest_episodes")
     op.drop_index("ix_backtest_episodes_analysis_run_id", table_name="backtest_episodes")
-    op.drop_index("ix_backtest_episodes_stock_id", table_name="backtest_episodes")
     op.drop_table("backtest_episodes")

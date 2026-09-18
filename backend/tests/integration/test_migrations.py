@@ -521,7 +521,6 @@ def test_die_episodentabelle_traegt_ihre_spalten_und_indizes(engine: Engine) -> 
     } <= spalten
     indizes = {index["name"] for index in inspector.get_indexes("backtest_episodes")}
     assert {
-        "ix_backtest_episodes_stock_id",
         "ix_backtest_episodes_analysis_run_id",
         "ix_backtest_episodes_stock_evaluated",
     } <= indizes

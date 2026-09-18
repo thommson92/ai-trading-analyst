@@ -7,7 +7,7 @@ ohne Datenbank, ohne TWS, ohne Netz:
       -> aggregate_intraday_bars   (Kerzenbildung, Doc 10 Paragraph 6.2)
       -> compute_indicator_values  (RSI, RSI-MA, EMA5, EMA20 -- Gate G1)
       -> evaluate_candidate        (3-aus-5-Regel, Screener)
-      -> compute_backtest_results  (Replay, Episodenbildung, Kennzahlen)
+      -> compute_backtest  (Replay, Episodenbildung, Kennzahlen)
 
 Was hier **nicht** nachgebildet wird, ist die Infrastruktur um die Kette
 herum: Repositories, Anbieteradapter, Fehlerisolation. Die haben eigene
@@ -91,7 +91,7 @@ STOCK_ID = UUID("9e1c0d54-0000-4000-8000-000000000001")
 EVALUATED_AT = datetime(2026, 8, 23, 20, 0, tzinfo=UTC)
 """Fester Auswertungszeitpunkt.
 
-``compute_backtest_results`` schneidet die Historie auf
+``compute_backtest`` schneidet die Historie auf
 ``history_years`` vor diesem Zeitpunkt zu. Mit der Uhr des Testlaufs waere
 das Ergebnis vom Tag des Laufs abhaengig -- ein Golden Master, der von selbst
 bricht, sobald die eingefrorenen Daten alt genug sind.

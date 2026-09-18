@@ -10,7 +10,6 @@ import pytest
 
 from ai_trading_analyst.domain.backtesting.metrics import (
     compute_backtest,
-    compute_backtest_results,
     compute_episode_outcome,
     compute_horizon_metrics,
     group_by_combination,
@@ -169,14 +168,14 @@ class TestVollstaendigeBerechnung:
         candidate_params = CandidateRuleParameters(
             required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
         )
-        results = compute_backtest_results(
+        results = compute_backtest(
             series,
             stock_id=uuid.uuid4(),
             candidate_params=candidate_params,
             backtest_params=params,
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
-        )
+        ).results
         # Vier Kaufsignal-Kombinationen (drei Paare und das Tripel) mal drei
         # Zusatz-Kombinationen (D, E, beide).
         assert len(results) == 12
@@ -202,14 +201,14 @@ class TestVollstaendigeBerechnung:
         candidate_params = CandidateRuleParameters(
             required_crossing_signals=3, signal_lookback_previous_candles=5, warmup_candles=10
         )
-        results = compute_backtest_results(
+        results = compute_backtest(
             series,
             stock_id=uuid.uuid4(),
             candidate_params=candidate_params,
             backtest_params=params,
             signal_rule_version="test-version",
             evaluated_at=datetime.now(UTC),
-        )
+        ).results
         assert len(results) == 3
         assert frozenset(SignalType) in {result.signal_types for result in results}
         assert all(
@@ -234,14 +233,14 @@ class TestHistorienfenster:
             normal_confidence_sample_size=30,
             history_years=1,
         )
-        results = compute_backtest_results(
+        results = compute_backtest(
             series,
             stock_id=uuid.uuid4(),
             candidate_params=self.CANDIDATE_PARAMS,
             backtest_params=params,
             signal_rule_version="test-version",
             evaluated_at=evaluated_at,
-        )
+        ).results
         assert results[0].history_start == cutoff_reference
         assert results[0].history_end == series.candle(39).timestamp
 
@@ -255,7 +254,7 @@ class TestHistorienfenster:
             history_years=1,
         )
         with pytest.raises(ValueError, match="innerhalb der letzten"):
-            compute_backtest_results(
+            compute_backtest(
                 series,
                 stock_id=uuid.uuid4(),
                 candidate_params=self.CANDIDATE_PARAMS,
@@ -347,6 +346,6 @@ class TestEpisodenAusDerVollstaendigenRechnung:
                 e
                 for e in rechnung.episodes
                 if e.signal_types == ergebnis.signal_types
-                and e.horizons[0].return_pct is not None
+                and min(e.horizons, key=lambda h: h.horizon).reached
             ]
             assert len(vollstaendige) == kuerzester.deduplicated_event_count
