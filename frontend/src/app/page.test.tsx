@@ -21,7 +21,6 @@ const LAUF = {
   module_errors: 1,
   suppressed: [],
   suppression_window_days: 7,
-  suppression_derived: true,
 };
 
 function stubbe(antworten: Record<string, unknown>, status = 200): void {

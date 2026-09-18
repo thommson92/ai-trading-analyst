@@ -83,10 +83,9 @@ export interface AnalysisRunDetail extends AnalysisRun {
   earnings_excluded: number;
   earnings_unknown: number;
   module_errors: number;
-  /** Rekonstruiert, nicht aufgezeichnet -- `suppression_derived` sagt es. */
+  /** Rekonstruiert, nicht aufgezeichnet (ADR 0062); null bei `suppression_window_days` heisst: nicht gerechnet. */
   suppressed: GesperrtesSymbol[];
   suppression_window_days: number | null;
-  suppression_derived: boolean;
 }
 
 export type EarningsStatus = 'EARNINGS_CLEAR' | 'EARNINGS_EXCLUDED' | 'UNKNOWN';
@@ -110,7 +109,7 @@ export interface PutVorschlag {
  */
 export interface ReportSummary {
   report_id: string;
-  analysis_run_id: string | null;
+  analysis_run_id: string;
   symbol: string;
   created_at: string;
   recommendation: Recommendation | null;
@@ -133,7 +132,6 @@ export interface ReportSummary {
 export interface Aktieneintrag {
   symbol: string;
   exchange: string;
-  company_name: string | null;
   reports_count: number;
   last_report: ReportSummary | null;
   signal_backtest_evaluated_at: string | null;
