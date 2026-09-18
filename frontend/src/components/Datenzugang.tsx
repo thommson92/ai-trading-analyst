@@ -12,15 +12,21 @@
 //    in der Adresszeile. Sie steht im Passwortmanager des Inhabers, und ein
 //    neuer Tab fragt erneut.
 //
-// Darueber steht in beiden Exportfaellen der **Stand**. Das ist keine
+// In beiden Exportfaellen steht der **Stand** in der Kopfzeile. Das ist keine
 // Verzierung: Ein Dashboard, das gestrige Zahlen zeigt, ohne es zu sagen, ist
 // gefaehrlicher als eines, das gar nichts zeigt -- der Server koennte seit
 // Tagen stehen (Bedrohung T10).
+//
+// Der Rahmen (Seitenleiste, Kopfzeile) liegt in allen drei Faellen hier:
+// Auch die Passphrase-Abfrage steht in ihm, damit die Seite beim Oeffnen
+// nicht springt.
 
 import { useEffect, useState, type ReactNode, type SyntheticEvent } from 'react';
 
 import { setzeDatenbaum } from '@/lib/api';
 import { datenmodus, oeffneDatenbaum, type Datenbaum } from '@/lib/datenbaum';
+
+import { Seitenrahmen } from './rahmen/Seitenrahmen';
 
 function alsFehlertext(ursache: unknown): string {
   return ursache instanceof Error ? ursache.message : String(ursache);
@@ -114,7 +120,7 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
   }, [modus]);
 
   if (modus === 'api') {
-    return children;
+    return <Seitenrahmen>{children}</Seitenrahmen>;
   }
 
   async function oeffnen(ereignis: SyntheticEvent): Promise<void> {
@@ -137,45 +143,42 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
 
   if (baum === null) {
     return (
-      <main>
-        <h1>AI Trading Analyst</h1>
-        {modus === 'verschluesselt' ? (
-          <form
-            className="zugang"
-            onSubmit={(ereignis) => {
-              void oeffnen(ereignis);
-            }}
-          >
-            <label htmlFor="passphrase">Passphrase</label>
-            <input
-              id="passphrase"
-              type="password"
-              autoComplete="current-password"
-              value={passphrase}
-              onChange={(ereignis) => {
-                setPassphrase(ereignis.target.value);
+      <Seitenrahmen>
+        <main>
+          <h1>AI Trading Analyst</h1>
+          {modus === 'verschluesselt' ? (
+            <form
+              className="zugang"
+              onSubmit={(ereignis) => {
+                void oeffnen(ereignis);
               }}
-            />
-            <button type="submit" disabled={oeffnet || passphrase === ''}>
-              {oeffnet ? 'Oeffnet ...' : 'Stand oeffnen'}
-            </button>
-            <p className="gedaempft">
-              Die Daten liegen verschluesselt. Die Passphrase wird nur in diesem Tab
-              verwendet und nirgends gespeichert.
-            </p>
-          </form>
-        ) : (
-          <p>Stand wird geladen ...</p>
-        )}
-        {fehler !== null ? <p className="fehler">{fehler}</p> : null}
-      </main>
+            >
+              <label htmlFor="passphrase">Passphrase</label>
+              <input
+                id="passphrase"
+                type="password"
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(ereignis) => {
+                  setPassphrase(ereignis.target.value);
+                }}
+              />
+              <button type="submit" disabled={oeffnet || passphrase === ''}>
+                {oeffnet ? 'Oeffnet ...' : 'Stand oeffnen'}
+              </button>
+              <p className="gedaempft">
+                Die Daten liegen verschluesselt. Die Passphrase wird nur in diesem Tab
+                verwendet und nirgends gespeichert.
+              </p>
+            </form>
+          ) : (
+            <p>Stand wird geladen ...</p>
+          )}
+          {fehler !== null ? <p className="fehler">{fehler}</p> : null}
+        </main>
+      </Seitenrahmen>
     );
   }
 
-  return (
-    <>
-      <Stand baum={baum} />
-      {children}
-    </>
-  );
+  return <Seitenrahmen stand={<Stand baum={baum} />}>{children}</Seitenrahmen>;
 }
