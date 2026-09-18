@@ -47,9 +47,10 @@ from ai_trading_analyst.domain.analysts import (
     AnalystRecommendationStatus,
 )
 from ai_trading_analyst.domain.backtesting import (
+    BacktestEpisode,
     BacktestParameters,
     BacktestResult,
-    compute_backtest_results,
+    compute_backtest,
 )
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
@@ -156,6 +157,7 @@ class _PreparedOutcome:
     earnings: EarningsFilterResult | None
     options: OptionsAnalysis | None
     backtest: tuple[BacktestResult, ...]
+    backtest_episodes: tuple[BacktestEpisode, ...]
     needs_research: bool
     research: ResearchReport | None = None
     technical_assessment: TechnicalAssessment | None = None
@@ -517,6 +519,7 @@ class RunAnalysisUseCase:
             earnings: EarningsFilterResult | None = None
             options: OptionsAnalysis | None = None
             backtest: tuple[BacktestResult, ...] = ()
+            backtest_episodes: tuple[BacktestEpisode, ...] = ()
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
                 # Bewusst vor dem Earnings-Filter und unabhaengig von dessen
@@ -530,7 +533,9 @@ class RunAnalysisUseCase:
                 )
                 # Aus demselben Grund und auf derselben Kerzenserie: Der
                 # Backtest rechnet ohne Netz (ADR 0038).
-                backtest = self._evaluate_backtest(stock, series, evaluated_at)
+                backtest, backtest_episodes = self._evaluate_backtest(
+                    stock, series, evaluated_at
+                )
                 # Der Kurs der letzten **abgeschlossenen** Kerze, genau der,
                 # auf dem Screening und Chartauswertung stehen (ADR 0035,
                 # Entscheidung 2). Das Fundamentalmodul beschafft keinen
@@ -570,6 +575,7 @@ class RunAnalysisUseCase:
                 earnings=earnings,
                 options=options,
                 backtest=backtest,
+                backtest_episodes=backtest_episodes,
                 needs_research=needs_research,
             )
         except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
@@ -749,6 +755,9 @@ class RunAnalysisUseCase:
             # andere waere ein halber Datensatz (ADR 0038).
             for backtest_result in item.backtest:
                 uow.backtest_results.add(backtest_result, run.id)
+            # Die Episoden hinter den Kennzahlen, in derselben Transaktion
+            # und aus derselben Rechnung (ADR 0061).
+            uow.backtest_results.add_episodes(item.backtest_episodes, run.id)
             if bericht is not None:
                 uow.stock_reports.add(bericht)
             uow.commit()
@@ -805,7 +814,7 @@ class RunAnalysisUseCase:
 
     def _evaluate_backtest(
         self, stock: Stock, series: CandleSeries, evaluated_at: datetime
-    ) -> tuple[BacktestResult, ...]:
+    ) -> tuple[tuple[BacktestResult, ...], tuple[BacktestEpisode, ...]]:
         """Die historische Signalstatistik einer bereits qualifizierten Aktie
         (Doc 10, Paragraph 7; ADR 0038).
 
@@ -819,7 +828,7 @@ class RunAnalysisUseCase:
         je Aktie durch, statt still zu verschwinden.
         """
         try:
-            return compute_backtest_results(
+            rechnung = compute_backtest(
                 series,
                 stock_id=stock.id,
                 candidate_params=self._candidate_rule_params,
@@ -831,7 +840,8 @@ class RunAnalysisUseCase:
             _logger.warning(
                 "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
             )
-            return ()
+            return (), ()
+        return rechnung.results, rechnung.episodes
 
     def _evaluate_fundamentals(self, stock: Stock, price: float) -> FundamentalSnapshot | None:
         """Die Fundamentalkennzahlen einer bereits qualifizierten Aktie.

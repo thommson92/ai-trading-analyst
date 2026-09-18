@@ -27,7 +27,9 @@ from ai_trading_analyst.domain.analysts import (
 )
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
+    BacktestEpisode,
     BacktestResult,
+    EpisodeHorizonOutcome,
     HorizonMetrics,
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -101,6 +103,7 @@ from ai_trading_analyst.domain.technical import (
 
 from .orm import (
     AnalysisRunOrm,
+    BacktestEpisodeOrm,
     BacktestResultOrm,
     FundamentalMetricOrm,
     IntradayBarOrm,
@@ -1650,6 +1653,83 @@ class SqlAlchemyBacktestResultRepository:
             .all()
         )
         return _group_rows_into_results(rows)
+
+    def add_episodes(
+        self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID | None = None
+    ) -> None:
+        self._session.add_all(
+            BacktestEpisodeOrm(
+                id=uuid.uuid4(),
+                stock_id=episode.stock_id,
+                analysis_run_id=analysis_run_id,
+                signal_types=sorted(signal.value for signal in episode.signal_types),
+                signal_rule_version=episode.signal_rule_version,
+                evaluated_at=episode.evaluated_at,
+                entry_at=episode.entry_at,
+                entry_close=episode.entry_close,
+                trigger_count=episode.trigger_count,
+                last_trigger_at=episode.last_trigger_at,
+                horizon=horizont.horizon,
+                return_pct=horizont.return_pct,
+                max_loss=horizont.max_loss,
+                drawdown=horizont.drawdown,
+                held_above_entry=horizont.held_above_entry,
+            )
+            for episode in episodes
+            for horizont in episode.horizons
+        )
+
+    def list_episodes_for_stock(self, stock_id: uuid.UUID) -> Sequence[BacktestEpisode]:
+        rows = (
+            self._session.execute(
+                select(BacktestEpisodeOrm)
+                .where(BacktestEpisodeOrm.stock_id == stock_id)
+                .order_by(
+                    BacktestEpisodeOrm.evaluated_at.desc(),
+                    BacktestEpisodeOrm.entry_at,
+                    BacktestEpisodeOrm.horizon,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return _group_rows_into_episodes(rows)
+
+
+def _group_rows_into_episodes(rows: Sequence[BacktestEpisodeOrm]) -> tuple[BacktestEpisode, ...]:
+    """Fasst Zeilen (eine je Horizont) wieder zu einer Episode zusammen --
+    in der Reihenfolge, in der die Zeilen kamen."""
+    grouped: dict[tuple[datetime, datetime, frozenset[SignalType]], list[BacktestEpisodeOrm]] = {}
+    for row in rows:
+        schluessel = (
+            row.evaluated_at,
+            row.entry_at,
+            frozenset(SignalType(value) for value in row.signal_types),
+        )
+        grouped.setdefault(schluessel, []).append(row)
+    return tuple(
+        BacktestEpisode(
+            stock_id=group_rows[0].stock_id,
+            signal_types=signal_types,
+            signal_rule_version=group_rows[0].signal_rule_version,
+            evaluated_at=evaluated_at,
+            entry_at=entry_at,
+            entry_close=group_rows[0].entry_close,
+            trigger_count=group_rows[0].trigger_count,
+            last_trigger_at=group_rows[0].last_trigger_at,
+            horizons=tuple(
+                EpisodeHorizonOutcome(
+                    horizon=row.horizon,
+                    return_pct=row.return_pct,
+                    max_loss=row.max_loss,
+                    drawdown=row.drawdown,
+                    held_above_entry=row.held_above_entry,
+                )
+                for row in sorted(group_rows, key=lambda r: r.horizon)
+            ),
+        )
+        for (evaluated_at, entry_at, signal_types), group_rows in grouped.items()
+    )
 
 
 _VARIANTENFELDER = (

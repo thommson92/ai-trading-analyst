@@ -28,8 +28,10 @@ from ai_trading_analyst.domain.analysts import (
 )
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
+    BacktestEpisode,
     BacktestParameters,
     BacktestResult,
+    EpisodeHorizonOutcome,
     HorizonMetrics,
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -1084,6 +1086,58 @@ class TestBacktestResultRepository:
         by_horizon = {h.horizon: h for h in persisted.horizons}
         assert by_horizon[5] == result.horizons[0]
         assert by_horizon[20] == result.horizons[1]
+
+    def test_episoden_ueberstehen_den_rundlauf_juengste_auswertung_zuerst(
+        self, uow_factory: UowFactory
+    ) -> None:
+        """ADR 0061: eine Zeile je Horizont, zurueck als eine Episode; ein
+        unerreichter Horizont bleibt als Zeile mit leeren Werten."""
+        stock = make_stock("EPISODE")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+        alt = datetime(2026, 9, 1, 17, 0, tzinfo=UTC)
+        neu = datetime(2026, 9, 2, 17, 0, tzinfo=UTC)
+
+        def episode(evaluated_at: datetime, entry_at: datetime) -> BacktestEpisode:
+            return BacktestEpisode(
+                stock_id=stock.id,
+                signal_types=combination,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+                entry_at=entry_at,
+                entry_close=101.5,
+                trigger_count=2,
+                last_trigger_at=entry_at + timedelta(days=1),
+                horizons=(
+                    EpisodeHorizonOutcome(5, 0.02, -0.01, 0.015, False),
+                    EpisodeHorizonOutcome(20, None, None, None, None),
+                ),
+            )
+
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.backtest_results.add_episodes(
+                [episode(alt, datetime(2025, 3, 6, 14, 30, tzinfo=UTC))]
+            )
+            uow.backtest_results.add_episodes(
+                [
+                    episode(neu, datetime(2025, 5, 8, 14, 30, tzinfo=UTC)),
+                    episode(neu, datetime(2025, 3, 6, 14, 30, tzinfo=UTC)),
+                ],
+                analysis_run_id=None,
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            gelesen = list(uow.backtest_results.list_episodes_for_stock(stock.id))
+
+        assert [e.evaluated_at for e in gelesen] == [neu, neu, alt]
+        assert gelesen[0].entry_at < gelesen[1].entry_at
+        assert gelesen[0].horizons == (
+            EpisodeHorizonOutcome(5, 0.02, -0.01, 0.015, False),
+            EpisodeHorizonOutcome(20, None, None, None, None),
+        )
+        assert gelesen[0].signal_types == combination
+        assert gelesen[0].trigger_count == 2
 
     def test_ein_anderes_symbol_bekommt_keine_fremden_ergebnisse(
         self, uow_factory: UowFactory

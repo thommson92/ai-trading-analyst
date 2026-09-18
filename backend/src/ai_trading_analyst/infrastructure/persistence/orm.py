@@ -19,6 +19,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -750,6 +751,41 @@ class BacktestResultOrm(Base):
     Zeilen die Wahrheit ueber sich selbst sagen, sobald E3 entschieden ist."""
 
     stock: Mapped[StockOrm] = relationship()
+
+
+class BacktestEpisodeOrm(Base):
+    """Ein gezaehltes Ereignis des Signal-Backtests, eine Zeile je Horizont
+    (ADR 0061). Dasselbe Muster wie ``backtest_results``: kein
+    Unique-Constraint, kein Update-Pfad, jede Auswertung haengt an.
+
+    ``entry_at`` ist ein **Zeitstempel**, kein Kerzenindex: Der
+    Tiefen-Backfill fuegt aeltere Bars vorn an und verschoebe jeden Index --
+    ``signal_events.candle_index`` traegt genau diese Buerde.
+    """
+
+    __tablename__ = "backtest_episodes"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"), index=True)
+    analysis_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=True, index=True
+    )
+    signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
+    signal_rule_version: Mapped[str]
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    entry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    entry_close: Mapped[float]
+    trigger_count: Mapped[int]
+    last_trigger_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    horizon: Mapped[int] = mapped_column(Integer)
+    return_pct: Mapped[float | None]
+    max_loss: Mapped[float | None]
+    drawdown: Mapped[float | None]
+    held_above_entry: Mapped[bool | None]
+
+    __table_args__ = (
+        Index("ix_backtest_episodes_stock_evaluated", "stock_id", "evaluated_at"),
+    )
 
 
 class OptionsBacktestResultOrm(Base):

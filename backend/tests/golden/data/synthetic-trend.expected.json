@@ -574,6 +574,797 @@
   ],
   "bars": 10400,
   "candles": 800,
+  "episodes": [
+    {
+      "entry_at": "2024-06-27T09:30:00-04:00",
+      "entry_close": 128.7706,
+      "horizons": [
+        {
+          "drawdown": 0.01211688,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.01103901,
+          "return_pct": -0.00835206
+        },
+        {
+          "drawdown": 0.02480392,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.02373989,
+          "return_pct": -0.02373989
+        },
+        {
+          "drawdown": 0.03677185,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.03572089,
+          "return_pct": -0.01606578
+        }
+      ],
+      "last_trigger_at": "2024-06-27T09:30:00-04:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-07-05T09:30:00-04:00",
+      "entry_close": 127.001,
+      "horizons": [
+        {
+          "drawdown": 0.02083999,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.02083999,
+          "return_pct": -0.02083999
+        },
+        {
+          "drawdown": 0.02228486,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.02228486,
+          "return_pct": -0.01797387
+        },
+        {
+          "drawdown": 0.04768151,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.04768151,
+          "return_pct": -0.02231321
+        }
+      ],
+      "last_trigger_at": "2024-07-05T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-07-11T09:30:00-04:00",
+      "entry_close": 126.7018,
+      "horizons": [
+        {
+          "drawdown": 0.02314095,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.02314095,
+          "return_pct": -0.02314095
+        },
+        {
+          "drawdown": 0.04543266,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.04543266,
+          "return_pct": -0.03857088
+        },
+        {
+          "drawdown": 0.04543266,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.04543266,
+          "return_pct": 0.01184277
+        }
+      ],
+      "last_trigger_at": "2024-07-11T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-07-19T09:30:00-04:00",
+      "entry_close": 124.1672,
+      "horizons": [
+        {
+          "drawdown": 0.00177474,
+          "held_above_entry": true,
+          "horizon": 5,
+          "max_loss": 0.00882439,
+          "return_pct": 0.03637112
+        },
+        {
+          "drawdown": 0.0233833,
+          "held_above_entry": true,
+          "horizon": 10,
+          "max_loss": 0.00882439,
+          "return_pct": 0.01622731
+        },
+        {
+          "drawdown": 0.0233833,
+          "held_above_entry": true,
+          "horizon": 20,
+          "max_loss": 0.00882439,
+          "return_pct": 0.06796239
+        }
+      ],
+      "last_trigger_at": "2024-07-22T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 2
+    },
+    {
+      "entry_at": "2024-09-09T09:30:00-04:00",
+      "entry_close": 134.7925,
+      "horizons": [
+        {
+          "drawdown": 0.04443793,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.04193334,
+          "return_pct": -0.04193334
+        },
+        {
+          "drawdown": 0.09601482,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.09364542,
+          "return_pct": -0.08859989
+        },
+        {
+          "drawdown": 0.09601482,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.09364542,
+          "return_pct": -0.06925237
+        }
+      ],
+      "last_trigger_at": "2024-09-09T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-09-26T09:30:00-04:00",
+      "entry_close": 127.9417,
+      "horizons": [
+        {
+          "drawdown": 0.01051885,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.01051885,
+          "return_pct": 0.00269341
+        },
+        {
+          "drawdown": 0.01051885,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.01051885,
+          "return_pct": 0.02036396
+        },
+        {
+          "drawdown": 0.01051885,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.01051885,
+          "return_pct": 0.07541013
+        }
+      ],
+      "last_trigger_at": "2024-09-26T09:30:00-04:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-11-18T09:30:00-05:00",
+      "entry_close": 154.7453,
+      "horizons": [
+        {
+          "drawdown": 0.01946683,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.01946683,
+          "return_pct": -0.01946683
+        },
+        {
+          "drawdown": 0.02073019,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.02073019,
+          "return_pct": 0.01486766
+        },
+        {
+          "drawdown": 0.04356685,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.02934693,
+          "return_pct": -0.01113766
+        }
+      ],
+      "last_trigger_at": "2024-11-18T09:30:00-05:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-11-22T09:30:00-05:00",
+      "entry_close": 155.3117,
+      "horizons": [
+        {
+          "drawdown": 0.01731404,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.0063408,
+          "return_pct": -0.0063408
+        },
+        {
+          "drawdown": 0.04356685,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.03288677,
+          "return_pct": -0.03270069
+        },
+        {
+          "drawdown": 0.04356685,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.03288677,
+          "return_pct": -0.01548885
+        }
+      ],
+      "last_trigger_at": "2024-11-22T09:30:00-05:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-12-03T09:30:00-05:00",
+      "entry_close": 153.6898,
+      "horizons": [
+        {
+          "drawdown": 0.0117123,
+          "held_above_entry": true,
+          "horizon": 5,
+          "max_loss": 0.00598804,
+          "return_pct": 0.00598804
+        },
+        {
+          "drawdown": 0.02260449,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.00509923,
+          "return_pct": 0.00379531
+        },
+        {
+          "drawdown": 0.05376253,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.03273152,
+          "return_pct": -0.03273152
+        }
+      ],
+      "last_trigger_at": "2024-12-04T09:30:00-05:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 2
+    },
+    {
+      "entry_at": "2024-12-09T09:30:00-05:00",
+      "entry_close": 157.1057,
+      "horizons": [
+        {
+          "drawdown": 0.03327696,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.03327696,
+          "return_pct": -0.03327696
+        },
+        {
+          "drawdown": 0.05270592,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.05270592,
+          "return_pct": -0.03063543
+        },
+        {
+          "drawdown": 0.06550876,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.06550876,
+          "return_pct": -0.03577973
+        }
+      ],
+      "last_trigger_at": "2024-12-09T09:30:00-05:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-12-13T09:30:00-05:00",
+      "entry_close": 153.9176,
+      "horizons": [
+        {
+          "drawdown": 0.04615262,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.04615262,
+          "return_pct": -0.04615262
+        },
+        {
+          "drawdown": 0.04615262,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.04615262,
+          "return_pct": -0.01336429
+        },
+        {
+          "drawdown": 0.04615262,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.04615262,
+          "return_pct": 0.00850065
+        }
+      ],
+      "last_trigger_at": "2024-12-13T09:30:00-05:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-12-20T09:30:00-05:00",
+      "entry_close": 151.8606,
+      "horizons": [
+        {
+          "drawdown": 0.00528577,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00528511,
+          "return_pct": 0.00403989
+        },
+        {
+          "drawdown": 0.00537214,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.00528511,
+          "return_pct": 0.02216111
+        },
+        {
+          "drawdown": 0.00828876,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.00528511,
+          "return_pct": 0.05652355
+        }
+      ],
+      "last_trigger_at": "2024-12-20T09:30:00-05:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2024-12-25T09:30:00-05:00",
+      "entry_close": 152.4297,
+      "horizons": [
+        {
+          "drawdown": 0.00537214,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00196878,
+          "return_pct": 0.02956314
+        },
+        {
+          "drawdown": 0.00537214,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.00196878,
+          "return_pct": 0.04875625
+        },
+        {
+          "drawdown": 0.00828876,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.00196878,
+          "return_pct": 0.09197223
+        }
+      ],
+      "last_trigger_at": "2024-12-25T09:30:00-05:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-02-05T09:30:00-05:00",
+      "entry_close": 171.4859,
+      "horizons": [
+        {
+          "drawdown": 0.01246552,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00930572,
+          "return_pct": -0.00171093
+        },
+        {
+          "drawdown": 0.01631242,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.01316493,
+          "return_pct": -0.01087028
+        },
+        {
+          "drawdown": 0.07343813,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.07047343,
+          "return_pct": -0.06745919
+        }
+      ],
+      "last_trigger_at": "2025-02-05T09:30:00-05:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-03-05T09:30:00-05:00",
+      "entry_close": 162.0846,
+      "horizons": [
+        {
+          "drawdown": 0.019016,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.019016,
+          "return_pct": -0.019016
+        },
+        {
+          "drawdown": 0.06111932,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.06111932,
+          "return_pct": -0.06111932
+        },
+        {
+          "drawdown": 0.08103052,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.08103052,
+          "return_pct": -0.02700257
+        }
+      ],
+      "last_trigger_at": "2025-03-05T09:30:00-05:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-03-18T09:30:00-04:00",
+      "entry_close": 156.1675,
+      "horizons": [
+        {
+          "drawdown": 0.01231771,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00257544,
+          "return_pct": 0.01797813
+        },
+        {
+          "drawdown": 0.04331433,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.02611491,
+          "return_pct": -0.02611491
+        },
+        {
+          "drawdown": 0.04331433,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.02611491,
+          "return_pct": -0.00711608
+        }
+      ],
+      "last_trigger_at": "2025-03-19T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS",
+        "RSI_OVERSOLD"
+      ],
+      "trigger_count": 2
+    },
+    {
+      "entry_at": "2025-03-27T09:30:00-04:00",
+      "entry_close": 159.8616,
+      "horizons": [
+        {
+          "drawdown": 0.03954777,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.03404382,
+          "return_pct": -0.03404382
+        },
+        {
+          "drawdown": 0.05315289,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.04772691,
+          "return_pct": -0.04772691
+        },
+        {
+          "drawdown": 0.05853921,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.05314409,
+          "return_pct": -0.01803935
+        }
+      ],
+      "last_trigger_at": "2025-03-27T09:30:00-04:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-04-08T09:30:00-04:00",
+      "entry_close": 156.4756,
+      "horizons": [
+        {
+          "drawdown": 0.00965487,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00914136,
+          "return_pct": -0.00647641
+        },
+        {
+          "drawdown": 0.01933076,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.01618335,
+          "return_pct": -0.00383958
+        },
+        {
+          "drawdown": 0.01933076,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.01618335,
+          "return_pct": 0.05789912
+        }
+      ],
+      "last_trigger_at": "2025-04-08T09:30:00-04:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-04-14T09:30:00-04:00",
+      "entry_close": 158.0981,
+      "horizons": [
+        {
+          "drawdown": 0.01406279,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.01406279,
+          "return_pct": -0.01111525
+        },
+        {
+          "drawdown": 0.01406279,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.01406279,
+          "return_pct": 0.02127287
+        },
+        {
+          "drawdown": 0.0160141,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.01406279,
+          "return_pct": 0.07383074
+        }
+      ],
+      "last_trigger_at": "2025-04-14T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-05-15T09:30:00-04:00",
+      "entry_close": 168.112,
+      "horizons": [
+        {
+          "drawdown": 0.01135969,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.01135969,
+          "return_pct": -0.00135505
+        },
+        {
+          "drawdown": 0.03433082,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.03396664,
+          "return_pct": -0.03125773
+        },
+        {
+          "drawdown": 0.03707023,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.03670708,
+          "return_pct": -0.03635434
+        }
+      ],
+      "last_trigger_at": "2025-05-19T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 2
+    },
+    {
+      "entry_at": "2025-05-23T09:30:00-04:00",
+      "entry_close": 166.1976,
+      "horizons": [
+        {
+          "drawdown": 0.02262066,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.02262066,
+          "return_pct": -0.02262066
+        },
+        {
+          "drawdown": 0.03578933,
+          "held_above_entry": false,
+          "horizon": 10,
+          "max_loss": -0.03578933,
+          "return_pct": -0.03578933
+        },
+        {
+          "drawdown": 0.04587792,
+          "held_above_entry": false,
+          "horizon": 20,
+          "max_loss": -0.04587792,
+          "return_pct": -0.01252244
+        }
+      ],
+      "last_trigger_at": "2025-05-23T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-06-06T09:30:00-04:00",
+      "entry_close": 164.1164,
+      "horizons": [
+        {
+          "drawdown": 0.0,
+          "held_above_entry": true,
+          "horizon": 5,
+          "max_loss": 0.01435688,
+          "return_pct": 0.04635673
+        },
+        {
+          "drawdown": 0.01338427,
+          "held_above_entry": true,
+          "horizon": 10,
+          "max_loss": 0.01435688,
+          "return_pct": 0.06609699
+        },
+        {
+          "drawdown": 0.01338427,
+          "held_above_entry": true,
+          "horizon": 20,
+          "max_loss": 0.01435688,
+          "return_pct": 0.0814885
+        }
+      ],
+      "last_trigger_at": "2025-06-06T09:30:00-04:00",
+      "signal_types": [
+        "EMA5_EMA20_CROSS",
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 1
+    },
+    {
+      "entry_at": "2025-07-09T09:30:00-04:00",
+      "entry_close": 170.9327,
+      "horizons": [
+        {
+          "drawdown": 0.00677515,
+          "held_above_entry": false,
+          "horizon": 5,
+          "max_loss": -0.00205285,
+          "return_pct": 0.0315791
+        },
+        {
+          "drawdown": null,
+          "held_above_entry": null,
+          "horizon": 10,
+          "max_loss": null,
+          "return_pct": null
+        },
+        {
+          "drawdown": null,
+          "held_above_entry": null,
+          "horizon": 20,
+          "max_loss": null,
+          "return_pct": null
+        }
+      ],
+      "last_trigger_at": "2025-07-10T09:30:00-04:00",
+      "signal_types": [
+        "NO_RECENT_EMA_DOWNCROSS",
+        "PRICE_EMA20_BREAKOUT",
+        "RSI_CROSS"
+      ],
+      "trigger_count": 2
+    }
+  ],
   "first_candle": "2024-01-02T09:30:00-05:00",
   "indicators_at_last_candle": {
     "ema20": 171.50988562,

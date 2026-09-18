@@ -110,6 +110,57 @@ class BacktestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class EpisodeHorizonOutcome:
+    """Was der Kurs nach **einem** gezaehlten Ereignis bis zu einem Horizont
+    tat (ADR 0061).
+
+    Alle Werte sind ``None``, wenn die Historie den Horizont nicht mehr
+    erreicht -- das Ereignis liegt zu nah am Ende. Der Horizont steht dann
+    trotzdem in der Liste: Ein fehlender Eintrag saehe aus wie ein nie
+    gerechneter.
+    """
+
+    horizon: int
+    return_pct: float | None
+    max_loss: float | None
+    drawdown: float | None
+    held_above_entry: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestEpisode:
+    """Ein gezaehltes Ereignis des Signal-Backtests (ADR 0057, ADR 0061).
+
+    Der Einstieg ist der erste Trigger der Episode; ``entry_at`` ist der
+    **Zeitstempel** dieser Kerze und kein Index -- der Tiefen-Backfill fuegt
+    aeltere Bars vorn an und verschoebe jeden Index (``signal_events.
+    candle_index`` ist die Warnung dafuer). ``entry_close`` ist der
+    Einstiegskurs (CLAUDE.md "Backtesting").
+
+    Aus genau diesen Episoden entstehen die Kennzahlen je Horizont in
+    ``HorizonMetrics``; beide rechnen ueber dieselbe Funktion.
+    """
+
+    stock_id: UUID
+    signal_types: SignalCombination
+    signal_rule_version: str
+    evaluated_at: datetime
+    entry_at: datetime
+    entry_close: float
+    trigger_count: int
+    last_trigger_at: datetime
+    horizons: tuple[EpisodeHorizonOutcome, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestComputation:
+    """Aggregate und Einzelepisoden einer Aktie aus **einer** Rechnung."""
+
+    results: tuple[BacktestResult, ...]
+    episodes: tuple[BacktestEpisode, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class BacktestParameters:
     """Aus ``BacktestingConfig`` gebaut (bootstrap.py) -- Domain bleibt
     config-frei."""

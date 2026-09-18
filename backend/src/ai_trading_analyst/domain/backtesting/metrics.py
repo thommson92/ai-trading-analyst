@@ -20,9 +20,12 @@ from ai_trading_analyst.domain.screening import (
 
 from .replay import HistoricalDecision, find_historical_decisions, group_into_episodes
 from .values import (
+    BacktestComputation,
     BacktestConfidence,
+    BacktestEpisode,
     BacktestParameters,
     BacktestResult,
+    EpisodeHorizonOutcome,
     HorizonMetrics,
     SignalCombination,
     qualifying_combinations,
@@ -56,6 +59,38 @@ def group_by_combination(
     return {combination: tuple(indices) for combination, indices in grouped.items()}
 
 
+def compute_episode_outcome(series: CandleSeries, t: int, horizon: int) -> EpisodeHorizonOutcome:
+    """Was der Kurs nach dem Ereignis an Kerze ``t`` bis ``t + horizon`` tat.
+
+    **Die eine Rechnung** hinter Aggregat und Einzelwert (ADR 0061): Die
+    Kennzahlen je Horizont mitteln ueber genau diese Ergebnisse, die
+    Episodentabelle zeigt sie einzeln. Zwei Fassungen koennten
+    auseinanderlaufen, ohne dass ein Test es merkt.
+
+    Reicht die Historie nicht bis zum Horizont, sind alle Werte ``None``.
+    """
+    if not series.has_index(t + horizon):
+        return EpisodeHorizonOutcome(
+            horizon=horizon, return_pct=None, max_loss=None, drawdown=None, held_above_entry=None
+        )
+    entry = series.candle(t).close
+    path_after_entry = [series.candle(i).close for i in range(t + 1, t + horizon + 1)]
+
+    running_peak = entry
+    max_drawdown = 0.0
+    for close in path_after_entry:
+        running_peak = max(running_peak, close)
+        max_drawdown = max(max_drawdown, (running_peak - close) / running_peak)
+
+    return EpisodeHorizonOutcome(
+        horizon=horizon,
+        return_pct=(path_after_entry[-1] - entry) / entry,
+        max_loss=min((close - entry) / entry for close in path_after_entry),
+        drawdown=max_drawdown,
+        held_above_entry=all(close > entry for close in path_after_entry),
+    )
+
+
 def compute_horizon_metrics(
     series: CandleSeries,
     dedup_indices: Sequence[int],
@@ -80,22 +115,18 @@ def compute_horizon_metrics(
     held_above_entry_flags: list[bool] = []
 
     for t in dedup_indices:
-        if not series.has_index(t + horizon):
+        outcome = compute_episode_outcome(series, t, horizon)
+        if (
+            outcome.return_pct is None
+            or outcome.max_loss is None
+            or outcome.drawdown is None
+            or outcome.held_above_entry is None
+        ):
             continue
-        entry = series.candle(t).close
-        path_after_entry = [series.candle(i).close for i in range(t + 1, t + horizon + 1)]
-
-        returns.append((path_after_entry[-1] - entry) / entry)
-        max_losses.append(min((close - entry) / entry for close in path_after_entry))
-
-        running_peak = entry
-        max_drawdown = 0.0
-        for close in path_after_entry:
-            running_peak = max(running_peak, close)
-            max_drawdown = max(max_drawdown, (running_peak - close) / running_peak)
-        drawdowns.append(max_drawdown)
-
-        held_above_entry_flags.append(all(close > entry for close in path_after_entry))
+        returns.append(outcome.return_pct)
+        max_losses.append(outcome.max_loss)
+        drawdowns.append(outcome.drawdown)
+        held_above_entry_flags.append(outcome.held_above_entry)
 
     deduplicated_event_count = len(returns)
     confidence = _classify_confidence(deduplicated_event_count, params)
@@ -135,18 +166,21 @@ def _classify_confidence(
     return BacktestConfidence.NORMAL
 
 
-def compute_backtest_results(
+def compute_backtest(
     series: CandleSeries,
     stock_id: UUID,
     candidate_params: CandidateRuleParameters,
     backtest_params: BacktestParameters,
     signal_rule_version: str,
     evaluated_at: datetime,
-) -> tuple[BacktestResult, ...]:
-    """Replay, Deduplizierung, Gruppierung und Kennzahlen fuer eine Aktie.
+) -> BacktestComputation:
+    """Replay, Episodenbildung, Kennzahlen **und** die Episoden selbst.
 
     Liefert immer alle moeglichen Signalkombinationen, auch mit null
     Ereignissen -- kein stillschweigendes Weglassen (Projektkonvention).
+    Die Episoden stehen daneben (ADR 0061): je gezaehltem Ereignis der
+    Einstieg und sein Ergebnis je Horizont, aus derselben Rechnung wie die
+    Kennzahlen.
     """
     series = _truncate_to_recent_history(series, backtest_params.history_years, evaluated_at)
     if len(series) == 0:
@@ -156,12 +190,11 @@ def compute_backtest_results(
         )
 
     raw_decisions = find_historical_decisions(series, candidate_params)
+    episodes = group_into_episodes(raw_decisions)
     # Gezaehlt wird der erste Trigger jeder Episode: Er ist der Punkt, an dem
     # die Regel erstmals ansprach, und liefert damit auch den Einstiegskurs
     # (CLAUDE.md "Backtesting", ADR 0057).
-    counted_decisions = tuple(
-        episode[0] for episode in group_into_episodes(raw_decisions)
-    )
+    counted_decisions = tuple(episode[0] for episode in episodes)
 
     raw_by_combination = group_by_combination(raw_decisions)
     counted_by_combination = group_by_combination(counted_decisions)
@@ -191,4 +224,41 @@ def compute_backtest_results(
                 horizons=horizons,
             )
         )
-    return tuple(results)
+
+    einzelne = tuple(
+        BacktestEpisode(
+            stock_id=stock_id,
+            signal_types=episode[0].combination,
+            signal_rule_version=signal_rule_version,
+            evaluated_at=evaluated_at,
+            entry_at=series.candle(episode[0].index).timestamp,
+            entry_close=series.candle(episode[0].index).close,
+            trigger_count=len(episode),
+            last_trigger_at=series.candle(episode[-1].index).timestamp,
+            horizons=tuple(
+                compute_episode_outcome(series, episode[0].index, horizon)
+                for horizon in backtest_params.horizons
+            ),
+        )
+        for episode in episodes
+    )
+    return BacktestComputation(results=tuple(results), episodes=einzelne)
+
+
+def compute_backtest_results(
+    series: CandleSeries,
+    stock_id: UUID,
+    candidate_params: CandidateRuleParameters,
+    backtest_params: BacktestParameters,
+    signal_rule_version: str,
+    evaluated_at: datetime,
+) -> tuple[BacktestResult, ...]:
+    """Nur die Kennzahlen -- fuer Aufrufer, die die Episoden nicht brauchen."""
+    return compute_backtest(
+        series,
+        stock_id=stock_id,
+        candidate_params=candidate_params,
+        backtest_params=backtest_params,
+        signal_rule_version=signal_rule_version,
+        evaluated_at=evaluated_at,
+    ).results

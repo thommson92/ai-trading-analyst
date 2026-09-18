@@ -9,7 +9,9 @@ from typing import ClassVar
 import pytest
 
 from ai_trading_analyst.domain.backtesting.metrics import (
+    compute_backtest,
     compute_backtest_results,
+    compute_episode_outcome,
     compute_horizon_metrics,
     group_by_combination,
 )
@@ -19,10 +21,11 @@ from ai_trading_analyst.domain.screening import (
     CONFIRMATION_SIGNALS,
     CROSSING_SIGNALS,
     CandidateRuleParameters,
+    CandleSeries,
     SignalType,
 )
 
-from .conftest import make_series
+from .conftest import RSI_AND_EMA_CROSS_FIRE, make_series
 
 COMBO = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
 PERMISSIVE_PARAMS = BacktestParameters(
@@ -260,3 +263,90 @@ class TestHistorienfenster:
                 signal_rule_version="test-version",
                 evaluated_at=evaluated_at,
             )
+
+
+class TestEpisodenergebnis:
+    """Die eine Rechnung hinter Aggregat und Einzelwert (ADR 0061)."""
+
+    SERIES = make_series(6, closes={0: 100.0, 1: 102.0, 2: 101.0, 3: 103.0, 4: 99.0, 5: 105.0})
+
+    def test_einzelwert_und_aggregat_sagen_dasselbe(self) -> None:
+        einzeln = compute_episode_outcome(self.SERIES, 0, 5)
+        aggregat = compute_horizon_metrics(
+            self.SERIES, [0], raw_event_count=1, horizon=5, params=PERMISSIVE_PARAMS
+        )
+        assert einzeln.return_pct == aggregat.mean_return == pytest.approx(0.05)
+        assert einzeln.max_loss == aggregat.max_loss == pytest.approx(-0.01)
+        assert einzeln.drawdown == aggregat.drawdown == pytest.approx((103.0 - 99.0) / 103.0)
+        assert einzeln.held_above_entry is False
+        assert aggregat.held_above_entry_rate == 0.0
+
+    def test_ohne_vollstaendigen_pfad_bleibt_alles_leer_aber_der_horizont_steht(self) -> None:
+        einzeln = compute_episode_outcome(make_series(10), 8, 5)
+        assert einzeln.horizon == 5
+        assert einzeln.return_pct is None
+        assert einzeln.max_loss is None
+        assert einzeln.drawdown is None
+        assert einzeln.held_above_entry is None
+
+
+class TestEpisodenAusDerVollstaendigenRechnung:
+    CANDIDATE_PARAMS = CandidateRuleParameters(
+        required_crossing_signals=2, signal_lookback_previous_candles=5, warmup_candles=10
+    )
+    PARAMS = BacktestParameters(
+        horizons=(5, 10, 20),
+        minimum_sample_size=1,
+        normal_confidence_sample_size=1,
+        history_years=5,
+    )
+
+    def _serie_mit_einem_ereignis(self) -> tuple[CandleSeries, int]:
+        # Ein Kreuz an Kerze 12 -- einer ersten Tageskerze nach dem Warmup.
+        # E (kein Abwaertskreuz) gilt an jeder Entscheidungskerze von selbst.
+        series = make_series(
+            40, indicator_overrides={12: RSI_AND_EMA_CROSS_FIRE}, closes={12: 101.0}
+        )
+        return series, 12
+
+    def test_die_episode_traegt_zeitstempel_und_kurs_der_einstiegskerze(self) -> None:
+        series, index = self._serie_mit_einem_ereignis()
+        rechnung = compute_backtest(
+            series,
+            stock_id=uuid.uuid4(),
+            candidate_params=self.CANDIDATE_PARAMS,
+            backtest_params=self.PARAMS,
+            signal_rule_version="test-version",
+            evaluated_at=datetime.now(UTC),
+        )
+        assert len(rechnung.episodes) >= 1
+        erste = rechnung.episodes[0]
+        kerze = series.candle(index)
+        assert erste.entry_at == kerze.timestamp
+        assert erste.entry_close == kerze.close
+        assert erste.trigger_count >= 1
+        assert erste.last_trigger_at >= erste.entry_at
+        assert [h.horizon for h in erste.horizons] == [5, 10, 20]
+
+    def test_episoden_je_kombination_decken_die_stichprobe_des_kuerzesten_horizonts(self) -> None:
+        """Die Aggregate zaehlen genau die Episoden, die hier stehen. Beim
+        kuerzesten Horizont reicht die Historie fuer jedes Ereignis, das
+        ueberhaupt bis dorthin reicht -- also muss die Zahl uebereinstimmen."""
+        series, _ = self._serie_mit_einem_ereignis()
+        rechnung = compute_backtest(
+            series,
+            stock_id=uuid.uuid4(),
+            candidate_params=self.CANDIDATE_PARAMS,
+            backtest_params=self.PARAMS,
+            signal_rule_version="test-version",
+            evaluated_at=datetime.now(UTC),
+        )
+        for ergebnis in rechnung.results:
+            kuerzester = min(ergebnis.horizons, key=lambda h: h.horizon)
+            vollstaendige = [
+                e
+                for e in rechnung.episodes
+                if e.signal_types == ergebnis.signal_types
+                and e.horizons[0].return_pct is not None
+            ]
+            assert len(vollstaendige) == kuerzester.deduplicated_event_count

@@ -1,6 +1,12 @@
 """Historische Signalprüfung (Doc 07; G1-Prüfvorlage Abschnitt 4; CLAUDE.md "Backtesting")."""
 
-from .metrics import compute_backtest_results, compute_horizon_metrics, group_by_combination
+from .metrics import (
+    compute_backtest,
+    compute_backtest_results,
+    compute_episode_outcome,
+    compute_horizon_metrics,
+    group_by_combination,
+)
 from .options_metrics import (
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -17,17 +23,23 @@ from .replay import (
     is_decision_point,
 )
 from .values import (
+    BacktestComputation,
     BacktestConfidence,
+    BacktestEpisode,
     BacktestParameters,
     BacktestResult,
+    EpisodeHorizonOutcome,
     HorizonMetrics,
     SignalCombination,
 )
 
 __all__ = [
+    "BacktestComputation",
     "BacktestConfidence",
+    "BacktestEpisode",
     "BacktestParameters",
     "BacktestResult",
+    "EpisodeHorizonOutcome",
     "HistoricalDecision",
     "HorizonMetrics",
     "OptionsBacktestResult",
@@ -35,7 +47,9 @@ __all__ = [
     "PooledMetrics",
     "SignalCombination",
     "VariantMetrics",
+    "compute_backtest",
     "compute_backtest_results",
+    "compute_episode_outcome",
     "compute_horizon_metrics",
     "find_historical_decisions",
     "group_by_combination",

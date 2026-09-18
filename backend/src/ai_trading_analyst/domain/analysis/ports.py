@@ -16,6 +16,7 @@ from uuid import UUID
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import (
+    BacktestEpisode,
     BacktestResult,
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -355,6 +356,19 @@ class BacktestResultRepository(Protocol):
         ...
 
     def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
+
+    def add_episodes(
+        self, episodes: Sequence[BacktestEpisode], analysis_run_id: UUID | None = None
+    ) -> None:
+        """Die gezaehlten Ereignisse hinter den Kennzahlen (ADR 0061) --
+        angehaengt, nie ueberschrieben, wie die Kennzahlen selbst. Dasselbe
+        Muster wie die Einzeltrades des Optionsbacktests."""
+        ...
+
+    def list_episodes_for_stock(self, stock_id: UUID) -> Sequence[BacktestEpisode]:
+        """Alle Auswertungen, juengste zuerst; innerhalb einer Auswertung nach
+        Einstieg aufsteigend."""
+        ...
 
 
 class OptionsBacktestResultRepository(Protocol):

@@ -39,6 +39,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import (
+    BacktestEpisode,
     BacktestResult,
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -422,6 +423,7 @@ class FakeScreeningResultRepository:
 class FakeBacktestResultRepository:
     def __init__(self) -> None:
         self.added: list[tuple[BacktestResult, uuid.UUID | None]] = []
+        self.episodes: list[tuple[BacktestEpisode, uuid.UUID | None]] = []
 
     def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
         self.added.append((result, analysis_run_id))
@@ -432,6 +434,14 @@ class FakeBacktestResultRepository:
 
     def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
+
+    def add_episodes(
+        self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID | None = None
+    ) -> None:
+        self.episodes.extend((episode, analysis_run_id) for episode in episodes)
+
+    def list_episodes_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestEpisode, ...]:
+        return tuple(e for e, _ in self.episodes if e.stock_id == stock_id)
 
 
 class FakeOptionsBacktestResultRepository:

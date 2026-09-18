@@ -12,7 +12,9 @@ from ai_trading_analyst.application.read_run_overview import RunOverview
 from ai_trading_analyst.domain.analysis import AnalysisRun, RunStatus
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
+    BacktestEpisode,
     BacktestResult,
+    EpisodeHorizonOutcome,
     HorizonMetrics,
     OptionsBacktestResult,
     OptionsBacktestScope,
@@ -378,6 +380,62 @@ class SignalBacktestResponse(BaseModel):
         )
 
 
+class EpisodeHorizonResponse(BaseModel):
+    """Ein Horizont einer Episode. Alle Werte ``null``, wenn die Historie den
+    Horizont nicht erreicht -- die Zeile steht trotzdem."""
+
+    horizon: int
+    return_pct: float | None
+    max_loss: float | None
+    drawdown: float | None
+    held_above_entry: bool | None
+
+    @classmethod
+    def from_domain(cls, outcome: EpisodeHorizonOutcome) -> EpisodeHorizonResponse:
+        return cls(
+            horizon=outcome.horizon,
+            return_pct=outcome.return_pct,
+            max_loss=outcome.max_loss,
+            drawdown=outcome.drawdown,
+            held_above_entry=outcome.held_above_entry,
+        )
+
+
+class BacktestEpisodeResponse(BaseModel):
+    """Ein gezaehltes Ereignis des Signal-Backtests (ADR 0061): der Einstieg
+    und was der Kurs danach tat, je Horizont."""
+
+    entry_at: datetime
+    entry_close: float
+    signal_types: list[str]
+    letters: str
+    trigger_count: int
+    last_trigger_at: datetime
+    horizons: list[EpisodeHorizonResponse]
+
+    @classmethod
+    def from_domain(cls, episode: BacktestEpisode) -> BacktestEpisodeResponse:
+        return cls(
+            entry_at=episode.entry_at,
+            entry_close=episode.entry_close,
+            signal_types=sorted(signal.value for signal in episode.signal_types),
+            letters=kombinationskuerzel(episode.signal_types),
+            trigger_count=episode.trigger_count,
+            last_trigger_at=episode.last_trigger_at,
+            horizons=[EpisodeHorizonResponse.from_domain(h) for h in episode.horizons],
+        )
+
+
+class EpisodeEvaluationResponse(BaseModel):
+    """Die Episoden **einer** Auswertung. Jede Auswertung bringt ihre eigene
+    Liste mit -- Historie und Regel koennen sich zwischen zwei Laeufen
+    geaendert haben, und die Zahlen von damals bleiben die von damals."""
+
+    evaluated_at: datetime
+    signal_rule_version: str
+    episodes: list[BacktestEpisodeResponse]
+
+
 class StockBacktestResponse(BaseModel):
     """Beides zu einer Aktie -- und ausdruecklich **getrennt**.
 
@@ -389,6 +447,10 @@ class StockBacktestResponse(BaseModel):
 
     symbol: str
     signal_backtests: list[SignalBacktestResponse]
+    episode_evaluations: list[EpisodeEvaluationResponse]
+    """Die Episoden hinter den Kennzahlen, je Auswertung, juengste zuerst.
+    Leer fuer Aktien, deren letzte Auswertung vor ADR 0061 lag -- das ist
+    eine Auskunft, kein Fehler."""
     measurement: OptionsMeasurementResponse | None
     combinations: list[OptionsCombinationResponse]
     pooled: OptionsStockRowResponse | None

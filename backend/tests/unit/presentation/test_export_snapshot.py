@@ -365,3 +365,13 @@ class TestDateihashes:
         quellen, _ = quellen_mit()
         manifest = json.loads(baum(quellen)[MANIFEST_PFAD].decode("utf-8"))
         assert MANIFEST_PFAD not in manifest["files"]
+
+
+class TestEpisodenImExport:
+    def test_der_backtest_je_aktie_fuehrt_die_episoden_je_auswertung(self) -> None:
+        """Auch leer (ADR 0061): Eine Aktie ohne Auswertung seit der Umstellung
+        hat eine leere Liste, keinen fehlenden Schluessel."""
+        quellen, _ = quellen_mit()
+        dateien = baum(quellen)
+        inhalt = json.loads(dateien["data/stocks/AAPL/backtest.json"].decode("utf-8"))
+        assert inhalt["episode_evaluations"] == []
