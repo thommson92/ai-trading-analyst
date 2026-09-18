@@ -1652,7 +1652,9 @@ class SqlAlchemyStockReportRepository:
             .join(StockReportOrm, StockReportOrm.stock_id == StockOrm.id)
             .group_by(StockOrm.symbol)
         ).tuples()
-        return dict(rows)
+        # `.all()` zuerst: Ein Result hat `keys()`, und `dict()` hielte es
+        # fuer ein Mapping.
+        return {symbol: anzahl for symbol, anzahl in rows.all()}
 
 
 class SqlAlchemyBacktestResultRepository:
@@ -1767,7 +1769,7 @@ class SqlAlchemyBacktestResultRepository:
                 BacktestEpisodeOrm.stock_id
             )
         ).tuples()
-        return dict(rows)
+        return {stock_id: evaluated_at for stock_id, evaluated_at in rows.all()}
 
 
 def _signal_types_als_spalte(kombination: frozenset[SignalType]) -> list[str]:
