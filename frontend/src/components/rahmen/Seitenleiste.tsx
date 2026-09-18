@@ -14,6 +14,8 @@ import type { ReactNode } from 'react';
  */
 export const BEREICHE: readonly { pfad: string; titel: string }[] = [
   { pfad: '', titel: 'Übersicht' },
+  { pfad: 'laeufe/', titel: 'Tagesläufe' },
+  { pfad: 'aktien/', titel: 'Aktien' },
   { pfad: 'backtests/', titel: 'Backtests' },
 ];
 

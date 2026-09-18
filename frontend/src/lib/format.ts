@@ -3,7 +3,7 @@
 // Keine Fachlogik (Doc 12): Hier wird nichts gerechnet, nichts eingestuft
 // und nichts ergaenzt. Was fehlt, bleibt fehlend und bekommt einen Strich.
 
-import type { Ausgang, Konfidenz, Recommendation, RunStatus } from '@/lib/api';
+import type { Ausgang, EarningsStatus, Konfidenz, Recommendation, RunStatus } from '@/lib/api';
 
 export const LAUFSTATUS_TEXT: Record<RunStatus, string> = {
   SCHEDULED: 'eingeplant',
@@ -112,4 +112,34 @@ export function formatDatum(iso: string): string {
           Number(iso.slice(8, 10)),
         );
   return zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'medium' });
+}
+
+export const EARNINGS_TEXT: Record<EarningsStatus, string> = {
+  EARNINGS_CLEAR: 'Berichtstermin frei',
+  EARNINGS_EXCLUDED: 'Berichtstermin im Fenster',
+  // "Unbekannt" ist kein belegter Nichttermin (ADR 0020) -- die Karte sagt
+  // das ausdruecklich, statt es wie "frei" aussehen zu lassen.
+  UNKNOWN: 'Termin unbekannt',
+};
+
+export const FEHLSIGNALRISIKO_TEXT: Record<string, string | undefined> = {
+  LOW: 'niedrig',
+  MEDIUM: 'mittel',
+  HIGH: 'hoch',
+};
+
+export const LIQUIDITAET_TEXT: Record<string, string | undefined> = {
+  GOOD: 'liquide',
+  ACCEPTABLE: 'ausreichend liquide',
+  POOR: 'wenig liquide',
+};
+
+/** Ein Kurs, wie er auf einer Karte steht: zwei Stellen, Dollar, Strich ohne Wert. */
+export function formatKurs(wert: number | null): string {
+  return wert === null ? '–' : `${wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+}
+
+/** Ein Zeitpunkt nur als Datum -- fuer Listen, in denen die Uhrzeit nichts sagt. */
+export function formatTag(iso: string | null): string {
+  return iso === null ? '–' : formatDatum(iso);
 }

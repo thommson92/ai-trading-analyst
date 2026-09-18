@@ -179,3 +179,394 @@
 .knopf-leicht:hover {
   border-color: var(--gedaempft);
 }
+
+/* --- Karte --------------------------------------------------------------- */
+
+.karte {
+  background: var(--flaeche);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius);
+  margin-bottom: var(--abstand-4);
+  padding: var(--abstand-4);
+}
+
+.karte-kopf {
+  align-items: center;
+  display: flex;
+  gap: var(--abstand-3);
+  justify-content: space-between;
+  margin-bottom: var(--abstand-3);
+}
+
+.karte-titel {
+  font-size: var(--schrift-l);
+  margin: 0;
+}
+
+/* --- Kennzahl ------------------------------------------------------------ */
+
+.kennzahlen-raster {
+  display: grid;
+  gap: var(--abstand-3);
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.kennzahl {
+  background: var(--flaeche-erhoben);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  display: grid;
+  gap: var(--abstand-1);
+  min-width: 0;
+  padding: var(--abstand-3);
+}
+
+.kennzahl-label {
+  color: var(--gedaempft);
+  font-size: var(--schrift-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kennzahl-wert {
+  font-size: var(--schrift-l);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.kennzahl-betont .kennzahl-wert {
+  color: var(--akzent);
+  font-size: var(--schrift-xl);
+}
+
+.kennzahl-hinweis {
+  color: var(--schwach);
+  font-size: var(--schrift-xs);
+}
+
+/* --- Badge --------------------------------------------------------------- */
+
+.badge {
+  border: 1px solid var(--linie);
+  border-radius: 999px;
+  display: inline-block;
+  font-size: var(--schrift-xs);
+  line-height: 1.6;
+  padding: 0 var(--abstand-2);
+  white-space: nowrap;
+}
+
+.badge-akzent {
+  border-color: var(--akzent);
+  color: var(--akzent);
+}
+
+.badge-gewinn {
+  border-color: var(--gewinn);
+  color: var(--gewinn);
+}
+
+.badge-verlust {
+  border-color: var(--verlust);
+  color: var(--verlust);
+}
+
+.badge-warnung {
+  border-color: var(--warnung);
+  color: var(--warnung);
+}
+
+.badge-info {
+  border-color: var(--info);
+  color: var(--info);
+}
+
+/* --- Aufklapper und Zustaende -------------------------------------------- */
+
+.aufklapper {
+  border: 1px solid var(--linie);
+  border-radius: var(--radius);
+  margin-bottom: var(--abstand-4);
+}
+
+.aufklapper summary {
+  color: var(--gedaempft);
+  cursor: pointer;
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.aufklapper-inhalt {
+  padding: 0 var(--abstand-4) var(--abstand-4);
+}
+
+.zustand {
+  color: var(--gedaempft);
+}
+
+.zustand-fehler {
+  border-left: 3px solid var(--warnung);
+  color: var(--warnung);
+  padding-left: var(--abstand-3);
+}
+
+/* --- Tabelle mit Sortierung und Kartenmodus ------------------------------ */
+
+.tabelle-kasten {
+  overflow-x: auto;
+}
+
+.tabelle {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.tabelle th,
+.tabelle td {
+  border-bottom: 1px solid var(--linie);
+  padding: var(--abstand-2) var(--abstand-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.tabelle thead th {
+  color: var(--gedaempft);
+  font-size: var(--schrift-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.tabelle tbody th {
+  font-weight: 600;
+}
+
+.tabelle .zahl {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabelle tr.gewaehlt td,
+.tabelle tr.gewaehlt th {
+  background: var(--akzent-flaeche);
+}
+
+.sortierknopf {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  text-transform: inherit;
+}
+
+.sortierpfeil {
+  color: var(--schwach);
+  margin-left: var(--abstand-1);
+}
+
+th[aria-sort] .sortierpfeil {
+  color: var(--akzent);
+}
+
+/* Unter 40rem wird jede Zeile zur Karte; die Ueberschrift kommt aus
+   data-label. Ein DOM, zwei Darstellungen (ADR 0063, Entscheidung 5). */
+@media (max-width: 40rem) {
+  .tabelle thead {
+    display: none;
+  }
+
+  .tabelle,
+  .tabelle tbody,
+  .tabelle tr {
+    display: block;
+  }
+
+  .tabelle tr {
+    background: var(--flaeche-erhoben);
+    border: 1px solid var(--linie);
+    border-radius: var(--radius-klein);
+    margin-bottom: var(--abstand-2);
+    padding: var(--abstand-2) var(--abstand-3);
+  }
+
+  .tabelle td,
+  .tabelle tbody th {
+    border: none;
+    display: grid;
+    gap: var(--abstand-3);
+    grid-template-columns: minmax(6rem, 40%) minmax(0, 1fr);
+    padding: var(--abstand-1) 0;
+    text-align: left;
+  }
+
+  .tabelle td::before,
+  .tabelle tbody th::before {
+    color: var(--gedaempft);
+    content: attr(data-label);
+    font-size: var(--schrift-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .tabelle .zahl {
+    text-align: left;
+  }
+}
+
+/* --- Kandidatenkarte ------------------------------------------------------ */
+
+.kandidatenraster {
+  display: grid;
+  gap: var(--abstand-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+}
+
+.kandidatenkarte {
+  background: var(--flaeche-erhoben);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--abstand-3);
+  min-width: 0;
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.kandidatenkarte-kopf {
+  align-items: baseline;
+  display: flex;
+  gap: var(--abstand-3);
+  justify-content: space-between;
+}
+
+.kandidatenkarte-symbol {
+  font-size: var(--schrift-xl);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.kandidatenkarte-name {
+  color: var(--gedaempft);
+  display: block;
+  font-size: var(--schrift-s);
+  overflow-wrap: anywhere;
+}
+
+.kandidatenkarte-kurs {
+  font-size: var(--schrift-l);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kandidatenkarte-reihe {
+  display: grid;
+  gap: var(--abstand-2);
+}
+
+.kandidatenkarte-zweite {
+  align-items: center;
+  border-top: 1px solid var(--linie);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2) var(--abstand-4);
+  padding-top: var(--abstand-3);
+}
+
+.kandidatenkarte-fuss {
+  display: flex;
+  gap: var(--abstand-4);
+  font-size: var(--schrift-s);
+}
+
+.hinweis {
+  display: grid;
+  gap: var(--abstand-1);
+  min-width: 0;
+}
+
+.hinweis-label {
+  color: var(--gedaempft);
+  font-size: var(--schrift-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hinweis-wert {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-1) var(--abstand-2);
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.score {
+  align-items: center;
+  display: inline-grid;
+  gap: 0 var(--abstand-2);
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+}
+
+.score-label {
+  color: var(--gedaempft);
+  font-size: var(--schrift-xs);
+}
+
+.score-wert {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.score-balken {
+  background: var(--linie);
+  border-radius: 999px;
+  display: block;
+  grid-column: 1 / -1;
+  height: 0.3rem;
+  overflow: hidden;
+  width: 6rem;
+}
+
+.score-fuellung {
+  background: var(--akzent);
+  display: block;
+  height: 100%;
+}
+
+.signalbuchstaben {
+  display: inline-flex;
+  gap: var(--abstand-1);
+}
+
+.signalbuchstabe {
+  background: var(--akzent-flaeche);
+  border-radius: var(--radius-klein);
+  color: var(--akzent);
+  cursor: help;
+  font-family: var(--mono);
+  font-size: var(--schrift-s);
+  font-weight: 700;
+  padding: 0 0.35rem;
+}
+
+/* --- Suchzeile ------------------------------------------------------------ */
+
+.suchzeile {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-3);
+  margin-bottom: var(--abstand-3);
+}
+
+.suchzeile input {
+  background: var(--grund);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  color: var(--schrift);
+  font: inherit;
+  min-width: 14rem;
+  padding: var(--abstand-2) var(--abstand-3);
+}

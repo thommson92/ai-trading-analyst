@@ -101,8 +101,32 @@ export class Datenbaum {
     private readonly schluessel: Schluessel | null,
   ) {}
 
-  /** Eine Datei des Baums, entschluesselt und gegen das Manifest geprueft. */
-  async lade<T>(pfad: string): Promise<T> {
+  /**
+   * Eine Datei des Baums, entschluesselt und gegen das Manifest geprueft.
+   *
+   * Je Stand und Pfad nur einmal: Der Baum ist unveraenderlich, solange er
+   * offen ist -- ein neuer Stand ist ein neuer Baum --, und `/data/*` kommt
+   * mit `no-store` (public/_headers), der Browser haelt also nichts vor.
+   * Ohne diesen Speicher entschluesselte jede Ansicht dieselbe Datei erneut.
+   * Gehalten wird das geprueftte Ergebnis, nicht das Chiffrat; ein Fehler
+   * bleibt nicht haengen, damit ein zweiter Versuch moeglich ist.
+   */
+  lade<T>(pfad: string): Promise<T> {
+    const gemerkt = this.geladen.get(pfad);
+    if (gemerkt !== undefined) {
+      return gemerkt as Promise<T>;
+    }
+    const laden = this.ladeUngepuffert<T>(pfad).catch((ursache: unknown) => {
+      this.geladen.delete(pfad);
+      throw ursache;
+    });
+    this.geladen.set(pfad, laden);
+    return laden;
+  }
+
+  private readonly geladen = new Map<string, Promise<unknown>>();
+
+  private async ladeUngepuffert<T>(pfad: string): Promise<T> {
     const roh = await hole(await this.adresse(pfad), pfad);
     const klartext =
       this.schluessel === null ? roh : await entschluessele(this.schluessel, pfad, roh);
