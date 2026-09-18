@@ -101,6 +101,23 @@ muesste diese Liste erweitert werden -- der Fehler saehe dann nach einem
 Netzproblem aus und waere eines.
 """
 
+_WORKERNAME = re.compile(r"^[a-z0-9_][a-z0-9_-]*$")
+"""Was der Anbieter als Worker-Namen annimmt.
+
+Aus der Pruefung des Werkzeugs uebernommen (wrangler 4.135.0): Kleinbuchstaben,
+Ziffern, Bindestrich, Unterstrich. **Keine Punkte** -- und genau daran ist der
+erste Versuch auf dem Server am 2026-09-18 gescheitert, weil in der ``.env``
+die volle Adresse stand statt des Namens davor.
+"""
+
+_STEUERZEICHEN = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+"""Farbcodes in der Ausgabe des Werkzeugs.
+
+``NO_COLOR`` haelt es nicht davon ab -- am 2026-09-18 auf dem Server gemessen.
+Die Ausgabe wird gelesen und protokolliert, nicht angesehen; die Codes machen
+beides nur schwerer.
+"""
+
 _WORKERS_DEV = re.compile(r"https?://([A-Za-z0-9][A-Za-z0-9_.-]*\.workers\.dev)")
 _GELESEN = re.compile(r"Read (\d+) files? from the assets directory", re.IGNORECASE)
 _GESENDET = re.compile(r"Uploaded (\d+) files?", re.IGNORECASE)
@@ -289,6 +306,7 @@ class WranglerHochlader:
         self._starter = starter if starter is not None else _starte_prozess
 
     def lade_hoch(self) -> Hochladebericht:
+        self._pruefe_worker()
         self._pruefe_baum()
         self._pruefe_arbeitsverzeichnis()
         befehl = [*self._ziel.befehl(), "deploy", "--config", str(self.schreibe_konfiguration())]
@@ -315,7 +333,7 @@ class WranglerHochlader:
             ) from fehler
         dauer = time.monotonic() - begonnen
 
-        ausgabe = f"{ergebnis.stdout or ''}\n{ergebnis.stderr or ''}"
+        ausgabe = _STEUERZEICHEN.sub("", f"{ergebnis.stdout or ''}\n{ergebnis.stderr or ''}")
         if ergebnis.returncode != 0:
             raise DashboardUploadError(
                 f"Der Upload endete mit Rueckgabewert {ergebnis.returncode}: "
@@ -373,6 +391,29 @@ class WranglerHochlader:
             f"Im Datenbaum fehlen {', '.join(fehlend)} -- es ginge Chiffrat ohne "
             "Oberflaeche und ohne Sicherheits-Header hinaus. Beide entstehen beim "
             "Bau der Oberflaeche (Doc 14, Stufe K, Schritt 2), nicht in diesem Schritt."
+        )
+
+    def _pruefe_worker(self) -> None:
+        """Der Name muss die Regel des Anbieters erfuellen.
+
+        **Hier und nicht erst dort.** Das Werkzeug prueft es auch, aber seine
+        Meldung nennt den Wert -- und der geht durch die Schwaerzung, sodass
+        auf dem Server ``got "***"`` steht und niemand sieht, was falsch ist.
+        Diese Meldung nennt den Wert nicht und sagt trotzdem, wonach zu
+        suchen ist.
+        """
+        if _WORKERNAME.match(self._ziel.worker):
+            return
+        hinweis = (
+            " Der Wert enthaelt einen Punkt -- vermutlich steht dort die volle "
+            "Adresse statt des Namens davor."
+            if "." in self._ziel.worker
+            else ""
+        )
+        raise DashboardUploadError(
+            "ATA_DASHBOARD_PUBLISH_WORKER ist kein zulaessiger Worker-Name. "
+            "Erlaubt sind Kleinbuchstaben, Ziffern, Bindestrich und Unterstrich; "
+            f"der Wert hat {len(self._ziel.worker)} Zeichen.{hinweis}"
         )
 
     def _pruefe_arbeitsverzeichnis(self) -> None:

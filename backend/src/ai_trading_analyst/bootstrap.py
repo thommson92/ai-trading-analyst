@@ -865,11 +865,15 @@ def _build_hochlader(
             "Beide muessen auf demselben liegen."
         )
 
+    # ``strip`` an allen dreien: Diese Werte werden aus einer Konsole in eine
+    # Datei kopiert, und ein mitgenommenes Leerzeichen ist dort unsichtbar.
+    # Beim Token faellt es als Absage des Anbieters auf, beim Worker-Namen als
+    # ungueltiger Name -- beides Meldungen, die auf nichts hinweisen.
     return WranglerHochlader(
         Hochladeziel(
-            worker=secrets.require("dashboard_publish_worker"),
-            konto=secrets.require("dashboard_publish_account"),
-            token=secrets.require("dashboard_publish_token"),
+            worker=secrets.require("dashboard_publish_worker").strip(),
+            konto=secrets.require("dashboard_publish_account").strip(),
+            token=secrets.require("dashboard_publish_token").strip(),
             baum=verzeichnis,
             arbeitsverzeichnis=arbeitsverzeichnis,
             # Erst beim Upload aufgeloest: Ein fehlendes Werkzeug soll den

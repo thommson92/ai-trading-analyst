@@ -1603,8 +1603,19 @@ im Projektwurzelverzeichnis, zusammen mit Konto-Kennung und Worker-Namen:
 ```
 ATA_DASHBOARD_PUBLISH_TOKEN=<das Token>
 ATA_DASHBOARD_PUBLISH_ACCOUNT=<die Konto-Kennung>
-ATA_DASHBOARD_PUBLISH_WORKER=<der Worker-Name>
+ATA_DASHBOARD_PUBLISH_WORKER=<der Worker-Name, NUR der Name>
 ```
+
+> **Die Falle beim Worker-Namen**, am 2026-09-18 bei der Abnahme
+> hineingetappt: Dort gehört **nur der Name** hinein, nicht die Adresse.
+> Heißt der Worker `abc-def.konto-xy.workers.dev`, steht in der `.env`
+> `abc-def` — Konto-Subdomain und `.workers.dev` setzt der Anbieter selbst
+> dazu. Erlaubt sind Kleinbuchstaben, Ziffern, Bindestrich und Unterstrich.
+>
+> Der Exportschritt prüft das seither selbst und bricht **vor** dem Upload
+> ab. Das ist mehr als Bequemlichkeit: Die Meldung des Werkzeugs nennt den
+> falschen Wert, und der geht durch die Schwärzung der Protokolle — auf dem
+> Server stand `got "***"`, und damit war nicht zu erkennen, was fehlte.
 
 **Das ist eine bewusste Verschlechterung, und sie ist den Handbetrieb
 wert.** Bis hierher lag das Token nur im Passwortmanager und wurde je

@@ -551,3 +551,59 @@ class TestEinEnkelprozessHaeltDieLeitungen:
         # Gebunden und nahe an der Zeitgrenze -- das ist die ganze Aussage.
         # Mit Leitungen stand hier die Lebensdauer des Enkels: 30 Sekunden.
         assert zeitmodul.monotonic() - begonnen < 10
+
+
+class TestDerWorkerName:
+    """Am 2026-09-18 auf dem Server gescheitert -- an der vollen Adresse.
+
+    Das Werkzeug prueft den Namen selbst, aber seine Meldung nennt den Wert,
+    und der geht durch die Schwaerzung: Auf dem Server stand
+    ``got "***"``, und damit war nicht zu erkennen, was falsch war.
+    """
+
+    def test_ein_gewoehnlicher_name_geht_durch(self, tmp_path: Path) -> None:
+        # Ohne Adresse in der Ausgabe: Der Name weicht hier absichtlich vom
+        # Standard ab, und die Vorschau-Probe wuerde sonst anschlagen.
+        starter = _Starter(ausgabe="fertig.")
+
+        hochlader(tmp_path, starter, worker="fragrant-bush-d121").lade_hoch()
+
+        assert starter.aufrufe
+
+    def test_die_volle_adresse_wird_abgewiesen(self, tmp_path: Path) -> None:
+        starter = _Starter()
+
+        with pytest.raises(DashboardUploadError, match="volle Adresse"):
+            hochlader(
+                tmp_path, starter, worker="fragrant-bush-d121.konto.workers.dev"
+            ).lade_hoch()
+
+        # **Vor dem Start** -- sonst entstuende eine Worker-Version umsonst,
+        # und die laesst sich nicht mehr loeschen.
+        assert starter.aufrufe == []
+
+    @pytest.mark.parametrize("name", ["Grossbuchstaben", "mit leerzeichen", "-beginnt-mit-strich"])
+    def test_weitere_unzulaessige_namen(self, tmp_path: Path, name: str) -> None:
+        with pytest.raises(DashboardUploadError, match="kein zulaessiger Worker-Name"):
+            hochlader(tmp_path, _Starter(), worker=name).lade_hoch()
+
+    def test_die_meldung_nennt_den_wert_nicht(self, tmp_path: Path) -> None:
+        """Er ist die halbe Adresse des Dashboards (ADR 0060, E6)."""
+        with pytest.raises(DashboardUploadError) as fehler:
+            hochlader(tmp_path, _Starter(), worker="Geheim.Adresse.workers.dev").lade_hoch()
+
+        assert "Geheim" not in str(fehler.value)
+        assert "26 Zeichen" in str(fehler.value)
+
+
+class TestFarbcodes:
+    def test_sie_stehen_nicht_in_der_meldung(self, tmp_path: Path) -> None:
+        """NO_COLOR haelt das Werkzeug nicht davon ab -- am 2026-09-18 auf
+        dem Server gemessen. Die Ausgabe wird gelesen, nicht angesehen."""
+        starter = _Starter(rueckgabewert=1, ausgabe="\x1b[31mX\x1b[0m Fehler im Namen")
+
+        with pytest.raises(DashboardUploadError) as fehler:
+            hochlader(tmp_path, starter).lade_hoch()
+
+        assert "\x1b" not in str(fehler.value)
+        assert "X Fehler im Namen" in str(fehler.value)
