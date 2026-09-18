@@ -12,10 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from .summary import ReportSummaryFields
+from typing import Any
 
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import BacktestResult
@@ -169,16 +166,11 @@ class StoredReport:
     """Die drei Werte, nach denen eine Liste gelesen wird. Leer, wenn kein
     Score entstand (``INSUFFICIENT_DATA``) -- kein Ersatzwert, keine Null."""
     document: Mapping[str, Any]
-    analysis_run_id: uuid.UUID | None = None
+    analysis_run_id: uuid.UUID
     """Der Lauf, zu dem der Bericht gehoert -- eine Spalte, keine Ableitung.
-    Optional nur aus Vertraeglichkeit mit aelteren Aufrufern."""
-
-    @property
-    def summary(self) -> ReportSummaryFields:
-        """Die Kurzfassung fuer Listen, aus dem Dokument gelesen (ADR 0062)."""
-        from .summary import extract_summary_fields
-
-        return extract_summary_fields(self.document)
+    Die Kurzfassung fuer Listen liest ``summary.extract_summary_fields`` aus
+    ``document`` (ADR 0062); sie haengt nicht hier, damit das Wertobjekt
+    nichts von seiner Ableitung weiss."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -44,11 +44,17 @@ der Dateien ist damit eine Architekturfrage, keine Darstellungsfrage.
    Dieselbe Rechnung wie im Lauf — Sperrfenster ab dem Startzeitpunkt des
    Laufs in Börsenzeit, jüngste volle Analyse je Symbol — minus die Symbole,
    die der Lauf tatsächlich bewertet hat. Jeder Eintrag nennt den Lauf, der
-   die Sperre ausgelöst hat. Das Feld `suppression_derived: true` sagt dem
-   Leser, dass die Liste abgeleitet ist. **Die Grenzen sind bekannt:** Das
+   die Sperre ausgelöst hat. `suppression_window_days` sagt, mit welchem
+   Fenster gerechnet wurde, und `null`, dass nicht gerechnet wurde.
+   **Die Grenzen sind bekannt:** Das
    Fenster ist das heutige, nicht das von damals; ein Symbol, das die
    Watchlist verlassen hat und kurz zuvor Kandidat war, erschiene als
-   gesperrt; Läufe vor ADR 0054 zeigen keine Sperren. Exakt wäre eine
+   gesperrt; Läufe vor ADR 0054 zeigen keine Sperren. Ein Lauf ohne eine
+   einzige Ergebniszeile — gescheitert vor dem Screening oder noch
+   unterwegs — wird nicht gerechnet (`suppression_window_days: null`),
+   sonst stünde dort „alles im Fenster". Damit Lauf und Rekonstruktion
+   dasselbe Fenster sehen, rechnet auch der Lauf seit diesem ADR vom
+   gespeicherten Startzeitpunkt, nicht von „jetzt". Exakt wäre eine
    JSONB-Spalte an `analysis_runs`, die der Lauf selbst füllt — das wäre eine
    Migration und gälte nur ab dann. Der Inhaber hat sich am 2026-09-18 gegen
    die Migration entschieden; die Alternative bleibt hier notiert.
@@ -66,7 +72,9 @@ der Dateien ist damit eine Architekturfrage, keine Darstellungsfrage.
 
 ## Konsequenzen
 
-- Keine Migration; die Änderung ist rein lesend. Export und API bleiben im
+- Eine Migration nur für einen Index auf `screening_results(status,
+  evaluated_at)`: Die Sperrabfrage läuft jetzt je Lauf statt einmal am Tag.
+  Sonst ist die Änderung rein lesend. Export und API bleiben im
   Schnitt kompatibel, es kommen Felder und zwei Dateien hinzu.
 - `latest_candidate_analyses` liefert zum Zeitpunkt jetzt auch den Lauf;
   der Tageslauf nutzt weiterhin nur den Zeitpunkt.

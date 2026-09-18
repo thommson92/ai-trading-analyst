@@ -114,6 +114,24 @@ class TestSperrstatus:
         assert uebersicht is not None
         assert uebersicht.suppressed == ()
 
+    def test_ein_lauf_ohne_ergebniszeilen_hat_nichts_uebersprungen(self) -> None:
+        """Gescheitert vor dem Screening oder noch unterwegs: Die Rechnung
+        ergaebe sonst 'alles im Fenster gesperrt'."""
+        runs, results, uow = aufbau()
+        frueher = lauf(START - timedelta(days=2))
+        gescheitert = lauf(START)
+        runs.add(frueher)
+        runs.add(gescheitert)
+        results.add(ergebnis(frueher, "NVDA", ScreeningStatus.CANDIDATE, frueher.started_at))
+
+        uebersicht = ReadRunOverviewUseCase(
+            lambda: uow, repeat_suppression=RepeatSuppressionParameters(window_days=7)
+        ).execute(gescheitert.id)
+
+        assert uebersicht is not None
+        assert uebersicht.suppressed == ()
+        assert uebersicht.suppression_window_days is None
+
     def test_ohne_parameter_wird_nicht_gerechnet(self) -> None:
         """Leer, weil nicht gerechnet -- und das Fensterfeld sagt es."""
         runs, _, uow = aufbau()

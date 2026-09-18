@@ -327,6 +327,26 @@ class TestEpisodenAusDerVollstaendigenRechnung:
         assert erste.last_trigger_at >= erste.entry_at
         assert [h.horizon for h in erste.horizons] == [5, 10, 20]
 
+    def test_ein_doppelter_horizont_in_der_konfiguration_zaehlt_nicht_doppelt(self) -> None:
+        series, _ = self._serie_mit_einem_ereignis()
+        doppelt = BacktestParameters(
+            horizons=(5, 5, 10),
+            minimum_sample_size=1,
+            normal_confidence_sample_size=1,
+            history_years=5,
+        )
+        rechnung = compute_backtest(
+            series,
+            stock_id=uuid.uuid4(),
+            candidate_params=self.CANDIDATE_PARAMS,
+            backtest_params=doppelt,
+            signal_rule_version="test-version",
+            evaluated_at=datetime.now(UTC),
+        )
+        assert [h.horizon for h in rechnung.episodes[0].horizons] == [5, 10]
+        for ergebnis in rechnung.results:
+            assert [h.horizon for h in ergebnis.horizons] == [5, 10]
+
     def test_episoden_je_kombination_decken_die_stichprobe_des_kuerzesten_horizonts(self) -> None:
         """Die Aggregate zaehlen genau die Episoden, die hier stehen. Beim
         kuerzesten Horizont reicht die Historie fuer jedes Ereignis, das
