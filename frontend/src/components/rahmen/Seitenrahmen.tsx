@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
 // Der Rahmen um jede Ansicht (ADR 0063): links die Seitenleiste, oben die
 // Kopfzeile mit dem Stand des Datenbaums und dem Themenschalter, darunter
 // die Seite. Ein DOM fuer alle Breiten -- unter 64rem klappt die Leiste ein
 // und legt sich auf Wunsch ueber den Inhalt.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { Seitenleiste } from "./Seitenleiste";
-import { Themenschalter } from "./Themenschalter";
+import { Seitenleiste } from './Seitenleiste';
+import { Themenschalter } from './Themenschalter';
 
 export function Seitenrahmen({
   stand,
@@ -19,19 +19,34 @@ export function Seitenrahmen({
   children: ReactNode;
 }): ReactNode {
   const [leisteOffen, setLeisteOffen] = useState(false);
+  const rahmen = useRef<HTMLDivElement>(null);
+  const menueknopf = useRef<HTMLButtonElement>(null);
+
+  // Der Fokus folgt der Leiste: beim Oeffnen auf ihren ersten Eintrag, beim
+  // Schliessen zurueck auf den Knopf. Sonst stuende er unter dem Overlay
+  // oder, nach Escape, irgendwo.
+  useEffect(() => {
+    if (leisteOffen) {
+      rahmen.current?.querySelector<HTMLElement>('.seitenleiste a')?.focus();
+      return;
+    }
+    if (rahmen.current?.querySelector('.seitenleiste')?.contains(document.activeElement)) {
+      menueknopf.current?.focus();
+    }
+  }, [leisteOffen]);
 
   useEffect(() => {
     if (!leisteOffen) {
       return;
     }
     function beiTaste(ereignis: KeyboardEvent): void {
-      if (ereignis.key === "Escape") {
+      if (ereignis.key === 'Escape') {
         setLeisteOffen(false);
       }
     }
-    window.addEventListener("keydown", beiTaste);
+    window.addEventListener('keydown', beiTaste);
     return () => {
-      window.removeEventListener("keydown", beiTaste);
+      window.removeEventListener('keydown', beiTaste);
     };
   }, [leisteOffen]);
 
@@ -40,7 +55,7 @@ export function Seitenrahmen({
   }
 
   return (
-    <div className="rahmen" data-leiste-offen={leisteOffen ? "true" : "false"}>
+    <div className="rahmen" data-leiste-offen={leisteOffen ? 'true' : 'false'} ref={rahmen}>
       <Seitenleiste onNavigiert={schliessen} />
       <button
         type="button"
@@ -56,6 +71,7 @@ export function Seitenrahmen({
             className="knopf-leicht menueknopf"
             aria-controls="seitenleiste"
             aria-expanded={leisteOffen}
+            ref={menueknopf}
             onClick={() => {
               setLeisteOffen((offen) => !offen);
             }}

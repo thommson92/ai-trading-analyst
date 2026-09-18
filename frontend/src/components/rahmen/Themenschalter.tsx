@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from 'react';
 
 import {
   STANDARDTHEMA,
@@ -9,11 +9,11 @@ import {
   speichereThema,
   wendeThemaAn,
   type Thema,
-} from "@/lib/thema";
+} from '@/lib/thema';
 
 const BESCHRIFTUNG: Record<Thema, string> = {
-  dunkel: "Helles Design",
-  hell: "Dunkles Design",
+  dunkel: 'Helles Design',
+  hell: 'Dunkles Design',
 };
 
 /**

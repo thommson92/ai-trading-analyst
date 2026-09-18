@@ -48,7 +48,7 @@
   --rsi: var(--violett-400);
   --treffer: var(--bernstein-400);
   --gate: var(--grau-500);
-  --einstieg: var(--bernstein-400);
+  --einstieg: var(--gruen-400);
   --horizont-flaeche: rgb(111 156 232 / 0.14);
 
   /* Masse */
@@ -79,7 +79,7 @@
 :root[data-thema='hell'] {
   --grund: #f5f6f9;
   --flaeche: #ffffff;
-  --flaeche-erhoben: #ffffff;
+  --flaeche-erhoben: #eef1f6;
   --linie: #dfe3ec;
   --schrift: #131722;
   --gedaempft: #4b5566;
@@ -97,7 +97,7 @@
   --rsi: #6a4fb8;
   --treffer: #b07400;
   --gate: #8c93a3;
-  --einstieg: #b07400;
+  --einstieg: #0d7a5f;
   --horizont-flaeche: rgb(79 125 212 / 0.12);
   --schatten: 0 6px 22px rgb(9 12 20 / 0.12);
 

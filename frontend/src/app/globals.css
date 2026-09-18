@@ -308,16 +308,20 @@ table.aktienvergleich td {
 }
 
 /* Breite Tabellen scrollen in ihrem eigenen Kasten, damit die Seite selbst
-   nie seitwaerts laeuft. Die Tabelle behaelt darin ihre natuerliche Breite:
-   Ohne `min-width` quetschte `width: 100%` erst jede Spalte auf ihr Minimum
-   zusammen, und gescrollt wuerde erst danach. */
+   nie seitwaerts laeuft. Die Backtest-Tabellen behalten darin ihre
+   natuerliche Breite: Ohne `min-width` quetschte `width: 100%` erst jede
+   Spalte auf ihr Minimum zusammen, und gescrollt wuerde erst danach. Die
+   schmalen Listen (Berichtsliste) duerfen dagegen umbrechen -- auf dem
+   Telefon passen sie so ohne Scrollen. */
 .reiterinhalt,
 .breit {
   overflow-x: auto;
 }
 
-.reiterinhalt table,
-.breit table {
+table.signalbacktest,
+table.kombinationen,
+table.aktienvergleich,
+.tradeliste table {
   min-width: max-content;
 }
 
@@ -352,7 +356,8 @@ table.aktienvergleich td {
 /* Eine Zeile ohne belastbare Stichprobe steht am Ende der Rangliste und
    sieht gedaempft aus: Sie hat keine Zahl, nicht eine schlechte. */
 tr.duenn td,
-tr.duenn th {
+tr.duenn th,
+tr.duenn a {
   color: var(--gedaempft);
 }
 

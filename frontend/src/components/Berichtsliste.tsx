@@ -4,21 +4,18 @@
 // Sortiert wird hier nicht: Die Reihenfolge entscheidet, wer die Liste
 // zeigt, und in der Historie kommt sie schon geordnet aus der API.
 
-import Link from "next/link";
-import type { ReactNode } from "react";
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 
-import type { ReportSummary } from "@/lib/api";
-import { formatEmpfehlung, formatScore, formatZeitpunkt } from "@/lib/format";
+import type { ReportSummary } from '@/lib/api';
+import { formatEmpfehlung, formatScore, formatZeitpunkt } from '@/lib/format';
 
 export interface BerichtslisteProps {
   berichte: readonly ReportSummary[];
   mitDatum?: boolean;
 }
 
-export function Berichtsliste({
-  berichte,
-  mitDatum = false,
-}: BerichtslisteProps): ReactNode {
+export function Berichtsliste({ berichte, mitDatum = false }: BerichtslisteProps): ReactNode {
   return (
     <div className="breit">
       <table>
@@ -40,11 +37,7 @@ export function Berichtsliste({
             <tr key={bericht.report_id}>
               {mitDatum && <td>{formatZeitpunkt(bericht.created_at)}</td>}
               <td>
-                <Link
-                  href={`/bericht/?id=${encodeURIComponent(bericht.report_id)}`}
-                >
-                  {bericht.symbol}
-                </Link>
+                <Link href={`/bericht/?id=${encodeURIComponent(bericht.report_id)}`}>{bericht.symbol}</Link>
               </td>
               <td>{formatEmpfehlung(bericht.recommendation)}</td>
               <td className="zahl">{formatScore(bericht.swing_score)}</td>

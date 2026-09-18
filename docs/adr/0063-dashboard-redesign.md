@@ -23,10 +23,10 @@ Servers, und der Inhaber liest es auf dem Smartphone. Zwei Befunde vom
    Bereichen, ein Layout für das Smartphone.
 
 Die Entscheidungen dazu hat der Inhaber am 2026-09-18 in fünf Fragerunden
-getroffen. Dieses ADR hält die Gestaltungsentscheidungen fest; die
-Datenseite steht in ADR 0061 (Einzelepisoden) und ADR 0062 (Kurzlisten,
-Wiederholsperre-Status), der Chart in ADR 0064, Build und Meldung in
-ADR 0065.
+getroffen. Dieses ADR hält die Gestaltungsentscheidungen fest. Die
+Datenseite (Einzelepisoden des Signal-Backtests; Kurzlisten und der
+Status der Wiederholsperre), die Chartbibliothek sowie Build und Meldung
+werden in eigenen ADRs festgehalten, jeweils bevor ihre Phase beginnt.
 
 ## Entscheidung
 

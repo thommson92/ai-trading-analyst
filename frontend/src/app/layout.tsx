@@ -1,15 +1,15 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 
-import { Datenzugang } from "@/components/Datenzugang";
+import { Datenzugang } from '@/components/Datenzugang';
 
-import "../styles/tokens.css";
-import "./globals.css";
-import "../styles/komponenten.css";
+import '../styles/tokens.css';
+import './globals.css';
+import '../styles/komponenten.css';
 
 export const metadata: Metadata = {
-  title: "AI Trading Analyst",
-  description: "Persoenliches Analyse-Dashboard fuer Long-Swing-Trades",
+  title: 'AI Trading Analyst',
+  description: 'Persoenliches Analyse-Dashboard fuer Long-Swing-Trades',
 };
 
 export default function RootLayout({

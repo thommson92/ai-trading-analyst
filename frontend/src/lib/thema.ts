@@ -6,19 +6,20 @@
 // kein Zustand, an dem etwas haengt: Fehlt der Speicher, gilt der Standard.
 //
 // Was hier bewusst fehlt: ein Inline-Skript, das die Wahl vor dem ersten
-// Bild anwendet. `sicherheitsheader.test.ts` verbietet rohes HTML, und die
-// Richtlinie in `public/_headers` steht auf dieser Zusage. Wer hell gewaehlt
-// hat, sieht beim Laden deshalb kurz dunkel. Das ist der Preis, und er ist
-// bekannt.
+// Bild anwendet. Im App-Router ginge das nur als rohes HTML -- und genau das
+// verbietet `sicherheitsheader.test.ts`, weil die Richtlinie in
+// `public/_headers` auf dieser Zusage steht; `next/script` liefe erst nach
+// dem ersten Bild. Wer hell gewaehlt hat, sieht beim Laden deshalb kurz
+// dunkel. Das ist der Preis, und er ist bekannt.
 
-export type Thema = "dunkel" | "hell";
+export type Thema = 'dunkel' | 'hell';
 
-export const STANDARDTHEMA: Thema = "dunkel";
+export const STANDARDTHEMA: Thema = 'dunkel';
 
-const SCHLUESSEL = "ata-thema";
+const SCHLUESSEL = 'ata-thema';
 
 function istThema(wert: unknown): wert is Thema {
-  return wert === "dunkel" || wert === "hell";
+  return wert === 'dunkel' || wert === 'hell';
 }
 
 /** Die gemerkte Wahl -- oder der Standard, wenn es keine gibt. */
@@ -45,12 +46,12 @@ export function speichereThema(thema: Thema): void {
 export function wendeThemaAn(thema: Thema): void {
   const wurzel = document.documentElement;
   if (thema === STANDARDTHEMA) {
-    delete wurzel.dataset["thema"];
+    delete wurzel.dataset['thema'];
   } else {
-    wurzel.dataset["thema"] = thema;
+    wurzel.dataset['thema'] = thema;
   }
 }
 
 export function anderesThema(thema: Thema): Thema {
-  return thema === "dunkel" ? "hell" : "dunkel";
+  return thema === 'dunkel' ? 'hell' : 'dunkel';
 }

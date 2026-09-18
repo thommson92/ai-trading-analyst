@@ -44,14 +44,6 @@
   min-width: 0;
 }
 
-.kopfzeile-stand .stand {
-  border: none;
-  background: none;
-  margin: 0;
-  max-width: none;
-  padding: 0;
-}
-
 .menueknopf {
   display: none;
 }
@@ -127,6 +119,10 @@
     display: inline-flex;
   }
 
+  /* Eingeklappt ist sie nicht nur verschoben, sondern unsichtbar: Sonst
+     bliebe sie in der Tab-Reihenfolge und im Baum des Vorlesers. Die
+     Sichtbarkeit wechselt verzoegert, damit das Einklappen noch zu sehen
+     ist. */
   .seitenleiste {
     box-shadow: var(--schatten);
     height: 100dvh;
@@ -134,13 +130,18 @@
     position: fixed;
     top: 0;
     transform: translateX(-100%);
-    transition: transform 0.15s ease-out;
+    transition:
+      transform 0.15s ease-out,
+      visibility 0s 0.15s;
+    visibility: hidden;
     width: var(--leiste-breite);
     z-index: var(--z-overlay);
   }
 
   .rahmen[data-leiste-offen='true'] .seitenleiste {
     transform: none;
+    transition: transform 0.15s ease-out;
+    visibility: visible;
   }
 
   .rahmen[data-leiste-offen='true'] .leiste-hintergrund {

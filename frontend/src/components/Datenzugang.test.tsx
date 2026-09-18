@@ -12,6 +12,10 @@ vi.mock('@/lib/api', () => ({
   setzeDatenbaum: (...args: unknown[]) => setzeDatenbaum(...args) as unknown,
 }));
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/',
+}));
+
 vi.mock('@/lib/datenbaum', () => ({
   datenmodus: () => datenmodus() as unknown,
   oeffneDatenbaum: (...args: unknown[]) => oeffneDatenbaum(...args) as unknown,
