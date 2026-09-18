@@ -25,8 +25,8 @@ function spalten(
     {
       schluessel: 'name',
       titel: 'Unternehmen',
-      render: (a) => a.company_name ?? '–',
-      sortWert: (a) => a.company_name,
+      render: (a) => a.last_report?.company_name ?? '–',
+      sortWert: (a) => a.last_report?.company_name,
     },
     {
       schluessel: 'bericht',
@@ -102,7 +102,8 @@ export function Aktienliste({
       ? aktien
       : aktien.filter(
           (a) =>
-            a.symbol.includes(begriff) || (a.company_name ?? '').toUpperCase().includes(begriff),
+            a.symbol.includes(begriff) ||
+            (a.last_report?.company_name ?? '').toUpperCase().includes(begriff),
         );
   return (
     <>

@@ -57,14 +57,7 @@ export function Kandidatenkarte({ bericht }: { bericht: ReportSummary }): ReactN
       </div>
       <footer className="kandidatenkarte-fuss">
         <Link href={berichtAdresse(bericht.report_id)}>Bericht</Link>
-        <Link
-          href={aktieAdresse(
-            bericht.symbol,
-            bericht.analysis_run_id === null ? {} : { lauf: bericht.analysis_run_id },
-          )}
-        >
-          Aktie
-        </Link>
+        <Link href={aktieAdresse(bericht.symbol, { lauf: bericht.analysis_run_id })}>Aktie</Link>
       </footer>
     </article>
   );

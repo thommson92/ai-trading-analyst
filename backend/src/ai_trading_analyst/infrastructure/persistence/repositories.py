@@ -145,7 +145,7 @@ class SqlAlchemyStockRepository:
         return None if row is None else Stock(id=row.id, symbol=row.symbol, exchange=row.exchange)
 
     def list_all(self) -> Sequence[Stock]:
-        rows = self._session.execute(select(StockOrm)).scalars().all()
+        rows = self._session.execute(select(StockOrm).order_by(StockOrm.symbol)).scalars().all()
         return tuple(Stock(id=row.id, symbol=row.symbol, exchange=row.exchange) for row in rows)
 
 
@@ -1212,9 +1212,9 @@ class SqlAlchemyScreeningResultRepository:
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
     ) -> Mapping[str, CandidateAnalysisAnchor]:
-        # Kein Index auf stock_id oder evaluated_at: Die Abfrage laeuft
-        # einmal je Tageslauf ueber wenige hundert Zeilen je Lauf -- ein
-        # Index waere geraten statt gemessen (ADR 0054).
+        # Seit ADR 0062 laeuft die Abfrage nicht nur einmal je Tageslauf,
+        # sondern je Lauf in jeder Laufansicht und im Export -- der Index auf
+        # (status, evaluated_at) haelt sie flach, wenn die Tabelle waechst.
         query = (
             select(
                 StockOrm.symbol,
@@ -1697,9 +1697,7 @@ class SqlAlchemyBacktestResultRepository:
         )
         return _group_rows_into_results(rows)
 
-    def add_episodes(
-        self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID | None = None
-    ) -> None:
+    def add_episodes(self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID) -> None:
         self._session.add_all(
             BacktestEpisodeOrm(
                 id=uuid.uuid4(),
@@ -1763,10 +1761,13 @@ class SqlAlchemyBacktestResultRepository:
             je_aktie[ergebnis.stock_id].append(ergebnis)
         return dict(je_aktie)
 
-    def stocks_with_episodes(self) -> frozenset[uuid.UUID]:
-        return frozenset(
-            self._session.execute(select(BacktestEpisodeOrm.stock_id).distinct()).scalars()
-        )
+    def latest_episode_evaluations(self) -> Mapping[uuid.UUID, datetime]:
+        rows = self._session.execute(
+            select(BacktestEpisodeOrm.stock_id, func.max(BacktestEpisodeOrm.evaluated_at)).group_by(
+                BacktestEpisodeOrm.stock_id
+            )
+        ).tuples()
+        return dict(rows)
 
 
 def _signal_types_als_spalte(kombination: frozenset[SignalType]) -> list[str]:
@@ -1880,7 +1881,7 @@ def _bereich_aus_zeile(row: OptionsBacktestResultOrm) -> OptionsBacktestScope:
 
 def _ergebnis_aus_zeile(row: OptionsBacktestResultOrm) -> OptionsBacktestResult:
     return OptionsBacktestResult(
-        signal_types=frozenset(SignalType(wert) for wert in row.signal_types),
+        signal_types=_signal_types_aus_spalte(row.signal_types),
         episodes=row.episodes,
         trades=row.trades,
         without_trade=row.without_trade,
@@ -1928,7 +1929,7 @@ class SqlAlchemyOptionsBacktestResultRepository:
                 measured_at=scope.measured_at,
                 stock_id=scope.stock_id,
                 stocks=scope.stocks,
-                signal_types=sorted(signal.value for signal in result.signal_types),
+                signal_types=_signal_types_als_spalte(result.signal_types),
                 signal_rule_version=scope.signal_rule_version,
                 options_backtest_version=result.assumptions["version"],
                 history_start=scope.history_start,
@@ -1966,7 +1967,7 @@ class SqlAlchemyOptionsBacktestResultRepository:
                 id=uuid.uuid4(),
                 measurement_id=scope.measurement_id,
                 stock_id=stock_id,
-                signal_types=sorted(signal.value for signal in kombination),
+                signal_types=_signal_types_als_spalte(kombination),
                 entry_index=trade.entry_index,
                 entry_date=trade.entry_date,
                 underlying_at_entry=trade.underlying_at_entry,
@@ -2004,7 +2005,7 @@ class SqlAlchemyOptionsBacktestResultRepository:
             .all()
         )
         return [
-            (frozenset(SignalType(wert) for wert in row.signal_types), _trade_aus_zeile(row))
+            (_signal_types_aus_spalte(row.signal_types), _trade_aus_zeile(row))
             for row in rows
         ]
 

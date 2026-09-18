@@ -827,4 +827,4 @@ class TestUebersichten:
         antwort = client.get(f"/api/v1/analysis-runs/{run.id}").json()
 
         assert antwort["suppressed"] == []
-        assert antwort["suppression_derived"] is True
+        assert "suppression_window_days" in antwort

@@ -139,38 +139,39 @@ def _als_objekt(wert: Any) -> Mapping[str, Any] | None:
     return wert if isinstance(wert, Mapping) else None
 
 
-def _objekt(wert: Any, schluessel: str) -> Mapping[str, Any] | None:
+def _feld(wert: Any, schluessel: str) -> Any:
+    """Der Wert eines Feldes -- ``None``, wenn ``wert`` kein Objekt ist oder
+    das Feld fehlt. Die eine Stelle, an der nachgeschlagen wird."""
     objekt = _als_objekt(wert)
-    return _als_objekt(objekt.get(schluessel)) if objekt is not None else None
+    return objekt.get(schluessel) if objekt is not None else None
+
+
+def _objekt(wert: Any, schluessel: str) -> Mapping[str, Any] | None:
+    return _als_objekt(_feld(wert, schluessel))
 
 
 def _liste(wert: Any, schluessel: str) -> list[Any]:
-    objekt = _als_objekt(wert)
-    inhalt = objekt.get(schluessel) if objekt is not None else None
+    inhalt = _feld(wert, schluessel)
     return list(inhalt) if isinstance(inhalt, Sequence) and not isinstance(inhalt, str) else []
 
 
 def _text(wert: Any, schluessel: str) -> str | None:
-    objekt = _als_objekt(wert)
-    inhalt = objekt.get(schluessel) if objekt is not None else None
+    inhalt = _feld(wert, schluessel)
     return inhalt if isinstance(inhalt, str) else None
 
 
 def _zahl(wert: Any, schluessel: str) -> float | None:
-    objekt = _als_objekt(wert)
-    inhalt = objekt.get(schluessel) if objekt is not None else None
+    inhalt = _feld(wert, schluessel)
     return (
         float(inhalt) if isinstance(inhalt, int | float) and not isinstance(inhalt, bool) else None
     )
 
 
 def _ganzzahl(wert: Any, schluessel: str) -> int | None:
-    objekt = _als_objekt(wert)
-    inhalt = objekt.get(schluessel) if objekt is not None else None
+    inhalt = _feld(wert, schluessel)
     return inhalt if isinstance(inhalt, int) and not isinstance(inhalt, bool) else None
 
 
 def _wahrheit(wert: Any, schluessel: str) -> bool | None:
-    objekt = _als_objekt(wert)
-    inhalt = objekt.get(schluessel) if objekt is not None else None
+    inhalt = _feld(wert, schluessel)
     return inhalt if isinstance(inhalt, bool) else None

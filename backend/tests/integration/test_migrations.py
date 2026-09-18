@@ -524,3 +524,5 @@ def test_die_episodentabelle_traegt_ihre_spalten_und_indizes(engine: Engine) -> 
         "ix_backtest_episodes_analysis_run_id",
         "ix_backtest_episodes_stock_evaluated",
     } <= indizes
+    sperrindex = {index["name"] for index in inspector.get_indexes("screening_results")}
+    assert "ix_screening_results_status_evaluated" in sperrindex

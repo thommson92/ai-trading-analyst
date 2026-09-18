@@ -27,7 +27,6 @@ const LAUF: AnalysisRunDetail = {
     },
   ],
   suppression_window_days: 7,
-  suppression_derived: true,
 };
 
 describe('Das Laufdetail', () => {

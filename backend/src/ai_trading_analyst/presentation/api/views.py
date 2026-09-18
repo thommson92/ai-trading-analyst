@@ -132,27 +132,31 @@ def reports_of_stock(
 
 
 def stock_index(uow: UnitOfWork) -> list[StockIndexResponse]:
-    """Alle Aktien mit ihrem letzten Stand -- alphabetisch, eine Abfrage je
-    Quelle statt eine je Aktie (ADR 0062)."""
+    """Alle Aktien mit ihrem letzten Stand -- alphabetisch, wie das
+    Repository sie liefert; eine Abfrage je Quelle statt eine je Aktie
+    (ADR 0062)."""
     berichte = uow.stock_reports.latest_for_all_symbols()
     anzahl = uow.stock_reports.count_for_all_symbols()
     auswertungen = uow.backtest_results.latest_for_all_stocks()
-    mit_episoden = uow.backtest_results.stocks_with_episodes()
+    episoden_stand = uow.backtest_results.latest_episode_evaluations()
     eintraege = []
-    for stock in sorted(uow.stocks.list_all(), key=lambda s: s.symbol):
+    for stock in uow.stocks.list_all():
         letzter = berichte.get(stock.symbol)
         juengste = auswertungen.get(stock.id, ())
         eintraege.append(
             StockIndexResponse(
                 symbol=stock.symbol,
                 exchange=stock.exchange,
-                company_name=letzter.summary.company_name if letzter is not None else None,
                 reports_count=anzahl.get(stock.symbol, 0),
                 last_report=(
                     ReportSummaryResponse.from_domain(letzter) if letzter is not None else None
                 ),
                 signal_backtest_evaluated_at=juengste[0].evaluated_at if juengste else None,
-                episodes_available=stock.id in mit_episoden,
+                # Wahr nur, wenn die Episoden zur **gezeigten** Auswertung gehoeren:
+                # Ein Handlauf (cli backtest) schreibt Aggregate ohne Episoden.
+                episodes_available=(
+                    bool(juengste) and episoden_stand.get(stock.id) == juengste[0].evaluated_at
+                ),
             )
         )
     return eintraege
@@ -163,7 +167,7 @@ def signal_backtest_overview(uow: UnitOfWork) -> SignalBacktestOverviewResponse:
     Auswertung mit allen Kombinationen (ADR 0062)."""
     auswertungen = uow.backtest_results.latest_for_all_stocks()
     zeilen = []
-    for stock in sorted(uow.stocks.list_all(), key=lambda s: s.symbol):
+    for stock in uow.stocks.list_all():
         ergebnisse = auswertungen.get(stock.id)
         if not ergebnisse:
             continue

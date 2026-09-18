@@ -359,7 +359,7 @@ class FakeStockRepository:
         return next((s for s in self.added if s.symbol == symbol), None)
 
     def list_all(self) -> tuple[Stock, ...]:
-        return tuple(self.added)
+        return tuple(sorted(self.added, key=lambda s: s.symbol))
 
 
 class FakeAnalysisRunRepository:
@@ -429,7 +429,7 @@ class FakeScreeningResultRepository:
 class FakeBacktestResultRepository:
     def __init__(self) -> None:
         self.added: list[tuple[BacktestResult, uuid.UUID | None]] = []
-        self.episodes: list[tuple[BacktestEpisode, uuid.UUID | None]] = []
+        self.episodes: list[tuple[BacktestEpisode, uuid.UUID]] = []
 
     def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
         self.added.append((result, analysis_run_id))
@@ -441,13 +441,16 @@ class FakeBacktestResultRepository:
     def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
 
-    def add_episodes(
-        self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID | None = None
-    ) -> None:
+    def add_episodes(self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID) -> None:
         self.episodes.extend((episode, analysis_run_id) for episode in episodes)
 
     def list_episodes_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestEpisode, ...]:
-        return tuple(e for e, _ in self.episodes if e.stock_id == stock_id)
+        # Dieselbe Ordnung wie das echte Repository: Auswertung absteigend,
+        # Einstieg aufsteigend -- die Ansicht verlaesst sich darauf.
+        eigene = [e for e, _ in self.episodes if e.stock_id == stock_id]
+        eigene.sort(key=lambda e: e.entry_at)
+        eigene.sort(key=lambda e: e.evaluated_at, reverse=True)
+        return tuple(eigene)
 
     def latest_for_all_stocks(self) -> dict[uuid.UUID, tuple[BacktestResult, ...]]:
         je_aktie: dict[uuid.UUID, list[BacktestResult]] = {}
@@ -460,8 +463,13 @@ class FakeBacktestResultRepository:
             for stock_id, ergebnisse in je_aktie.items()
         }
 
-    def stocks_with_episodes(self) -> frozenset[uuid.UUID]:
-        return frozenset(e.stock_id for e, _ in self.episodes)
+    def latest_episode_evaluations(self) -> dict[uuid.UUID, datetime]:
+        stand: dict[uuid.UUID, datetime] = {}
+        for episode, _ in self.episodes:
+            bisher = stand.get(episode.stock_id)
+            if bisher is None or episode.evaluated_at > bisher:
+                stand[episode.stock_id] = episode.evaluated_at
+        return stand
 
 
 class FakeOptionsBacktestResultRepository:

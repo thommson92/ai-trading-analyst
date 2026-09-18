@@ -207,7 +207,9 @@ def compute_backtest(
 
     raw_decisions = find_historical_decisions(series, candidate_params)
     episodes = group_into_episodes(raw_decisions)
-    horizons = tuple(sorted(backtest_params.horizons))
+    # Eindeutig und aufsteigend: Ein doppelter Horizont in der Konfiguration
+    # zaehlte sonst jede Episode zweimal.
+    horizons = tuple(sorted(set(backtest_params.horizons)))
 
     # Gezaehlt wird der erste Trigger jeder Episode: Er ist der Punkt, an dem
     # die Regel erstmals ansprach, und liefert damit auch den Einstiegskurs
@@ -247,17 +249,16 @@ def compute_backtest(
             history_end=history_end,
             horizons=tuple(
                 aggregate_outcomes(
+                    # Jede Episode traegt ihre Horizonte in derselben Reihenfolge.
                     [
-                        ergebnis
+                        einzelfall.horizons[position]
                         for einzelfall in counted_by_combination.get(combination, ())
-                        for ergebnis in einzelfall.horizons
-                        if ergebnis.horizon == horizon
                     ],
                     len(raw_by_combination.get(combination, ())),
                     horizon,
                     backtest_params,
                 )
-                for horizon in horizons
+                for position, horizon in enumerate(horizons)
             ),
         )
         for combination in qualifying_combinations(candidate_params.required_crossing_signals)
