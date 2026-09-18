@@ -68,9 +68,9 @@ class RunOverview:
     und kurz zuvor Kandidat war, erschiene faelschlich als gesperrt; Laeufe
     vor ADR 0054 zeigen keine Sperren, weil damals alles bewertet wurde."""
     suppression_window_days: int | None = None
-    """``None``, wenn die Sperre aus ist oder der Anwendungsfall ohne ihre
-    Parameter gebaut wurde -- dann ist die Liste leer, weil nicht gerechnet,
-    nicht weil nichts gesperrt war."""
+    """``None``, wenn nicht gerechnet: Sperre aus, Anwendungsfall ohne ihre
+    Parameter, oder ein Lauf ohne eine einzige Ergebniszeile. Dann ist die
+    Liste leer, weil nicht gerechnet, nicht weil nichts gesperrt war."""
 
 
 class ReadRunOverviewUseCase:
@@ -114,8 +114,13 @@ class ReadRunOverviewUseCase:
         if fenster is None:
             return (), None
         seit, bis = fenster
-        anker = uow.screening_results.latest_candidate_analyses(since=seit, until=bis)
         bewertet = uow.screening_results.symbols_for_run(run.id)
+        if not bewertet:
+            # Ein Lauf ohne eine einzige Ergebniszeile -- gescheitert vor dem
+            # Screening, oder noch unterwegs -- hat nichts uebersprungen. Die
+            # Rechnung ergaebe sonst: alles im Fenster.
+            return (), None
+        anker = uow.screening_results.latest_candidate_analyses(since=seit, until=bis)
         gesperrt = tuple(
             SuppressedSymbol(
                 symbol=symbol,

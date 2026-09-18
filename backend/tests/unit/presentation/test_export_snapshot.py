@@ -395,4 +395,4 @@ class TestUebersichtenImExport:
         dateien = baum(quellen)
         detail = json.loads(dateien[f"data/analysis-runs/{ein_lauf.id}.json"].decode("utf-8"))
         assert detail["suppressed"] == []
-        assert detail["suppression_derived"] is True
+        assert detail["suppression_window_days"] is None

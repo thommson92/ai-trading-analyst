@@ -130,6 +130,8 @@ class ScreeningResultOrm(Base):
     __tablename__ = "screening_results"
     __table_args__ = (
         UniqueConstraint("analysis_run_id", "stock_id", name="uq_screening_result_run_stock"),
+        # Fuer die Wiederholsperre und ihre Rekonstruktion je Lauf (ADR 0062).
+        Index("ix_screening_results_status_evaluated", "status", "evaluated_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -769,9 +771,12 @@ class BacktestEpisodeOrm(Base):
     stock_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stocks.id"))
     """Kein eigener Index: Der zusammengesetzte unten fuehrt ``stock_id`` an
     und bedient jede Suche nach der Aktie."""
-    analysis_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), nullable=True, index=True
+    analysis_run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("analysis_runs.id"), index=True
     )
+    """Immer gesetzt: Nur der Tageslauf schreibt Episoden (ADR 0061,
+    Entscheidung 5) -- anders als bei den Aggregaten, die auch ``cli
+    backtest`` anlegt."""
     signal_types: Mapped[list[str]] = mapped_column(ARRAY(String))
     signal_rule_version: Mapped[str]
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -24,7 +24,7 @@ from ai_trading_analyst.domain.backtesting import (
     kombinationskuerzel,
 )
 from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade, TradeOutcome
-from ai_trading_analyst.domain.report import PutSummary, StoredReport
+from ai_trading_analyst.domain.report import PutSummary, StoredReport, extract_summary_fields
 from ai_trading_analyst.domain.scoring import Recommendation
 
 
@@ -86,9 +86,9 @@ class AnalysisRunDetailResponse(AnalysisRunResponse):
     module_errors: int
     suppressed: list[SuppressedSymbolResponse]
     """Von der Wiederholsperre uebersprungen -- rekonstruiert, nicht
-    aufgezeichnet (ADR 0062). ``suppression_derived`` sagt das dem Leser."""
+    aufgezeichnet (ADR 0062). ``suppression_window_days`` ist ``null``, wenn
+    nicht gerechnet wurde; dann sagt die leere Liste nichts."""
     suppression_window_days: int | None
-    suppression_derived: bool = True
 
     @classmethod
     def from_overview(cls, overview: RunOverview) -> AnalysisRunDetailResponse:
@@ -146,7 +146,7 @@ class ReportSummaryResponse(BaseModel):
     """
 
     report_id: UUID
-    analysis_run_id: UUID | None
+    analysis_run_id: UUID
     symbol: str
     created_at: datetime
     recommendation: Recommendation | None
@@ -166,7 +166,7 @@ class ReportSummaryResponse(BaseModel):
 
     @classmethod
     def from_domain(cls, report: StoredReport) -> ReportSummaryResponse:
-        kurz = report.summary
+        kurz = extract_summary_fields(report.document)
         return cls(
             report_id=report.id,
             analysis_run_id=report.analysis_run_id,
@@ -199,9 +199,9 @@ class StockIndexResponse(BaseModel):
 
     symbol: str
     exchange: str
-    company_name: str | None
     reports_count: int
     last_report: ReportSummaryResponse | None
+    """Traegt auch den Unternehmensnamen -- er steht nicht ein zweites Mal hier."""
     signal_backtest_evaluated_at: datetime | None
     episodes_available: bool
 

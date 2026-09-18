@@ -58,6 +58,7 @@ from ai_trading_analyst.domain.report import (
     ReportSection,
     StockReport,
     build_report,
+    extract_summary_fields,
 )
 from ai_trading_analyst.domain.research import (
     Citation,
@@ -1112,17 +1113,20 @@ class TestBacktestResultRepository:
                 ),
             )
 
+        lauf_alt, lauf_neu = make_run(), make_run()
         with uow_factory() as uow:
             uow.stocks.add(stock)
+            uow.analysis_runs.add(lauf_alt)
+            uow.analysis_runs.add(lauf_neu)
             uow.backtest_results.add_episodes(
-                [episode(alt, datetime(2025, 3, 6, 14, 30, tzinfo=UTC))]
+                [episode(alt, datetime(2025, 3, 6, 14, 30, tzinfo=UTC))], lauf_alt.id
             )
             uow.backtest_results.add_episodes(
                 [
                     episode(neu, datetime(2025, 5, 8, 14, 30, tzinfo=UTC)),
                     episode(neu, datetime(2025, 3, 6, 14, 30, tzinfo=UTC)),
                 ],
-                analysis_run_id=None,
+                lauf_neu.id,
             )
             uow.commit()
 
@@ -2722,7 +2726,7 @@ class TestUebersichtsabfragen:
             anzahl = uow.stock_reports.count_for_all_symbols()
 
         assert juengste["UEBERSICHT"].analysis_run_id == neu.id
-        assert juengste["UEBERSICHT"].summary.signal_letters is None  # karger Kandidat
+        assert extract_summary_fields(juengste["UEBERSICHT"].document).signal_letters is None
         assert anzahl["UEBERSICHT"] == 2
 
     def test_symbole_eines_laufs_und_der_sperrende_lauf(self, uow_factory: UowFactory) -> None:
@@ -2786,7 +2790,7 @@ class TestUebersichtsabfragen:
 
         with uow_factory() as uow:
             juengste = uow.backtest_results.latest_for_all_stocks()
-            mit_episoden = uow.backtest_results.stocks_with_episodes()
+            episoden_stand = uow.backtest_results.latest_episode_evaluations()
 
         assert [e.evaluated_at for e in juengste[stock.id]] == [neu]
-        assert stock.id not in mit_episoden
+        assert stock.id not in episoden_stand

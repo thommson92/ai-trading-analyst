@@ -266,7 +266,7 @@ def iter_snapshot(
     # und eine Transaktion ueber zweihundert Kursreihen und eine
     # Viertelstunde offen zu halten waere eine lange Sperre ohne Gegenwert.
     with quellen.uow_factory() as uow:
-        aktien = sorted(uow.stocks.list_all(), key=lambda stock: stock.symbol)
+        aktien = list(uow.stocks.list_all())  # alphabetisch, wie das Repository liefert
     symbole = [stock.symbol for stock in aktien]
     namen = _symbolnamen(symbole)
 
@@ -335,7 +335,7 @@ def iter_snapshot(
         laeufe = _alle_laeufe(uow)
         yield datei(
             "data/analysis-runs.json",
-            _als_json([lauf.model_dump(mode="json") for lauf in laeufe]),
+            _als_json(_modelle(laeufe)),
         )
 
         uebersicht = ReadRunOverviewUseCase(
@@ -354,7 +354,7 @@ def iter_snapshot(
             kurzliste = views.reports_of_run(uow, lauf_id)
             yield datei(
                 f"data/analysis-runs/{lauf_id}/reports.json",
-                _als_json([eintrag.model_dump(mode="json") for eintrag in kurzliste]),
+                _als_json(_modelle(kurzliste)),
             )
             for eintrag in kurzliste:
                 bericht = uow.stock_reports.get(eintrag.report_id)
@@ -374,7 +374,7 @@ def iter_snapshot(
         messungen = views.measurements(uow)
         yield datei(
             "data/options-backtests.json",
-            _als_json([messung.model_dump(mode="json") for messung in messungen]),
+            _als_json(_modelle(messungen)),
         )
         for messung in messungen:
             messung_id = messung.measurement_id
@@ -391,9 +391,7 @@ def iter_snapshot(
             name = namen[symbol]
             yield datei(
                 f"data/stocks/{name}/reports.json",
-                _als_json(
-                    [eintrag.model_dump(mode="json") for eintrag in _alle_berichte(uow, symbol)]
-                ),
+                _als_json(_modelle(_alle_berichte(uow, symbol))),
             )
             yield datei(
                 f"data/stocks/{name}/backtest.json",
