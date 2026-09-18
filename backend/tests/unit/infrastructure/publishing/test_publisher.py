@@ -95,7 +95,7 @@ class TestZustandUeberLaeufe:
     def test_zweiter_lauf_schreibt_nichts_neu(self, tmp_path: Path) -> None:
         veroeffentlicher = publisher(tmp_path)
         veroeffentlicher.schreibe_baum()
-        bericht = veroeffentlicher.schreibe_baum()
+        bericht = veroeffentlicher.schreibe_baum().schreiben
         assert bericht.geschrieben == 0
         assert bericht.unveraendert == 1
 
@@ -103,7 +103,7 @@ class TestZustandUeberLaeufe:
         """Der Weg nach jedem Zweifel, ob draussen steht, was hier liegt."""
         veroeffentlicher = publisher(tmp_path)
         veroeffentlicher.schreibe_baum()
-        bericht = veroeffentlicher.schreibe_baum(voll=True)
+        bericht = veroeffentlicher.schreibe_baum(voll=True).schreiben
         assert bericht.geschrieben == 1
         assert bericht.unveraendert == 0
 
@@ -113,7 +113,9 @@ class TestZustandUeberLaeufe:
         publisher(tmp_path).schreibe_baum()
         vorher = {p.name for p in (tmp_path / "public" / "data").iterdir()}
 
-        bericht = publisher(tmp_path, passphrase="eine-ganz-andere-passphrase").schreibe_baum()
+        bericht = publisher(
+            tmp_path, passphrase="eine-ganz-andere-passphrase"
+        ).schreibe_baum().schreiben
 
         nachher = {p.name for p in (tmp_path / "public" / "data").iterdir()}
         assert bericht.geschrieben == 1
@@ -174,6 +176,6 @@ class TestSperre:
         alt = time.time() - 7200
         os.utime(sperre, (alt, alt))
 
-        bericht = publisher(tmp_path).schreibe_baum()
+        bericht = publisher(tmp_path).schreibe_baum().schreiben
 
         assert bericht.geschrieben == 1

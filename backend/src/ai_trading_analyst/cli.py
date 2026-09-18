@@ -158,7 +158,9 @@ from ai_trading_analyst.domain.options import (
 )
 from ai_trading_analyst.domain.research import ResearchReport
 from ai_trading_analyst.domain.scheduling import (
+    DashboardPreviewUrlError,
     DashboardPublisherError,
+    DashboardUploadError,
     DispatchDecision,
     SchedulerParameters,
     TradingCalendarError,
@@ -3673,10 +3675,18 @@ def command_publish(args: argparse.Namespace) -> int:
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
     if args.directory is not None:
+        # **Nur den Pfad, nicht das Ziel** -- ausser der Export ist ganz aus.
+        # Frueher setzte dieser Schalter hart 'directory' und haette damit auf
+        # einem Server, der auf 'cloudflare' steht, den Upload stillschweigend
+        # abgeschaltet. Wer das will, sagt es mit '--no-upload'.
+        ziel = config.dashboard_export.target
         config = config.model_copy(
             update={
                 "dashboard_export": config.dashboard_export.model_copy(
-                    update={"target": "directory", "directory": args.directory}
+                    update={
+                        "target": "directory" if ziel == "none" else ziel,
+                        "directory": args.directory,
+                    }
                 )
             }
         )
@@ -3711,7 +3721,16 @@ def command_publish(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        bericht = publisher.schreibe_baum(voll=args.full)
+        bericht = publisher.schreibe_baum(voll=args.full, senden=not args.no_upload)
+    except DashboardPreviewUrlError as error:
+        # Der Baum ist draussen. Trotzdem Rueckgabewert 1: Das hier ist ein
+        # Sicherheitsbefund, und er soll nicht in einer gruenen Ausgabe
+        # untergehen.
+        print(f"Snapshot gesendet, aber: {error}", file=sys.stderr)
+        return 1
+    except DashboardUploadError as error:
+        print(f"Snapshot geschrieben, aber nicht gesendet: {error}", file=sys.stderr)
+        return 1
     except DashboardPublisherError as error:
         print(f"Snapshot nicht geschrieben: {error}", file=sys.stderr)
         return 1
@@ -4377,12 +4396,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dispatch.add_argument(
         "--dashboard-export",
-        choices=("none", "directory"),
+        choices=("none", "directory", "cloudflare"),
         default=None,
         help=(
             "Uebersteuert dashboard_export.target nur fuer diesen Lauf (ADR 0060). "
-            "'none' ist zugleich der Notausschalter: Er haelt den Tageslauf nicht an, "
-            "sondern laesst nur den Snapshot aus."
+            "'cloudflare' schreibt den Baum und sendet ihn, 'directory' schreibt ihn "
+            "nur -- die Rueckfallstufe, wenn der Weg nach draussen klemmt. 'none' ist "
+            "der Notausschalter: Er haelt den Tageslauf nicht an, sondern laesst nur "
+            "den Snapshot aus."
         ),
     )
     dispatch.set_defaults(handler=command_dispatch)
@@ -4857,6 +4878,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Verwirft den bekannten Stand und schreibt jede Datei neu. Nach einem "
             "Anbieterwechsel, nach einem Wechsel der Passphrase und immer dann, wenn "
             "zweifelhaft ist, ob draussen steht, was hier liegt."
+        ),
+    )
+    publish.add_argument(
+        "--no-upload",
+        action="store_true",
+        help=(
+            "Schreibt den Baum, sendet ihn aber nicht -- auch wenn "
+            "dashboard_export.target auf 'cloudflare' steht. Fuer einen Handgriff "
+            "ohne Netz und ohne neue Fassung beim Anbieter."
         ),
     )
     publish.set_defaults(handler=command_publish)

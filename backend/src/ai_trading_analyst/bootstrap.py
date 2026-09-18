@@ -10,6 +10,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Sequence
 from functools import cache
 from importlib import metadata
@@ -25,6 +26,7 @@ from ai_trading_analyst.application.run_analysis import AgentConcurrency
 from ai_trading_analyst.config.loader import load_config, load_secrets
 from ai_trading_analyst.config.settings import (
     AppConfig,
+    DashboardExportConfig,
     IndicatorConfig,
     MissingSecretError,
     Secrets,
@@ -117,7 +119,9 @@ from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchem
 from ai_trading_analyst.infrastructure.publishing import (
     MINDEST_ITERATIONEN,
     Exportziel,
+    Hochladeziel,
     SnapshotPublisher,
+    WranglerHochlader,
 )
 from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.infrastructure.watchlists import (
@@ -813,7 +817,86 @@ def build_dashboard_publisher(
             passphrase=passphrase,
             iterationen=einstellungen.pbkdf2_iterations,
         ),
+        hochlader=(
+            _build_hochlader(einstellungen, secrets, root, verzeichnis)
+            if einstellungen.target == "cloudflare"
+            else None
+        ),
     )
+
+
+def _build_hochlader(
+    einstellungen: DashboardExportConfig,
+    secrets: Secrets,
+    root: Path,
+    verzeichnis: Path,
+) -> WranglerHochlader:
+    """Der Weg nach draussen (ADR 0060, E4).
+
+    Raises:
+        ValueError: wenn das Upload-Werkzeug fehlt oder die erzeugte
+            Konfigurationsdatei im veroeffentlichten Verzeichnis laege.
+        MissingSecretError: wenn Token, Konto oder Worker-Name fehlen.
+    """
+    arbeitsverzeichnis = (
+        (root / einstellungen.upload_directory).resolve()
+        if einstellungen.upload_directory
+        else verzeichnis.with_name(verzeichnis.name + ".upload")
+    )
+    if arbeitsverzeichnis.is_relative_to(verzeichnis):
+        # Dieselbe Begruendung wie bei der Zustandsdatei: Die erzeugte
+        # Konfiguration nennt den Worker beim Namen, und der Name ist die
+        # halbe Adresse des Dashboards (ADR 0060, E6). Was im Verzeichnis
+        # liegt, geht mit hinauf.
+        raise ValueError(
+            f"dashboard_export.upload_directory ({arbeitsverzeichnis}) liegt im "
+            f"veroeffentlichten Verzeichnis ({verzeichnis}). Die erzeugte "
+            "Konfiguration nennt den Worker und darf den Server nicht verlassen."
+        )
+
+    return WranglerHochlader(
+        Hochladeziel(
+            worker=secrets.require("dashboard_publish_worker"),
+            konto=secrets.require("dashboard_publish_account"),
+            token=secrets.require("dashboard_publish_token"),
+            baum=verzeichnis,
+            arbeitsverzeichnis=arbeitsverzeichnis,
+            befehl=_wrangler_befehl(root),
+            zeitgrenze=einstellungen.upload_timeout_seconds,
+        )
+    )
+
+
+def _wrangler_befehl(root: Path) -> list[str]:
+    """Wie das Upload-Werkzeug gestartet wird.
+
+    **Ueber ``node`` und den Einstiegspunkt aus dem ``bin``-Feld**, nicht
+    ueber den Aufrufwrapper daneben: Unter Windows waere das eine ``.CMD``,
+    und die reicht ``subprocess`` durch ``cmd.exe`` mit dessen eigenen Regeln
+    fuer Anfuehrungszeichen. Der Umweg ueber ``node`` hat die nicht.
+
+    Das Werkzeug liegt im Frontend und nicht in einem eigenen Projekt: Dort
+    steht schon eine Lock-Datei, die CI prueft sie, und der Audit-Job sieht
+    sie sich woechentlich an. Ein ``npx``-Nachladen zur Laufzeit gaebe es
+    stattdessen nur ungepruefte Fassungen und einen naechtlichen Lauf, der am
+    Netz haengt.
+    """
+    paket = root / "frontend" / "node_modules" / "wrangler" / "package.json"
+    try:
+        beschreibung = json.loads(paket.read_text(encoding="utf-8"))
+    except OSError as fehler:
+        raise ValueError(
+            f"Das Upload-Werkzeug fehlt ({paket}): {fehler}. Auf dem Server gehoert "
+            "nach jedem 'git pull' ein 'npm ci' im Frontend dazu (Doc 14, Stufe K, "
+            "Schritt 0)."
+        ) from fehler
+
+    eintrag = beschreibung.get("bin", {}).get("wrangler")
+    if not isinstance(eintrag, str):
+        raise ValueError(
+            f"Das Upload-Werkzeug nennt keinen Einstiegspunkt ({paket}, Feld 'bin.wrangler')."
+        )
+    return ["node", str((paket.parent / eintrag).resolve())]
 
 
 def build_app() -> FastAPI:

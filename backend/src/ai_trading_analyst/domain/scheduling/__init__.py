@@ -9,8 +9,10 @@ from .models import (
     scheduled_run_for,
 )
 from .ports import (
+    DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
+    DashboardUploadError,
     DispatcherRunRepository,
     Notifier,
     NotifierError,
@@ -19,8 +21,10 @@ from .ports import (
 )
 
 __all__ = [
+    "DashboardPreviewUrlError",
     "DashboardPublisher",
     "DashboardPublisherError",
+    "DashboardUploadError",
     "DispatchDecision",
     "DispatcherRunRepository",
     "Notifier",

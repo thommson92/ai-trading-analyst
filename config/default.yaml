@@ -458,9 +458,14 @@ notifications:
 
 # Das Dashboard außerhalb des Servers (ADR 0060). Der Server bekommt dadurch
 # keinen eingehenden Port: Er schreibt nach jedem Lauf einen Datenbaum und
-# sendet ihn später nur ausgehend. Ausgeliefert ist der Schritt
+# sendet ihn ausgehend zum Anbieter. Ausgeliefert ist der Schritt
 # abgeschaltet -- eingeschaltet wird er auf dem Server, wie die Anbieter auch.
 dashboard_export:
+  # none | directory | cloudflare. "directory" schreibt den Baum und lässt
+  # ihn liegen, "cloudflare" schreibt ihn und sendet ihn anschließend
+  # (ADR 0060, E4). "none" ist der Notausschalter. Geschaltet wird über
+  # --dashboard-export in der Aufgabenplanung, nicht hier: Diese Datei ist
+  # im öffentlichen Repository versioniert.
   target: none
   directory: null
   # Der Zustand (Hash je Pfad, Salt, Baumkennung) liegt außerhalb des
@@ -468,6 +473,16 @@ dashboard_export:
   # Pfad zu opakem Namen, und genau die soll der Anbieter nicht sehen. Ohne
   # Angabe liegt er neben dem Verzeichnis.
   state_file: null
+  # Wo die erzeugte wrangler-Konfiguration für den Upload liegt. Ebenfalls
+  # außerhalb des veröffentlichten Verzeichnisses, und aus demselben Grund
+  # wie der Zustand: Sie nennt den Worker beim Namen, und Name plus
+  # Konto-Subdomain sind zusammen die Adresse des Dashboards (ADR 0060, E6).
+  # Was im Baum liegt, geht mit hinauf. Ohne Angabe "<directory>.upload".
+  upload_directory: null
+  # Geduld für einen einzelnen Upload. Gemessen am 2026-09-17: rund 800
+  # Dateien und 29 MB in wenigen Minuten. Eine Viertelstunde lässt Luft für
+  # eine langsame Leitung und beendet trotzdem einen hängenden Aufruf.
+  upload_timeout_seconds: 900
   # Zero-Knowledge ist die Zielstufe und nicht ein Extra (ADR 0060, Punkt 6;
   # Entscheidung E1 vom 2026-09-07). Auf 'true' verlangt der Export die
   # Passphrase aus ATA_DASHBOARD_EXPORT_PASSPHRASE und bricht ohne sie ab --
