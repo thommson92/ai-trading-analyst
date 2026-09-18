@@ -510,27 +510,24 @@ class TestDieAusgabeWirdAlsUtf8Gelesen:
 
 
 class TestEinEnkelprozessHaeltDieLeitungen:
-    """Der Fall, an dem ``subprocess.run`` unter Windows haengen bliebe.
+    """Der Fall, an dem eine Zeitgrenze mit Leitungen unter Windows verpufft.
 
-    ``run`` sammelt nach dem Abschiessen **ohne Zeitgrenze** ein. Haelt ein
-    Enkelprozess die Leitungen noch, wartet es ewig -- innerhalb der
-    Exportsperre, im naechtlichen Lauf, still. Unter POSIX ginge es gut aus;
-    der Zielserver ist Windows, und dort faehrt die CI diesen Test.
+    Stirbt der Unterprozess, sein Kind aber nicht, haengen die Lesefaeden
+    weiter am offenen Schreibende -- und schon das **Schliessen** der Leitung
+    wartet auf sie. Am 2026-09-18 auf dem Windows-Lauf der CI gemessen:
+    30 Sekunden statt einer, und mit einem langlebigen Enkel beliebig lange.
+    Die Ausgabe geht deshalb in Dateien; dort gibt es nichts, worauf man
+    warten koennte.
     """
 
-    def test_die_zeitgrenze_greift_trotzdem(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_die_zeitgrenze_greift_trotzdem(self, tmp_path: Path) -> None:
         import sys
         import time as zeitmodul
 
-        from ai_trading_analyst.infrastructure.publishing import upload as modul
-
-        monkeypatch.setattr(modul, "NACHFRIST_SEKUNDEN", 1)
         skript = tmp_path / "attrappe.py"
         skript.write_text(
             "import subprocess, sys, time\n"
-            # Ein Kind, das unsere Leitungen erbt und weiterlebt.
+            # Ein Kind, das unsere Ausgabe erbt und laenger lebt als wir.
             "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
             "time.sleep(30)\n",
             encoding="utf-8",
@@ -551,5 +548,6 @@ class TestEinEnkelprozessHaeltDieLeitungen:
         with pytest.raises(DashboardUploadError, match="nicht geantwortet"):
             werkzeug.lade_hoch()
 
-        # Gebunden, nicht haengend -- das ist die ganze Aussage.
-        assert zeitmodul.monotonic() - begonnen < 15
+        # Gebunden und nahe an der Zeitgrenze -- das ist die ganze Aussage.
+        # Mit Leitungen stand hier die Lebensdauer des Enkels: 30 Sekunden.
+        assert zeitmodul.monotonic() - begonnen < 10

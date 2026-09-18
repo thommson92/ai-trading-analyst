@@ -528,8 +528,17 @@ Betrieb wehgetan:
   wäre der Vorspann, weitergeladen hätte der Enkel, und das Einsammeln der
   Ausgabe hätte unter Windows **ohne Zeitgrenze** auf Leitungen gewartet, die
   niemand mehr schließt — still, im nächtlichen Lauf, innerhalb der
-  Exportsperre. Gestartet wird deshalb der Paket-Einstieg aus `main`, und das
-  Einsammeln hat eine eigene Nachfrist.
+  Exportsperre. Gestartet wird deshalb der Paket-Einstieg aus `main`.
+- **Und die Ausgabe geht in Dateien statt in Leitungen.** Das ist der
+  Nachschlag zum vorigen Punkt, und er kam erst vom **Windows-Lauf der CI**:
+  Ein erster Anlauf ließ die Leitungen stehen und gab dem Einsammeln nach dem
+  Abschuss nur eine Nachfrist — gemessen dauerte der Aufruf trotzdem
+  30 Sekunden statt einer, weil unter Windows schon das *Schließen* einer
+  Leitung auf den Lesefaden wartet, der am offenen Schreibende des Enkels
+  hängt. Mit Dateien gibt es weder Lesefäden noch etwas zu schließen, und was
+  bis zum Abschuss geschrieben wurde, bleibt lesbar. Gemessen danach:
+  1,0 Sekunden. **Ohne den Windows-Job der CI wäre das erst auf dem Server
+  aufgefallen** — und dort als stehender Nachtlauf, nicht als roter Test.
 - **Die Ausgabe wird ausdrücklich als UTF-8 gelesen.** Ohne Angabe nimmt
   Python die Codierung des Systems, auf einem deutschen Windows `cp1252` —
   und daran zerbricht schon das erste Emoji, das das Werkzeug ausgibt. Der

@@ -32,6 +32,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -66,15 +67,6 @@ uebrigen Sicherheits-Header; fehlt sie, liefert der Anbieter die Seite ohne
 sie aus, und das faellt niemandem auf. Beide entstehen beim Bau der
 Oberflaeche (Doc 14, Stufe K, Schritt 2) und nicht in diesem Schritt -- er
 prueft deshalb nur, dass sie da sind.
-"""
-
-NACHFRIST_SEKUNDEN = 10
-"""Wie lange nach dem Abschiessen auf die Leitungen des Prozesses gewartet wird.
-
-Klingt nach einer Kleinigkeit und ist der Unterschied zwischen einem
-gemeldeten Fehlschlag und einem stillstehenden Tageslauf: Haelt ein
-Enkelprozess die Leitungen offen, wartet ``communicate`` ohne Zeitgrenze
-ewig -- und zwar innerhalb der Exportsperre.
 """
 
 _UMGEBUNG_UEBERNOMMEN = (
@@ -237,43 +229,56 @@ def _starte_prozess(
     in einem unbeaufsichtigten Lauf nicht auf eine Antwort wartet, die
     niemand gibt.
 
-    **Die Ausgabe wird ausdruecklich als UTF-8 gelesen.** Ohne Angabe nimmt
-    Python die Codierung des Systems -- auf einem deutschen Windows
-    ``cp1252``, und daran zerbricht schon das erste Emoji, das `wrangler`
-    ausgibt. Der Upload waere dann gelungen und der Schritt trotzdem
-    gescheitert. ``errors="replace"``, weil eine unlesbare Protokollzeile
-    kein Grund ist, einen gelungenen Upload zu verwerfen.
+    **Die Ausgabe geht in Dateien und nicht in Leitungen, und das ist der
+    Punkt.** Mit Leitungen lauert unter Windows eine Falle, die auf dem
+    Windows-Lauf der CI am 2026-09-18 gemessen wurde: Startet der
+    Unterprozess seinerseits ein Kind -- und `wrangler` tut das, wenn man es
+    ueber seinen Starter aufruft --, erbt dieses Kind die Leitungen. Nach
+    einer Zeitueberschreitung stirbt nur der Unterprozess; die Lesefaeden
+    haengen weiter am offenen Schreibende, und schon das **Schliessen** der
+    Leitung wartet auf sie. Gemessen: 30 Sekunden statt einer, und mit einem
+    langlebigen Enkel beliebig lange -- still, im naechtlichen Lauf,
+    innerhalb der Exportsperre.
 
-    **Und nicht ``subprocess.run``**, sondern von Hand mit Nachfrist: ``run``
-    sammelt nach dem Abschiessen ohne Zeitgrenze ein und bliebe an einem
-    Enkelprozess haengen, der die Leitungen noch haelt.
+    Dateien haben dieses Problem nicht: Es gibt keine Lesefaeden, nichts zu
+    schliessen, und was bis zum Abschuss geschrieben wurde, ist lesbar --
+    die Fehlersuche gewinnt sogar dazu.
+
+    **Gelesen wird ausdruecklich als UTF-8.** Ohne Angabe naehme Python die
+    Codierung des Systems -- auf einem deutschen Windows ``cp1252``, und
+    daran zerbricht schon das erste Emoji, das `wrangler` ausgibt. Der Upload
+    waere dann gelungen und der Schritt trotzdem gescheitert.
+    ``errors="replace"``, weil eine unlesbare Protokollzeile kein Grund ist,
+    einen gelungenen Upload zu verwerfen.
     """
-    with subprocess.Popen(
-        list(befehl),
-        cwd=arbeitsverzeichnis,
-        env=umgebung,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ) as prozess:
-        try:
-            ausgabe, fehlerausgabe = prozess.communicate(timeout=zeitgrenze)
-        except subprocess.TimeoutExpired:
-            prozess.kill()
+    with (
+        tempfile.TemporaryFile() as ausgabe,
+        tempfile.TemporaryFile() as fehlerausgabe,
+    ):
+        with subprocess.Popen(
+            list(befehl),
+            cwd=arbeitsverzeichnis,
+            env=umgebung,
+            stdin=subprocess.DEVNULL,
+            stdout=ausgabe,
+            stderr=fehlerausgabe,
+        ) as prozess:
             try:
-                prozess.communicate(timeout=NACHFRIST_SEKUNDEN)
+                prozess.wait(timeout=zeitgrenze)
             except subprocess.TimeoutExpired:
-                _logger.warning(
-                    "Nach dem Abschiessen haelt noch jemand die Leitungen des "
-                    "Upload-Werkzeugs offen. Der Lauf geht trotzdem weiter."
-                )
-            raise
-    return subprocess.CompletedProcess(
-        list(befehl), prozess.returncode, ausgabe, fehlerausgabe
-    )
+                prozess.kill()
+                # Kehrt zurueck, auch wenn ein Enkel weiterlebt: Gewartet
+                # wird auf diesen Prozess, nicht auf seine Nachkommen.
+                prozess.wait()
+                raise
+        ausgabe.seek(0)
+        fehlerausgabe.seek(0)
+        return subprocess.CompletedProcess(
+            list(befehl),
+            prozess.returncode,
+            ausgabe.read().decode("utf-8", errors="replace"),
+            fehlerausgabe.read().decode("utf-8", errors="replace"),
+        )
 
 
 class WranglerHochlader:

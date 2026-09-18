@@ -128,7 +128,8 @@ Nachtrag war in ADR 0060 ausdrücklich angekündigt.
   Exportschritt startet den Paket-Einstieg des Werkzeugs unmittelbar und
   überspringt damit dessen eigenen Starter — der prüft sonst die
   Node-Version, startet `wrangler` aber als weiteren Prozess, an dem eine
-  Zeitgrenze vorbeiliefe (siehe ADR 0060, Nachtrag vom 2026-09-18).
+  Zeitgrenze vorbeiliefe. Aus demselben Grund geht die Ausgabe in Dateien
+  und nicht in Leitungen (siehe ADR 0060, Nachtrag vom 2026-09-18).
 - `npm ci` gehört seitdem **immer** in den Aktualisierungsablauf, nicht nur
   bei Änderungen am Frontend (Doc 14, „Aktualisierung").
 
