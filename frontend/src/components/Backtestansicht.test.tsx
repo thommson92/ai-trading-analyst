@@ -20,6 +20,7 @@ afterEach(() => {
 const LEER: AktienBacktest = {
   symbol: 'AAPL',
   signal_backtests: [],
+  episode_evaluations: [],
   measurement: null,
   combinations: [],
   pooled: null,
