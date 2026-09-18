@@ -375,3 +375,24 @@ class TestEpisodenImExport:
         dateien = baum(quellen)
         inhalt = json.loads(dateien["data/stocks/AAPL/backtest.json"].decode("utf-8"))
         assert inhalt["episode_evaluations"] == []
+
+
+class TestUebersichtenImExport:
+    def test_die_aktienliste_und_der_signalbacktest_liegen_an_der_wurzel(self) -> None:
+        """ADR 0062: eine Datei fuer alle Aktien statt eine je Aktie."""
+        quellen, _ = quellen_mit()
+        dateien = baum(quellen)
+        aktien = json.loads(dateien["data/stocks.json"].decode("utf-8"))
+        assert [a["symbol"] for a in aktien] == ["AAPL", "MSFT"]
+        assert all(a["reports_count"] == 0 and a["last_report"] is None for a in aktien)
+        ueberblick = json.loads(dateien["data/signal-backtests.json"].decode("utf-8"))
+        assert ueberblick["stocks"] == []
+        assert ueberblick["signal_rule_version"]
+
+    def test_der_lauf_traegt_den_sperrstatus_als_rekonstruiert(self) -> None:
+        ein_lauf = lauf()
+        quellen, _ = quellen_mit(laeufe=(ein_lauf,))
+        dateien = baum(quellen)
+        detail = json.loads(dateien[f"data/analysis-runs/{ein_lauf.id}.json"].decode("utf-8"))
+        assert detail["suppressed"] == []
+        assert detail["suppression_derived"] is True

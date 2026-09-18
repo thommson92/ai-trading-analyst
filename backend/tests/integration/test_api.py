@@ -789,3 +789,42 @@ class TestBacktestansichtGegenEchteDaten:
         )
 
         assert antwort.status_code == 404
+
+
+class TestUebersichten:
+    """Die zwei Uebersichtsdateien des Exports als Endpunkte (ADR 0062)."""
+
+    def test_die_aktienliste_nennt_jede_aktie_mit_ihrem_stand(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("APILISTE")
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.commit()
+
+        antwort = client.get("/api/v1/stocks").json()
+
+        eintrag = next(a for a in antwort if a["symbol"] == "APILISTE")
+        assert eintrag["reports_count"] == 0
+        assert eintrag["last_report"] is None
+        assert eintrag["episodes_available"] is False
+
+    def test_der_signal_backtest_ueberblick_steht_auch_ohne_auswertung(
+        self, client: TestClient
+    ) -> None:
+        antwort = client.get("/api/v1/signal-backtests").json()
+        assert antwort["signal_rule_version"]
+        assert isinstance(antwort["stocks"], list)
+
+    def test_der_lauf_traegt_den_rekonstruierten_sperrstatus(
+        self, client: TestClient, uow_factory: UowFactory
+    ) -> None:
+        run = make_run()
+        with uow_factory() as uow:
+            uow.analysis_runs.add(run)
+            uow.commit()
+
+        antwort = client.get(f"/api/v1/analysis-runs/{run.id}").json()
+
+        assert antwort["suppressed"] == []
+        assert antwort["suppression_derived"] is True

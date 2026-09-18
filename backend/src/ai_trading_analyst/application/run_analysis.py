@@ -317,7 +317,7 @@ class RunAnalysisUseCase:
             _logger.info(
                 "Wiederholsperre: %s wird uebersprungen -- zuletzt voll analysiert am %s",
                 stock.symbol,
-                juengste[stock.symbol].isoformat(),
+                juengste[stock.symbol].evaluated_at.isoformat(),
             )
         if gesperrt:
             _logger.info(

@@ -30,7 +30,7 @@ from ..dependencies import (
     get_chart_market_data,
     get_unit_of_work_factory,
 )
-from ..schemas import Page, ReportSummaryResponse, StockBacktestResponse
+from ..schemas import Page, ReportSummaryResponse, StockBacktestResponse, StockIndexResponse
 
 _logger = logging.getLogger(__name__)
 
@@ -39,6 +39,16 @@ router = APIRouter(prefix="/api/v1/stocks", tags=["stocks"])
 
 def _als_404(fehler: views.NotFoundError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fehler))
+
+
+@router.get("", response_model=list[StockIndexResponse])
+def list_stocks(
+    uow_factory: Callable[[], UnitOfWork] = Depends(get_unit_of_work_factory),
+) -> list[StockIndexResponse]:
+    """Alle Aktien mit ihrem letzten Stand (ADR 0062) -- alphabetisch, ohne
+    Seitengrenze: Die Watchlist hat zweihundert Titel, nicht zwanzigtausend."""
+    with uow_factory() as uow:
+        return views.stock_index(uow)
 
 
 @router.get("/{symbol}/reports", response_model=Page[ReportSummaryResponse])

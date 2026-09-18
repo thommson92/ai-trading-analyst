@@ -39,7 +39,11 @@ from .ports import (
     TechnicalInterpreterError,
     UnitOfWork,
 )
-from .repeat_suppression import RepeatSuppressionParameters, suppression_window
+from .repeat_suppression import (
+    CandidateAnalysisAnchor,
+    RepeatSuppressionParameters,
+    suppression_window,
+)
 
 __all__ = [
     "AnalysisRun",
@@ -49,6 +53,7 @@ __all__ = [
     "AnalystRecommendationsProvider",
     "AnalystRecommendationsProviderError",
     "BacktestResultRepository",
+    "CandidateAnalysisAnchor",
     "ContractSpec",
     "EarningsProvider",
     "EarningsProviderError",

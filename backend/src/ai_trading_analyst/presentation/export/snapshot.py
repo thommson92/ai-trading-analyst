@@ -39,6 +39,7 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
     MarketDataUnavailableError,
+    RepeatSuppressionParameters,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -111,6 +112,11 @@ class Exportquellen:
     backtest_parameters: BacktestParameters
     candidate_rule_parameters: CandidateRuleParameters
     chart_market_data: Callable[[], MarketDataProvider]
+    repeat_suppression: RepeatSuppressionParameters | None = None
+    """Fuer den rekonstruierten Sperrstatus je Lauf (ADR 0062). Ohne die
+    Parameter bleibt die Liste leer -- als "nicht gerechnet", was das
+    Manifestfeld ``suppression_window_days: null`` dem Leser sagt."""
+    market_timezone: str = "America/New_York"
 
 
 _UNSICHER = re.compile(r"[^A-Za-z0-9_-]")
@@ -164,6 +170,10 @@ def _als_json(nutzlast: Any) -> bytes:
     umsortierte Abschnittsfolge waere eine Veraenderung.
     """
     return json.dumps(nutzlast, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _modelle(modelle: Sequence[BaseModel]) -> list[dict[str, Any]]:
+    return [modell.model_dump(mode="json") for modell in modelle]
 
 
 def _modell(antwort: BaseModel) -> bytes:
@@ -328,7 +338,11 @@ def iter_snapshot(
             _als_json([lauf.model_dump(mode="json") for lauf in laeufe]),
         )
 
-        uebersicht = ReadRunOverviewUseCase(quellen.uow_factory)
+        uebersicht = ReadRunOverviewUseCase(
+            quellen.uow_factory,
+            repeat_suppression=quellen.repeat_suppression,
+            market_timezone=quellen.market_timezone,
+        )
         for lauf in laeufe:
             lauf_id = lauf.id
             detail = uebersicht.execute(lauf_id)
@@ -351,6 +365,11 @@ def iter_snapshot(
                 yield datei(
                     f"data/reports/{bericht.id}.json", _als_json(dict(bericht.document))
                 )
+
+        # Die zwei Uebersichten (ADR 0062): eine Datei fuer alle Aktien statt
+        # zweihundert Einzeldateien je Listenansicht.
+        yield datei("data/stocks.json", _als_json(_modelle(views.stock_index(uow))))
+        yield datei("data/signal-backtests.json", _modell(views.signal_backtest_overview(uow)))
 
         messungen = views.measurements(uow)
         yield datei(

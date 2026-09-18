@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
+    CandidateAnalysisAnchor,
     RunStatus,
     Stock,
     StockProcessingError,
@@ -1210,12 +1211,16 @@ class SqlAlchemyScreeningResultRepository:
 
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
-    ) -> Mapping[str, datetime]:
+    ) -> Mapping[str, CandidateAnalysisAnchor]:
         # Kein Index auf stock_id oder evaluated_at: Die Abfrage laeuft
         # einmal je Tageslauf ueber wenige hundert Zeilen je Lauf -- ein
         # Index waere geraten statt gemessen (ADR 0054).
         query = (
-            select(StockOrm.symbol, func.max(ScreeningResultOrm.evaluated_at))
+            select(
+                StockOrm.symbol,
+                ScreeningResultOrm.evaluated_at,
+                ScreeningResultOrm.analysis_run_id,
+            )
             .join(StockOrm, StockOrm.id == ScreeningResultOrm.stock_id)
             .where(
                 ScreeningResultOrm.status == ScreeningStatus.CANDIDATE,
@@ -1225,10 +1230,22 @@ class SqlAlchemyScreeningResultRepository:
                 # eines abgebrochenen Laufs als Sperre.
                 ScreeningResultOrm.evaluated_at < until,
             )
-            .group_by(StockOrm.symbol)
+            # Je Symbol die juengste Zeile -- mit ihrem Lauf (ADR 0062).
+            .distinct(StockOrm.symbol)
+            .order_by(StockOrm.symbol, ScreeningResultOrm.evaluated_at.desc())
         )
-        rows = self._session.execute(query).tuples().all()
-        return dict(rows)
+        return {
+            symbol: CandidateAnalysisAnchor(evaluated_at=evaluated_at, analysis_run_id=run_id)
+            for symbol, evaluated_at, run_id in self._session.execute(query).tuples().all()
+        }
+
+    def symbols_for_run(self, run_id: uuid.UUID) -> frozenset[str]:
+        rows = self._session.execute(
+            select(StockOrm.symbol)
+            .join(ScreeningResultOrm, ScreeningResultOrm.stock_id == StockOrm.id)
+            .where(ScreeningResultOrm.analysis_run_id == run_id)
+        ).scalars()
+        return frozenset(rows)
 
 
 class SqlAlchemyProcessingErrorRepository:
@@ -1517,6 +1534,7 @@ def _stored_report_from_row(row: StockReportOrm) -> StoredReport:
         swing_score=row.swing_score,
         investment_score=row.investment_score,
         document=row.document,
+        analysis_run_id=row.analysis_run_id,
     )
 
 
@@ -1611,6 +1629,31 @@ class SqlAlchemyStockReportRepository:
             .where(StockOrm.symbol == symbol)
         ).scalar_one()
 
+    def latest_for_all_symbols(self) -> Mapping[str, StoredReport]:
+        rows = (
+            self._session.execute(
+                select(StockReportOrm)
+                .options(selectinload(StockReportOrm.stock))
+                .distinct(StockReportOrm.stock_id)
+                .order_by(
+                    StockReportOrm.stock_id,
+                    StockReportOrm.created_at.desc(),
+                    StockReportOrm.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {row.stock.symbol: _stored_report_from_row(row) for row in rows}
+
+    def count_for_all_symbols(self) -> Mapping[str, int]:
+        rows = self._session.execute(
+            select(StockOrm.symbol, func.count(StockReportOrm.id))
+            .join(StockReportOrm, StockReportOrm.stock_id == StockOrm.id)
+            .group_by(StockOrm.symbol)
+        ).tuples()
+        return dict(rows)
+
 
 class SqlAlchemyBacktestResultRepository:
     def __init__(self, session: Session) -> None:
@@ -1694,6 +1737,36 @@ class SqlAlchemyBacktestResultRepository:
             .all()
         )
         return _group_rows_into_episodes(rows)
+
+    def latest_for_all_stocks(self) -> Mapping[uuid.UUID, Sequence[BacktestResult]]:
+        juengste = (
+            select(
+                BacktestResultOrm.stock_id.label("stock_id"),
+                func.max(BacktestResultOrm.evaluated_at).label("evaluated_at"),
+            )
+            .group_by(BacktestResultOrm.stock_id)
+            .subquery()
+        )
+        rows = (
+            self._session.execute(
+                select(BacktestResultOrm).join(
+                    juengste,
+                    (BacktestResultOrm.stock_id == juengste.c.stock_id)
+                    & (BacktestResultOrm.evaluated_at == juengste.c.evaluated_at),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        je_aktie: dict[uuid.UUID, list[BacktestResult]] = defaultdict(list)
+        for ergebnis in _group_rows_into_results(rows):
+            je_aktie[ergebnis.stock_id].append(ergebnis)
+        return dict(je_aktie)
+
+    def stocks_with_episodes(self) -> frozenset[uuid.UUID]:
+        return frozenset(
+            self._session.execute(select(BacktestEpisodeOrm.stock_id).distinct()).scalars()
+        )
 
 
 def _signal_types_als_spalte(kombination: frozenset[SignalType]) -> list[str]:

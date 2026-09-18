@@ -8,6 +8,7 @@ ausgewiesen, nicht ersetzt.
 from .builder import build_report
 from .document import as_document
 from .notification import render_notification
+from .summary import PutSummary, ReportSummaryFields, extract_summary_fields
 from .values import (
     REPORT_SCHEMA_VERSION,
     GapKind,
@@ -22,13 +23,16 @@ from .values import (
 __all__ = [
     "REPORT_SCHEMA_VERSION",
     "GapKind",
+    "PutSummary",
     "ReportGap",
     "ReportSection",
     "ReportSource",
+    "ReportSummaryFields",
     "SourceKind",
     "StockReport",
     "StoredReport",
     "as_document",
     "build_report",
+    "extract_summary_fields",
     "render_notification",
 ]

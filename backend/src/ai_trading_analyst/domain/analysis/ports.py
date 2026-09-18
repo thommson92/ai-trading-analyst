@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from ai_trading_analyst.domain.analysis.repeat_suppression import CandidateAnalysisAnchor
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import (
     BacktestEpisode,
@@ -370,6 +371,15 @@ class BacktestResultRepository(Protocol):
         Einstieg aufsteigend."""
         ...
 
+    def latest_for_all_stocks(self) -> Mapping[UUID, Sequence[BacktestResult]]:
+        """Aktie -> die Ergebnisse ihrer juengsten Auswertung, alle
+        Kombinationen. Fuer die Uebersicht ueber alle Aktien (ADR 0062)."""
+        ...
+
+    def stocks_with_episodes(self) -> frozenset[UUID]:
+        """Fuer welche Aktien Einzelepisoden vorliegen (ADR 0061)."""
+        ...
+
 
 class OptionsBacktestResultRepository(Protocol):
     """Ergebnisse des Optionsbacktests (ADR 0058, Festlegung 9).
@@ -561,8 +571,8 @@ class ScreeningResultRepository(Protocol):
 
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
-    ) -> Mapping[str, datetime]:
-        """Symbol -> juengstes ``evaluated_at`` aller vollen Analysen im Fenster.
+    ) -> Mapping[str, CandidateAnalysisAnchor]:
+        """Symbol -> juengste volle Analyse im Fenster, mit ihrem Lauf.
 
         Grundlage der Wiederholsperre (ADR 0054). Eine volle Analyse ist eine
         Ergebniszeile mit ``ScreeningStatus.CANDIDATE`` -- der Anker ist die
@@ -572,6 +582,12 @@ class ScreeningResultRepository(Protocol):
         Wiederholungslauf desselben Tages die Zeilen eines abgebrochenen
         Laufs nicht als Sperre sieht.
         """
+        ...
+
+    def symbols_for_run(self, run_id: UUID) -> frozenset[str]:
+        """Welche Symbole in diesem Lauf bewertet wurden -- nur die Symbole,
+        keine Ergebnisse. Die Laufansicht braucht sie, um ein gesperrtes
+        Symbol von einem bewerteten zu unterscheiden (ADR 0062)."""
         ...
 
     def count_by_earnings_status(self, run_id: UUID) -> Mapping[EarningsFilterStatus, int]:
@@ -624,6 +640,15 @@ class StockReportRepository(Protocol):
 
     def get(self, report_id: UUID) -> StoredReport | None:
         """Ein einzelner Bericht."""
+        ...
+
+    def latest_for_all_symbols(self) -> Mapping[str, StoredReport]:
+        """Symbol -> juengster Bericht. Fuer die Aktienliste (ADR 0062):
+        eine Abfrage statt einer je Aktie."""
+        ...
+
+    def count_for_all_symbols(self) -> Mapping[str, int]:
+        """Symbol -> Zahl der Berichte. Symbole ohne Bericht fehlen."""
         ...
 
     def list_for_symbol(self, symbol: str, *, limit: int, offset: int) -> Sequence[StoredReport]:

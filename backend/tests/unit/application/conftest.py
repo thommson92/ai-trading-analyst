@@ -20,6 +20,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalystRecommendationsFormatError,
     AnalystRecommendationsProviderError,
     BacktestResultRepository,
+    CandidateAnalysisAnchor,
     EarningsProviderError,
     FundamentalDataProviderError,
     IntradayBarRepository,
@@ -404,20 +405,25 @@ class FakeScreeningResultRepository:
 
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
-    ) -> dict[str, datetime]:
+    ) -> dict[str, CandidateAnalysisAnchor]:
         # Gleiche Zusagen wie die SQL-Implementierung: nur volle Analysen
         # (ScreeningStatus.CANDIDATE), Fenster since <= t < until,
-        # juengstes evaluated_at je Symbol.
-        juengste: dict[str, datetime] = {}
+        # juengstes evaluated_at je Symbol -- mit seinem Lauf.
+        juengste: dict[str, CandidateAnalysisAnchor] = {}
         for outcome in self.added:
             if outcome.result.status is not ScreeningStatus.CANDIDATE:
                 continue
             if not since <= outcome.evaluated_at < until:
                 continue
             bisher = juengste.get(outcome.stock.symbol)
-            if bisher is None or outcome.evaluated_at > bisher:
-                juengste[outcome.stock.symbol] = outcome.evaluated_at
+            if bisher is None or outcome.evaluated_at > bisher.evaluated_at:
+                juengste[outcome.stock.symbol] = CandidateAnalysisAnchor(
+                    evaluated_at=outcome.evaluated_at, analysis_run_id=outcome.analysis_run_id
+                )
         return juengste
+
+    def symbols_for_run(self, run_id: uuid.UUID) -> frozenset[str]:
+        return frozenset(o.stock.symbol for o in self.list_for_run(run_id))
 
 
 class FakeBacktestResultRepository:
@@ -442,6 +448,20 @@ class FakeBacktestResultRepository:
 
     def list_episodes_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestEpisode, ...]:
         return tuple(e for e, _ in self.episodes if e.stock_id == stock_id)
+
+    def latest_for_all_stocks(self) -> dict[uuid.UUID, tuple[BacktestResult, ...]]:
+        je_aktie: dict[uuid.UUID, list[BacktestResult]] = {}
+        for ergebnis, _ in self.added:
+            je_aktie.setdefault(ergebnis.stock_id, []).append(ergebnis)
+        return {
+            stock_id: tuple(
+                e for e in ergebnisse if e.evaluated_at == max(x.evaluated_at for x in ergebnisse)
+            )
+            for stock_id, ergebnisse in je_aktie.items()
+        }
+
+    def stocks_with_episodes(self) -> frozenset[uuid.UUID]:
+        return frozenset(e.stock_id for e, _ in self.episodes)
 
 
 class FakeOptionsBacktestResultRepository:
@@ -563,7 +583,19 @@ class FakeStockReportRepository:
                 bericht.investment_score.value if bericht.investment_score is not None else None
             ),
             document=as_document(bericht),
+            analysis_run_id=bericht.analysis_run_id,
         )
+
+    def latest_for_all_symbols(self) -> dict[str, StoredReport]:
+        juengste: dict[str, StockReport] = {}
+        for bericht in self.added:
+            bisher = juengste.get(bericht.symbol)
+            if bisher is None or bericht.created_at > bisher.created_at:
+                juengste[bericht.symbol] = bericht
+        return {symbol: self._gespeichert(b) for symbol, b in juengste.items()}
+
+    def count_for_all_symbols(self) -> dict[str, int]:
+        return dict(Counter(bericht.symbol for bericht in self.added))
 
     def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[StoredReport, ...]:
         return tuple(
