@@ -89,7 +89,7 @@ def hochlader(tmp_path: Path, starter: _Starter, *, worker: str = WORKER) -> Wra
             token=TOKEN,
             baum=baum(tmp_path),
             arbeitsverzeichnis=tmp_path / "dashboard.upload",
-            befehl=["node", "/irgendwo/wrangler.js"],
+            befehl=lambda: ["node", "/irgendwo/wrangler.js"],
             zeitgrenze=900,
         ),
         starter=starter,
@@ -311,7 +311,7 @@ class TestEinEchterUnterprozess:
                 token=TOKEN,
                 baum=baum(tmp_path),
                 arbeitsverzeichnis=tmp_path / "dashboard.upload",
-                befehl=self._attrappe(
+                befehl=lambda: self._attrappe(
                     tmp_path,
                     "import json, os, pathlib, sys\n"
                     # Beweist zweierlei: Die Konfiguration liegt da, wo der
@@ -344,7 +344,7 @@ class TestEinEchterUnterprozess:
                 token=TOKEN,
                 baum=baum(tmp_path),
                 arbeitsverzeichnis=tmp_path / "dashboard.upload",
-                befehl=self._attrappe(
+                befehl=lambda: self._attrappe(
                     tmp_path,
                     "import sys\n"
                     "print('Authentication error [code: 10000]', file=sys.stderr)\n"
@@ -366,10 +366,190 @@ class TestEinEchterUnterprozess:
                 token=TOKEN,
                 baum=baum(tmp_path),
                 arbeitsverzeichnis=tmp_path / "dashboard.upload",
-                befehl=self._attrappe(tmp_path, "import time\ntime.sleep(60)\n"),
+                befehl=lambda: self._attrappe(tmp_path, "import time\ntime.sleep(60)\n"),
                 zeitgrenze=1,
             )
         )
 
         with pytest.raises(DashboardUploadError, match="nicht geantwortet"):
             werkzeug.lade_hoch()
+
+
+class TestDieWerkzeugsuche:
+    """Sie sitzt im Upload und nicht im Bau des Exportschritts.
+
+    Der Bau laeuft im Tageslauf vor dem Backfill; ein Abbruch dort kostet
+    Screening, Analyse und Ergebnismeldung. Ein vergessenes ``npm ci`` darf
+    nur den Upload kosten -- deshalb wirft alles hier
+    ``DashboardUploadError`` und keinen ``ValueError``.
+    """
+
+    def _paket(self, tmp_path: Path, beschreibung: str, *, mit_einstieg: bool = True) -> Path:
+        paket = tmp_path / "wrangler"
+        (paket / "wrangler-dist").mkdir(parents=True)
+        if mit_einstieg:
+            (paket / "wrangler-dist" / "cli.js").write_text("// Attrappe\n", encoding="utf-8")
+        (paket / "package.json").write_text(beschreibung, encoding="utf-8")
+        return paket
+
+    def test_der_einstieg_kommt_aus_main(self, tmp_path: Path) -> None:
+        """``main`` und nicht ``bin``: Der Starter in ``bin`` reicht an einen
+        Enkelprozess weiter, der unsere Leitungen erbt -- eine Zeitgrenze
+        liefe daran vorbei."""
+        from ai_trading_analyst.infrastructure.publishing.upload import wrangler_befehl
+
+        paket = self._paket(tmp_path, '{"main": "wrangler-dist/cli.js"}')
+
+        befehl = wrangler_befehl(paket)
+
+        assert befehl[0] == "node"
+        assert Path(befehl[1]) == paket / "wrangler-dist" / "cli.js"
+
+    def test_ein_fehlendes_paket_nennt_den_handgriff(self, tmp_path: Path) -> None:
+        from ai_trading_analyst.infrastructure.publishing.upload import wrangler_befehl
+
+        with pytest.raises(DashboardUploadError, match="npm ci"):
+            wrangler_befehl(tmp_path / "gibt-es-nicht")
+
+    def test_eine_kaputte_paketdatei(self, tmp_path: Path) -> None:
+        """Ein Syntaxfehler ist **kein** ``OSError``."""
+        from ai_trading_analyst.infrastructure.publishing.upload import wrangler_befehl
+
+        paket = self._paket(tmp_path, "{kaputt")
+
+        with pytest.raises(DashboardUploadError, match="nicht lesbar"):
+            wrangler_befehl(paket)
+
+    def test_eine_paketdatei_ohne_main(self, tmp_path: Path) -> None:
+        from ai_trading_analyst.infrastructure.publishing.upload import wrangler_befehl
+
+        paket = self._paket(tmp_path, '{"name": "wrangler"}')
+
+        with pytest.raises(DashboardUploadError, match="Einstieg"):
+            wrangler_befehl(paket)
+
+    def test_ein_halb_ausgepacktes_node_modules(self, tmp_path: Path) -> None:
+        """Die Paketdatei ist da, die Datei dahinter nicht."""
+        from ai_trading_analyst.infrastructure.publishing.upload import wrangler_befehl
+
+        paket = self._paket(
+            tmp_path, '{"main": "wrangler-dist/cli.js"}', mit_einstieg=False
+        )
+
+        with pytest.raises(DashboardUploadError, match="fehlt"):
+            wrangler_befehl(paket)
+
+
+class TestWasDerUnterprozessNichtSehenDarf:
+    def test_eine_env_neben_der_konfiguration_bricht_ab(self, tmp_path: Path) -> None:
+        """**Die zweite Haelfte der Zusage.** Das Werkzeug liest eine ``.env``
+        neben seiner Konfiguration ein. Laege das Arbeitsverzeichnis in der
+        Projektwurzel, bekaeme es damit jedes ATA_-Geheimnis in die Hand --
+        an der Erlaubnisliste vorbei, die genau das verhindern soll."""
+        starter = _Starter()
+        werkzeug = hochlader(tmp_path, starter)
+        arbeit = tmp_path / "dashboard.upload"
+        arbeit.mkdir()
+        (arbeit / ".env").write_text("ATA_DASHBOARD_EXPORT_PASSPHRASE=geheim\n", encoding="utf-8")
+
+        with pytest.raises(DashboardUploadError, match=r"\.env"):
+            werkzeug.lade_hoch()
+
+        assert starter.aufrufe == []
+
+    def test_ein_unschreibbares_arbeitsverzeichnis(self, tmp_path: Path) -> None:
+        """Ein ``OSError`` beim Schreiben der Konfiguration ist ein
+        Upload-Fehler -- der Baum ist zu diesem Zeitpunkt geschrieben."""
+        starter = _Starter()
+        werkzeug = hochlader(tmp_path, starter)
+        # Eine Datei, wo ein Verzeichnis hin soll.
+        (tmp_path / "dashboard.upload").write_text("im Weg", encoding="utf-8")
+
+        with pytest.raises(DashboardUploadError, match="nicht schreiben"):
+            werkzeug.lade_hoch()
+
+
+class TestDieAusgabeWirdAlsUtf8Gelesen:
+    """Auf einem deutschen Windows nimmt Python sonst ``cp1252``.
+
+    Wrangler gibt UTF-8 mit Emoji aus, und schon das Variationszeichen in
+    ``⛅️`` enthaelt ein Byte, das cp1252 nicht kennt. Der Upload waere
+    gelungen und der Schritt trotzdem gescheitert -- gemeldet als
+    "Dashboard nicht aktualisiert", also als die Lage, die am wenigsten
+    stimmt.
+    """
+
+    def test_emoji_in_der_ausgabe_stoeren_nicht(self, tmp_path: Path) -> None:
+        import sys
+
+        skript = tmp_path / "attrappe.py"
+        skript.write_text(
+            "import sys\n"
+            "sys.stdout.buffer.write(' \\u26c5\\ufe0f wrangler 4.135.0\\n'.encode('utf-8'))\n"
+            "sys.stdout.buffer.write(b'Read 804 files from the assets directory\\n')\n"
+            "sys.stdout.buffer.write(b'Uploaded 786 files\\n')\n"
+            "sys.stdout.buffer.write(b'Current Version ID: b2c2bdba-5e14-4208\\n')\n",
+            encoding="utf-8",
+        )
+        werkzeug = WranglerHochlader(
+            Hochladeziel(
+                worker=WORKER,
+                konto=KONTO,
+                token=TOKEN,
+                baum=baum(tmp_path),
+                arbeitsverzeichnis=tmp_path / "dashboard.upload",
+                befehl=lambda: [sys.executable, str(skript)],
+                zeitgrenze=60,
+            )
+        )
+
+        bericht = werkzeug.lade_hoch()
+
+        assert bericht.dateien_gesamt == 804
+        assert bericht.version == "b2c2bdba-5e14-4208"
+
+
+class TestEinEnkelprozessHaeltDieLeitungen:
+    """Der Fall, an dem ``subprocess.run`` unter Windows haengen bliebe.
+
+    ``run`` sammelt nach dem Abschiessen **ohne Zeitgrenze** ein. Haelt ein
+    Enkelprozess die Leitungen noch, wartet es ewig -- innerhalb der
+    Exportsperre, im naechtlichen Lauf, still. Unter POSIX ginge es gut aus;
+    der Zielserver ist Windows, und dort faehrt die CI diesen Test.
+    """
+
+    def test_die_zeitgrenze_greift_trotzdem(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+        import time as zeitmodul
+
+        from ai_trading_analyst.infrastructure.publishing import upload as modul
+
+        monkeypatch.setattr(modul, "NACHFRIST_SEKUNDEN", 1)
+        skript = tmp_path / "attrappe.py"
+        skript.write_text(
+            "import subprocess, sys, time\n"
+            # Ein Kind, das unsere Leitungen erbt und weiterlebt.
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        werkzeug = WranglerHochlader(
+            Hochladeziel(
+                worker=WORKER,
+                konto=KONTO,
+                token=TOKEN,
+                baum=baum(tmp_path),
+                arbeitsverzeichnis=tmp_path / "dashboard.upload",
+                befehl=lambda: [sys.executable, str(skript)],
+                zeitgrenze=1,
+            )
+        )
+
+        begonnen = zeitmodul.monotonic()
+        with pytest.raises(DashboardUploadError, match="nicht geantwortet"):
+            werkzeug.lade_hoch()
+
+        # Gebunden, nicht haengend -- das ist die ganze Aussage.
+        assert zeitmodul.monotonic() - begonnen < 15

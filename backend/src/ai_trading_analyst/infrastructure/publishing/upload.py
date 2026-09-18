@@ -19,6 +19,11 @@ Bauwerkzeug zum Auslieferungswerkzeug (Nachtrag zu ADR 0052, Punkt 2).
 3. Es prueft die Ausgabe auf Vorschau-Adressen und meldet einen Fund, statt
    ihn zu protokollieren. Doc 14, Stufe L, Schritt 7 verlangt genau das,
    sobald der Exportschritt den Upload uebernimmt.
+
+**Alles hier wirft ``DashboardUploadError``, nie einen Abbruch des Laufs.**
+Der Baum ist zu diesem Zeitpunkt geschrieben; ein Werkzeug, das fehlt, und
+eine Leitung, die schweigt, duerfen einen erledigten Tageslauf nicht
+nachtraeglich scheitern lassen (ADR 0060, Punkt 2).
 """
 
 from __future__ import annotations
@@ -63,6 +68,15 @@ Oberflaeche (Doc 14, Stufe K, Schritt 2) und nicht in diesem Schritt -- er
 prueft deshalb nur, dass sie da sind.
 """
 
+NACHFRIST_SEKUNDEN = 10
+"""Wie lange nach dem Abschiessen auf die Leitungen des Prozesses gewartet wird.
+
+Klingt nach einer Kleinigkeit und ist der Unterschied zwischen einem
+gemeldeten Fehlschlag und einem stillstehenden Tageslauf: Haelt ein
+Enkelprozess die Leitungen offen, wartet ``communicate`` ohne Zeitgrenze
+ewig -- und zwar innerhalb der Exportsperre.
+"""
+
 _UMGEBUNG_UEBERNOMMEN = (
     "PATH",
     "HOME",
@@ -74,6 +88,7 @@ _UMGEBUNG_UEBERNOMMEN = (
     "PATHEXT",
     "TEMP",
     "TMP",
+    "TMPDIR",
     "APPDATA",
     "LOCALAPPDATA",
     "PROGRAMFILES",
@@ -85,15 +100,65 @@ _UMGEBUNG_UEBERNOMMEN = (
 
 Eine Erlaubnisliste statt eines Abzugs von ``os.environ``: Damit kann kein
 spaeter hinzukommendes ``ATA_``-Geheimnis versehentlich mitwandern. Node
-braucht den Suchpfad und unter Windows die Handvoll Systemvariablen darunter;
-``NODE_OPTIONS`` steht ausdruecklich nicht dabei, weil darueber Code in den
-Prozess kaeme.
+braucht den Suchpfad und unter Windows die Handvoll Systemvariablen darunter.
+
+**Bewusst eng, nicht vollstaendig.** ``NODE_OPTIONS`` fehlt, weil darueber
+Code in den Prozess kaeme; ``NODE_EXTRA_CA_CERTS`` und die Proxy-Variablen
+fehlen ebenfalls. In einem Netz mit HTTP-Proxy oder aufgebrochenem TLS
+muesste diese Liste erweitert werden -- der Fehler saehe dann nach einem
+Netzproblem aus und waere eines.
 """
 
-_WORKERS_DEV = re.compile(r"https?://([a-z0-9][a-z0-9.-]*\.workers\.dev)", re.IGNORECASE)
+_WORKERS_DEV = re.compile(r"https?://([A-Za-z0-9][A-Za-z0-9_.-]*\.workers\.dev)")
 _GELESEN = re.compile(r"Read (\d+) files? from the assets directory", re.IGNORECASE)
 _GESENDET = re.compile(r"Uploaded (\d+) files?", re.IGNORECASE)
 _VERSION = re.compile(r"Current Version ID:\s*([0-9A-Za-z-]{8,})")
+
+
+def wrangler_befehl(paket: Path) -> list[str]:
+    """Wie das Upload-Werkzeug gestartet wird.
+
+    **Ueber den Paket-Einstieg aus ``main``, nicht ueber den Starter in
+    ``bin``.** Der Starter ist nur ein Vorspann: Er prueft die Node-Version
+    und startet dann `wrangler` als **eigenen Prozess weiter**, der unsere
+    Leitungen erbt. Eine Zeitgrenze liefe damit ins Leere -- abgeschossen
+    wuerde der Vorspann, weitergeladen haette der Enkel, und das Einsammeln
+    der Ausgabe wartete unter Windows ohne Zeitgrenze auf Leitungen, die
+    niemand mehr schliesst. Gemessen am 2026-09-18.
+
+    Der Preis ist die Node-Version, die der Starter sonst prueft: `wrangler`
+    verlangt mindestens 22. Dieselbe Fassung verlangt Doc 14, Stufe J,
+    Schritt 1, und dieselbe baut die CI -- geprueft wird sie dort, nicht hier.
+
+    Raises:
+        DashboardUploadError: wenn das Werkzeug fehlt oder anders aussieht
+            als erwartet. **Kein Abbruch des Laufs:** Das Werkzeug fehlt in
+            aller Regel, weil nach einem ``git pull`` das ``npm ci`` im
+            Frontend ausblieb -- der Baum soll dann geschrieben werden und
+            nur nicht hinausgehen.
+    """
+    beschreibung = paket / "package.json"
+    try:
+        inhalt = json.loads(beschreibung.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as fehler:
+        raise DashboardUploadError(
+            f"Das Upload-Werkzeug ist nicht lesbar ({beschreibung}): {fehler}. "
+            "Auf dem Server gehoert nach jedem 'git pull' ein 'npm ci' im "
+            "Frontend dazu (Doc 14, Stufe K, Schritt 0)."
+        ) from fehler
+
+    einstieg = inhalt.get("main") if isinstance(inhalt, dict) else None
+    if not isinstance(einstieg, str):
+        raise DashboardUploadError(
+            f"Das Upload-Werkzeug nennt keinen Einstieg ({beschreibung}, Feld 'main')."
+        )
+    pfad = (paket / einstieg).resolve()
+    if not pfad.is_file():
+        raise DashboardUploadError(
+            f"Der Einstieg des Upload-Werkzeugs fehlt ({pfad}). Ist 'npm ci' im "
+            "Frontend durchgelaufen?"
+        )
+    return ["node", str(pfad)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,8 +172,13 @@ class Hochladeziel:
     """Das Verzeichnis, das hochgeladen wird -- Oberflaeche und ``data/``."""
     arbeitsverzeichnis: Path
     """Wo die erzeugte Konfigurationsdatei entsteht. **Nicht im Baum.**"""
-    befehl: Sequence[str]
-    """Wie das Werkzeug gestartet wird, z. B. ``["node", ".../wrangler.js"]``."""
+    befehl: Callable[[], Sequence[str]]
+    """Wie das Werkzeug gestartet wird -- **aufgeloest erst beim Upload**.
+
+    Nicht schon beim Bau des Exportschritts: Der laeuft im Tageslauf vor dem
+    Backfill, und ein Fehler dort brechte den ganzen Lauf ab. Ein fehlendes
+    Upload-Werkzeug soll aber nur den Upload kosten.
+    """
     zeitgrenze: int
 
 
@@ -166,16 +236,43 @@ def _starte_prozess(
     ein Einfallstor ohne Not. ``stdin`` ist geschlossen, damit das Werkzeug
     in einem unbeaufsichtigten Lauf nicht auf eine Antwort wartet, die
     niemand gibt.
+
+    **Die Ausgabe wird ausdruecklich als UTF-8 gelesen.** Ohne Angabe nimmt
+    Python die Codierung des Systems -- auf einem deutschen Windows
+    ``cp1252``, und daran zerbricht schon das erste Emoji, das `wrangler`
+    ausgibt. Der Upload waere dann gelungen und der Schritt trotzdem
+    gescheitert. ``errors="replace"``, weil eine unlesbare Protokollzeile
+    kein Grund ist, einen gelungenen Upload zu verwerfen.
+
+    **Und nicht ``subprocess.run``**, sondern von Hand mit Nachfrist: ``run``
+    sammelt nach dem Abschiessen ohne Zeitgrenze ein und bliebe an einem
+    Enkelprozess haengen, der die Leitungen noch haelt.
     """
-    return subprocess.run(
+    with subprocess.Popen(
         list(befehl),
         cwd=arbeitsverzeichnis,
         env=umgebung,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=zeitgrenze,
         stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ) as prozess:
+        try:
+            ausgabe, fehlerausgabe = prozess.communicate(timeout=zeitgrenze)
+        except subprocess.TimeoutExpired:
+            prozess.kill()
+            try:
+                prozess.communicate(timeout=NACHFRIST_SEKUNDEN)
+            except subprocess.TimeoutExpired:
+                _logger.warning(
+                    "Nach dem Abschiessen haelt noch jemand die Leitungen des "
+                    "Upload-Werkzeugs offen. Der Lauf geht trotzdem weiter."
+                )
+            raise
+    return subprocess.CompletedProcess(
+        list(befehl), prozess.returncode, ausgabe, fehlerausgabe
     )
 
 
@@ -188,8 +285,8 @@ class WranglerHochlader:
 
     def lade_hoch(self) -> Hochladebericht:
         self._pruefe_baum()
-        konfiguration = self.schreibe_konfiguration()
-        befehl = [*self._ziel.befehl, "deploy", "--config", str(konfiguration)]
+        self._pruefe_arbeitsverzeichnis()
+        befehl = [*self._ziel.befehl(), "deploy", "--config", str(self.schreibe_konfiguration())]
 
         _logger.info("Datenbaum geht hinaus: %s", self._ziel.baum)
         begonnen = time.monotonic()
@@ -233,27 +330,34 @@ class WranglerHochlader:
         aufloest (am 2026-09-17 beobachtet) und der Aufruf ohnehin aus ihrem
         Verzeichnis kommt -- damit stimmen beide Lesarten ueberein.
         """
-        self._ziel.arbeitsverzeichnis.mkdir(parents=True, exist_ok=True)
-        pfad = self._ziel.arbeitsverzeichnis / KONFIGURATIONSNAME
-        verzeichnis = os.path.relpath(self._ziel.baum, self._ziel.arbeitsverzeichnis)
-        pfad.write_text(
-            "{\n"
-            "  // Erzeugt vom Exportschritt, bei jedem Upload neu (ADR 0060, E4).\n"
-            "  // Aenderungen von Hand gehen beim naechsten Lauf verloren.\n"
-            f"  \"name\": {json.dumps(self._ziel.worker)},\n"
-            f"  \"compatibility_date\": \"{KOMPATIBILITAETSDATUM}\",\n"
-            "  \"workers_dev\": true,\n"
-            "  // Ausdruecklich, und das ist die Falle dieser Datei: preview_urls\n"
-            "  // folgt ohne Angabe dem Wert von workers_dev, also true. Ein Upload\n"
-            "  // ohne diese Zeile schaltete abgeschaltete Vorschau-Adressen\n"
-            "  // stillschweigend wieder ein -- und weil Salt und Baumkennung ueber\n"
-            "  // alle Exporte stabil sind, stuenden damit alle je hochgeladenen\n"
-            "  // Fassungen wieder unter demselben Schluessel erreichbar.\n"
-            "  \"preview_urls\": false,\n"
-            f"  \"assets\": {{ \"directory\": {json.dumps(verzeichnis.replace(os.sep, '/'))} }}\n"
-            "}\n",
-            encoding="utf-8",
-        )
+        try:
+            self._ziel.arbeitsverzeichnis.mkdir(parents=True, exist_ok=True)
+            pfad = self._ziel.arbeitsverzeichnis / KONFIGURATIONSNAME
+            verzeichnis = os.path.relpath(self._ziel.baum, self._ziel.arbeitsverzeichnis)
+            pfad.write_text(
+                "{\n"
+                "  // Erzeugt vom Exportschritt, bei jedem Upload neu (ADR 0060, E4).\n"
+                "  // Aenderungen von Hand gehen beim naechsten Lauf verloren.\n"
+                f'  "name": {json.dumps(self._ziel.worker)},\n'
+                f'  "compatibility_date": "{KOMPATIBILITAETSDATUM}",\n'
+                '  "workers_dev": true,\n'
+                "  // Ausdruecklich, und das ist die Falle dieser Datei: preview_urls\n"
+                "  // folgt ohne Angabe dem Wert von workers_dev, also true. Ein Upload\n"
+                "  // ohne diese Zeile schaltete abgeschaltete Vorschau-Adressen\n"
+                "  // stillschweigend wieder ein -- und weil Salt und Baumkennung ueber\n"
+                "  // alle Exporte stabil sind, stuenden damit alle je hochgeladenen\n"
+                "  // Fassungen wieder unter demselben Schluessel erreichbar.\n"
+                '  "preview_urls": false,\n'
+                f'  "assets": {{ "directory": '
+                f"{json.dumps(verzeichnis.replace(os.sep, '/'))} }}\n"
+                "}\n",
+                encoding="utf-8",
+            )
+        except OSError as fehler:
+            raise DashboardUploadError(
+                f"Die Konfiguration fuer den Upload liess sich nicht schreiben: {fehler}. "
+                "Der Datenbaum liegt geschrieben auf dem Server."
+            ) from fehler
         return pfad
 
     def _pruefe_baum(self) -> None:
@@ -265,6 +369,24 @@ class WranglerHochlader:
             "Oberflaeche und ohne Sicherheits-Header hinaus. Beide entstehen beim "
             "Bau der Oberflaeche (Doc 14, Stufe K, Schritt 2), nicht in diesem Schritt."
         )
+
+    def _pruefe_arbeitsverzeichnis(self) -> None:
+        """Keine ``.env`` neben der Konfigurationsdatei.
+
+        `wrangler` liest eine ``.env`` neben seiner Konfiguration ein. Laege
+        das Arbeitsverzeichnis versehentlich in der Projektwurzel, bekaeme
+        das fremde Werkzeug damit **jedes** ``ATA_``-Geheimnis in die Hand --
+        an der Erlaubnisliste in ``_umgebung`` vorbei, die genau das
+        verhindern soll. Die Zusage dieses Moduls haengt also nicht nur an
+        der Liste, sondern auch daran, wo gearbeitet wird.
+        """
+        env = self._ziel.arbeitsverzeichnis / ".env"
+        if env.exists():
+            raise DashboardUploadError(
+                f"Neben der Upload-Konfiguration liegt eine .env ({env}). Das Werkzeug "
+                "liest sie ein, und darin stehen die ATA_-Geheimnisse. "
+                "dashboard_export.upload_directory gehoert an einen eigenen Ort."
+            )
 
     def _umgebung(self) -> dict[str, str]:
         umgebung = {
@@ -288,6 +410,11 @@ class WranglerHochlader:
         eine Vorschau ``<kennung>-<worker>.<konto>.workers.dev``: Das erste
         Namensglied unterscheidet die beiden. Eine Formulierungsaenderung im
         naechsten Werkzeug laesst diese Probe damit unberuehrt.
+
+        **Sie ist trotzdem nur die zweite Sperre.** Nennt das Werkzeug eine
+        vergebene Vorschau-Adresse gar nicht, sieht sie nichts. Die tragende
+        Sperre ist ``"preview_urls": false`` in der Konfiguration, die dieses
+        Modul selbst schreibt.
         """
         erwartet = self._ziel.worker.casefold()
         vorschauen = sorted(

@@ -915,10 +915,13 @@ node --version
 npm --version
 ```
 
-Node wird **nur zum Bauen** gebraucht, nicht zur Laufzeit
-([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Ohne Node gibt es
-keinen Export und damit kein Dashboard — die API und der Tageslauf laufen aber
-weiter.
+Node läuft **nicht als Dienst** — es gibt keinen dauerhaften Node-Prozess und
+keinen zweiten Port ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)).
+Es wird aber an zwei Stellen gebraucht: zum **Bauen** der Oberfläche, und seit
+Stufe L **im Tageslauf**, wo der Exportschritt den Datenbaum mit `wrangler`
+zum Anbieter sendet (Nachtrag zu ADR 0052 vom 2026-09-18). Ohne Node gibt es
+keinen Export und der Baum bleibt liegen — die API und der Tageslauf laufen
+aber weiter.
 
 **Gebraucht wird Node 22 (LTS) — dieselbe Hauptversion, mit der die CI baut**
 (`.github/workflows/ci.yml`, Job „Frontend"; `@types/node` im
@@ -1744,11 +1747,17 @@ Frontend (Stufe K, Schritt 0). Dann von Hand:
 cd C:\Users\Administrator\Documents\TradingViewAnalyzer\backend
 
 # Erst ohne Netz: schreibt den Baum, sendet ihn nicht.
-.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --no-upload
+.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --dashboard-export directory
 
-# Und dann wirklich -- dashboard_export.target muss auf "cloudflare" stehen.
-.venv\Scripts\python.exe -m ai_trading_analyst.cli publish
+# Und dann wirklich.
+.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --dashboard-export cloudflare
 ```
+
+**Der Schalter ist nötig, und das ist Absicht.** In `config/default.yaml`
+steht `target: none` — geschaltet wird über die Aufgabenplanung, weil die
+Datei im öffentlichen Repository versioniert ist. `publish` ohne Schalter
+folgt dieser Datei und meldet deshalb „Der Dashboard-Export ist
+abgeschaltet". Derselbe Schalter, derselbe Wertevorrat wie bei `dispatch`.
 
 Die Ausgabe nennt Dateizahlen, die Versionskennung und die Dauer. **Sie darf
 keine Vorschau-Adresse nennen** — täte sie es, bräche der Befehl mit

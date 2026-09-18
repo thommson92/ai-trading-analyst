@@ -15,6 +15,7 @@ hat.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -34,6 +35,10 @@ from ai_trading_analyst.config.settings import (
     Secrets,
 )
 from ai_trading_analyst.domain.analysis import MarketDataUnavailableError, UnitOfWork
+from ai_trading_analyst.domain.scheduling import (
+    DashboardPreviewUrlError,
+    DashboardUploadError,
+)
 from ai_trading_analyst.infrastructure.ibkr import IbkrMarketDataProvider
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.publishing import MINDEST_ITERATIONEN
@@ -232,15 +237,101 @@ class TestKommandozeile:
 
         assert config.dashboard_export.target == "directory"
 
-    def test_ohne_schalter_wird_gesendet(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _, argumente = self._publish(monkeypatch, "cloudflare")
+    def _publish_mit_fehler(
+        self, monkeypatch: pytest.MonkeyPatch, fehler: Exception, *argumente: str
+    ) -> tuple[int, str]:
+        from types import SimpleNamespace
 
-        assert argumente == {"voll": False, "senden": True}
+        from ai_trading_analyst import cli
 
-    def test_no_upload_laesst_den_baum_liegen(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _, argumente = self._publish(monkeypatch, "cloudflare", "--no-upload")
+        geladen = load_config()
+        vorgabe = SimpleNamespace(
+            config=konfiguration(target="cloudflare", directory="var/vorgabe"),
+            source_path=geladen.source_path,
+        )
 
-        assert argumente["senden"] is False
+        class _Veroeffentlicher:
+            def schreibe_baum(self, **_: object) -> object:
+                raise fehler
+
+        monkeypatch.setattr(cli, "load_config", lambda *_: vorgabe)
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda _: None)
+        monkeypatch.setattr(cli, "build_dashboard_publisher", lambda *a, **k: _Veroeffentlicher())
+
+        import contextlib
+        import io
+
+        auffang = io.StringIO()
+        with contextlib.redirect_stderr(auffang):
+            code = cli.main(["publish", *argumente])
+        return code, auffang.getvalue()
+
+    def test_ein_upload_fehler_ergibt_rueckgabewert_eins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        code, ausgabe = self._publish_mit_fehler(
+            monkeypatch, DashboardUploadError("Leitung weg")
+        )
+
+        assert code == 1
+        assert "nicht gesendet" in ausgabe
+
+    def test_ein_vorschau_befund_ergibt_rueckgabewert_eins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Baum ist draussen -- trotzdem 1: Ein Sicherheitsbefund soll
+        nicht in einer gruenen Ausgabe untergehen."""
+        code, ausgabe = self._publish_mit_fehler(
+            monkeypatch, DashboardPreviewUrlError("eine Vorschau-Adresse")
+        )
+
+        assert code == 1
+        assert "gesendet, aber" in ausgabe
+
+    def test_die_ausgabe_wird_geschwaerzt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """In der Meldung steckt woertlich die Ausgabe eines fremden
+        Werkzeugs -- anders als die Logzeilen ginge ``print`` sonst an der
+        Schwaerzung vorbei (ADR 0044)."""
+        from ai_trading_analyst.observability.secret_redaction import (
+            forget_secrets,
+            register_secret,
+        )
+
+        register_secret("ein-token-mit-genau-einem-recht")
+        try:
+            _, ausgabe = self._publish_mit_fehler(
+                monkeypatch,
+                DashboardUploadError("Ausgabe: token=ein-token-mit-genau-einem-recht"),
+            )
+        finally:
+            forget_secrets()
+
+        assert "ein-token-mit-genau-einem-recht" not in ausgabe
+
+    def test_der_schalter_uebersteuert_das_ziel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auf dem Server steht das Ziel in der Aufgabenplanung und nicht in
+        der Konfigurationsdatei -- von Hand braucht es deshalb denselben
+        Schalter wie bei 'dispatch'."""
+        config, argumente = self._publish(
+            monkeypatch, "none", "--dashboard-export", "cloudflare"
+        )
+
+        assert config.dashboard_export.target == "cloudflare"
+        assert config.dashboard_export.directory == "var/vorgabe"
+        assert argumente == {"voll": False}
+
+    def test_directory_uebersteuert_kein_ausdrueckliches_ziel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config, _ = self._publish(
+            monkeypatch, "none", "--dashboard-export", "directory", "--directory", "var/probe"
+        )
+
+        assert config.dashboard_export.target == "directory"
+        assert config.dashboard_export.directory == "var/probe"
 
 
 class TestChartquelle:
@@ -417,28 +508,14 @@ class TestDerWegNachDraussen:
         with pytest.raises(MissingSecretError, match=fehlend.upper()):
             baue(cloudflare(), secrets, tmp_path)
 
-    def test_ohne_werkzeug_nennt_der_abbruch_den_handgriff(self, tmp_path: Path) -> None:
-        """Auf dem Server heisst dieser Fall fast immer: nach dem ``git pull``
-        das ``npm ci`` im Frontend vergessen."""
-        with pytest.raises(ValueError, match="npm ci"):
-            baue(cloudflare(), geheimnisse(), tmp_path)
-
-    def test_ein_werkzeug_ohne_einstiegspunkt_bricht_ab(self, tmp_path: Path) -> None:
-        paket = mit_wrangler(tmp_path)
-        (paket / "package.json").write_text('{"name": "wrangler"}', encoding="utf-8")
-
-        with pytest.raises(ValueError, match="Einstiegspunkt"):
-            baue(cloudflare(), geheimnisse(), tmp_path)
-
-    def test_eine_kaputte_paketdatei_bricht_sauber_ab(self, tmp_path: Path) -> None:
-        """Ein Syntaxfehler ist **kein** OSError. Ungefangen flog er als
-        Traceback aus dem Tageslauf heraus -- und der haette dann gar nicht
-        erst gerechnet, statt den Baum nur nicht zu senden."""
-        paket = mit_wrangler(tmp_path)
-        (paket / "package.json").write_text("{kaputt", encoding="utf-8")
-
-        with pytest.raises(ValueError, match="Upload-Werkzeug"):
-            baue(cloudflare(), geheimnisse(), tmp_path)
+    def test_ein_fehlendes_werkzeug_bricht_den_bau_nicht_ab(self, tmp_path: Path) -> None:
+        """**Der wichtigste Unterschied zur Passphrase.** Dieser Bau laeuft
+        im Tageslauf vor dem Backfill; ein Abbruch hier kostet Screening,
+        Analyse und Ergebnismeldung. Ein vergessenes 'npm ci' -- der
+        Handgriff, den Doc 14 selbst "leicht zu vergessen" nennt -- darf
+        aber nur den Upload kosten. Der Fehler faellt spaeter an, als
+        DashboardUploadError, und wird dort isoliert."""
+        assert baue(cloudflare(), geheimnisse(), tmp_path) is not None
 
     def test_die_konfiguration_darf_nicht_im_datenbaum_liegen(self, tmp_path: Path) -> None:
         """Dieselbe Begruendung wie beim Zustandsvermerk: Sie nennt den
@@ -453,12 +530,32 @@ class TestDerWegNachDraussen:
             )
 
     def test_ohne_angabe_liegt_sie_neben_dem_baum(self, tmp_path: Path) -> None:
+        """Geprueft an der Datei, die wirklich entsteht -- damit haengt der
+        Test am Verhalten und nicht an der Form der Verdrahtung."""
         mit_wrangler(tmp_path)
         veroeffentlicher = baue(cloudflare(), geheimnisse(), tmp_path)
 
-        hochlader = veroeffentlicher._hochlader  # type: ignore[attr-defined]
-        assert hochlader._ziel.arbeitsverzeichnis == (tmp_path / "var" / "dashboard.upload")
-        assert hochlader._ziel.befehl[0] == "node"
+        pfad = veroeffentlicher._hochlader.schreibe_konfiguration()  # type: ignore[attr-defined]
+
+        assert pfad == tmp_path / "var" / "dashboard.upload" / "wrangler.jsonc"
+        assert '"directory": "../dashboard"' in pfad.read_text(encoding="utf-8")
+
+    @pytest.mark.skipif(
+        os.name != "nt",
+        reason=(
+            "Nur Windows kennt mehrere Anker. Unter POSIX gibt es genau einen, "
+            "und damit den Fall nicht -- der Windows-Job der CI faehrt den Test."
+        ),
+    )
+    def test_ein_anderes_laufwerk_bricht_ab(self, tmp_path: Path) -> None:
+        """Ueber Laufwerksgrenzen gibt es keinen relativen Pfad, und das
+        Werkzeug loest den Zielpfad relativ zu seiner Konfiguration auf.
+        ``os.path.relpath`` braeche sonst mitten im Upload ab."""
+        mit_wrangler(tmp_path)
+        anderes = "Z:\\woanders" if tmp_path.drive != "Z:" else "Y:\\woanders"
+
+        with pytest.raises(ValueError, match="Laufwerk"):
+            baue(cloudflare(upload_directory=anderes), geheimnisse(), tmp_path)
 
     def test_directory_verdrahtet_keinen_upload(self, tmp_path: Path) -> None:
         """Die Rueckfallstufe: schreiben, ohne zu senden -- und ohne dass

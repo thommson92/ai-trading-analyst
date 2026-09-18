@@ -476,12 +476,22 @@ ein Stück Anbieter-Protokoll zu pflegen, das der Anbieter selbst pflegt.
 
 **Damit tritt Node in die produktive Kette.** Das zieht den in ADR 0052
 vorgesehenen Nachtrag zu dessen Punkt 2 nach sich: Node ist nicht mehr nur
-Bauwerkzeug, sondern läuft im nächtlichen Tageslauf mit. Die Fassung ist
-gepinnt — `wrangler` liegt als Entwicklungsabhängigkeit im Frontend und
-damit in dessen Lock-Datei, die CI prüft und der Audit-Job wöchentlich
-ansieht. Ein `npx wrangler@4`, wie es von Hand erprobt wurde, hätte
-stattdessen bei jedem Nachladen eine ungeprüfte Fassung in den Lauf geholt
-und ihn ans Netz gehängt.
+Bauwerkzeug, sondern läuft im nächtlichen Tageslauf mit. Die Fassung ist über
+die Lock-Datei festgelegt — `wrangler` liegt als Entwicklungsabhängigkeit im
+Frontend, `npm ci` installiert genau die geprüfte Fassung, die CI installiert
+sie bei jedem Lauf und der Audit-Job sieht sie wöchentlich an. (`package.json`
+nennt eine Caret-Spanne; wer `npm install` statt `npm ci` benutzt, hebt die
+Nebenversion an und schreibt die Lock-Datei fort — das ist der bewusste
+Unterschied zwischen Aktualisieren und Ausliefern.) Ein `npx wrangler@4`, wie
+es von Hand erprobt wurde, hätte stattdessen bei jedem Nachladen eine
+ungeprüfte Fassung in den Lauf geholt und ihn ans Netz gehängt.
+
+**Ein fehlendes Werkzeug kostet den Upload, nicht den Lauf.** Die Suche nach
+`wrangler` sitzt deshalb im Upload und nicht im Bau des Exportschritts: Der
+läuft im Tageslauf vor dem Backfill, und ein Abbruch dort hätte Screening,
+Analyse und Ergebnismeldung mitgenommen — die Umkehrung der Zusage aus
+Punkt 2. Getroffen hätte es ausgerechnet den Handgriff, den die Betriebsdoku
+selbst „leicht zu vergessen" nennt: das `npm ci` nach einem `git pull`.
 
 **Ein drittes Ziel statt eines zweiten Schalters.** `dashboard_export.target`
 kennt jetzt `none | directory | cloudflare`. Geschaltet wird wie bei den
@@ -508,6 +518,28 @@ zweite liest die Ausgabe des Werkzeugs und meldet jede `*.workers.dev`-
 Adresse, deren erstes Namensglied nicht der Worker-Name ist. Sie hängt
 damit an der **Form der Adresse** und nicht am Wortlaut des Werkzeugs, und
 sie ist ausdrücklich nur die Kanarienvogel-Schicht über der ersten.
+
+**Drei Dinge hat erst die Review gefunden**, und alle drei hätten erst im
+Betrieb wehgetan:
+
+- **Der Starter in `bin/wrangler.js` ist nicht `wrangler`**, sondern ein
+  Vorspann, der es als **eigenen Prozess weiterstartet** — mit geerbten
+  Leitungen. Eine Zeitgrenze wäre daran vorbeigelaufen: Abgeschossen worden
+  wäre der Vorspann, weitergeladen hätte der Enkel, und das Einsammeln der
+  Ausgabe hätte unter Windows **ohne Zeitgrenze** auf Leitungen gewartet, die
+  niemand mehr schließt — still, im nächtlichen Lauf, innerhalb der
+  Exportsperre. Gestartet wird deshalb der Paket-Einstieg aus `main`, und das
+  Einsammeln hat eine eigene Nachfrist.
+- **Die Ausgabe wird ausdrücklich als UTF-8 gelesen.** Ohne Angabe nimmt
+  Python die Codierung des Systems, auf einem deutschen Windows `cp1252` —
+  und daran zerbricht schon das erste Emoji, das das Werkzeug ausgibt. Der
+  Upload wäre gelungen und der Schritt trotzdem gescheitert, gemeldet als
+  „nicht aktualisiert", also als die Lage, die am wenigsten stimmt.
+- **Eine `.env` neben der Konfigurationsdatei würde eingelesen.** Das Werkzeug
+  tut das von sich aus; läge das Arbeitsverzeichnis in der Projektwurzel,
+  bekäme es damit jedes `ATA_`-Geheimnis in die Hand — an der Erlaubnisliste
+  vorbei, die genau das verhindern soll. Der Schritt bricht jetzt ab, wenn er
+  dort eine findet.
 
 **Zwei Zusagen, die vorher niemand gegeben hatte**, weil es keinen
 Unterprozess gab:

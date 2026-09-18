@@ -235,16 +235,39 @@ class TestDerWegNachDraussen:
 
         assert hochlader.aufrufe == 0
 
-    def test_senden_false_laesst_den_baum_liegen(self, tmp_path: Path) -> None:
-        """``publish --no-upload``: schreiben, ohne eine Fassung beim
-        Anbieter zu erzeugen."""
-        hochlader = _Hochlader()
+    def test_ein_unerwarteter_fehler_wird_zum_uploadfehler(self, tmp_path: Path) -> None:
+        """**Ab hier ist der Baum immer geschrieben.** Liesse man eine
+        unerwartete Ausnahme durch, meldete der Tageslauf "nicht
+        aktualisiert" -- also genau die Lage, die nicht vorliegt."""
+        hochlader = _Hochlader(fehler=RuntimeError("etwas ganz anderes"))
 
-        bericht = publisher(tmp_path, hochlader=hochlader).schreibe_baum(senden=False)
+        with pytest.raises(DashboardUploadError, match="unerwartet"):
+            publisher(tmp_path, hochlader=hochlader).schreibe_baum()
 
-        assert hochlader.aufrufe == 0
-        assert bericht.hochladen is None
-        assert bericht.schreiben.geschrieben == 1
+    def test_der_upload_laeuft_unter_der_sperre(self, tmp_path: Path) -> None:
+        """Zwei Uploads desselben Workers zugleich soll es nicht geben --
+        und die Sperre ist das einzige, was das verhindert."""
+        gesehen: list[bool] = []
+
+        class _SchautNachDerSperre:
+            def lade_hoch(self) -> Hochladebericht:
+                gesehen.append((tmp_path / "zustand.json.lock").exists())
+                return Hochladebericht(
+                    dateien_gesamt=1, dateien_gesendet=1, version="v1", dauer_sekunden=0.1
+                )
+
+        SnapshotPublisher(
+            snapshot=lambda: baum(("data/manifest.json", b"{}")),
+            ziel=Exportziel(
+                wurzel=tmp_path / "public",
+                zustandsdatei=tmp_path / "zustand.json",
+                passphrase=PASSPHRASE,
+                iterationen=MINDEST_ITERATIONEN,
+            ),
+            hochlader=_SchautNachDerSperre(),
+        ).schreibe_baum()
+
+        assert gesehen == [True]
 
     def test_ein_gescheiterter_upload_laesst_den_baum_geschrieben(self, tmp_path: Path) -> None:
         """Der Zustand ist zu diesem Zeitpunkt gespeichert, und das soll so

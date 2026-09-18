@@ -164,17 +164,13 @@ class SnapshotPublisher:
         """
         self.schreibe_baum()
 
-    def schreibe_baum(self, *, voll: bool = False, senden: bool = True) -> Exportbericht:
+    def schreibe_baum(self, *, voll: bool = False) -> Exportbericht:
         """Schreibt den Snapshot und sendet ihn, wenn ein Hochlader da ist.
 
         ``voll`` verwirft den bekannten Stand und schreibt jede Datei neu.
         Das ist der Weg nach einem Anbieterwechsel und nach jedem Zweifel,
         ob draussen wirklich steht, was hier liegt -- der Zustand behauptet
         etwas ueber ein Verzeichnis, das er nicht selbst kontrolliert.
-
-        ``senden=False`` laesst den Baum liegen, auch wenn ein Hochlader
-        verdrahtet ist. Das ist der Weg fuer einen Handgriff ohne Netz und
-        ohne neue Fassung beim Anbieter.
 
         **Gesendet wird unter derselben Sperre, unter der geschrieben wird.**
         Zwei Uploads desselben Workers zugleich gaebe es sonst genauso wie
@@ -216,7 +212,7 @@ class SnapshotPublisher:
             # ein Upload-Fehler und keiner beim Schreiben -- die beiden Lagen
             # verlangen verschiedene Meldungen, weil im einen Fall der Server
             # dem Anbieter voraus ist und im anderen nicht.
-            hochgeladen = self._sende(geschrieben) if senden else None
+            hochgeladen = self._sende(geschrieben)
 
         bericht = Exportbericht(schreiben=geschrieben, hochladen=hochgeladen)
         _logger.info(
@@ -227,13 +223,28 @@ class SnapshotPublisher:
         return bericht
 
     def _sende(self, geschrieben: Schreibbericht) -> Hochladebericht | None:
+        """Der Baum geht hinaus -- oder es gibt einen Upload-Fehler.
+
+        **Breit gefangen, und das ist hier kein stiller Rueckfall.** Hinter
+        diesem Aufruf steht ein fremder Prozess, also eine echte
+        Systemgrenze. Entscheidend ist aber ein anderer Punkt: Ab hier ist
+        der Baum **immer** geschrieben. Liesse man eine unerwartete Ausnahme
+        durch, faele sie im Tageslauf in den allgemeinen Zweig und meldete
+        "Dashboard nicht aktualisiert" -- also genau die Lage, die nicht
+        vorliegt. Die Unterscheidung "der Server ist voraus" ist die Zusage,
+        die dieser Schritt gibt; sie darf nicht daran haengen, welche
+        Ausnahmeart ein Adapter gerade wirft.
+        """
         if self._hochlader is None:
             return None
         try:
             return self._hochlader.lade_hoch()
-        except OSError as fehler:
+        except DashboardPublisherError:
+            # Schon eingeordnet -- unveraendert weiterreichen.
+            raise
+        except Exception as fehler:
             raise DashboardUploadError(
-                f"Der Upload liess sich nicht vorbereiten: {fehler}. Der Datenbaum "
+                f"Der Upload ist unerwartet gescheitert: {fehler!r}. Der Datenbaum "
                 f"({geschrieben.dateien} Dateien) liegt geschrieben auf dem Server."
             ) from fehler
 

@@ -10,9 +10,8 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterator, Sequence
-from functools import cache
+from functools import cache, partial
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -122,6 +121,7 @@ from ai_trading_analyst.infrastructure.publishing import (
     Hochladeziel,
     SnapshotPublisher,
     WranglerHochlader,
+    wrangler_befehl,
 )
 from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.infrastructure.watchlists import (
@@ -872,42 +872,15 @@ def _build_hochlader(
             token=secrets.require("dashboard_publish_token"),
             baum=verzeichnis,
             arbeitsverzeichnis=arbeitsverzeichnis,
-            befehl=_wrangler_befehl(root),
+            # Erst beim Upload aufgeloest: Ein fehlendes Werkzeug soll den
+            # Upload kosten und nicht den ganzen Lauf -- dieser Bau laeuft
+            # vor dem Backfill, und ein Fehler hier bricht mit 2 ab.
+            befehl=partial(wrangler_befehl, root / "frontend" / "node_modules" / "wrangler"),
             zeitgrenze=einstellungen.upload_timeout_seconds,
         )
     )
 
 
-def _wrangler_befehl(root: Path) -> list[str]:
-    """Wie das Upload-Werkzeug gestartet wird.
-
-    **Ueber ``node`` und den Einstiegspunkt aus dem ``bin``-Feld**, nicht
-    ueber den Aufrufwrapper daneben: Unter Windows waere das eine ``.CMD``,
-    und die reicht ``subprocess`` durch ``cmd.exe`` mit dessen eigenen Regeln
-    fuer Anfuehrungszeichen. Der Umweg ueber ``node`` hat die nicht.
-
-    Das Werkzeug liegt im Frontend und nicht in einem eigenen Projekt: Dort
-    steht schon eine Lock-Datei, die CI prueft sie, und der Audit-Job sieht
-    sie sich woechentlich an. Ein ``npx``-Nachladen zur Laufzeit gaebe es
-    stattdessen nur ungepruefte Fassungen und einen naechtlichen Lauf, der am
-    Netz haengt.
-    """
-    paket = root / "frontend" / "node_modules" / "wrangler" / "package.json"
-    try:
-        beschreibung = json.loads(paket.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as fehler:
-        raise ValueError(
-            f"Das Upload-Werkzeug fehlt ({paket}): {fehler}. Auf dem Server gehoert "
-            "nach jedem 'git pull' ein 'npm ci' im Frontend dazu (Doc 14, Stufe K, "
-            "Schritt 0)."
-        ) from fehler
-
-    eintrag = beschreibung.get("bin", {}).get("wrangler")
-    if not isinstance(eintrag, str):
-        raise ValueError(
-            f"Das Upload-Werkzeug nennt keinen Einstiegspunkt ({paket}, Feld 'bin.wrangler')."
-        )
-    return ["node", str((paket.parent / eintrag).resolve())]
 
 
 def build_app() -> FastAPI:

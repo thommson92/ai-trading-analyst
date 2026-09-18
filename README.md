@@ -480,10 +480,10 @@ cd frontend && NEXT_PUBLIC_DATENMODUS=verschluesselt npm run build
 # Den Datenbaum von Hand schreiben und senden
 # (der Tageslauf tut beides am Ende jedes Laufs)
 cd backend
-.venv/bin/python -m ai_trading_analyst.cli publish
+.venv/bin/python -m ai_trading_analyst.cli publish --dashboard-export cloudflare
 
 # Nur schreiben, nichts senden -- ohne Netz und ohne neue Fassung draußen
-.venv/bin/python -m ai_trading_analyst.cli publish --no-upload
+.venv/bin/python -m ai_trading_analyst.cli publish --dashboard-export directory
 ```
 
 Geschaltet wird über `--dashboard-export` in der Aufgabenplanung, nicht in
@@ -501,7 +501,9 @@ was sich geändert hat.
 Der Upload läuft über `wrangler` als Unterprozess — damit ist Node nicht nur
 Bauwerkzeug, sondern Teil der produktiven Kette (ADR 0052, Nachtrag). Er
 braucht drei `ATA_`-Werte (Token, Konto, Worker-Name) und ein `npm ci` im
-Frontend. Die Einrichtung beim Anbieter steht in Doc 14, Stufe L.
+Frontend; fehlt eines davon, bleibt der Baum geschrieben liegen und der Lauf
+meldet es, statt zu scheitern. Die Einrichtung beim Anbieter steht in Doc 14,
+Stufe L.
 
 ### Tests mit echtem PostgreSQL
 

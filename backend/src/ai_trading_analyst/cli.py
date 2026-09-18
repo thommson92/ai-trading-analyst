@@ -219,6 +219,7 @@ from ai_trading_analyst.infrastructure.watchlists import (
     load_watchlist_directory,
 )
 from ai_trading_analyst.observability.logging_setup import configure_logging, get_logger
+from ai_trading_analyst.observability.secret_redaction import redact_registered
 from ai_trading_analyst.presentation.report_text import render_run
 from ai_trading_analyst.presentation.validation_chart import (
     build_chart_payload,
@@ -3674,18 +3675,22 @@ def command_publish(args: argparse.Namespace) -> int:
     config = loaded.config
     configure_logging(LoggingConfig(level="INFO", format="console"))
 
-    if args.directory is not None:
-        # **Nur den Pfad, nicht das Ziel** -- ausser der Export ist ganz aus.
-        # Frueher setzte dieser Schalter hart 'directory' und haette damit auf
-        # einem Server, der auf 'cloudflare' steht, den Upload stillschweigend
-        # abgeschaltet. Wer das will, sagt es mit '--no-upload'.
-        ziel = config.dashboard_export.target
+    # Erst das Ziel, dann der Pfad -- beide uebersteuern nur diesen Aufruf.
+    ziel = args.dashboard_export or config.dashboard_export.target
+    if args.directory is not None and ziel == "none":
+        # Der Bequemlichkeitsfall aus Doc 14, Stufe K, Schritt 3: Auf einem
+        # Server, der noch nichts exportiert, reicht '--directory'.
+        # **Nur aus 'none' heraus**, und nur ohne ausdrueckliches Ziel: Auf
+        # einem Server, der auf 'cloudflare' steht, haette ein hartes
+        # 'directory' den Upload stillschweigend abgeschaltet.
+        ziel = "directory" if args.dashboard_export is None else ziel
+    if ziel != config.dashboard_export.target or args.directory is not None:
         config = config.model_copy(
             update={
                 "dashboard_export": config.dashboard_export.model_copy(
                     update={
-                        "target": "directory" if ziel == "none" else ziel,
-                        "directory": args.directory,
+                        "target": ziel,
+                        "directory": args.directory or config.dashboard_export.directory,
                     }
                 )
             }
@@ -3696,7 +3701,9 @@ def command_publish(args: argparse.Namespace) -> int:
     if config.dashboard_export.target == "none":
         print(
             "Der Dashboard-Export ist abgeschaltet (dashboard_export.target = 'none'). "
-            "Entweder '--directory <pfad>' mitgeben oder die Konfiguration setzen.",
+            "Fuer diesen Aufruf einschalten: '--dashboard-export directory' schreibt "
+            "den Baum, '--dashboard-export cloudflare' sendet ihn zusaetzlich. "
+            "'--directory <pfad>' allein schreibt ihn ebenfalls.",
             file=sys.stderr,
         )
         return 2
@@ -3721,18 +3728,23 @@ def command_publish(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        bericht = publisher.schreibe_baum(voll=args.full, senden=not args.no_upload)
+        bericht = publisher.schreibe_baum(voll=args.full)
     except DashboardPreviewUrlError as error:
         # Der Baum ist draussen. Trotzdem Rueckgabewert 1: Das hier ist ein
         # Sicherheitsbefund, und er soll nicht in einer gruenen Ausgabe
         # untergehen.
-        print(f"Snapshot gesendet, aber: {error}", file=sys.stderr)
+        print(f"Snapshot gesendet, aber: {redact_registered(str(error))}", file=sys.stderr)
         return 1
     except DashboardUploadError as error:
-        print(f"Snapshot geschrieben, aber nicht gesendet: {error}", file=sys.stderr)
+        # Geschwaerzt wie die Logzeilen: In der Meldung steckt woertlich die
+        # Ausgabe eines fremden Werkzeugs.
+        print(
+            f"Snapshot geschrieben, aber nicht gesendet: {redact_registered(str(error))}",
+            file=sys.stderr,
+        )
         return 1
     except DashboardPublisherError as error:
-        print(f"Snapshot nicht geschrieben: {error}", file=sys.stderr)
+        print(f"Snapshot nicht geschrieben: {redact_registered(str(error))}", file=sys.stderr)
         return 1
 
     print(f"Snapshot geschrieben: {bericht.als_text()}")
@@ -4881,12 +4893,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     publish.add_argument(
-        "--no-upload",
-        action="store_true",
+        "--dashboard-export",
+        choices=("none", "directory", "cloudflare"),
+        default=None,
         help=(
-            "Schreibt den Baum, sendet ihn aber nicht -- auch wenn "
-            "dashboard_export.target auf 'cloudflare' steht. Fuer einen Handgriff "
-            "ohne Netz und ohne neue Fassung beim Anbieter."
+            "Uebersteuert dashboard_export.target nur fuer diesen Aufruf -- derselbe "
+            "Schalter wie bei 'dispatch'. 'cloudflare' schreibt den Baum und sendet "
+            "ihn, 'directory' schreibt ihn nur. **Auf dem Server gebraucht:** Dort "
+            "steht das Ziel in der Aufgabenplanung und nicht in der "
+            "Konfigurationsdatei, und ohne Schalter folgt 'publish' der Datei."
         ),
     )
     publish.set_defaults(handler=command_publish)
