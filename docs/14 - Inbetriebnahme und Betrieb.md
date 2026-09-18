@@ -1283,10 +1283,15 @@ einem Anbieter.
 
 ## Schritt 5 — Im Tageslauf einschalten (erst nach Schritt 4)
 
-In `config/default.yaml` unter `dashboard_export` das Ziel eintragen
-(`directory: var/dashboard`); **geschaltet wird über die Aufgabenplanung**,
-wie bei den Anbietern auch. Dem Eintrag aus Stufe F kommt dafür ein Argument
-hinzu:
+**An `config/default.yaml` wird nichts angefasst.** Der Pfad steht seit dem
+2026-09-18 ausgeliefert darin (`directory: var/dashboard`) — er verrät nichts
+und schaltet nichts ein, solange `target` auf `none` steht. Bis dahin stand er
+auf `null`, und das war ein Fehler: Der Schalter unten wäre auf einen
+Konfigurationsfehler gelaufen und hätte den **ganzen Tageslauf** mit
+Rückgabewert 2 abgebrochen, vor dem Screening.
+
+**Geschaltet wird über die Aufgabenplanung**, wie bei den Anbietern auch. Dem
+Eintrag aus Stufe F kommt dafür ein Argument hinzu:
 
 ```
 --dashboard-export cloudflare

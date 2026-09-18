@@ -570,3 +570,32 @@ class TestDerWegNachDraussen:
         )
 
         assert veroeffentlicher._hochlader is None  # type: ignore[attr-defined]
+
+
+class TestDerAusgelieferteStand:
+    """Was ein Server vorfindet, der nur `git pull` gemacht hat.
+
+    **Der Anlass war ein Fehlschlag bei der Abnahme am 2026-09-18.** Der
+    Pfad stand auf `null`, weil er laut Doc 14 erst beim Einschalten
+    eingetragen werden sollte. Damit lief nicht nur der Handgriff ins
+    Leere -- ein `--dashboard-export cloudflare` in der Aufgabenplanung
+    waere auf denselben Konfigurationsfehler gelaufen und haette den
+    ganzen Tageslauf mit Rueckgabewert 2 abgebrochen, vor dem Screening.
+    """
+
+    def test_der_schalter_allein_genuegt(self, tmp_path: Path) -> None:
+        """Kein zweiter Handgriff an einer versionierten Datei."""
+        mit_wrangler(tmp_path)
+        ausgeliefert = load_config().config.dashboard_export
+
+        geschaltet = ausgeliefert.model_copy(update={"target": "cloudflare"})
+
+        assert baue(
+            load_config().config.model_copy(update={"dashboard_export": geschaltet}),
+            geheimnisse(),
+            tmp_path,
+        ) is not None
+
+    def test_ausgeliefert_bleibt_der_export_aus(self) -> None:
+        """Der Pfad ist ein Ort, kein Betriebszustand."""
+        assert load_config().config.dashboard_export.target == "none"

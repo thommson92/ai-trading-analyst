@@ -467,7 +467,16 @@ dashboard_export:
   # --dashboard-export in der Aufgabenplanung, nicht hier: Diese Datei ist
   # im öffentlichen Repository versioniert.
   target: none
-  directory: null
+  # Der Pfad steht hier, der Schalter nicht. Das ist kein Widerspruch zur
+  # Zeile darüber: "var/dashboard" ist ein Ort, kein Betriebszustand -- er
+  # verrät nichts und schaltet nichts ein, solange target auf "none" steht.
+  #
+  # **Er stand bis zum 2026-09-18 auf null**, und das war ein Fehler: Ein
+  # "--dashboard-export cloudflare" in der Aufgabenplanung wäre damit auf
+  # einen Konfigurationsfehler gelaufen und hätte den ganzen Tageslauf mit
+  # Rückgabewert 2 abgebrochen -- vor dem Screening. Gemerkt bei der
+  # Abnahme auf dem Server.
+  directory: var/dashboard
   # Der Zustand (Hash je Pfad, Salt, Baumkennung) liegt außerhalb des
   # veröffentlichten Verzeichnisses: Er enthält in Stufe 2 die Zuordnung von
   # Pfad zu opakem Namen, und genau die soll der Anbieter nicht sehen. Ohne
