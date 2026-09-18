@@ -704,3 +704,86 @@ th[aria-sort] .sortierpfeil {
   font-size: var(--schrift-xs);
   overflow-wrap: anywhere;
 }
+
+/* --- Einzelaktie und Chart -------------------------------------------------- */
+
+.aktienkopf {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-3);
+  justify-content: space-between;
+  margin-bottom: var(--abstand-4);
+}
+
+.aktienkopf h1 {
+  margin: 0;
+}
+
+.kerzenchart {
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  height: 30rem;
+  max-height: 70vh;
+  min-height: 18rem;
+  overflow: hidden;
+  width: 100%;
+}
+
+.auswahl {
+  align-items: center;
+  color: var(--gedaempft);
+  display: flex;
+  font-size: var(--schrift-s);
+  gap: var(--abstand-2);
+}
+
+.auswahl select {
+  background: var(--grund);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  color: var(--schrift);
+  font: inherit;
+  padding: var(--abstand-1) var(--abstand-2);
+}
+
+.episodenkarte {
+  background: var(--flaeche-erhoben);
+  border: 1px solid var(--akzent);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--abstand-3);
+  margin-top: var(--abstand-3);
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.episodenkarte-kopf {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-3);
+  justify-content: space-between;
+}
+
+.episodenkarte-knoepfe,
+.horizontwahl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2);
+}
+
+.knopf-leicht.aktiv {
+  border-color: var(--akzent);
+  color: var(--akzent);
+}
+
+.knopf-leicht:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 40rem) {
+  .kerzenchart {
+    height: 22rem;
+  }
+}
