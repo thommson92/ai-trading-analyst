@@ -42,8 +42,10 @@ from ai_trading_analyst.domain.options import OptionsStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import (
+    DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
+    DashboardUploadError,
     Notifier,
     NotifierError,
 )
@@ -1957,4 +1959,74 @@ class TestDashboardExport:
         publisher = _FakeDashboardPublisher(DashboardPublisherError("kein Platz"))
         summary = self._lauf(publisher, notifier=StummerKanal())
         assert summary.run.status is RunStatus.COMPLETED
+
+
+class TestDreiAusgaengeDreiMeldungen:
+    """Der Upload kennt drei Ausgaenge, und sie sagen Verschiedenes
+    (ADR 0060, E4).
+
+    Ein gemeinsamer Text waere in zwei von drei Faellen falsch: Beim
+    Schreibfehler steht auf dem Server dasselbe wie draussen, beim
+    Upload-Fehler ist der Server voraus, und beim Befund zu den
+    Vorschau-Adressen ist alles hinausgegangen -- nur eben zu sichtbar.
+    """
+
+    def _melde(self, fehler: Exception) -> tuple[str, str]:
+        kanal = _MitschreibenderKanal()
+        TestDashboardExport()._lauf(_FakeDashboardPublisher(fehler), notifier=kanal)
+        return next(
+            (betreff, text)
+            for betreff, text in kanal.gesendet
+            if betreff.startswith("Dashboard")
+        )
+
+    def test_nicht_geschrieben(self) -> None:
+        betreff, text = self._melde(DashboardPublisherError("kein Platz"))
+        assert betreff == "Dashboard nicht aktualisiert"
+        assert "nicht geschrieben" in text
+
+    def test_geschrieben_aber_nicht_gesendet(self) -> None:
+        betreff, text = self._melde(DashboardUploadError("Leitung weg"))
+        assert betreff == "Dashboard nicht gesendet"
+        assert "geschrieben" in text
+        assert "nicht zum Anbieter gesendet" in text
+
+    def test_gesendet_aber_vorschauen_aktiv(self) -> None:
+        betreff, text = self._melde(DashboardPreviewUrlError("b2c2-name.konto.workers.dev"))
+        assert betreff == "Dashboard: Vorschau-Adressen aktiv"
+        assert "angekommen" in text
+        assert "Aeltere Fassungen" in text
+
+    def test_die_drei_texte_sind_verschieden(self) -> None:
+        """Sonst haette die Unterscheidung keinen Zweck."""
+        texte = {
+            self._melde(fehler)[1]
+            for fehler in (
+                DashboardPublisherError("kein Platz"),
+                DashboardUploadError("Leitung weg"),
+                DashboardPreviewUrlError("eine Adresse"),
+            )
+        }
+        assert len(texte) == 3
+
+    def test_keiner_der_drei_nennt_die_adresse_des_dashboards(self) -> None:
+        """ADR 0040 und E6: kein Inhalt, kein Link, kein Worker-Name."""
+        for fehler in (
+            DashboardUploadError("Leitung weg"),
+            DashboardPreviewUrlError("b2c2-name.konto-subdomain.workers.dev"),
+        ):
+            _, text = self._melde(fehler)
+            assert "workers.dev" not in text
+            assert "http" not in text
+
+    def test_ein_upload_fehler_laesst_den_lauf_gelten(self) -> None:
+        """Dieselbe Zusage wie beim Schreibfehler: Das Ergebnis steht zu
+        diesem Zeitpunkt bereits in der Datenbank."""
+        for fehler in (
+            DashboardUploadError("Leitung weg"),
+            DashboardPreviewUrlError("eine Adresse"),
+        ):
+            summary = TestDashboardExport()._lauf(_FakeDashboardPublisher(fehler))
+            assert summary.run.status is RunStatus.COMPLETED
+            assert summary.run.error_message is None
 
