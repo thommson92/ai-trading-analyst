@@ -6,6 +6,15 @@
 /* --- Rahmen ------------------------------------------------------------ */
 
 .rahmen {
+  /* Die Flaeche der Leiste liegt am Rahmen, nicht an der Leiste: Die ist
+     `sticky` und eine Bildschirmhoehe hoch -- auf einer langen Seite endete
+     ihr Hintergrund sonst mitten im Inhalt. */
+  background: linear-gradient(
+    to right,
+    var(--flaeche) 0 calc(var(--leiste-breite) - 1px),
+    var(--linie) calc(var(--leiste-breite) - 1px) var(--leiste-breite),
+    var(--grund) var(--leiste-breite)
+  );
   display: grid;
   grid-template-columns: var(--leiste-breite) minmax(0, 1fr);
   min-height: 100vh;
@@ -110,6 +119,7 @@
    Ein DOM fuer beide Faelle: Der Menueknopf schaltet nur ein Attribut. */
 @media (max-width: 64rem) {
   .rahmen {
+    background: var(--grund);
     grid-template-columns: minmax(0, 1fr);
   }
 
