@@ -854,6 +854,17 @@ def _build_hochlader(
             "Konfiguration nennt den Worker und darf den Server nicht verlassen."
         )
 
+    if arbeitsverzeichnis.anchor != verzeichnis.anchor:
+        # Das Werkzeug loest den Zielpfad relativ zu seiner
+        # Konfigurationsdatei auf. Ueber Laufwerksgrenzen gibt es keinen
+        # relativen Pfad, und ``os.path.relpath`` bricht dort ab -- mitten
+        # im Upload und mit einer Meldung, die nichts erklaert.
+        raise ValueError(
+            f"dashboard_export.upload_directory ({arbeitsverzeichnis}) liegt auf einem "
+            f"anderen Laufwerk als das veroeffentlichte Verzeichnis ({verzeichnis}). "
+            "Beide muessen auf demselben liegen."
+        )
+
     return WranglerHochlader(
         Hochladeziel(
             worker=secrets.require("dashboard_publish_worker"),
@@ -884,7 +895,7 @@ def _wrangler_befehl(root: Path) -> list[str]:
     paket = root / "frontend" / "node_modules" / "wrangler" / "package.json"
     try:
         beschreibung = json.loads(paket.read_text(encoding="utf-8"))
-    except OSError as fehler:
+    except (OSError, json.JSONDecodeError) as fehler:
         raise ValueError(
             f"Das Upload-Werkzeug fehlt ({paket}): {fehler}. Auf dem Server gehoert "
             "nach jedem 'git pull' ein 'npm ci' im Frontend dazu (Doc 14, Stufe K, "

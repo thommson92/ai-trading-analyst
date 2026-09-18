@@ -285,3 +285,91 @@ class TestVorschauadressen:
         starter = _Starter(ausgabe=f"https://{WORKER.upper()}.konto-subdomain.workers.dev")
 
         hochlader(tmp_path, starter).lade_hoch()
+
+
+class TestEinEchterUnterprozess:
+    """Einmal ohne eingesetzten Starter -- sonst bliebe ``_starte_prozess``
+    selbst ungeprueft, und genau dort sitzt die Umgebung.
+
+    Die Attrappe ist ein Python-Skript und kein Node-Skript: Sie laeuft
+    damit ueberall, wo die Tests laufen, auch auf dem Windows-Runner der
+    CI ohne eingerichtetes Node.
+    """
+
+    def _attrappe(self, tmp_path: Path, quelltext: str) -> list[str]:
+        import sys
+
+        skript = tmp_path / "attrappe.py"
+        skript.write_text(quelltext, encoding="utf-8")
+        return [sys.executable, str(skript)]
+
+    def test_der_ganze_weg_mit_einem_echten_prozess(self, tmp_path: Path) -> None:
+        werkzeug = WranglerHochlader(
+            Hochladeziel(
+                worker=WORKER,
+                konto=KONTO,
+                token=TOKEN,
+                baum=baum(tmp_path),
+                arbeitsverzeichnis=tmp_path / "dashboard.upload",
+                befehl=self._attrappe(
+                    tmp_path,
+                    "import json, os, pathlib, sys\n"
+                    # Beweist zweierlei: Die Konfiguration liegt da, wo der
+                    # Prozess arbeitet, und die Umgebung kam wirklich an.
+                    "konfiguration = pathlib.Path('wrangler.jsonc')\n"
+                    "assert konfiguration.is_file(), 'Konfiguration fehlt im Arbeitsverzeichnis'\n"
+                    "assert os.environ['CLOUDFLARE_API_TOKEN']\n"
+                    "assert not [n for n in os.environ if n.startswith('ATA_')]\n"
+                    "print('Read 804 files from the assets directory')\n"
+                    "print('Uploaded 786 files')\n"
+                    f"print('  https://{WORKER}.konto-subdomain.workers.dev')\n"
+                    "print('Current Version ID: b2c2bdba-5e14-4208-b5aa-e4d92832a983')\n",
+                ),
+                zeitgrenze=60,
+            )
+        )
+
+        bericht = werkzeug.lade_hoch()
+
+        assert bericht.dateien_gesamt == 804
+        assert bericht.dateien_gesendet == 786
+        assert bericht.version == "b2c2bdba-5e14-4208-b5aa-e4d92832a983"
+        assert bericht.dauer_sekunden > 0
+
+    def test_ein_echter_fehlschlag_wird_zum_uploadfehler(self, tmp_path: Path) -> None:
+        werkzeug = WranglerHochlader(
+            Hochladeziel(
+                worker=WORKER,
+                konto=KONTO,
+                token=TOKEN,
+                baum=baum(tmp_path),
+                arbeitsverzeichnis=tmp_path / "dashboard.upload",
+                befehl=self._attrappe(
+                    tmp_path,
+                    "import sys\n"
+                    "print('Authentication error [code: 10000]', file=sys.stderr)\n"
+                    "sys.exit(1)\n",
+                ),
+                zeitgrenze=60,
+            )
+        )
+
+        with pytest.raises(DashboardUploadError, match="10000"):
+            werkzeug.lade_hoch()
+
+    def test_ein_haengender_prozess_wird_beendet(self, tmp_path: Path) -> None:
+        """Ohne Zeitgrenze bliebe der Tageslauf daran haengen -- still."""
+        werkzeug = WranglerHochlader(
+            Hochladeziel(
+                worker=WORKER,
+                konto=KONTO,
+                token=TOKEN,
+                baum=baum(tmp_path),
+                arbeitsverzeichnis=tmp_path / "dashboard.upload",
+                befehl=self._attrappe(tmp_path, "import time\ntime.sleep(60)\n"),
+                zeitgrenze=1,
+            )
+        )
+
+        with pytest.raises(DashboardUploadError, match="nicht geantwortet"):
+            werkzeug.lade_hoch()

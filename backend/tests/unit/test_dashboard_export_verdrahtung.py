@@ -430,6 +430,16 @@ class TestDerWegNachDraussen:
         with pytest.raises(ValueError, match="Einstiegspunkt"):
             baue(cloudflare(), geheimnisse(), tmp_path)
 
+    def test_eine_kaputte_paketdatei_bricht_sauber_ab(self, tmp_path: Path) -> None:
+        """Ein Syntaxfehler ist **kein** OSError. Ungefangen flog er als
+        Traceback aus dem Tageslauf heraus -- und der haette dann gar nicht
+        erst gerechnet, statt den Baum nur nicht zu senden."""
+        paket = mit_wrangler(tmp_path)
+        (paket / "package.json").write_text("{kaputt", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Upload-Werkzeug"):
+            baue(cloudflare(), geheimnisse(), tmp_path)
+
     def test_die_konfiguration_darf_nicht_im_datenbaum_liegen(self, tmp_path: Path) -> None:
         """Dieselbe Begruendung wie beim Zustandsvermerk: Sie nennt den
         Worker beim Namen, und was im Verzeichnis liegt, geht mit hinauf."""
