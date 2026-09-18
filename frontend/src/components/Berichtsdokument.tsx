@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import type { Berichtsabschnitt, JsonWert, ReportDocument } from '@/lib/api';
 import { ABSCHNITT_TEXT, beschrifte, formatZeitpunkt } from '@/lib/format';
 
-function Wert({ wert }: { wert: JsonWert }): ReactNode {
+export function Wert({ wert }: { wert: JsonWert }): ReactNode {
   if (wert === null) {
     // Ein Strich, keine leere Zelle: Der Bericht sagt ausdruecklich, dass
     // hier nichts steht.
@@ -57,7 +57,7 @@ function Wert({ wert }: { wert: JsonWert }): ReactNode {
   );
 }
 
-function Abschnitt({ name, abschnitt }: { name: string; abschnitt: Berichtsabschnitt }): ReactNode {
+export function Abschnitt({ name, abschnitt }: { name: string; abschnitt: Berichtsabschnitt }): ReactNode {
   return (
     <section className="abschnitt">
       <h3>

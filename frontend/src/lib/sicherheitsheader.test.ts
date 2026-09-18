@@ -136,10 +136,14 @@ describe('Die Annahmen hinter dem zugelassenen Inline-Skript', () => {
     const treffer: string[] = [];
     for (const pfad of DATEIEN) {
       for (const fund of readFileSync(pfad, 'utf-8').matchAll(
-        /\b(?:href|src)=(\{(?:berichtAdresse|aktieAdresse|laufAdresse)\(|.{0,3})/g,
+        /\b(?:href|src)=(\{(?:berichtAdresse|aktieAdresse|laufAdresse|sichereAdresse)\(|.{0,3})/g,
       )) {
         const anfang = fund[1] ?? '';
-        if (!/^(["'`]\/|\{`\/|\{(?:berichtAdresse|aktieAdresse|laufAdresse)\()/.test(anfang)) {
+        if (
+          !/^(["'`]\/|\{`\/|\{(?:berichtAdresse|aktieAdresse|laufAdresse|sichereAdresse)\()/.test(
+            anfang,
+          )
+        ) {
           treffer.push(`${pfad.replace(process.cwd(), '')}: ${anfang}`);
         }
       }
@@ -165,6 +169,18 @@ describe('Die Adresshelfer', () => {
     for (const anfang of rueckgaben) {
       expect(anfang, `lib/url.ts: return ${anfang}`).toMatch(/^["'`]\//);
     }
+  });
+});
+
+describe('Die sichere Adresse', () => {
+  it('laesst nur https durch -- der Test bewacht die eine Ausnahme von oben', () => {
+    // `href={sichereAdresse(` ist die einzige Form, in der ein Wert aus
+    // Daten ein Link wird (ADR 0063, Entscheidung 8). Die Funktion muss
+    // deshalb alles ausser https zu Text machen -- und das steht hier, nicht
+    // nur in ihrem eigenen Test, damit niemand sie beilaeufig lockert.
+    const quelle = readFileSync(join(process.cwd(), 'src/lib/adresse.ts'), 'utf-8');
+    const vergleiche = quelle.match(/protocol === '[a-z]+:'/g);
+    expect(vergleiche).toEqual(["protocol === 'https:'"]);
   });
 });
 

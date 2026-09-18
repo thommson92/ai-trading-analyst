@@ -1,47 +1,29 @@
 'use client';
 
-// Die Detailansicht. Adressiert ueber `?id=` und nicht ueber ein
-// Pfadsegment: Ein statischer Export muesste alle Kennungen zur Bauzeit
-// kennen, und Berichte entstehen zur Laufzeit (ADR 0052).
+// Die Berichtsseite laedt das Dokument im Browser (ADR 0052) und reicht es
+// an die Berichtsseite-Komponente weiter, die Kopf und Reiter zeigt.
 
-import Link from 'next/link';
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 
-import { Berichtsdokument } from '@/components/Berichtsdokument';
-import { getReport, type JsonWert, type ReportDocument } from '@/lib/api';
-
-function symbolAus(dokument: ReportDocument): string | null {
-  const inhalt: JsonWert | undefined = dokument.abschnitte['SYMBOL_UND_UNTERNEHMEN']?.inhalt;
-  if (inhalt === null || inhalt === undefined || typeof inhalt !== 'object') {
-    return null;
-  }
-  if (Array.isArray(inhalt)) {
-    return null;
-  }
-  const symbol = inhalt['symbol'];
-  return typeof symbol === 'string' ? symbol : null;
-}
+import { Berichtsseite } from '@/components/bericht/Berichtsseite';
+import { Fehler, Laedt, alsFehlertext } from '@/components/ui/Zustand';
+import { getReport, type ReportDocument } from '@/lib/api';
 
 function BerichtInhalt(): ReactNode {
-  const suchparameter = useSearchParams();
-  const id = suchparameter.get('id');
+  const id = useSearchParams().get('id');
   const [dokument, setDokument] = useState<ReportDocument | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
 
   useEffect(() => {
-    if (id === null) {
-      return;
-    }
+    if (id === null) return;
     let abgemeldet = false;
     getReport(id)
       .then((geladen) => {
         if (!abgemeldet) setDokument(geladen);
       })
       .catch((ursache: unknown) => {
-        if (!abgemeldet) {
-          setFehler(ursache instanceof Error ? ursache.message : String(ursache));
-        }
+        if (!abgemeldet) setFehler(alsFehlertext(ursache));
       });
     return () => {
       abgemeldet = true;
@@ -49,41 +31,21 @@ function BerichtInhalt(): ReactNode {
   }, [id]);
 
   if (id === null) {
-    return <p role="alert">Dieser Aufruf nennt keinen Bericht (`?id=` fehlt).</p>;
+    return <Fehler>Dieser Aufruf nennt keinen Bericht (?id= fehlt).</Fehler>;
   }
-  if (fehler !== null) {
-    return <p role="alert">Der Bericht ist nicht abrufbar: {fehler}.</p>;
-  }
-  if (dokument === null) {
-    return <p>Wird geladen …</p>;
-  }
-
-  const symbol = symbolAus(dokument);
   return (
     <>
-      <h1>{symbol ?? 'Bericht'}</h1>
-      <p>
-        <Link href="/">← Tagesübersicht</Link>
-        {symbol !== null && (
-          <>
-            {' · '}
-            <Link href={`/aktie/?symbol=${encodeURIComponent(symbol)}`}>
-              Historie dieser Aktie
-            </Link>
-          </>
-        )}
-      </p>
-      <Berichtsdokument dokument={dokument} />
+      {fehler !== null && <Fehler>Der Bericht ist nicht erreichbar: {fehler}</Fehler>}
+      {dokument === null && fehler === null && <Laedt was="Bericht wird geladen …" />}
+      {dokument !== null && <Berichtsseite dokument={dokument} />}
     </>
   );
 }
 
-export default function BerichtSeite(): ReactNode {
+export default function BerichtPage(): ReactNode {
   return (
     <main>
-      {/* `useSearchParams` braucht im statischen Export eine Suspense-Grenze:
-          Die Seite wird vorab gebaut, die Parameter kennt erst der Browser. */}
-      <Suspense fallback={<p>Wird geladen …</p>}>
+      <Suspense fallback={<Laedt />}>
         <BerichtInhalt />
       </Suspense>
     </main>
