@@ -1117,6 +1117,21 @@ und den LAN-Build sofort wiederherstellen.
 
 ```powershell
 New-Item -ItemType Directory -Force ..\var\dashboard | Out-Null
+
+# Die alte Oberflaeche zuerst weg, den Datenbaum aber stehen lassen.
+# **Das Sternchen am Pfad und -Force sind beide noetig.** Microsoft
+# dokumentiert -Exclude als wirksam nur dort, wo der Befehl den *Inhalt*
+# eines Elements adressiert; ohne das Sternchen ist das Verhalten
+# versionsabhaengig, und greift die Ausnahme nicht, loescht die Zeile
+# 'data' mit. -Force nimmt versteckte Eintraege mit, die sonst liegen
+# blieben und weiter mit hinausgingen.
+# 'Copy-Item -Force' ueberschreibt nur gleichnamige Dateien, und die Namen
+# der Next-Buendel tragen einen Hash je Build -- ohne dieses Aufraeumen
+# blieben die Buendel *jedes* frueheren Builds liegen und gingen bei jedem
+# Upload mit hinaus. Das Verzeichnis 'data' gehoert dem Exportschritt, der
+# darin selbst aufraeumt.
+Get-ChildItem ..\var\dashboard\* -Force -Exclude data | Remove-Item -Recurse -Force
+
 Copy-Item -Recurse -Force out\* ..\var\dashboard\
 npm run build          # ohne die Variable -- das ist wieder der LAN-Build
 ```
@@ -1291,8 +1306,11 @@ Sekunde**, gegen ein Ziel von zwei.
 Damit ist die Behauptung von ADR 0060 belegt: Echte Daten kommen an, und
 unterwegs war nichts davon lesbar.
 
-**Offen bleiben** die Sicherheits-Header (Anforderung G) und der Upload aus
-dem Exportschritt heraus — bis dahin ist Schritt 6 Handarbeit.
+**Die Sicherheits-Header sind seit dem 2026-09-17 dabei** — sie liegen als
+`frontend/public/_headers` im Repository und werden von `next build` nach
+`out/` kopiert, gehen also mit jedem Upload mit. Workers liest die Datei und
+liefert sie selbst nicht aus. **Offen bleibt** der Upload aus dem
+Exportschritt heraus; bis dahin ist Schritt 6 Handarbeit.
 
 Diese Stufe setzt die Anbieterentscheidung um
 ([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
@@ -1685,11 +1703,52 @@ mit hinauf.
 - Die Dauer bis zum geöffneten Stand auf dem Smartphone (**AK16**, Ziel:
   unter zwei Sekunden) — die Messung, die bisher nicht möglich war.
 
-**Noch offen und nicht Teil dieser Abnahme:** die Sicherheits-Header
-(Anforderung G). Workers liest dafür eine `_headers`-Datei im
-Asset-Verzeichnis und liefert sie selbst nicht aus; welche
-`Content-Security-Policy` der statische Export verträgt, muss gemessen
-werden.
+### Die Sicherheits-Header
+
+Sie liegen als `frontend/public/_headers` im Repository und kommen über
+`next build` in den Export; hochzuladen ist nichts Zusätzliches. Nach dem
+ersten Upload einmal prüfen — Entwicklerwerkzeuge, Reiter *Netzwerk*, das
+Dokument anklicken, Antwort-Header:
+
+- `Content-Security-Policy` mit `default-src 'none'` und
+  `frame-ancestors 'none'`
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
+- `Strict-Transport-Security` mit einem `max-age` im Jahresbereich
+- bei einer Datei unter `/data/` zusätzlich `Cache-Control: no-store`
+
+Die Dateien unter `/data/` erscheinen im Netzwerkreiter erst **nach** der
+Passphrase — vorher hat die Seite nur ihr eigenes HTML geholt.
+
+**Zwei Zugeständnisse stehen darin, beide gemessen und begründet.**
+`script-src` erlaubt `'unsafe-inline'`: Next legt je Seite sieben
+Inline-Skripte mit den RSC-Nutzdaten ab, die sich mit jedem Build ändern.
+Hashes wären nur über einen Generator zu halten, dessen Fehler das Dashboard
+beim Anbieter unbrauchbar machte. `style-src` erlaubt es ebenfalls, weil
+`recharts` zur Laufzeit `style`-Attribute auf die SVG-Elemente setzt.
+
+**Das Zugeständnis öffnet zwei Senken, nicht eine**, und beide sind heute
+verschlossen: eingeschleustes rohes HTML — das Frontend setzt nirgends
+welches ein, React maskiert jeden Berichtstext — und **`javascript:`-URLs**,
+die `script-src` bewertet und `'unsafe-inline'` erlaubt. Jedes `href` und
+`src` hat heute ein konstantes Präfix. Die zweite Bedingung fällt, sobald
+Quellen-URLs aus Berichten klickbar werden; das ist bei „Quellenbindung" der
+naheliegende nächste Schritt, und der Berichtstext stammt aus einem
+Sprachmodell.
+
+Ein Test in `frontend/src/lib/sicherheitsheader.test.ts` bewacht beides: die
+Richtlinie selbst und die Annahme, auf der das Zugeständnis ruht — wer
+`dangerouslySetInnerHTML` einführt, bekommt einen roten Test mit der
+Begründung.
+
+**Am 2026-09-17 beim Anbieter geprüft:** Die Konsole bleibt leer, es wird
+also nichts blockiert; alle Header stehen am Dokument, `Cache-Control:
+no-store` an den Dateien unter `/data/`; und der Kursverlauf zeichnet
+unverändert — das war die Probe auf `style-src`, denn `recharts` hätte ohne
+das Zugeständnis seine Größen nicht setzen können.
+
+**Wogegen diese Header nicht helfen:** gegen einen gestohlenen Deploy-Token.
+Wer beim Anbieter schreiben darf, ersetzt `_headers` mit demselben Upload.
+Dagegen steht die Zugriffsregel, die außerhalb des Deployments liegt.
 
 ## Schritt 7 — Alte Versionen
 

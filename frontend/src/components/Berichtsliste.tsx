@@ -36,7 +36,7 @@ export function Berichtsliste({ berichte, mitDatum = false }: BerichtslisteProps
           <tr key={bericht.report_id}>
             {mitDatum && <td>{formatZeitpunkt(bericht.created_at)}</td>}
             <td>
-              <Link href={`/bericht/?id=${bericht.report_id}`}>{bericht.symbol}</Link>
+              <Link href={`/bericht/?id=${encodeURIComponent(bericht.report_id)}`}>{bericht.symbol}</Link>
             </td>
             <td>{formatEmpfehlung(bericht.recommendation)}</td>
             <td className="zahl">{formatScore(bericht.swing_score)}</td>

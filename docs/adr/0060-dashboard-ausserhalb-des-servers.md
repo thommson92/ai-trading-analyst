@@ -436,10 +436,19 @@ beschieden: GitHub als Identitätsanbieter.
 
 **Was die Umsetzung noch schuldig bleibt** — Umsetzung, nicht Entscheidung:
 
-1. **Sicherheits-Header** (Abschnitt 8.3, Anforderung G). Workers liest
-   dafür eine `_headers`-Datei im Asset-Verzeichnis; welche
-   `Content-Security-Policy` der statische Export ohne `'unsafe-inline'`
-   verträgt, ist ungemessen.
+1. ~~**Sicherheits-Header**~~ — **erledigt am 2026-09-17.**
+   `frontend/public/_headers` liegt im Repository und kommt über
+   `next build` in den Export. Die Messung hat ergeben: `'unsafe-inline'`
+   ist bei `script-src` nicht zu vermeiden (Next legt je Seite sieben
+   Inline-Skripte ab, die sich mit jedem Build ändern) und bei `style-src`
+   ebenfalls nötig (`recharts` setzt zur Laufzeit `style`-Attribute).
+   Zugelassen wurde es als bewusstes Zugeständnis, weil die beiden Senken,
+   die es öffnet, heute verschlossen sind: Das Frontend setzt nirgends rohes
+   HTML ein, und jedes `href`/`src` hat ein konstantes Präfix — sonst ließe
+   `'unsafe-inline'` eine `javascript:`-URL aus Berichtsdaten zu. Zwei Tests
+   bewachen genau diese beiden Annahmen.
+   Alles Übrige ist streng: `default-src 'none'`, kein `eval`, keine fremde
+   Herkunft, `frame-ancestors 'none'`, `no-store` für den Datenbaum.
 2. **Der Upload aus dem Exportschritt heraus** (Entscheidung **E4**).
    Erprobt ist `wrangler` als Unterprozess; bis zum Einbau ist Schritt 6
    der Stufe L Handarbeit, und der Exportschritt bleibt im Tageslauf
