@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 // Beide Backtests einer Aktie -- getrennt.
 //
@@ -6,62 +6,77 @@
 // damit Geld verdienen ließe. Zwei Fragen, und sie stehen in zwei Blöcken.
 // Eine gemeinsame Zahl gibt es nirgends.
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from "react";
 
-import { Ergebnisverteilung } from '@/components/Ergebnisverteilung';
-import { Kursverlauf } from '@/components/Kursverlauf';
-import { Messungskopf } from '@/components/Messungskopf';
-import { Signalbacktest } from '@/components/Signalbacktest';
-import { Variantenvergleich } from '@/components/Variantenvergleich';
+import { Ergebnisverteilung } from "@/components/Ergebnisverteilung";
+import { Kursverlauf } from "@/components/Kursverlauf";
+import { Messungskopf } from "@/components/Messungskopf";
+import { Signalbacktest } from "@/components/Signalbacktest";
+import { Variantenvergleich } from "@/components/Variantenvergleich";
 import {
   getAktienBacktest,
   getChart,
   type AktienBacktest,
   type Chartdaten,
-} from '@/lib/api';
-import { AUSGANG_TEXT, formatDatum, formatGeld, formatProzent } from '@/lib/format';
+} from "@/lib/api";
+import {
+  AUSGANG_TEXT,
+  formatDatum,
+  formatGeld,
+  formatProzent,
+} from "@/lib/format";
 
 function Tradetabelle({ backtest }: { backtest: AktienBacktest }): ReactNode {
   if (backtest.trades.length === 0) return null;
   return (
     <details className="tradeliste">
       <summary>Alle {backtest.trades.length} simulierten Trades</summary>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Einstieg</th>
-            <th scope="col">Kriterien</th>
-            <th scope="col">Kurs</th>
-            <th scope="col">Strike</th>
-            <th scope="col">Prämie</th>
-            <th scope="col">Verfall</th>
-            <th scope="col">Kurs am Verfall</th>
-            <th scope="col">gehalten</th>
-            <th scope="col">gemanagt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {backtest.trades.map((trade) => (
-            <tr key={`${String(trade.entry_index)}-${String(trade.strike)}`}>
-              <td>{formatDatum(trade.entry_date)}</td>
-              <td>{trade.letters}</td>
-              <td className="zahl">{trade.underlying_at_entry.toFixed(2)}</td>
-              <td className="zahl">{trade.strike.toFixed(2)}</td>
-              <td className="zahl">{trade.premium.toFixed(2)}</td>
-              <td>{formatDatum(trade.expiration)}</td>
-              <td className="zahl">{trade.underlying_at_expiration.toFixed(2)}</td>
-              <td className="zahl">
-                {formatGeld(trade.held_profit)}
-                <span className="ausgang"> {AUSGANG_TEXT[trade.held_outcome]}</span>
-              </td>
-              <td className="zahl">
-                {formatGeld(trade.managed_profit)}
-                <span className="ausgang"> {AUSGANG_TEXT[trade.managed_outcome]}</span>
-              </td>
+      <div className="breit">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Einstieg</th>
+              <th scope="col">Kriterien</th>
+              <th scope="col">Kurs</th>
+              <th scope="col">Strike</th>
+              <th scope="col">Prämie</th>
+              <th scope="col">Verfall</th>
+              <th scope="col">Kurs am Verfall</th>
+              <th scope="col">gehalten</th>
+              <th scope="col">gemanagt</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {backtest.trades.map((trade) => (
+              <tr key={`${String(trade.entry_index)}-${String(trade.strike)}`}>
+                <td>{formatDatum(trade.entry_date)}</td>
+                <td>{trade.letters}</td>
+                <td className="zahl">{trade.underlying_at_entry.toFixed(2)}</td>
+                <td className="zahl">{trade.strike.toFixed(2)}</td>
+                <td className="zahl">{trade.premium.toFixed(2)}</td>
+                <td>{formatDatum(trade.expiration)}</td>
+                <td className="zahl">
+                  {trade.underlying_at_expiration.toFixed(2)}
+                </td>
+                <td className="zahl">
+                  {formatGeld(trade.held_profit)}
+                  <span className="ausgang">
+                    {" "}
+                    {AUSGANG_TEXT[trade.held_outcome]}
+                  </span>
+                </td>
+                <td className="zahl">
+                  {formatGeld(trade.managed_profit)}
+                  <span className="ausgang">
+                    {" "}
+                    {AUSGANG_TEXT[trade.managed_outcome]}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </details>
   );
 }
@@ -89,7 +104,9 @@ export function Backtestansicht({
       })
       .catch((ursache: unknown) => {
         if (!abgemeldet) {
-          setFehler(ursache instanceof Error ? ursache.message : String(ursache));
+          setFehler(
+            ursache instanceof Error ? ursache.message : String(ursache),
+          );
         }
       });
     getChart(symbol)
@@ -98,7 +115,9 @@ export function Backtestansicht({
       })
       .catch((ursache: unknown) => {
         if (!abgemeldet) {
-          setChartfehler(ursache instanceof Error ? ursache.message : String(ursache));
+          setChartfehler(
+            ursache instanceof Error ? ursache.message : String(ursache),
+          );
         }
       });
     return () => {
@@ -118,8 +137,8 @@ export function Backtestansicht({
       <h2>Kursverlauf und Entscheidungspunkte</h2>
       {chartfehler !== null && (
         <p className="ohne-grundlage">
-          Kein Kursverlauf: {chartfehler}. Die Kennzahlen darunter bleiben
-          davon unberührt.
+          Kein Kursverlauf: {chartfehler}. Die Kennzahlen darunter bleiben davon
+          unberührt.
         </p>
       )}
       {chart !== null && <Kursverlauf daten={chart} trades={backtest.trades} />}
@@ -137,8 +156,11 @@ export function Backtestansicht({
       {backtest.measurement === null || backtest.pooled === null ? (
         <p className="ohne-grundlage">
           Für diese Aktie liegt keine Messung vor. Der Optionsbacktest ist ein
-          Handlauf (<code>python -m ai_trading_analyst.cli options-backtest
-          --provider ibkr</code>) und entsteht nicht im Tageslauf.
+          Handlauf (
+          <code>
+            python -m ai_trading_analyst.cli options-backtest --provider ibkr
+          </code>
+          ) und entsteht nicht im Tageslauf.
         </p>
       ) : (
         <>
@@ -171,41 +193,41 @@ export function Backtestansicht({
             </p>
           ) : (
             <div className="breit">
-            <table className="kombinationen">
-              <thead>
-                <tr>
-                  <th scope="col">Kriterien</th>
-                  <th scope="col">Episoden</th>
-                  <th scope="col">Trades</th>
-                  <th scope="col">ohne Trade</th>
-                  <th scope="col">Quote gehalten</th>
-                  <th scope="col">Quote gemanagt</th>
-                  <th scope="col">Rendite gemanagt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backtest.combinations.map((kombination) => (
-                  <tr key={kombination.letters}>
-                    <th scope="row">{kombination.letters}</th>
-                    <td className="zahl">{kombination.episodes}</td>
-                    <td className="zahl">{kombination.trades}</td>
-                    <td className="zahl">{kombination.without_trade}</td>
-                    <td className="zahl">
-                      {formatProzent(kombination.held?.win_rate ?? null)}
-                    </td>
-                    <td className="zahl">
-                      {formatProzent(kombination.managed?.win_rate ?? null)}
-                    </td>
-                    <td className="zahl">
-                      {formatProzent(
-                        kombination.managed?.mean_return_on_capital ?? null,
-                        2,
-                      )}
-                    </td>
+              <table className="kombinationen">
+                <thead>
+                  <tr>
+                    <th scope="col">Kriterien</th>
+                    <th scope="col">Episoden</th>
+                    <th scope="col">Trades</th>
+                    <th scope="col">ohne Trade</th>
+                    <th scope="col">Quote gehalten</th>
+                    <th scope="col">Quote gemanagt</th>
+                    <th scope="col">Rendite gemanagt</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {backtest.combinations.map((kombination) => (
+                    <tr key={kombination.letters}>
+                      <th scope="row">{kombination.letters}</th>
+                      <td className="zahl">{kombination.episodes}</td>
+                      <td className="zahl">{kombination.trades}</td>
+                      <td className="zahl">{kombination.without_trade}</td>
+                      <td className="zahl">
+                        {formatProzent(kombination.held?.win_rate ?? null)}
+                      </td>
+                      <td className="zahl">
+                        {formatProzent(kombination.managed?.win_rate ?? null)}
+                      </td>
+                      <td className="zahl">
+                        {formatProzent(
+                          kombination.managed?.mean_return_on_capital ?? null,
+                          2,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
           <Tradetabelle backtest={backtest} />

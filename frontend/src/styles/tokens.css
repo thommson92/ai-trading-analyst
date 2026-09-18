@@ -1,0 +1,105 @@
+/* Design-Tokens des Dashboards (ADR 0063).
+
+   Drei Ebenen: Primitive (Farbwerte), Semantik (wofuer eine Farbe steht),
+   Komponenten (Chart, Masse). Bauteile greifen nur auf Semantik und
+   Komponenten zu -- nie auf ein Primitiv.
+
+   Dunkel ist der Standard. Hell ist die Wahl des Lesers und liegt als
+   `data-thema="hell"` am Wurzelelement; die Wahl merkt sich `lib/thema.ts`.
+   Die Systemeinstellung spielt keine Rolle mehr: Ein Finanz-Dashboard soll
+   auf jedem Geraet gleich aussehen, bis der Leser etwas anderes sagt. */
+
+:root {
+  /* Primitive */
+  --grau-950: #0b0d12;
+  --grau-900: #12151c;
+  --grau-800: #1a1e27;
+  --grau-700: #262c38;
+  --grau-500: #6f7889;
+  --grau-300: #a3acbd;
+  --grau-100: #e6e9f0;
+  --blau-400: #6f9ce8;
+  --gruen-400: #26b98d;
+  --rot-400: #ec5a67;
+  --bernstein-400: #f2ab2e;
+  --violett-400: #a288ea;
+
+  /* Semantik */
+  --grund: var(--grau-950);
+  --flaeche: var(--grau-900);
+  --flaeche-erhoben: var(--grau-800);
+  --linie: var(--grau-700);
+  --schrift: var(--grau-100);
+  --gedaempft: var(--grau-300);
+  --schwach: var(--grau-500);
+  --akzent: var(--blau-400);
+  --akzent-flaeche: rgb(111 156 232 / 0.14);
+  --gewinn: var(--gruen-400);
+  --verlust: var(--rot-400);
+  --warnung: var(--bernstein-400);
+  --info: var(--violett-400);
+
+  /* Chart. Die Namen aus der ersten Fassung bleiben gueltig, damit die
+     Backtest-Bauteile ohne Umbau weiterlaufen. */
+  --kerze-auf: var(--gruen-400);
+  --kerze-ab: var(--rot-400);
+  --ema5: var(--grau-300);
+  --ema20: var(--blau-400);
+  --rsi: var(--violett-400);
+  --treffer: var(--bernstein-400);
+  --gate: var(--grau-500);
+  --einstieg: var(--bernstein-400);
+  --horizont-flaeche: rgb(111 156 232 / 0.14);
+
+  /* Masse */
+  --abstand-1: 0.25rem;
+  --abstand-2: 0.5rem;
+  --abstand-3: 0.75rem;
+  --abstand-4: 1rem;
+  --abstand-6: 1.5rem;
+  --abstand-8: 2rem;
+  --radius: 0.4rem;
+  --radius-klein: 0.25rem;
+  --schatten: 0 6px 22px rgb(0 0 0 / 0.35);
+  --schrift-xs: 0.75rem;
+  --schrift-s: 0.85rem;
+  --schrift-m: 1rem;
+  --schrift-l: 1.15rem;
+  --schrift-xl: 1.5rem;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --leiste-breite: 15rem;
+  --inhalt-max: 80rem;
+  --kopfzeile-hoehe: 3rem;
+  --z-leiste: 20;
+  --z-overlay: 30;
+
+  color-scheme: dark;
+}
+
+:root[data-thema='hell'] {
+  --grund: #f5f6f9;
+  --flaeche: #ffffff;
+  --flaeche-erhoben: #ffffff;
+  --linie: #dfe3ec;
+  --schrift: #131722;
+  --gedaempft: #4b5566;
+  --schwach: #78839a;
+  --akzent: #3f6fb0;
+  --akzent-flaeche: rgb(63 111 176 / 0.12);
+  --gewinn: #0d7a5f;
+  --verlust: #b23a44;
+  --warnung: #8a4b00;
+  --info: #6a4fb8;
+  --kerze-auf: #0d7a5f;
+  --kerze-ab: #b23a44;
+  --ema5: #3d4350;
+  --ema20: #3f6fb0;
+  --rsi: #6a4fb8;
+  --treffer: #b07400;
+  --gate: #8c93a3;
+  --einstieg: #b07400;
+  --horizont-flaeche: rgb(79 125 212 / 0.12);
+  --schatten: 0 6px 22px rgb(9 12 20 / 0.12);
+
+  color-scheme: light;
+}

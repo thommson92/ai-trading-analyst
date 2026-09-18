@@ -1,0 +1,170 @@
+/* Stile der wiederverwendbaren Bauteile (ADR 0063). Die Seiten selbst
+   stehen in globals.css; hier steht, was in jeder Ansicht gleich aussieht:
+   der Rahmen mit Seitenleiste und Kopfzeile, der Themenschalter. Weitere
+   Bauteile kommen mit ihren Phasen. */
+
+/* --- Rahmen ------------------------------------------------------------ */
+
+.rahmen {
+  display: grid;
+  grid-template-columns: var(--leiste-breite) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rahmen-inhalt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.kopfzeile {
+  align-items: center;
+  background: var(--flaeche);
+  border-bottom: 1px solid var(--linie);
+  display: flex;
+  gap: var(--abstand-3);
+  min-height: var(--kopfzeile-hoehe);
+  padding: var(--abstand-2) var(--abstand-4);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-leiste);
+}
+
+.kopfzeile-stand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kopfzeile-stand .stand {
+  border: none;
+  background: none;
+  margin: 0;
+  max-width: none;
+  padding: 0;
+}
+
+.menueknopf {
+  display: none;
+}
+
+/* --- Seitenleiste ------------------------------------------------------ */
+
+.seitenleiste {
+  background: var(--flaeche);
+  border-right: 1px solid var(--linie);
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-4);
+  height: 100vh;
+  padding: var(--abstand-4);
+  position: sticky;
+  top: 0;
+}
+
+.seitenleiste-titel {
+  color: var(--schrift);
+  font-size: var(--schrift-l);
+  font-weight: 600;
+  margin: 0;
+  text-decoration: none;
+}
+
+.seitenleiste nav ul {
+  display: grid;
+  gap: var(--abstand-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.seitenleiste nav a {
+  border-radius: var(--radius-klein);
+  color: var(--gedaempft);
+  display: block;
+  padding: var(--abstand-2) var(--abstand-3);
+  text-decoration: none;
+}
+
+.seitenleiste nav a:hover {
+  background: var(--flaeche-erhoben);
+  color: var(--schrift);
+}
+
+.seitenleiste nav a[aria-current='page'] {
+  background: var(--akzent-flaeche);
+  color: var(--schrift);
+  font-weight: 600;
+}
+
+.seitenleiste-fuss {
+  color: var(--schwach);
+  font-size: var(--schrift-xs);
+  margin-top: auto;
+}
+
+.leiste-hintergrund {
+  display: none;
+}
+
+/* Unter 64rem klappt die Leiste ein und liegt auf Wunsch ueber dem Inhalt.
+   Ein DOM fuer beide Faelle: Der Menueknopf schaltet nur ein Attribut. */
+@media (max-width: 64rem) {
+  .rahmen {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .menueknopf {
+    display: inline-flex;
+  }
+
+  .seitenleiste {
+    box-shadow: var(--schatten);
+    height: 100dvh;
+    left: 0;
+    position: fixed;
+    top: 0;
+    transform: translateX(-100%);
+    transition: transform 0.15s ease-out;
+    width: var(--leiste-breite);
+    z-index: var(--z-overlay);
+  }
+
+  .rahmen[data-leiste-offen='true'] .seitenleiste {
+    transform: none;
+  }
+
+  .rahmen[data-leiste-offen='true'] .leiste-hintergrund {
+    background: rgb(0 0 0 / 0.45);
+    border: none;
+    display: block;
+    inset: 0;
+    padding: 0;
+    position: fixed;
+    z-index: calc(var(--z-overlay) - 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seitenleiste {
+    transition: none;
+  }
+}
+
+/* --- Knoepfe im Rahmen ------------------------------------------------- */
+
+.knopf-leicht {
+  align-items: center;
+  background: var(--flaeche-erhoben);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  color: var(--schrift);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--schrift-s);
+  gap: var(--abstand-2);
+  padding: var(--abstand-1) var(--abstand-3);
+}
+
+.knopf-leicht:hover {
+  border-color: var(--gedaempft);
+}

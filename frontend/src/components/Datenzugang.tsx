@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 // Der Zugang zum Datenbaum ausserhalb des Servers (ADR 0060).
 //
@@ -12,21 +12,32 @@
 //    in der Adresszeile. Sie steht im Passwortmanager des Inhabers, und ein
 //    neuer Tab fragt erneut.
 //
-// Darueber steht in beiden Exportfaellen der **Stand**. Das ist keine
+// In beiden Exportfaellen steht der **Stand** in der Kopfzeile. Das ist keine
 // Verzierung: Ein Dashboard, das gestrige Zahlen zeigt, ohne es zu sagen, ist
 // gefaehrlicher als eines, das gar nichts zeigt -- der Server koennte seit
 // Tagen stehen (Bedrohung T10).
+//
+// Der Rahmen (Seitenleiste, Kopfzeile) liegt in allen drei Faellen hier:
+// Auch die Passphrase-Abfrage steht in ihm, damit die Seite beim Oeffnen
+// nicht springt.
 
-import { useEffect, useState, type ReactNode, type SyntheticEvent } from 'react';
+import {
+  useEffect,
+  useState,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 
-import { setzeDatenbaum } from '@/lib/api';
-import { datenmodus, oeffneDatenbaum, type Datenbaum } from '@/lib/datenbaum';
+import { setzeDatenbaum } from "@/lib/api";
+import { datenmodus, oeffneDatenbaum, type Datenbaum } from "@/lib/datenbaum";
+
+import { Seitenrahmen } from "./rahmen/Seitenrahmen";
 
 function alsFehlertext(ursache: unknown): string {
   return ursache instanceof Error ? ursache.message : String(ursache);
 }
 
-const HOECHSTSTAND = 'ata-hoechster-stand';
+const HOECHSTSTAND = "ata-hoechster-stand";
 
 /**
  * Merkt sich den juengsten je gesehenen Export und meldet einen Rueckschritt.
@@ -58,9 +69,9 @@ function pruefeRueckschritt(exportiertAm: string): string | null {
   if (bekannt !== null && exportiertAm < bekannt) {
     return (
       `Dieser Stand ist aelter als der zuletzt gesehene (${bekannt}). ` +
-      'Das kann an einem zurueckgespielten Deployment liegen -- oder daran, ' +
-      'dass der Server seither nichts Neues hochgeladen hat und jemand eine ' +
-      'aeltere Fassung wiederhergestellt hat. Nachsehen lohnt sich.'
+      "Das kann an einem zurueckgespielten Deployment liegen -- oder daran, " +
+      "dass der Server seither nichts Neues hochgeladen hat und jemand eine " +
+      "aeltere Fassung wiederhergestellt hat. Nachsehen lohnt sich."
     );
   }
   return null;
@@ -69,17 +80,24 @@ function pruefeRueckschritt(exportiertAm: string): string | null {
 export function Stand({ baum }: { baum: Datenbaum }): ReactNode {
   const manifest = baum.manifest;
   const lauf =
-    manifest.run_completed_at ?? manifest.run_started_at ?? 'noch kein abgeschlossener Lauf';
-  const [rueckschritt] = useState(() => pruefeRueckschritt(manifest.exported_at));
+    manifest.run_completed_at ??
+    manifest.run_started_at ??
+    "noch kein abgeschlossener Lauf";
+  const [rueckschritt] = useState(() =>
+    pruefeRueckschritt(manifest.exported_at),
+  );
   return (
     <>
       <p className="stand">
-        Stand: Lauf vom <strong>{lauf}</strong>, exportiert {manifest.exported_at}
+        Stand: Lauf vom <strong>{lauf}</strong>, exportiert{" "}
+        {manifest.exported_at}
         {manifest.stocks_without_chart.length > 0
-          ? ` -- ohne Chart: ${manifest.stocks_without_chart.join(', ')}`
-          : ''}
+          ? ` -- ohne Chart: ${manifest.stocks_without_chart.join(", ")}`
+          : ""}
       </p>
-      {rueckschritt !== null ? <p className="stand fehler">{rueckschritt}</p> : null}
+      {rueckschritt !== null ? (
+        <p className="stand fehler">{rueckschritt}</p>
+      ) : null}
     </>
   );
 }
@@ -88,11 +106,11 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
   const [modus] = useState(() => datenmodus());
   const [baum, setBaum] = useState<Datenbaum | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
-  const [passphrase, setPassphrase] = useState('');
+  const [passphrase, setPassphrase] = useState("");
   const [oeffnet, setOeffnet] = useState(false);
 
   useEffect(() => {
-    if (modus !== 'statisch') {
+    if (modus !== "statisch") {
       return;
     }
     let abgemeldet = false;
@@ -113,8 +131,8 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
     };
   }, [modus]);
 
-  if (modus === 'api') {
-    return children;
+  if (modus === "api") {
+    return <Seitenrahmen>{children}</Seitenrahmen>;
   }
 
   async function oeffnen(ereignis: SyntheticEvent): Promise<void> {
@@ -127,7 +145,7 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
       setBaum(geoeffnet);
       // Nicht im Zustand behalten: Gebraucht wird sie nach dem Oeffnen nicht
       // mehr -- die abgeleiteten Schluessel liegen im Datenbaum.
-      setPassphrase('');
+      setPassphrase("");
     } catch (ursache: unknown) {
       setFehler(alsFehlertext(ursache));
     } finally {
@@ -137,45 +155,42 @@ export function Datenzugang({ children }: { children: ReactNode }): ReactNode {
 
   if (baum === null) {
     return (
-      <main>
-        <h1>AI Trading Analyst</h1>
-        {modus === 'verschluesselt' ? (
-          <form
-            className="zugang"
-            onSubmit={(ereignis) => {
-              void oeffnen(ereignis);
-            }}
-          >
-            <label htmlFor="passphrase">Passphrase</label>
-            <input
-              id="passphrase"
-              type="password"
-              autoComplete="current-password"
-              value={passphrase}
-              onChange={(ereignis) => {
-                setPassphrase(ereignis.target.value);
+      <Seitenrahmen>
+        <main>
+          <h1>AI Trading Analyst</h1>
+          {modus === "verschluesselt" ? (
+            <form
+              className="zugang"
+              onSubmit={(ereignis) => {
+                void oeffnen(ereignis);
               }}
-            />
-            <button type="submit" disabled={oeffnet || passphrase === ''}>
-              {oeffnet ? 'Oeffnet ...' : 'Stand oeffnen'}
-            </button>
-            <p className="gedaempft">
-              Die Daten liegen verschluesselt. Die Passphrase wird nur in diesem Tab
-              verwendet und nirgends gespeichert.
-            </p>
-          </form>
-        ) : (
-          <p>Stand wird geladen ...</p>
-        )}
-        {fehler !== null ? <p className="fehler">{fehler}</p> : null}
-      </main>
+            >
+              <label htmlFor="passphrase">Passphrase</label>
+              <input
+                id="passphrase"
+                type="password"
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(ereignis) => {
+                  setPassphrase(ereignis.target.value);
+                }}
+              />
+              <button type="submit" disabled={oeffnet || passphrase === ""}>
+                {oeffnet ? "Oeffnet ..." : "Stand oeffnen"}
+              </button>
+              <p className="gedaempft">
+                Die Daten liegen verschluesselt. Die Passphrase wird nur in
+                diesem Tab verwendet und nirgends gespeichert.
+              </p>
+            </form>
+          ) : (
+            <p>Stand wird geladen ...</p>
+          )}
+          {fehler !== null ? <p className="fehler">{fehler}</p> : null}
+        </main>
+      </Seitenrahmen>
     );
   }
 
-  return (
-    <>
-      <Stand baum={baum} />
-      {children}
-    </>
-  );
+  return <Seitenrahmen stand={<Stand baum={baum} />}>{children}</Seitenrahmen>;
 }

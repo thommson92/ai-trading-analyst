@@ -128,7 +128,7 @@ describe('Stufe 2, verschluesselter Datenbaum', () => {
       </Datenzugang>,
     );
     fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: 'falsch' } });
-    fireEvent.submit(screen.getByRole('button'));
+    fireEvent.submit(screen.getByRole('button', { name: 'Stand oeffnen' }));
 
     await waitFor(() => {
       expect(screen.getByText('Passphrase falsch')).toBeTruthy();
