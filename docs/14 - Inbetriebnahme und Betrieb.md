@@ -169,7 +169,7 @@ antwortet auf einer frischen Installation mit einer leeren Seite
 > den Fixtures — und hätte einen Lauf aus erfundenen Werten in die
 > Produktivdatenbank geschrieben, ununterscheidbar von einem echten
 > ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Über die
-> Kommandozeile geht es nicht: `cli screen` und `cli dispatch` sind
+> Kommandozeile geht es nicht: Die Kommandos `screen` und `dispatch` sind
 > IBKR-Kommandos und weisen einen Lauf mit `fixture` ausdrücklich ab
 > (Rückgabewert 2).
 >
@@ -1873,7 +1873,7 @@ In den Passwortmanager, neben die Passphrase:
 | Token verloren | Token in der Konsole widerrufen; Inhalt und Anmeldung bleiben unberührt. Danach ein neues erzeugen und `ATA_DASHBOARD_PUBLISH_TOKEN` in der `.env` ersetzen — bis dahin meldet jeder Lauf „Dashboard nicht gesendet" |
 | Token abgelaufen | Dasselbe. Das Ablaufdatum steht in der Konsole; die Meldung kommt am Tag danach von selbst |
 | Upload klemmt, Grund unklar | `--dashboard-export directory` in der Aufgabenplanung. Der Baum wird weiter geschrieben, nur nicht gesendet — draußen bleibt der letzte gute Stand stehen |
-| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, `cli publish --full`, hochladen. **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
+| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, dann aus `…\backend`: `.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --full --dashboard-export cloudflare` (schreibt **und** sendet in einem Zug). **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
 | Alles abschalten | Worker in der Konsole löschen (*Settings → Delete*); der Server merkt davon nichts |
 | Server soll nicht mehr exportieren | `--dashboard-export none` in der Aufgabenplanung (Stufe K, Schritt 5) |
 
@@ -2037,9 +2037,9 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
 
 1. **Gemessene Schwellen** in `config/default.yaml` (`scoring.thresholds`,
    `analyst_buy_share`, `options_annualized_return`): Messläufe
-   `cli ratings --watchlist --output ...` und
-   `cli options --provider ibkr --watchlist --output ...`, Auswertung mit
-   `cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
+   `.venv\Scripts\python.exe -m ai_trading_analyst.cli ratings --watchlist --output ...`
+   und `... cli options --provider ibkr --watchlist --output ...`, Auswertung
+   mit `... cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
    festlegen" ([ADR 0045](adr/0045-schwellen-der-score-teilwerte.md),
    [ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)). Die
    **Options-Schwellen** haben einen Zusatzanlass außer der Reihe: eine
