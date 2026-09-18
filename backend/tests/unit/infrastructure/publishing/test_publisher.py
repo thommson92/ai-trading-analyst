@@ -14,12 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from ai_trading_analyst.domain.scheduling import DashboardPublisherError
+from ai_trading_analyst.domain.scheduling import (
+    DashboardPublisherError,
+    DashboardUploadError,
+)
 from ai_trading_analyst.infrastructure.publishing.crypto import MINDEST_ITERATIONEN
 from ai_trading_analyst.infrastructure.publishing.publisher import (
     Exportziel,
     SnapshotPublisher,
 )
+from ai_trading_analyst.infrastructure.publishing.upload import Hochladebericht
 from ai_trading_analyst.infrastructure.publishing.writer import Exportzustand
 
 PASSPHRASE = "eine-lange-zufaellige-passphrase-aus-dem-manager"
@@ -29,12 +33,29 @@ def baum(*paare: tuple[str, bytes]) -> Iterator[tuple[str, bytes]]:
     yield from paare
 
 
+class _Hochlader:
+    """Zaehlt die Uploads und wirft auf Wunsch."""
+
+    def __init__(self, *, fehler: Exception | None = None) -> None:
+        self.fehler = fehler
+        self.aufrufe = 0
+
+    def lade_hoch(self) -> Hochladebericht:
+        self.aufrufe += 1
+        if self.fehler is not None:
+            raise self.fehler
+        return Hochladebericht(
+            dateien_gesamt=1, dateien_gesendet=1, version="v1", dauer_sekunden=0.5
+        )
+
+
 def publisher(
     tmp_path: Path,
     *,
     passphrase: str | None = PASSPHRASE,
     iterationen: int = MINDEST_ITERATIONEN,
     inhalt: tuple[tuple[str, bytes], ...] = (("data/manifest.json", b"{}"),),
+    hochlader: _Hochlader | None = None,
 ) -> SnapshotPublisher:
     return SnapshotPublisher(
         snapshot=lambda: baum(*inhalt),
@@ -44,6 +65,7 @@ def publisher(
             passphrase=passphrase,
             iterationen=iterationen,
         ),
+        hochlader=hochlader,
     )
 
 
@@ -95,7 +117,7 @@ class TestZustandUeberLaeufe:
     def test_zweiter_lauf_schreibt_nichts_neu(self, tmp_path: Path) -> None:
         veroeffentlicher = publisher(tmp_path)
         veroeffentlicher.schreibe_baum()
-        bericht = veroeffentlicher.schreibe_baum()
+        bericht = veroeffentlicher.schreibe_baum().schreiben
         assert bericht.geschrieben == 0
         assert bericht.unveraendert == 1
 
@@ -103,7 +125,7 @@ class TestZustandUeberLaeufe:
         """Der Weg nach jedem Zweifel, ob draussen steht, was hier liegt."""
         veroeffentlicher = publisher(tmp_path)
         veroeffentlicher.schreibe_baum()
-        bericht = veroeffentlicher.schreibe_baum(voll=True)
+        bericht = veroeffentlicher.schreibe_baum(voll=True).schreiben
         assert bericht.geschrieben == 1
         assert bericht.unveraendert == 0
 
@@ -113,7 +135,9 @@ class TestZustandUeberLaeufe:
         publisher(tmp_path).schreibe_baum()
         vorher = {p.name for p in (tmp_path / "public" / "data").iterdir()}
 
-        bericht = publisher(tmp_path, passphrase="eine-ganz-andere-passphrase").schreibe_baum()
+        bericht = publisher(
+            tmp_path, passphrase="eine-ganz-andere-passphrase"
+        ).schreibe_baum().schreiben
 
         nachher = {p.name for p in (tmp_path / "public" / "data").iterdir()}
         assert bericht.geschrieben == 1
@@ -174,6 +198,86 @@ class TestSperre:
         alt = time.time() - 7200
         os.utime(sperre, (alt, alt))
 
-        bericht = publisher(tmp_path).schreibe_baum()
+        bericht = publisher(tmp_path).schreibe_baum().schreiben
 
         assert bericht.geschrieben == 1
+
+
+class TestDerWegNachDraussen:
+    """Der Upload haengt am Schreiben und nicht daneben (ADR 0060, E4)."""
+
+    def test_ohne_hochlader_endet_der_weg_im_verzeichnis(self, tmp_path: Path) -> None:
+        """Die Rueckfallstufe ``target: directory`` -- schreiben, nicht senden."""
+        bericht = publisher(tmp_path).schreibe_baum()
+
+        assert bericht.hochladen is None
+        assert bericht.als_text() == bericht.schreiben.als_text()
+
+    def test_nach_dem_schreiben_geht_der_baum_hinaus(self, tmp_path: Path) -> None:
+        hochlader = _Hochlader()
+
+        bericht = publisher(tmp_path, hochlader=hochlader).schreibe_baum()
+
+        assert hochlader.aufrufe == 1
+        assert bericht.hochladen is not None
+        assert bericht.hochladen.version == "v1"
+        assert "v1" in bericht.als_text()
+
+    def test_ein_gescheitertes_schreiben_sendet_nichts(self, tmp_path: Path) -> None:
+        """**Die wichtigste Reihenfolge in diesem Schritt.** Ginge ein halb
+        geschriebener Baum hinaus, stuenden draussen Dateien neben einem
+        Manifest, das sie nicht kennt -- und der Browser meldete genau die
+        Pruefsummenverletzung, gegen die die Pruefsumme steht."""
+        hochlader = _Hochlader()
+
+        with pytest.raises(DashboardPublisherError):
+            publisher(tmp_path, iterationen=1000, hochlader=hochlader).schreibe_baum()
+
+        assert hochlader.aufrufe == 0
+
+    def test_ein_unerwarteter_fehler_wird_zum_uploadfehler(self, tmp_path: Path) -> None:
+        """**Ab hier ist der Baum immer geschrieben.** Liesse man eine
+        unerwartete Ausnahme durch, meldete der Tageslauf "nicht
+        aktualisiert" -- also genau die Lage, die nicht vorliegt."""
+        hochlader = _Hochlader(fehler=RuntimeError("etwas ganz anderes"))
+
+        with pytest.raises(DashboardUploadError, match="unerwartet"):
+            publisher(tmp_path, hochlader=hochlader).schreibe_baum()
+
+    def test_der_upload_laeuft_unter_der_sperre(self, tmp_path: Path) -> None:
+        """Zwei Uploads desselben Workers zugleich soll es nicht geben --
+        und die Sperre ist das einzige, was das verhindert."""
+        gesehen: list[bool] = []
+
+        class _SchautNachDerSperre:
+            def lade_hoch(self) -> Hochladebericht:
+                gesehen.append((tmp_path / "zustand.json.lock").exists())
+                return Hochladebericht(
+                    dateien_gesamt=1, dateien_gesendet=1, version="v1", dauer_sekunden=0.1
+                )
+
+        SnapshotPublisher(
+            snapshot=lambda: baum(("data/manifest.json", b"{}")),
+            ziel=Exportziel(
+                wurzel=tmp_path / "public",
+                zustandsdatei=tmp_path / "zustand.json",
+                passphrase=PASSPHRASE,
+                iterationen=MINDEST_ITERATIONEN,
+            ),
+            hochlader=_SchautNachDerSperre(),
+        ).schreibe_baum()
+
+        assert gesehen == [True]
+
+    def test_ein_gescheiterter_upload_laesst_den_baum_geschrieben(self, tmp_path: Path) -> None:
+        """Der Zustand ist zu diesem Zeitpunkt gespeichert, und das soll so
+        sein: Was auf dem Server liegt, liegt dort. Der naechste Lauf
+        schreibt nur noch das Manifest neu und sendet wieder alles, was
+        draussen fehlt -- das Werkzeug vergleicht selbst."""
+        hochlader = _Hochlader(fehler=DashboardUploadError("Leitung weg"))
+
+        with pytest.raises(DashboardUploadError):
+            publisher(tmp_path, hochlader=hochlader).schreibe_baum()
+
+        assert (tmp_path / "zustand.json").is_file()
+        assert not (tmp_path / "zustand.json.lock").exists()

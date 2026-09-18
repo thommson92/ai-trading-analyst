@@ -67,8 +67,10 @@ from ai_trading_analyst.domain.report import (
 )
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import (
+    DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
+    DashboardUploadError,
     Notifier,
     NotifierError,
 )
@@ -99,6 +101,13 @@ from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact_registered
 
 _logger = get_logger(__name__)
+
+_EXPORT_NICHT_GESCHRIEBEN = (
+    "Dashboard nicht aktualisiert",
+    "Der Lauf ist abgeschlossen, der Snapshot fuer das Dashboard "
+    "nicht geschrieben. Der bisherige Stand bleibt unveraendert; "
+    "Einzelheiten stehen im Protokoll des Servers.",
+)
 
 _Agentenart = Literal["research", "technical"]
 """Diskriminator der beiden Auftragsarten in der nebenlaeufigen Phase.
@@ -431,35 +440,57 @@ class RunAnalysisUseCase:
         Ergebnismeldung ist zu diesem Zeitpunkt bereits raus, und sie
         nachtraeglich zu aendern hiesse, sie zurueckzuhalten, bis der Export
         durch ist. Sie enthaelt keine Inhalte (ADR 0040), nur den Hinweis.
+
+        **Drei Ausgaenge, drei Meldungen** (ADR 0060, E4). Sie sagen
+        verschiedene Dinge, und ein gemeinsamer Text waere in zwei von drei
+        Faellen falsch: Beim Schreibfehler steht auf dem Server dasselbe wie
+        draussen, beim Upload-Fehler ist der Server voraus, und beim Befund
+        zu den Vorschau-Adressen ist alles hinausgegangen -- nur eben zu
+        sichtbar.
         """
         if self._dashboard_publisher is None:
             return
         try:
             self._dashboard_publisher.publish()
+        except DashboardPreviewUrlError as error:
+            _logger.error("Dashboard gesendet, Vorschau-Adressen aktiv: %s", error)
+            self._melde_exportfehler(
+                "Dashboard: Vorschau-Adressen aktiv",
+                "Der Snapshot ist beim Anbieter angekommen, aber es wurden "
+                "Vorschau-Adressen vergeben. Aeltere Fassungen waeren darueber "
+                "erreichbar. Einzelheiten stehen im Protokoll des Servers.",
+            )
+        except DashboardUploadError as error:
+            _logger.error("Dashboard geschrieben, nicht gesendet: %s", error)
+            self._melde_exportfehler(
+                "Dashboard nicht gesendet",
+                "Der Lauf ist abgeschlossen und der Snapshot geschrieben, aber "
+                "nicht zum Anbieter gesendet. Draussen steht weiter der vorige "
+                "Stand; Einzelheiten stehen im Protokoll des Servers.",
+            )
         except DashboardPublisherError as error:
             _logger.error("Dashboard nicht aktualisiert: %s", error)
-            self._melde_exportfehler()
+            self._melde_exportfehler(*_EXPORT_NICHT_GESCHRIEBEN)
         except Exception:
             _logger.exception("Dashboard-Export abgebrochen")
-            self._melde_exportfehler()
+            self._melde_exportfehler(*_EXPORT_NICHT_GESCHRIEBEN)
 
-    def _melde_exportfehler(self) -> None:
-        """Der Hinweis auf einen nicht aktualisierten Snapshot.
+    def _melde_exportfehler(self, betreff: str, text: str) -> None:
+        """Der Hinweis auf einen Snapshot, der nicht ankam.
 
         Auch hier gilt, was fuer die Ergebnismeldung gilt: Ein
         unerreichbarer Kanal darf den Lauf nicht scheitern lassen. Zwei
         ineinander verschachtelte Systemgrenzen, und keine von beiden haelt
         den Lauf an.
+
+        Betreff und Text kommen von aussen, weil die Lage ueber sie
+        entscheidet -- **keiner der drei nennt Inhalte oder einen Link**
+        (ADR 0040), und keiner nennt die Adresse des Dashboards.
         """
         if self._notifier is None:
             return
         try:
-            self._notifier.send(
-                "Dashboard nicht aktualisiert",
-                "Der Lauf ist abgeschlossen, der Snapshot fuer das Dashboard "
-                "nicht geschrieben. Der bisherige Stand bleibt unveraendert; "
-                "Einzelheiten stehen im Protokoll des Servers.",
-            )
+            self._notifier.send(betreff, text)
         except NotifierError as error:
             _logger.error("Hinweis auf den Exportfehler ging nicht raus: %s", error)
         except Exception:

@@ -149,8 +149,8 @@ class TestDerGanzeWeg:
         """Der Grund fuer den Vergleich am Klartext: Sonst waere jeder Lauf
         ein vollstaendiger Upload."""
         veroeffentlicher = veroeffentliche(tmp_path)
-        erst = veroeffentlicher.schreibe_baum()
-        zweit = veroeffentlicher.schreibe_baum()
+        erst = veroeffentlicher.schreibe_baum().schreiben
+        zweit = veroeffentlicher.schreibe_baum().schreiben
 
         assert erst.geschrieben == erst.dateien
         assert zweit.geschrieben == 1  # das Manifest, es traegt den Zeitpunkt

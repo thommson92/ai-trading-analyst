@@ -885,10 +885,17 @@ class DashboardExportConfig(_Section):
     Export bricht mit einer eindeutigen Meldung ab.
     """
 
-    target: Literal["none", "directory"] = "none"
-    """``directory`` schreibt den Baum an einen Ort im Dateisystem. Ein
-    Anbieterziel gibt es erst, wenn der Proof of Concept einen bestaetigt
-    hat (ADR 0060, Entscheidung Punkt 10) -- vorher waere es geraten."""
+    target: Literal["none", "directory", "cloudflare"] = "none"
+    """Drei Stufen, und die mittlere ist die Rueckfallstufe.
+
+    ``directory`` schreibt den Baum an einen Ort im Dateisystem und laesst ihn
+    dort liegen. ``cloudflare`` schreibt ihn und sendet ihn anschliessend zum
+    Anbieter (ADR 0060, Entscheidung E4). ``none`` ist der Notausschalter.
+
+    Geschaltet wird ueber ``--dashboard-export`` in der Aufgabenplanung, nicht
+    hier: Diese Datei ist im oeffentlichen Repository versioniert, und ein
+    ``git pull`` auf dem Server soll keinen lokalen Diff vorfinden.
+    """
 
     directory: str | None = None
     """Wohin der Datenbaum geschrieben wird."""
@@ -899,6 +906,23 @@ class DashboardExportConfig(_Section):
     **Ausserhalb des Datenbaums.** Er enthaelt in Stufe 2 die Zuordnung von
     Pfad zu opakem Namen -- genau das, was der Anbieter nicht sehen soll.
     Ohne Angabe liegt er neben dem Verzeichnis, nicht darin.
+    """
+
+    upload_directory: str | None = None
+    """Wo die erzeugte ``wrangler.jsonc`` fuer den Upload liegt.
+
+    **Ebenfalls ausserhalb des Datenbaums**, aus demselben Grund wie der
+    Zustand: Sie nennt den Worker beim Namen, und Name plus Konto-Subdomain
+    sind die Adresse des Dashboards (ADR 0060, E6). Was im Baum liegt, geht
+    mit hinauf. Ohne Angabe ``<directory>.upload`` daneben.
+    """
+
+    upload_timeout_seconds: PositiveInt = 900
+    """Geduld fuer einen einzelnen ``wrangler deploy``.
+
+    Gemessen wurden am 2026-09-17 rund 800 Dateien und 29 MB in wenigen
+    Minuten. Eine Viertelstunde laesst Luft fuer eine langsame Leitung und
+    beendet trotzdem einen haengenden Aufruf, statt den Lauf zu blockieren.
     """
 
     encrypt: bool = True
@@ -1191,6 +1215,26 @@ class Secrets(BaseSettings):
     Lang und zufaellig erzeugt, nicht gemerkt -- so entschieden am
     2026-09-07 (offene Frage O8). Der Server braucht sie zum Schreiben, der
     Browser zum Lesen; zum Anbieter geht sie nie."""
+    dashboard_publish_token: SecretStr | None = None
+    """Das Token, mit dem der Server den Datenbaum zum Anbieter sendet
+    (ADR 0060, Punkt 8).
+
+    Eingeengt auf ein einziges Recht -- ``Workers Scripts: Edit`` -- und auf
+    ein Konto, das nur diesem Zweck dient. **Was es nicht kann, ist der
+    Punkt:** Die Zugriffsregel davor darf es nicht anfassen. Wer es stiehlt,
+    kann den Inhalt ersetzen, nicht die Anmeldung abschalten (N19)."""
+    dashboard_publish_account: SecretStr | None = None
+    """Die Konto-Kennung des Anbieters.
+
+    **Kein Geheimnis im Wortsinn** -- dieselbe Lage wie bei
+    ``edgar_contact``: Sie steht hier, weil dieses Repository oeffentlich ist
+    (ADR 0031), nicht weil sie schuetzenswert waere."""
+    dashboard_publish_worker: SecretStr | None = None
+    """Der Name des Workers beim Anbieter.
+
+    Er und die Konto-Subdomain **sind zusammen die Adresse des Dashboards**
+    (ADR 0060, E6). Der Name ist absichtlich nichtssagend gewaehlt (T9), und
+    im oeffentlichen Repository haette er diesen Sinn verloren."""
     finnhub_api_key: SecretStr | None = None
     edgar_contact: SecretStr | None = None
     """Die Kontaktadresse, die die SEC im ``User-Agent`` verlangt, damit sie

@@ -11,11 +11,10 @@ Paragraph 9); verdrahtet wird beides im Composition Root. Der Preis ist eine
 Zeile dort, der Gewinn ist eine Schicht, die von Berichten, Charts und
 Antwortschemata nichts weiss.
 
-**Noch kein Upload.** Bis der Proof of Concept einen Anbieter bestaetigt hat
-(ADR 0060, Entscheidung Punkt 10), endet der Weg im Verzeichnis. Das ist
-kein Platzhalter, sondern der Stand der Entscheidung: Es gibt kein Konto,
-kein Token und keine Adresse, und ohne die drei waere jeder Uploadcode eine
-Vermutung.
+**Seit dem Upload sind es vier Dinge**, und das vierte ist ausgelagert: Wer
+den Baum entgegennimmt, weiss diese Klasse nicht. Sie kennt nur den Port
+``Hochlader``; ohne ihn endet der Weg im Verzeichnis, und das bleibt die
+Rueckfallstufe (``target: directory``).
 """
 
 from __future__ import annotations
@@ -29,7 +28,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from ai_trading_analyst.domain.scheduling import DashboardPublisherError
+from ai_trading_analyst.domain.scheduling import (
+    DashboardPublisherError,
+    DashboardUploadError,
+)
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 from .crypto import (
@@ -38,6 +40,7 @@ from .crypto import (
     kopf,
     leite_schluessel_ab,
 )
+from .upload import Hochladebericht, Hochlader
 from .writer import Exportzustand, Schreibbericht, Verzeichnisschreiber
 
 _logger = get_logger(__name__)
@@ -74,6 +77,24 @@ class Exportziel:
     iterationen: int
 
 
+@dataclass(frozen=True, slots=True)
+class Exportbericht:
+    """Was ein Export bewirkt hat -- geschrieben und, wenn eingeschaltet, gesendet.
+
+    ``hochladen`` ist ``None``, wenn der Baum nur geschrieben wurde
+    (``target: directory``). Es ist **nie** ``None``, weil ein Upload
+    fehlschlug: Dann gibt es keinen Bericht, sondern einen Fehler.
+    """
+
+    schreiben: Schreibbericht
+    hochladen: Hochladebericht | None
+
+    def als_text(self) -> str:
+        if self.hochladen is None:
+            return self.schreiben.als_text()
+        return f"{self.schreiben.als_text()}; {self.hochladen.als_text()}"
+
+
 class SnapshotPublisher:
     """Setzt ``DashboardPublisher`` um."""
 
@@ -82,9 +103,11 @@ class SnapshotPublisher:
         *,
         snapshot: Callable[[], Iterable[tuple[str, bytes]]],
         ziel: Exportziel,
+        hochlader: Hochlader | None = None,
     ) -> None:
         self._snapshot = snapshot
         self._ziel = ziel
+        self._hochlader = hochlader
 
     @contextmanager
     def _sperre(self) -> Iterator[None]:
@@ -141,18 +164,27 @@ class SnapshotPublisher:
         """
         self.schreibe_baum()
 
-    def schreibe_baum(self, *, voll: bool = False) -> Schreibbericht:
-        """Schreibt den Snapshot.
+    def schreibe_baum(self, *, voll: bool = False) -> Exportbericht:
+        """Schreibt den Snapshot und sendet ihn, wenn ein Hochlader da ist.
 
         ``voll`` verwirft den bekannten Stand und schreibt jede Datei neu.
         Das ist der Weg nach einem Anbieterwechsel und nach jedem Zweifel,
         ob draussen wirklich steht, was hier liegt -- der Zustand behauptet
         etwas ueber ein Verzeichnis, das er nicht selbst kontrolliert.
 
+        **Gesendet wird unter derselben Sperre, unter der geschrieben wird.**
+        Zwei Uploads desselben Workers zugleich gaebe es sonst genauso wie
+        zwei Schreibvorgaenge, und die Sperre verfaellt erst nach einer
+        Stunde -- Schreiben und Senden passen zusammen hinein.
+
         Raises:
             DashboardPublisherError: wenn der Baum nicht geschrieben werden
                 konnte. Der Aufrufer im Tageslauf isoliert das; das Ergebnis
                 des Laufs steht zu diesem Zeitpunkt bereits in der Datenbank.
+            DashboardUploadError: wenn er geschrieben wurde, aber nicht
+                hinausging.
+            DashboardPreviewUrlError: wenn er hinausging, der Anbieter aber
+                Vorschau-Adressen vergeben hat.
         """
         begonnen = time.monotonic()
         _logger.info(
@@ -161,26 +193,60 @@ class SnapshotPublisher:
             "verschluesselt" if self._ziel.passphrase is not None else "Klartext",
             "Vollexport" if voll else "nur Aenderungen",
         )
-        try:
-            with self._sperre():
+        with self._sperre():
+            try:
                 zustand = self._zustand()
                 if voll:
                     zustand.dateien.clear()
                 schreiber = self._schreiber(zustand)
-                bericht = schreiber.schreibe(self._snapshot(), zustand)
+                geschrieben = schreiber.schreibe(self._snapshot(), zustand)
                 zustand.speichere(self._ziel.zustandsdatei)
-            _logger.info(
-                "Dashboard-Export fertig nach %.1f s: %s",
-                time.monotonic() - begonnen,
-                bericht.als_text(),
-            )
-            return bericht
-        except KryptoKonfigurationError as fehler:
-            raise DashboardPublisherError(
-                f"Verschluesselung nicht einsatzbereit: {fehler}"
+            except KryptoKonfigurationError as fehler:
+                raise DashboardPublisherError(
+                    f"Verschluesselung nicht einsatzbereit: {fehler}"
+                ) from fehler
+            except OSError as fehler:
+                raise DashboardPublisherError(f"Datenbaum nicht schreibbar: {fehler}") from fehler
+
+            # Ab hier steht der Baum. Alles, was jetzt noch schiefgeht, ist
+            # ein Upload-Fehler und keiner beim Schreiben -- die beiden Lagen
+            # verlangen verschiedene Meldungen, weil im einen Fall der Server
+            # dem Anbieter voraus ist und im anderen nicht.
+            hochgeladen = self._sende(geschrieben)
+
+        bericht = Exportbericht(schreiben=geschrieben, hochladen=hochgeladen)
+        _logger.info(
+            "Dashboard-Export fertig nach %.1f s: %s",
+            time.monotonic() - begonnen,
+            bericht.als_text(),
+        )
+        return bericht
+
+    def _sende(self, geschrieben: Schreibbericht) -> Hochladebericht | None:
+        """Der Baum geht hinaus -- oder es gibt einen Upload-Fehler.
+
+        **Breit gefangen, und das ist hier kein stiller Rueckfall.** Hinter
+        diesem Aufruf steht ein fremder Prozess, also eine echte
+        Systemgrenze. Entscheidend ist aber ein anderer Punkt: Ab hier ist
+        der Baum **immer** geschrieben. Liesse man eine unerwartete Ausnahme
+        durch, faele sie im Tageslauf in den allgemeinen Zweig und meldete
+        "Dashboard nicht aktualisiert" -- also genau die Lage, die nicht
+        vorliegt. Die Unterscheidung "der Server ist voraus" ist die Zusage,
+        die dieser Schritt gibt; sie darf nicht daran haengen, welche
+        Ausnahmeart ein Adapter gerade wirft.
+        """
+        if self._hochlader is None:
+            return None
+        try:
+            return self._hochlader.lade_hoch()
+        except DashboardPublisherError:
+            # Schon eingeordnet -- unveraendert weiterreichen.
+            raise
+        except Exception as fehler:
+            raise DashboardUploadError(
+                f"Der Upload ist unerwartet gescheitert: {fehler!r}. Der Datenbaum "
+                f"({geschrieben.dateien} Dateien) liegt geschrieben auf dem Server."
             ) from fehler
-        except OSError as fehler:
-            raise DashboardPublisherError(f"Datenbaum nicht schreibbar: {fehler}") from fehler
 
     def _zustand(self) -> Exportzustand:
         """Der letzte Stand -- oder ein frischer Baum.

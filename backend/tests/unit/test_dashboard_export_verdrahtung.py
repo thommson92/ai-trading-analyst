@@ -15,6 +15,7 @@ hat.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -34,6 +35,10 @@ from ai_trading_analyst.config.settings import (
     Secrets,
 )
 from ai_trading_analyst.domain.analysis import MarketDataUnavailableError, UnitOfWork
+from ai_trading_analyst.domain.scheduling import (
+    DashboardPreviewUrlError,
+    DashboardUploadError,
+)
 from ai_trading_analyst.infrastructure.ibkr import IbkrMarketDataProvider
 from ai_trading_analyst.infrastructure.persistence.stored_bar_source import StoredBarSource
 from ai_trading_analyst.infrastructure.publishing import MINDEST_ITERATIONEN
@@ -175,6 +180,159 @@ class TestKommandozeile:
         assert code == 2
         assert "abgeschaltet" in capsys.readouterr().err
 
+    def _publish(
+        self, monkeypatch: pytest.MonkeyPatch, ziel: str, *argumente: str
+    ) -> tuple[AppConfig, dict[str, object]]:
+        """Ruft ``cli publish`` ohne Datenbank und ohne Dateisystem.
+
+        Festgehalten wird, welche Konfiguration im Composition Root ankommt
+        und womit der Baum geschrieben werden soll.
+        """
+        from types import SimpleNamespace
+
+        from ai_trading_analyst import cli
+
+        geladen = load_config()
+        vorgabe = SimpleNamespace(
+            config=konfiguration(target=ziel, directory="var/vorgabe"),
+            source_path=geladen.source_path,
+        )
+        gesehen: dict[str, object] = {}
+
+        class _Veroeffentlicher:
+            def schreibe_baum(self, **argumente: object) -> object:
+                gesehen.update(argumente)
+                return SimpleNamespace(als_text=lambda: "nichts passiert")
+
+        def _gemerkt(config: AppConfig, *_: object, **__: object) -> object:
+            gesehen["config"] = config
+            return _Veroeffentlicher()
+
+        monkeypatch.setattr(cli, "load_config", lambda *_: vorgabe)
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda _: None)
+        monkeypatch.setattr(cli, "build_dashboard_publisher", _gemerkt)
+
+        assert cli.main(["publish", *argumente]) == 0
+        config = gesehen.pop("config")
+        assert isinstance(config, AppConfig)
+        return config, gesehen
+
+    def test_directory_schaltet_den_upload_nicht_ab(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """**Frueher tat es das, und zwar still.** Der Schalter setzte hart
+        'directory' -- auf einem Server, der auf 'cloudflare' steht, waere
+        ein Handgriff mit --directory damit ein Export gewesen, der nie
+        hinausging, ohne dass jemand es gesagt haette."""
+        config, _ = self._publish(monkeypatch, "cloudflare", "--directory", "var/anders")
+
+        assert config.dashboard_export.target == "cloudflare"
+        assert config.dashboard_export.directory == "var/anders"
+
+    def test_directory_schaltet_einen_abgeschalteten_export_ein(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config, _ = self._publish(monkeypatch, "none", "--directory", "var/anders")
+
+        assert config.dashboard_export.target == "directory"
+
+    def _publish_mit_fehler(
+        self, monkeypatch: pytest.MonkeyPatch, fehler: Exception, *argumente: str
+    ) -> tuple[int, str]:
+        from types import SimpleNamespace
+
+        from ai_trading_analyst import cli
+
+        geladen = load_config()
+        vorgabe = SimpleNamespace(
+            config=konfiguration(target="cloudflare", directory="var/vorgabe"),
+            source_path=geladen.source_path,
+        )
+
+        class _Veroeffentlicher:
+            def schreibe_baum(self, **_: object) -> object:
+                raise fehler
+
+        monkeypatch.setattr(cli, "load_config", lambda *_: vorgabe)
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda _: None)
+        monkeypatch.setattr(cli, "build_dashboard_publisher", lambda *a, **k: _Veroeffentlicher())
+
+        import contextlib
+        import io
+
+        auffang = io.StringIO()
+        with contextlib.redirect_stderr(auffang):
+            code = cli.main(["publish", *argumente])
+        return code, auffang.getvalue()
+
+    def test_ein_upload_fehler_ergibt_rueckgabewert_eins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        code, ausgabe = self._publish_mit_fehler(
+            monkeypatch, DashboardUploadError("Leitung weg")
+        )
+
+        assert code == 1
+        assert "nicht gesendet" in ausgabe
+
+    def test_ein_vorschau_befund_ergibt_rueckgabewert_eins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Baum ist draussen -- trotzdem 1: Ein Sicherheitsbefund soll
+        nicht in einer gruenen Ausgabe untergehen."""
+        code, ausgabe = self._publish_mit_fehler(
+            monkeypatch, DashboardPreviewUrlError("eine Vorschau-Adresse")
+        )
+
+        assert code == 1
+        assert "gesendet, aber" in ausgabe
+
+    def test_die_ausgabe_wird_geschwaerzt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """In der Meldung steckt woertlich die Ausgabe eines fremden
+        Werkzeugs -- anders als die Logzeilen ginge ``print`` sonst an der
+        Schwaerzung vorbei (ADR 0044)."""
+        from ai_trading_analyst.observability.secret_redaction import (
+            forget_secrets,
+            register_secret,
+        )
+
+        register_secret("ein-token-mit-genau-einem-recht")
+        try:
+            _, ausgabe = self._publish_mit_fehler(
+                monkeypatch,
+                DashboardUploadError("Ausgabe: token=ein-token-mit-genau-einem-recht"),
+            )
+        finally:
+            forget_secrets()
+
+        assert "ein-token-mit-genau-einem-recht" not in ausgabe
+
+    def test_der_schalter_uebersteuert_das_ziel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auf dem Server steht das Ziel in der Aufgabenplanung und nicht in
+        der Konfigurationsdatei -- von Hand braucht es deshalb denselben
+        Schalter wie bei 'dispatch'."""
+        config, argumente = self._publish(
+            monkeypatch, "none", "--dashboard-export", "cloudflare"
+        )
+
+        assert config.dashboard_export.target == "cloudflare"
+        assert config.dashboard_export.directory == "var/vorgabe"
+        assert argumente == {"voll": False}
+
+    def test_directory_uebersteuert_kein_ausdrueckliches_ziel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config, _ = self._publish(
+            monkeypatch, "none", "--dashboard-export", "directory", "--directory", "var/probe"
+        )
+
+        assert config.dashboard_export.target == "directory"
+        assert config.dashboard_export.directory == "var/probe"
+
 
 class TestChartquelle:
     """Woher die Kerzen fuer den Chart kommen -- und woher ausdruecklich nicht.
@@ -268,3 +426,176 @@ class TestDieAufrufstellenBenutzenSie:
 
         assert len(gesehen) == 1
         assert gesehen[0].market_data == config.market_data
+
+
+def mit_wrangler(root: Path) -> Path:
+    """Legt ein Werkzeugverzeichnis an, wie ``npm ci`` es hinterliesse."""
+    paket = root / "frontend" / "node_modules" / "wrangler"
+    (paket / "bin").mkdir(parents=True)
+    (paket / "bin" / "wrangler.js").write_text("// Attrappe\n", encoding="utf-8")
+    (paket / "package.json").write_text(
+        '{"name": "wrangler", "version": "4.135.0", '
+        '"bin": {"wrangler": "./bin/wrangler.js"}}',
+        encoding="utf-8",
+    )
+    return paket
+
+
+def geheimnisse() -> Secrets:
+    return Secrets(
+        dashboard_export_passphrase="eine-lange-zufaellige-passphrase",
+        dashboard_publish_token="ein-token-mit-genau-einem-recht",
+        dashboard_publish_account="0123456789abcdef0123456789abcdef",
+        dashboard_publish_worker="nichtssagender-name",
+    )
+
+
+def cloudflare(**felder: object) -> AppConfig:
+    return konfiguration(target="cloudflare", directory="var/dashboard", **felder)
+
+
+class TestDerWegNachDraussen:
+    """``target: cloudflare`` (ADR 0060, E4).
+
+    **Alles hier faellt vor dem Backfill auf.** Der Tageslauf baut diesen
+    Schritt, bevor er eine halbe Stunde rechnet -- eine Fehlkonfiguration
+    soll nicht erst am Ende auffallen, wenn der Lauf fertig ist.
+    """
+
+    def test_der_schritt_entsteht(self, tmp_path: Path) -> None:
+        mit_wrangler(tmp_path)
+        assert baue(cloudflare(), geheimnisse(), tmp_path) is not None
+
+    @pytest.mark.parametrize(
+        ("fehlend", "secrets"),
+        [
+            (
+                "dashboard_publish_token",
+                Secrets(
+                    dashboard_export_passphrase="eine-lange-zufaellige-passphrase",
+                    dashboard_publish_token="",
+                    dashboard_publish_account="0123456789abcdef0123456789abcdef",
+                    dashboard_publish_worker="nichtssagender-name",
+                ),
+            ),
+            (
+                "dashboard_publish_account",
+                Secrets(
+                    dashboard_export_passphrase="eine-lange-zufaellige-passphrase",
+                    dashboard_publish_token="ein-token-mit-genau-einem-recht",
+                    dashboard_publish_account="",
+                    dashboard_publish_worker="nichtssagender-name",
+                ),
+            ),
+            (
+                "dashboard_publish_worker",
+                Secrets(
+                    dashboard_export_passphrase="eine-lange-zufaellige-passphrase",
+                    dashboard_publish_token="ein-token-mit-genau-einem-recht",
+                    dashboard_publish_account="0123456789abcdef0123456789abcdef",
+                    dashboard_publish_worker="",
+                ),
+            ),
+        ],
+    )
+    def test_ohne_geheimnis_bricht_es_ab(
+        self, tmp_path: Path, fehlend: str, secrets: Secrets
+    ) -> None:
+        """Ein leerer Wert zaehlt als nicht gesetzt -- sonst liefe ein Upload
+        mit leerem Token bis zur Absage des Anbieters."""
+        mit_wrangler(tmp_path)
+
+        with pytest.raises(MissingSecretError, match=fehlend.upper()):
+            baue(cloudflare(), secrets, tmp_path)
+
+    def test_ein_fehlendes_werkzeug_bricht_den_bau_nicht_ab(self, tmp_path: Path) -> None:
+        """**Der wichtigste Unterschied zur Passphrase.** Dieser Bau laeuft
+        im Tageslauf vor dem Backfill; ein Abbruch hier kostet Screening,
+        Analyse und Ergebnismeldung. Ein vergessenes 'npm ci' -- der
+        Handgriff, den Doc 14 selbst "leicht zu vergessen" nennt -- darf
+        aber nur den Upload kosten. Der Fehler faellt spaeter an, als
+        DashboardUploadError, und wird dort isoliert."""
+        assert baue(cloudflare(), geheimnisse(), tmp_path) is not None
+
+    def test_die_konfiguration_darf_nicht_im_datenbaum_liegen(self, tmp_path: Path) -> None:
+        """Dieselbe Begruendung wie beim Zustandsvermerk: Sie nennt den
+        Worker beim Namen, und was im Verzeichnis liegt, geht mit hinauf."""
+        mit_wrangler(tmp_path)
+
+        with pytest.raises(ValueError, match="upload_directory"):
+            baue(
+                cloudflare(upload_directory="var/dashboard/intern"),
+                geheimnisse(),
+                tmp_path,
+            )
+
+    def test_ohne_angabe_liegt_sie_neben_dem_baum(self, tmp_path: Path) -> None:
+        """Geprueft an der Datei, die wirklich entsteht -- damit haengt der
+        Test am Verhalten und nicht an der Form der Verdrahtung."""
+        mit_wrangler(tmp_path)
+        veroeffentlicher = baue(cloudflare(), geheimnisse(), tmp_path)
+
+        pfad = veroeffentlicher._hochlader.schreibe_konfiguration()  # type: ignore[attr-defined]
+
+        assert pfad == tmp_path / "var" / "dashboard.upload" / "wrangler.jsonc"
+        assert '"directory": "../dashboard"' in pfad.read_text(encoding="utf-8")
+
+    @pytest.mark.skipif(
+        os.name != "nt",
+        reason=(
+            "Nur Windows kennt mehrere Anker. Unter POSIX gibt es genau einen, "
+            "und damit den Fall nicht -- der Windows-Job der CI faehrt den Test."
+        ),
+    )
+    def test_ein_anderes_laufwerk_bricht_ab(self, tmp_path: Path) -> None:
+        """Ueber Laufwerksgrenzen gibt es keinen relativen Pfad, und das
+        Werkzeug loest den Zielpfad relativ zu seiner Konfiguration auf.
+        ``os.path.relpath`` braeche sonst mitten im Upload ab."""
+        mit_wrangler(tmp_path)
+        anderes = "Z:\\woanders" if tmp_path.drive != "Z:" else "Y:\\woanders"
+
+        with pytest.raises(ValueError, match="Laufwerk"):
+            baue(cloudflare(upload_directory=anderes), geheimnisse(), tmp_path)
+
+    def test_directory_verdrahtet_keinen_upload(self, tmp_path: Path) -> None:
+        """Die Rueckfallstufe: schreiben, ohne zu senden -- und ohne dass
+        Token oder Werkzeug ueberhaupt gebraucht wuerden."""
+        veroeffentlicher = baue(
+            konfiguration(
+                target="directory",
+                directory="var/dashboard",
+            ),
+            Secrets(dashboard_export_passphrase="eine-lange-zufaellige-passphrase"),
+            tmp_path,
+        )
+
+        assert veroeffentlicher._hochlader is None  # type: ignore[attr-defined]
+
+
+class TestDerAusgelieferteStand:
+    """Was ein Server vorfindet, der nur `git pull` gemacht hat.
+
+    **Der Anlass war ein Fehlschlag bei der Abnahme am 2026-09-18.** Der
+    Pfad stand auf `null`, weil er laut Doc 14 erst beim Einschalten
+    eingetragen werden sollte. Damit lief nicht nur der Handgriff ins
+    Leere -- ein `--dashboard-export cloudflare` in der Aufgabenplanung
+    waere auf denselben Konfigurationsfehler gelaufen und haette den
+    ganzen Tageslauf mit Rueckgabewert 2 abgebrochen, vor dem Screening.
+    """
+
+    def test_der_schalter_allein_genuegt(self, tmp_path: Path) -> None:
+        """Kein zweiter Handgriff an einer versionierten Datei."""
+        mit_wrangler(tmp_path)
+        ausgeliefert = load_config().config.dashboard_export
+
+        geschaltet = ausgeliefert.model_copy(update={"target": "cloudflare"})
+
+        assert baue(
+            load_config().config.model_copy(update={"dashboard_export": geschaltet}),
+            geheimnisse(),
+            tmp_path,
+        ) is not None
+
+    def test_ausgeliefert_bleibt_der_export_aus(self) -> None:
+        """Der Pfad ist ein Ort, kein Betriebszustand."""
+        assert load_config().config.dashboard_export.target == "none"

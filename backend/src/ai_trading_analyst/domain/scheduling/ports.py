@@ -119,6 +119,28 @@ class DashboardPublisherError(Exception):
     """
 
 
+class DashboardUploadError(DashboardPublisherError):
+    """Der Baum steht auf dem Server, ging aber nicht zum Anbieter.
+
+    **Eine Unterklasse, damit der Vertrag des Ports unveraendert gilt** --
+    wer nur ``DashboardPublisherError`` abfaengt, verpasst nichts. Getrennt
+    ist sie trotzdem, weil die Lage eine andere ist und die Meldung darum
+    eine andere sein muss: Beim Schreibfehler steht draussen weiter der
+    vorige Stand *und* auf dem Server auch; hier ist der Server voraus.
+    """
+
+
+class DashboardPreviewUrlError(DashboardPublisherError):
+    """Der Baum ging hinaus, aber der Anbieter hat Vorschau-Adressen vergeben.
+
+    Das ist kein Transportfehler, sondern ein Sicherheitsbefund: Wegen des
+    stabilen Salts (ADR 0060, Nachtrag vom 2026-09-08) stehen **alle** je
+    hochgeladenen Fassungen unter demselben Schluessel. Unerreichbar sind
+    die alten nur, solange keine Vorschau-Adresse auf sie zeigt. Taucht
+    trotzdem eine auf, gehoert das gemeldet und nicht protokolliert.
+    """
+
+
 class DashboardPublisher(Protocol):
     """Ausgang fuer den Snapshot, den das Dashboard ausserhalb des Servers
     anzeigt (ADR 0060).

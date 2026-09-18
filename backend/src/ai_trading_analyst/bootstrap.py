@@ -11,7 +11,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from functools import cache
+from functools import cache, partial
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,7 @@ from ai_trading_analyst.application.run_analysis import AgentConcurrency
 from ai_trading_analyst.config.loader import load_config, load_secrets
 from ai_trading_analyst.config.settings import (
     AppConfig,
+    DashboardExportConfig,
     IndicatorConfig,
     MissingSecretError,
     Secrets,
@@ -117,7 +118,10 @@ from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchem
 from ai_trading_analyst.infrastructure.publishing import (
     MINDEST_ITERATIONEN,
     Exportziel,
+    Hochladeziel,
     SnapshotPublisher,
+    WranglerHochlader,
+    wrangler_befehl,
 )
 from ai_trading_analyst.infrastructure.throttle import Drossel
 from ai_trading_analyst.infrastructure.watchlists import (
@@ -813,7 +817,74 @@ def build_dashboard_publisher(
             passphrase=passphrase,
             iterationen=einstellungen.pbkdf2_iterations,
         ),
+        hochlader=(
+            _build_hochlader(einstellungen, secrets, root, verzeichnis)
+            if einstellungen.target == "cloudflare"
+            else None
+        ),
     )
+
+
+def _build_hochlader(
+    einstellungen: DashboardExportConfig,
+    secrets: Secrets,
+    root: Path,
+    verzeichnis: Path,
+) -> WranglerHochlader:
+    """Der Weg nach draussen (ADR 0060, E4).
+
+    Raises:
+        ValueError: wenn das Upload-Werkzeug fehlt oder die erzeugte
+            Konfigurationsdatei im veroeffentlichten Verzeichnis laege.
+        MissingSecretError: wenn Token, Konto oder Worker-Name fehlen.
+    """
+    arbeitsverzeichnis = (
+        (root / einstellungen.upload_directory).resolve()
+        if einstellungen.upload_directory
+        else verzeichnis.with_name(verzeichnis.name + ".upload")
+    )
+    if arbeitsverzeichnis.is_relative_to(verzeichnis):
+        # Dieselbe Begruendung wie bei der Zustandsdatei: Die erzeugte
+        # Konfiguration nennt den Worker beim Namen, und der Name ist die
+        # halbe Adresse des Dashboards (ADR 0060, E6). Was im Verzeichnis
+        # liegt, geht mit hinauf.
+        raise ValueError(
+            f"dashboard_export.upload_directory ({arbeitsverzeichnis}) liegt im "
+            f"veroeffentlichten Verzeichnis ({verzeichnis}). Die erzeugte "
+            "Konfiguration nennt den Worker und darf den Server nicht verlassen."
+        )
+
+    if arbeitsverzeichnis.anchor != verzeichnis.anchor:
+        # Das Werkzeug loest den Zielpfad relativ zu seiner
+        # Konfigurationsdatei auf. Ueber Laufwerksgrenzen gibt es keinen
+        # relativen Pfad, und ``os.path.relpath`` bricht dort ab -- mitten
+        # im Upload und mit einer Meldung, die nichts erklaert.
+        raise ValueError(
+            f"dashboard_export.upload_directory ({arbeitsverzeichnis}) liegt auf einem "
+            f"anderen Laufwerk als das veroeffentlichte Verzeichnis ({verzeichnis}). "
+            "Beide muessen auf demselben liegen."
+        )
+
+    # ``strip`` an allen dreien: Diese Werte werden aus einer Konsole in eine
+    # Datei kopiert, und ein mitgenommenes Leerzeichen ist dort unsichtbar.
+    # Beim Token faellt es als Absage des Anbieters auf, beim Worker-Namen als
+    # ungueltiger Name -- beides Meldungen, die auf nichts hinweisen.
+    return WranglerHochlader(
+        Hochladeziel(
+            worker=secrets.require("dashboard_publish_worker").strip(),
+            konto=secrets.require("dashboard_publish_account").strip(),
+            token=secrets.require("dashboard_publish_token").strip(),
+            baum=verzeichnis,
+            arbeitsverzeichnis=arbeitsverzeichnis,
+            # Erst beim Upload aufgeloest: Ein fehlendes Werkzeug soll den
+            # Upload kosten und nicht den ganzen Lauf -- dieser Bau laeuft
+            # vor dem Backfill, und ein Fehler hier bricht mit 2 ab.
+            befehl=partial(wrangler_befehl, root / "frontend" / "node_modules" / "wrangler"),
+            zeitgrenze=einstellungen.upload_timeout_seconds,
+        )
+    )
+
+
 
 
 def build_app() -> FastAPI:

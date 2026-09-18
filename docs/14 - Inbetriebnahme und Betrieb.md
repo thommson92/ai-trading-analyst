@@ -169,7 +169,7 @@ antwortet auf einer frischen Installation mit einer leeren Seite
 > den Fixtures — und hätte einen Lauf aus erfundenen Werten in die
 > Produktivdatenbank geschrieben, ununterscheidbar von einem echten
 > ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)). Über die
-> Kommandozeile geht es nicht: `cli screen` und `cli dispatch` sind
+> Kommandozeile geht es nicht: Die Kommandos `screen` und `dispatch` sind
 > IBKR-Kommandos und weisen einen Lauf mit `fixture` ausdrücklich ab
 > (Rückgabewert 2).
 >
@@ -915,10 +915,13 @@ node --version
 npm --version
 ```
 
-Node wird **nur zum Bauen** gebraucht, nicht zur Laufzeit
-([ADR 0052](adr/0052-dashboard-als-statischer-export.md)). Ohne Node gibt es
-keinen Export und damit kein Dashboard — die API und der Tageslauf laufen aber
-weiter.
+Node läuft **nicht als Dienst** — es gibt keinen dauerhaften Node-Prozess und
+keinen zweiten Port ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)).
+Es wird aber an zwei Stellen gebraucht: zum **Bauen** der Oberfläche, und seit
+Stufe L **im Tageslauf**, wo der Exportschritt den Datenbaum mit `wrangler`
+zum Anbieter sendet (Nachtrag zu ADR 0052 vom 2026-09-18). Ohne Node gibt es
+keinen Export und der Baum bleibt liegen — die API und der Tageslauf laufen
+aber weiter.
 
 **Gebraucht wird Node 22 (LTS) — dieselbe Hauptversion, mit der die CI baut**
 (`.github/workflows/ci.yml`, Job „Frontend"; `@types/node` im
@@ -1021,12 +1024,13 @@ Mobilfunknetz (WLAN aus) ist die Adresse **nicht** erreichbar.
 
 # Stufe K — Das Dashboard außerhalb des Servers
 
-**Noch nicht entschieden.** [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
-ist vorgeschlagen; angenommen wird es erst nach einem Proof of Concept beim
-Anbieter. Diese Stufe beschreibt deshalb nur, was **ohne** Anbieter geht:
-den Datenbaum auf dem Server erzeugen und nachsehen, ob er trägt. Kein
-Konto, kein Token, kein Upload, keine Firewall-Regel — Stufe J bleibt
-unberührt, und der Server bekommt nichts Eingehendes.
+**Entschieden und in Betrieb.** [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
+ist am 2026-09-17 angenommen; der Proof of Concept beim Anbieter ist
+abgenommen. Diese Stufe beschreibt den Teil, der **ohne** Anbieter läuft:
+den Datenbaum auf dem Server erzeugen und nachsehen, ob er trägt. Der Weg
+nach draußen steht in **Stufe L**. Stufe J bleibt in beiden Fällen unberührt,
+und der Server bekommt nichts Eingehendes — die einzige neue Verbindung geht
+ausgehend.
 
 Der Gedanke kehrt Stufe J um: Nicht der Nutzer kommt zum Server, sondern die
 Ergebnisse gehen zum Nutzer. Der Server schreibt nach jedem Lauf einen
@@ -1048,6 +1052,19 @@ git pull
 
 Eine Datenbankmigration gehört **nicht** dazu. Der Export liest ausschließlich;
 er legt kein Schema an und schreibt keine Zeile.
+
+**Seit dem Upload aus dem Exportschritt gehört ein zweiter Befehl dazu**, und
+er ist leicht zu vergessen: `wrangler` liegt als Entwicklungsabhängigkeit im
+Frontend, und `git pull` allein installiert nichts.
+
+```powershell
+cd ..\frontend
+npm ci
+```
+
+Fehlt er, schreibt der Tageslauf den Baum weiterhin, sendet ihn aber nicht —
+und meldet „Dashboard nicht gesendet". Der Grund steht dann im Protokoll und
+nennt genau diesen Handgriff.
 
 ## Schritt 1 — Passphrase erzeugen und ablegen
 
@@ -1266,29 +1283,46 @@ einem Anbieter.
 
 ## Schritt 5 — Im Tageslauf einschalten (erst nach Schritt 4)
 
-In `config/default.yaml` unter `dashboard_export` das Ziel eintragen
-(`directory: var/dashboard`); **geschaltet wird über die Aufgabenplanung**,
-wie bei den Anbietern auch. Dem Eintrag aus Stufe F kommt dafür ein Argument
-hinzu:
+**An `config/default.yaml` wird nichts angefasst.** Der Pfad steht seit dem
+2026-09-18 ausgeliefert darin (`directory: var/dashboard`) — er verrät nichts
+und schaltet nichts ein, solange `target` auf `none` steht. Bis dahin stand er
+auf `null`, und das war ein Fehler: Der Schalter unten wäre auf einen
+Konfigurationsfehler gelaufen und hätte den **ganzen Tageslauf** mit
+Rückgabewert 2 abgebrochen, vor dem Screening.
+
+**Geschaltet wird über die Aufgabenplanung**, wie bei den Anbietern auch. Dem
+Eintrag aus Stufe F kommt dafür ein Argument hinzu:
 
 ```
---dashboard-export directory
+--dashboard-export cloudflare
 ```
 
-Danach schreibt der Tageslauf den Baum am Ende jedes Laufs selbst. Ein
-Fehlschlag hält den Lauf nicht an — er kommt als eigene Telegram-Meldung
-„Dashboard nicht aktualisiert" und steht im Protokoll.
+**Drei Werte, und die mittlere Stufe ist die nützliche Rückfallebene:**
+
+| Wert | Was geschieht |
+|---|---|
+| `cloudflare` | Baum schreiben **und** senden. Das ist der produktive Stand — aber erst, wenn Stufe L steht |
+| `directory` | Baum nur schreiben. Für einen Server ohne Token, ein klemmendes Werkzeug oder eine Leitung, die gerade nicht will |
+| `none` | Notausschalter |
+
+Danach schreibt der Tageslauf den Baum am Ende jedes Laufs selbst und sendet
+ihn. Ein Fehlschlag hält den Lauf nicht an — er kommt als eigene
+Telegram-Meldung und steht im Protokoll. **Die Meldung sagt, wie weit es kam:**
+
+| Meldung | Lage |
+|---|---|
+| „Dashboard nicht aktualisiert" | Der Baum wurde nicht geschrieben. Draußen und auf dem Server steht derselbe alte Stand |
+| „Dashboard nicht gesendet" | Der Baum liegt geschrieben auf dem Server, draußen steht der vorige Stand. Der Server ist voraus |
+| „Dashboard: Vorschau-Adressen aktiv" | Alles ist hinausgegangen — aber der Anbieter hat Vorschau-Adressen vergeben, und ältere Fassungen wären darüber erreichbar. **Das ist ein Sicherheitsbefund**, siehe Stufe L, Schritt 4a |
+
+Keine der drei nennt Inhalte, einen Link oder die Adresse des Dashboards
+([ADR 0040](adr/0040-inhalt-der-ergebnismeldung.md), ADR 0060/E6).
 
 **Das ist zugleich der Notausschalter:** `--dashboard-export none` in der
 Aufgabenplanung, speichern, fertig. Der Tageslauf läuft weiter, nur der
 Snapshot bleibt aus. Die Konfigurationsdatei wird dafür nicht angefasst — sie
-ist im öffentlichen Repository versioniert.
-
-**Was hier ausdrücklich noch nicht steht:** Anbieterwahl, Konto, Token,
-Zugriffsregel, Upload und die Notfallkarte dazu. Das ist Gegenstand des
-Proof of Concept aus Abschnitt 11 des
-[Spike-Berichts](requirements/f12-externes-hosting-spike.md) und kommt in
-diese Stufe, sobald ADR 0060 angenommen ist.
+ist im öffentlichen Repository versioniert. Wer nur den **Weg nach draußen**
+stillegen will, nicht den Export, nimmt `directory`.
 
 ---
 
@@ -1562,10 +1596,41 @@ braucht es dafür nicht.
 Dazu die **Konto-Kennung** (Account ID) aus der Übersicht des Kontos. Sie
 ist kein Geheimnis, gehört aber ebenfalls nicht ins Repository.
 
-Das Token erscheint **genau einmal** und kommt in den Passwortmanager —
-**noch nicht in die `.env`**. Solange der Upload von Hand läuft, wird es je
-Sitzung eingegeben. Ein Geheimnis, das erst ein künftiger Code braucht,
-liegt bis dahin nicht auf der Platte.
+Das Token erscheint **genau einmal** und kommt in den Passwortmanager. Seit
+der Exportschritt den Upload übernimmt, kommt es **außerdem in die `.env`**
+im Projektwurzelverzeichnis, zusammen mit Konto-Kennung und Worker-Namen:
+
+```
+ATA_DASHBOARD_PUBLISH_TOKEN=<das Token>
+ATA_DASHBOARD_PUBLISH_ACCOUNT=<die Konto-Kennung>
+ATA_DASHBOARD_PUBLISH_WORKER=<der Worker-Name, NUR der Name>
+```
+
+> **Die Falle beim Worker-Namen**, am 2026-09-18 bei der Abnahme
+> hineingetappt: Dort gehört **nur der Name** hinein, nicht die Adresse.
+> Heißt der Worker `abc-def.konto-xy.workers.dev`, steht in der `.env`
+> `abc-def` — Konto-Subdomain und `.workers.dev` setzt der Anbieter selbst
+> dazu. Erlaubt sind Kleinbuchstaben, Ziffern, Bindestrich und Unterstrich.
+>
+> Der Exportschritt prüft das seither selbst und bricht **vor** dem Upload
+> ab. Das ist mehr als Bequemlichkeit: Die Meldung des Werkzeugs nennt den
+> falschen Wert, und der geht durch die Schwärzung der Protokolle — auf dem
+> Server stand `got "***"`, und damit war nicht zu erkennen, was fehlte.
+
+**Das ist eine bewusste Verschlechterung, und sie ist den Handbetrieb
+wert.** Bis hierher lag das Token nur im Passwortmanager und wurde je
+Sitzung eingegeben; jetzt liegt es auf der Platte des Servers. Dagegen
+stehen drei Dinge: Es kann nur den Inhalt ersetzen, nicht die Anmeldung
+abschalten (N19); es hat ein Ablaufdatum; und die `.env` liegt, wo
+ohnehin schon die Passphrase des Datenbaums und die Datenbankverbindung
+liegen — wer sie lesen kann, hat den Server. Ein Upload, der jede Nacht
+eine Eingabe verlangt, wäre kein Upload.
+
+Die beiden anderen Werte sind **keine Geheimnisse im Wortsinn**. Sie stehen
+trotzdem hier und nicht in `config/default.yaml`: Worker-Name und
+Konto-Subdomain sind zusammen die Adresse des Dashboards, und der Name ist
+absichtlich nichtssagend gewählt (T9) — im öffentlichen Repository hätte das
+seinen Sinn verloren. Dieselbe Lage wie bei `ATA_EDGAR_CONTACT`.
 
 **Was das Token nicht kann, und das ist der Punkt:** Es darf den Worker
 neu bereitstellen. Die Access-Anwendung davor darf es **nicht** anfassen.
@@ -1677,18 +1742,54 @@ nur eine Zahl ausgibt.
 
 Schlägt eine davon fehl, geht der Datenbaum nicht hinauf.
 
-### 6c — Der echte Datenbaum
+### 6c — Der echte Datenbaum, aus dem Exportschritt
 
-In `var\cloudflare\wrangler.jsonc` die eine Zeile ändern:
+**Ab hier macht es der Server selbst.** Die Schritte 6a und 6b bleiben, was
+sie waren: die Erstinbetriebnahme mit der Attrappe, bei der man zusieht. Der
+echte Datenbaum geht über den Exportschritt hinaus, und der bringt sein
+eigenes `wrangler.jsonc` mit — er schreibt es vor jedem Upload neu nach
+`var\dashboard.upload\`. Die handgepflegte Datei aus 6a bleibt unangetastet
+und wird dafür **nicht** verwendet.
 
-```jsonc
-  "assets": { "directory": "../dashboard" }
+Das ist der Grund dafür: Die Zeile `"preview_urls": false` steht damit als
+Konstante im Code statt in einer Datei, die von Hand stimmen muss. Sie ist
+die einzige Sperre davor, dass alle je hochgeladenen Fassungen wieder
+erreichbar werden (Schritt 7).
+
+Voraussetzungen: die drei Werte in der `.env` (Schritt 5) und `npm ci` im
+Frontend (Stufe K, Schritt 0). Dann von Hand:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer\backend
+
+# Erst ohne Netz: schreibt den Baum, sendet ihn nicht.
+.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --dashboard-export directory
+
+# Und dann wirklich.
+.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --dashboard-export cloudflare
 ```
 
-und denselben Upload wie in 6b wiederholen. `var\dashboard` enthält seit
-Stufe K die Oberfläche im Zero-Knowledge-Build und darunter `data\` mit dem
-verschlüsselten Baum. Der Zustandsvermerk liegt daneben und geht **nicht**
-mit hinauf.
+**Der Schalter ist nötig, und das ist Absicht.** In `config/default.yaml`
+steht `target: none` — geschaltet wird über die Aufgabenplanung, weil die
+Datei im öffentlichen Repository versioniert ist. `publish` ohne Schalter
+folgt dieser Datei und meldet deshalb „Der Dashboard-Export ist
+abgeschaltet". Derselbe Schalter, derselbe Wertevorrat wie bei `dispatch`.
+
+Die Ausgabe nennt Dateizahlen, die Versionskennung und die Dauer. **Sie darf
+keine Vorschau-Adresse nennen** — täte sie es, bräche der Befehl mit
+„Vorschau-Adressen vergeben" ab, und zwar nach dem Upload: Der Baum ist dann
+draußen, aber zu sichtbar. Diese Probe hängt an der Form der Adresse
+(`<kennung>-<name>.<konto>.workers.dev` gegen `<name>.<konto>.workers.dev`)
+und nicht am Wortlaut des Werkzeugs; eine Umformulierung der nächsten
+Fassung lässt sie kalt.
+
+`var\dashboard` enthält seit Stufe K die Oberfläche im Zero-Knowledge-Build
+und darunter `data\` mit dem verschlüsselten Baum. Der Zustandsvermerk liegt
+daneben und geht **nicht** mit hinauf, die erzeugte Konfiguration ebenso
+wenig. **Fehlen `index.html` oder `_headers` im Verzeichnis, geht gar nichts
+hinaus** — sonst läge draußen Chiffrat ohne Oberfläche oder eine Seite ohne
+ihre Sicherheits-Header, und beides fiele erst spät auf. Beide entstehen in
+Stufe K, Schritt 2, nicht im Exportschritt.
 
 `/aktie/` findet `aktie/index.html` von selbst: Die Voreinstellung
 `auto-trailing-slash` bildet genau das ab, was der statische Export mit
@@ -1762,9 +1863,21 @@ Das ist der Grund, warum diese Zeile in der Konfigurationsdatei die
 wichtigste ist: Wegen des stabilen Salts stehen alle je hochgeladenen
 Fassungen unter demselben Schlüssel.
 
-**Zu prüfen nach jedem Upload von Hand:** Preview URLs stehen auf
-*disabled*. Sobald der Exportschritt den Upload übernimmt, gehört diese
-Prüfung in denselben Schritt.
+**Die Prüfung sitzt seit dem Upload aus dem Exportschritt dort drin.** Zwei
+Dinge tut er, und das erste ist das stärkere:
+
+1. Er **schreibt** `"preview_urls": false` vor jedem Upload selbst. Die Zeile
+   ist damit eine Konstante im Code und keine Datei, die von Hand stimmen
+   muss. Ein Test bewacht sie: Wer sie auf `true` dreht, bekommt zwei rote
+   Tests.
+2. Er **liest** danach die Ausgabe und meldet jede `*.workers.dev`-Adresse,
+   deren erstes Namensglied nicht der Worker-Name ist. Das ist die
+   Kanarienvogel-Schicht darüber, falls Cloudflare seine Vorgaben ändert —
+   sie kommt als Telegram-Meldung „Dashboard: Vorschau-Adressen aktiv".
+
+Bei einem Upload von Hand über 6a/6b — der Attrappen-Übung — bleibt die
+Prüfung Handarbeit: *Settings → Domains & Routes*, Preview URLs auf
+*disabled*.
 
 ## Schritt 8 — Die Notfallkarte
 
@@ -1773,19 +1886,30 @@ In den Passwortmanager, neben die Passphrase:
 | Lage | Handgriff |
 |---|---|
 | Verdacht auf Datenabfluss | In Cloudflare One die Richtlinie der Anwendung leeren oder auf **Block** stellen — wirkt sofort, braucht keinen Upload |
-| Token verloren | Token in der Konsole widerrufen; Inhalt und Anmeldung bleiben unberührt |
-| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, `cli publish --full`, hochladen. **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
+| Token verloren | Token in der Konsole widerrufen; Inhalt und Anmeldung bleiben unberührt. Danach ein neues erzeugen und `ATA_DASHBOARD_PUBLISH_TOKEN` in der `.env` ersetzen — bis dahin meldet jeder Lauf „Dashboard nicht gesendet" |
+| Token abgelaufen | Dasselbe. Das Ablaufdatum steht in der Konsole; die Meldung kommt am Tag danach von selbst |
+| Upload klemmt, Grund unklar | `--dashboard-export directory` in der Aufgabenplanung. Der Baum wird weiter geschrieben, nur nicht gesendet — draußen bleibt der letzte gute Stand stehen |
+| Passphrase verloren oder verraten | Neue erzeugen, `.env` ändern, dann aus `…\backend`: `.venv\Scripts\python.exe -m ai_trading_analyst.cli publish --full --dashboard-export cloudflare` (schreibt **und** sendet in einem Zug). **Die alten Versionen bleiben bei Cloudflare unter dem alten Schlüssel liegen** — wer sie loswerden will, löscht den **ganzen Worker** und legt einen neuen mit anderem Namen an (dann ab Schritt 3) |
 | Alles abschalten | Worker in der Konsole löschen (*Settings → Delete*); der Server merkt davon nichts |
 | Server soll nicht mehr exportieren | `--dashboard-export none` in der Aufgabenplanung (Stufe K, Schritt 5) |
 
 ## Was danach noch offen ist
 
-Der Upload läuft nach dieser Stufe **von Hand**. Der Exportschritt kennt
-bislang nur `target: none | directory`. Sobald diese Stufe abgenommen ist,
-folgt die Umsetzung des Datenwegs (Entscheidung **E4**: `wrangler` als
-Unterprozess, wie hier von Hand erprobt, oder HTTP aus Python) samt Prüfung
-der Vorschau-Adressen nach jedem Upload, den Sicherheits-Headern und der
-Schaltung im Tageslauf (Stufe K, Schritt 5).
+**Nichts mehr an der Kette selbst.** Entscheidung **E4** ist umgesetzt:
+`wrangler` läuft als Unterprozess aus dem Exportschritt heraus, die Prüfung
+der Vorschau-Adressen sitzt darin, die Sicherheits-Header sind seit dem
+2026-09-17 dabei. Geschaltet wird über Stufe K, Schritt 5.
+
+Zwei Handgriffe bleiben bewusst Handarbeit:
+
+- **Die Oberfläche baut niemand nächtlich.** `npm run build` im
+  Zero-Knowledge-Modus und das Kopieren nach `var\dashboard` stehen weiter
+  in Stufe K, Schritt 2. Der Upload prüft nur, dass `index.html` und
+  `_headers` dort liegen, und geht sonst gar nicht erst los. Nach jeder
+  Änderung am Frontend gehört dieser Schritt also wiederholt — sonst geht
+  eine alte Oberfläche mit neuen Daten hinaus.
+- **Alte Worker-Versionen löscht niemand**, weil Cloudflare es nicht
+  anbietet (Schritt 7).
 
 # Laufender Betrieb
 
@@ -1809,9 +1933,12 @@ automatischen Tageslauf, nur manuell gestartete.
 umgeschrieben, sobald er dort steht — bis dahin gibt es genau einen
 geplanten Vorgang, den Tageslauf.
 
-**Der Export nach draußen ebenfalls nicht** (Stufe K). Er ist gebaut und
-getestet, `dashboard_export.target` steht auf `none`, und die Entscheidung
-darüber steht aus.
+**Der Export nach draußen ist gebaut und beim Anbieter abgenommen**
+(Stufen K und L, [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
+angenommen am 2026-09-17), **im Tageslauf aber noch nicht geschaltet**:
+`dashboard_export.target` steht ausgeliefert auf `none`, und die
+Aufgabenplanung führt `--dashboard-export` noch nicht. Diese Zeile wird
+umgeschrieben, sobald sie es tut (Stufe K, Schritt 5).
 
 ## Nach jedem Serverneustart
 
@@ -1926,9 +2053,9 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
 
 1. **Gemessene Schwellen** in `config/default.yaml` (`scoring.thresholds`,
    `analyst_buy_share`, `options_annualized_return`): Messläufe
-   `cli ratings --watchlist --output ...` und
-   `cli options --provider ibkr --watchlist --output ...`, Auswertung mit
-   `cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
+   `.venv\Scripts\python.exe -m ai_trading_analyst.cli ratings --watchlist --output ...`
+   und `... cli options --provider ibkr --watchlist --output ...`, Auswertung
+   mit `... cli calibrate-scores`, Nachziehen nach dem Muster „messen, dann
    festlegen" ([ADR 0045](adr/0045-schwellen-der-score-teilwerte.md),
    [ADR 0048](adr/0048-optionsanalyse-im-tageslauf.md)). Die
    **Options-Schwellen** haben einen Zusatzanlass außer der Reihe: eine
@@ -2002,12 +2129,24 @@ git pull
 .venv\Scripts\python.exe -m pip install --no-deps -e .
 .venv\Scripts\python.exe -m alembic upgrade head
 
-# Nur wenn sich unter frontend\ etwas geändert hat:
 cd ..\frontend
 npm ci
-npm run build
 cd ..\backend
 ```
+
+**`npm ci` gehört seit dem Upload aus dem Exportschritt immer dazu**, nicht
+nur bei Änderungen am Frontend: Dort liegt `wrangler`, und ohne einen frisch
+aufgelösten `node_modules`-Baum sendet der Tageslauf nichts. Er schreibt den
+Baum weiter und meldet „Dashboard nicht gesendet" — mit genau diesem
+Handgriff im Protokoll.
+
+Der Oberflächen-Build bleibt davon getrennt und läuft **nur**, wenn sich
+unter `frontend\` etwas geändert hat. Zwei verschiedene Builds gehören
+dazu, und sie überschreiben einander (`frontend\out` gibt es nur einmal):
+`npm run build` für den LAN-Dienst aus Stufe J, und der
+Zero-Knowledge-Build aus Stufe K, Schritt 2 für den Weg nach draußen. Wer
+die Oberfläche ändert, führt Stufe K, Schritt 2 danach erneut aus — sonst
+geht beim nächsten Lauf eine alte Oberfläche mit neuen Daten hinaus.
 
 Findet `git pull` einen lokalen Diff in `config/default.yaml`, wurde auf dem
 Server konfiguriert statt in der Aufgabenplanung — siehe Stufe G.
