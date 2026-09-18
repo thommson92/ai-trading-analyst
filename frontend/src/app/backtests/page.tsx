@@ -65,7 +65,7 @@ function Aktientabelle({
                   Aktienseite die Zahlen der jüngsten, während man von einer
                   älteren kam. */}
               <Link
-                href={`/aktie?symbol=${encodeURIComponent(zeile.symbol)}&messung=${encodeURIComponent(messungId)}`}
+                href={`/aktie/?symbol=${encodeURIComponent(zeile.symbol)}&messung=${encodeURIComponent(messungId)}`}
               >
                 {zeile.symbol}
               </Link>

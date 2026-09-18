@@ -17,33 +17,35 @@ export interface BerichtslisteProps {
 
 export function Berichtsliste({ berichte, mitDatum = false }: BerichtslisteProps): ReactNode {
   return (
-    <table>
-      <thead>
-        <tr>
-          {mitDatum && <th scope="col">Erstellt</th>}
-          <th scope="col">Symbol</th>
-          <th scope="col">Empfehlung</th>
-          <th scope="col" className="zahl">
-            Swing
-          </th>
-          <th scope="col" className="zahl">
-            Investment
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {berichte.map((bericht) => (
-          <tr key={bericht.report_id}>
-            {mitDatum && <td>{formatZeitpunkt(bericht.created_at)}</td>}
-            <td>
-              <Link href={`/bericht/?id=${encodeURIComponent(bericht.report_id)}`}>{bericht.symbol}</Link>
-            </td>
-            <td>{formatEmpfehlung(bericht.recommendation)}</td>
-            <td className="zahl">{formatScore(bericht.swing_score)}</td>
-            <td className="zahl">{formatScore(bericht.investment_score)}</td>
+    <div className="breit">
+      <table>
+        <thead>
+          <tr>
+            {mitDatum && <th scope="col">Erstellt</th>}
+            <th scope="col">Symbol</th>
+            <th scope="col">Empfehlung</th>
+            <th scope="col" className="zahl">
+              Swing
+            </th>
+            <th scope="col" className="zahl">
+              Investment
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {berichte.map((bericht) => (
+            <tr key={bericht.report_id}>
+              {mitDatum && <td>{formatZeitpunkt(bericht.created_at)}</td>}
+              <td>
+                <Link href={`/bericht/?id=${encodeURIComponent(bericht.report_id)}`}>{bericht.symbol}</Link>
+              </td>
+              <td>{formatEmpfehlung(bericht.recommendation)}</td>
+              <td className="zahl">{formatScore(bericht.swing_score)}</td>
+              <td className="zahl">{formatScore(bericht.investment_score)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 
 import { Datenzugang } from '@/components/Datenzugang';
 
+import '../styles/tokens.css';
 import './globals.css';
+import '../styles/komponenten.css';
 
 export const metadata: Metadata = {
   title: 'AI Trading Analyst',
@@ -17,8 +19,9 @@ export default function RootLayout({
     <html lang="de">
       <body>
         {/* Ausserhalb des Servers liegt statt der API ein Datenbaum; er wird
-            hier geoeffnet und der Stand darueber angezeigt (ADR 0060). Im
-            eigenen Netz reicht die Komponente ihre Kinder durch. */}
+            hier geoeffnet und der Stand in der Kopfzeile angezeigt (ADR 0060).
+            Im eigenen Netz reicht die Komponente ihre Kinder in den Rahmen
+            durch (ADR 0063). */}
         <Datenzugang>{children}</Datenzugang>
       </body>
     </html>

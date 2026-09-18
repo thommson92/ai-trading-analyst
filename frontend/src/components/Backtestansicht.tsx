@@ -26,42 +26,44 @@ function Tradetabelle({ backtest }: { backtest: AktienBacktest }): ReactNode {
   return (
     <details className="tradeliste">
       <summary>Alle {backtest.trades.length} simulierten Trades</summary>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Einstieg</th>
-            <th scope="col">Kriterien</th>
-            <th scope="col">Kurs</th>
-            <th scope="col">Strike</th>
-            <th scope="col">Prämie</th>
-            <th scope="col">Verfall</th>
-            <th scope="col">Kurs am Verfall</th>
-            <th scope="col">gehalten</th>
-            <th scope="col">gemanagt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {backtest.trades.map((trade) => (
-            <tr key={`${String(trade.entry_index)}-${String(trade.strike)}`}>
-              <td>{formatDatum(trade.entry_date)}</td>
-              <td>{trade.letters}</td>
-              <td className="zahl">{trade.underlying_at_entry.toFixed(2)}</td>
-              <td className="zahl">{trade.strike.toFixed(2)}</td>
-              <td className="zahl">{trade.premium.toFixed(2)}</td>
-              <td>{formatDatum(trade.expiration)}</td>
-              <td className="zahl">{trade.underlying_at_expiration.toFixed(2)}</td>
-              <td className="zahl">
-                {formatGeld(trade.held_profit)}
-                <span className="ausgang"> {AUSGANG_TEXT[trade.held_outcome]}</span>
-              </td>
-              <td className="zahl">
-                {formatGeld(trade.managed_profit)}
-                <span className="ausgang"> {AUSGANG_TEXT[trade.managed_outcome]}</span>
-              </td>
+      <div className="breit">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Einstieg</th>
+              <th scope="col">Kriterien</th>
+              <th scope="col">Kurs</th>
+              <th scope="col">Strike</th>
+              <th scope="col">Prämie</th>
+              <th scope="col">Verfall</th>
+              <th scope="col">Kurs am Verfall</th>
+              <th scope="col">gehalten</th>
+              <th scope="col">gemanagt</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {backtest.trades.map((trade) => (
+              <tr key={`${String(trade.entry_index)}-${String(trade.strike)}`}>
+                <td>{formatDatum(trade.entry_date)}</td>
+                <td>{trade.letters}</td>
+                <td className="zahl">{trade.underlying_at_entry.toFixed(2)}</td>
+                <td className="zahl">{trade.strike.toFixed(2)}</td>
+                <td className="zahl">{trade.premium.toFixed(2)}</td>
+                <td>{formatDatum(trade.expiration)}</td>
+                <td className="zahl">{trade.underlying_at_expiration.toFixed(2)}</td>
+                <td className="zahl">
+                  {formatGeld(trade.held_profit)}
+                  <span className="ausgang"> {AUSGANG_TEXT[trade.held_outcome]}</span>
+                </td>
+                <td className="zahl">
+                  {formatGeld(trade.managed_profit)}
+                  <span className="ausgang"> {AUSGANG_TEXT[trade.managed_outcome]}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </details>
   );
 }
