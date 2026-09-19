@@ -4,7 +4,7 @@ import { Karte } from '@/components/ui/Karte';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { ReportDocument } from '@/lib/api';
 import { sichereAdresse } from '@/lib/adresse';
-import { formatDatum } from '@/lib/format';
+import { formatTag } from '@/lib/format';
 
 import { Restfelder } from '../Restfelder';
 import { Vorbehalte } from '../Vorbehalte';
@@ -23,7 +23,7 @@ const SPALTEN: readonly Spalte<JsonObjekt>[] = [
     schluessel: 'period',
     titel: 'Monat',
     kopf: true,
-    render: (p) => formatDatum(feldText(p, 'period') ?? ''),
+    render: (p) => formatTag(feldText(p, 'period')),
   },
   {
     schluessel: 'strong_buy',
@@ -109,7 +109,7 @@ export function Analysten({ dokument }: { dokument: ReportDocument }): ReactNode
             </>
           )}
           {feldText(empfehlungen, 'retrieved_at') !== null && (
-            <span> · abgerufen {formatDatum(feldText(empfehlungen, 'retrieved_at') ?? '')}</span>
+            <span> · abgerufen {formatTag(feldText(empfehlungen, 'retrieved_at'))}</span>
           )}
         </p>
       )}

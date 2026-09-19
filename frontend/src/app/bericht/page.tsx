@@ -18,6 +18,10 @@ function BerichtInhalt(): ReactNode {
   useEffect(() => {
     if (id === null) return;
     let abgemeldet = false;
+    // Sonst staende beim Wechsel der Kennung (Browser-Zurueck) der alte
+    // Bericht oder ein alter Fehler neben dem neuen Kopf.
+    setDokument(null);
+    setFehler(null);
     getReport(id)
       .then((geladen) => {
         if (!abgemeldet) setDokument(geladen);

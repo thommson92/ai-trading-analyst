@@ -7,7 +7,7 @@ import { Empfehlungsbadge } from '@/components/kandidaten/Empfehlungsbadge';
 import { Signalbuchstaben } from '@/components/kandidaten/Signalbuchstaben';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { Aktieneintrag } from '@/lib/api';
-import { formatScore, formatTag } from '@/lib/format';
+import { empfehlungsrang, formatScore, formatTag } from '@/lib/format';
 import { aktieAdresse } from '@/lib/url';
 
 function spalten(
@@ -39,7 +39,7 @@ function spalten(
       titel: 'Empfehlung',
       render: (a) =>
         a.last_report === null ? '–' : <Empfehlungsbadge stufe={a.last_report.recommendation} />,
-      sortWert: (a) => a.last_report?.recommendation,
+      sortWert: (a) => empfehlungsrang(a.last_report?.recommendation),
     },
     {
       schluessel: 'swing',

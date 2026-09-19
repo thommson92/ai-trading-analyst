@@ -25,11 +25,16 @@ const KENNZAHL_TEXT: Record<string, string | undefined> = {
   GROSS_MARGIN: 'Bruttomarge',
   OPERATING_MARGIN: 'Operative Marge',
   NET_MARGIN: 'Nettomarge',
+  FREE_CASH_FLOW_MARGIN: 'Free-Cashflow-Marge',
+  RETURN_ON_EQUITY: 'Eigenkapitalrendite',
+  RETURN_ON_ASSETS: 'Gesamtkapitalrendite',
   DEBT_TO_EQUITY: 'Verschuldungsgrad',
   CURRENT_RATIO: 'Liquiditätsgrad',
-  PE_RATIO: 'KGV',
-  PRICE_TO_SALES: 'KUV',
-  MARKET_CAP: 'Marktkapitalisierung',
+  SHARE_COUNT_GROWTH: 'Aktienzahl (Veränderung)',
+  MARKET_CAPITALIZATION: 'Marktkapitalisierung',
+  PRICE_EARNINGS_RATIO: 'KGV',
+  PRICE_SALES_RATIO: 'KUV',
+  PRICE_FREE_CASH_FLOW_RATIO: 'Kurs/Free Cashflow',
 };
 
 function waehrung(m: JsonObjekt): string {
@@ -37,13 +42,28 @@ function waehrung(m: JsonObjekt): string {
   return w === null ? '' : ` ${w}`;
 }
 
+// Die Einheiten des Backends (`domain/fundamentals/values.py`, `MetricUnit`):
+// FRACTION ist ein Anteil (0,25 = 25 %), RATIO ein dimensionsloses
+// Verhaeltnis (KGV 34,2), CURRENCY ein Betrag, SHARES eine Stueckzahl. Eine
+// unbekannte Einheit wird nicht geraten: Der Wert steht dann roh mit ihrem
+// Namen -- eine Marge von 0,42 als "0" oder ein KGV als "3420 %" waere die
+// falsche Zahl mit sicherem Gesicht.
 function wertMitEinheit(m: JsonObjekt): string {
   const wert = feldZahl(m, 'value');
-  const einheit = feldText(m, 'unit') ?? '';
+  const einheit = feldText(m, 'unit');
   if (wert === null) return '–';
-  if (einheit === 'RATIO' || einheit === 'PERCENT') return `${(wert * 100).toFixed(1)} %`;
-  if (einheit === 'MULTIPLE') return wert.toFixed(2);
-  return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 0 })}${waehrung(m)}`;
+  switch (einheit) {
+    case 'FRACTION':
+      return `${(wert * 100).toLocaleString('de-DE', { maximumFractionDigits: 1 })} %`;
+    case 'RATIO':
+      return wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    case 'CURRENCY':
+      return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 0 })}${waehrung(m)}`;
+    case 'SHARES':
+      return wert.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+    default:
+      return `${String(wert)}${einheit === null ? '' : ` ${einheit}`}`;
+  }
 }
 
 const SPALTEN: readonly Spalte<JsonObjekt>[] = [
