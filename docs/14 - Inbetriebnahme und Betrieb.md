@@ -1937,6 +1937,13 @@ automatischen Tageslauf, nur manuell gestartete.
 umgeschrieben, sobald er dort steht — bis dahin gibt es genau einen
 geplanten Vorgang, den Tageslauf.
 
+**Die Protokolldatei ist gebaut, aber noch nicht eingeschaltet**:
+`logging.file` steht ausgeliefert auf `null`, und damit gehen die
+Protokolle des Tageslaufs weiterhin nur nach `stdout` — unter der
+Aufgabenplanung also ins Leere. Wer wissen will, wo die Zeit eines Laufs
+bleibt, trägt dort einen Pfad ein (Abschnitt „Wo die Zeit eines Laufs
+bleibt"). Diese Zeile wird umgeschrieben, sobald er gesetzt ist.
+
 **Der Export nach draußen ist gebaut und beim Anbieter abgenommen**
 (Stufen K und L, [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
 angenommen am 2026-09-17), **im Tageslauf aber noch nicht geschaltet**:
@@ -2116,6 +2123,97 @@ wird beim nächsten Start in 15 Minuten erneut versucht.
 
 Die Frist liegt bewusst **innerhalb** des Startfensters; wer eines von beiden
 verschiebt, muss das andere mitziehen. Ein Test hält die Bedingung fest.
+
+## Wo die Zeit eines Laufs bleibt
+
+Ein Lauf dauerte am 2026-09-01 (`7c88d78c`, 192 Aktien, 36 Kandidaten) rund
+**57 Minuten, davon 35 für den Backfill**. Wo die übrigen 22 Minuten
+hingingen, war aus dem System heraus nicht zu beantworten — deshalb die
+beiden folgenden Wege.
+
+### Die grobe Zerlegung steht schon in der Datenbank
+
+Rückwirkend für **jeden** Tag seit dem 2026-09-01, ohne dass irgendetwas
+eingeschaltet sein müsste. Drei Zeitstempel teilen den Lauf in drei Teile:
+
+| Abschnitt | Berechnung |
+|---|---|
+| Backfill + Datengate | `analysis_runs.started_at − dispatcher_runs.last_attempt_at` |
+| Analyse (Phasen 1–3) | `analysis_runs.completed_at − analysis_runs.started_at` |
+| Meldung + Export | `dispatcher_runs.finished_at − analysis_runs.completed_at` |
+
+Meldung und Export liegen **hinter** `completed_at` — der Laufdatensatz gilt
+vorher schon als abgeschlossen. Nur deshalb lassen sie sich hier überhaupt
+abtrennen.
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+$env:PGPASSFILE = "$env:APPDATA\postgresql\pgpass.conf"
+psql -h localhost -U ata -d ai_trading_analyst -c @"
+SELECT d.session_date,
+       a.number_of_stocks AS aktien, a.candidates_found AS kandidaten,
+       round(extract(epoch from a.started_at   - d.last_attempt_at)) AS backfill_s,
+       round(extract(epoch from a.completed_at - a.started_at))      AS analyse_s,
+       round(extract(epoch from d.finished_at  - a.completed_at))    AS rest_s,
+       round(extract(epoch from d.finished_at  - d.last_attempt_at)) AS gesamt_s
+FROM dispatcher_runs d
+JOIN analysis_runs a ON a.started_at BETWEEN d.last_attempt_at AND d.finished_at
+WHERE d.status = 'succeeded'
+ORDER BY d.session_date DESC LIMIT 30;
+"@
+```
+
+**Die Streuung über mehrere Wochen ist aussagekräftiger als ein Einzelwert.**
+Ein einzelner Lauf sagt wenig — die TWS antwortet nicht jeden Tag gleich
+schnell.
+
+### Die feine Zerlegung braucht die Protokolldatei
+
+`logging.file` ist ausgeliefert leer; dann bleibt es bei `stdout`, und das ist
+unter der Aufgabenplanung flüchtig. Mit einem Pfad entsteht **zusätzlich**
+eine rotierende Datei. Auf der Konsole bleibt es beim lesbaren Format — die
+Datei trägt immer JSON, denn sie wird ausgewertet und nicht gelesen.
+
+In `config/default.yaml`:
+
+```yaml
+logging:
+  file: var/logs/tageslauf.log
+```
+
+Jede gemessene Zeile trägt `event`, `duration_ms` und `ausgang`. Gemessen
+werden: die drei Phasen des Laufs (`phase_1_screening`, `phase_2_agenten`,
+`phase_3_persistenz`), `meldung` und `dashboard_export` getrennt, je Aktie die
+`kerzenserie` (Bestand lesen, aggregieren, Indikatoren), je Kandidat
+`backtest`, `fundamentaldaten`, `analystenvoten`, `earnings_termin` und
+`optionsanalyse`, sowie `backfill` und `backfill_symbol`.
+
+**Die aufschlussreichste Zahl steht an `backfill`:** `verschlafene_sekunden`
+neben `duration_ms`. Sie trennt das Warten an der eigenen Drossel vom Warten
+an der Leitung — und damit „lässt sich beschleunigen" von „lässt sich nicht
+beschleunigen". Bei elf Sekunden Abstand und rund 190 Symbolen ist fast der
+gesamte Backfill Warten, und daran ändert kein Umbau etwas
+(`market_data.ibkr.minimum_request_interval_seconds`).
+
+Die Summe je Ereignis über einen Lauf:
+
+```powershell
+Get-Content var\logs\tageslauf.log |
+  ForEach-Object { $_ | ConvertFrom-Json } |
+  Where-Object { $_.duration_ms } |
+  Group-Object event |
+  ForEach-Object {
+      [pscustomobject]@{
+          Ereignis = $_.Name
+          Anzahl   = $_.Count
+          Sekunden = [math]::Round((($_.Group | Measure-Object duration_ms -Sum).Sum) / 1000, 1)
+      }
+  } | Sort-Object Sekunden -Descending | Format-Table
+```
+
+Die Datei enthält **keine Geheimnisse**: Geschwärzt wird am Formatter, nicht
+am Ausgang ([ADR 0044](adr/0044-geheimnisse-an-der-log-senke-schwaerzen.md)),
+und zwar für fremde Zeilen genauso wie für eigene. Zwei Tests halten das fest.
 
 ## Was der Dispatcher bewusst nicht tut
 
