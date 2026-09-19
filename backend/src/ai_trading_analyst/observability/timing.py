@@ -79,3 +79,56 @@ def gemessen(
                 **_ungefaehrlich({**felder, **zusatz}),
             },
         )
+
+
+class Zeitkonto:
+    """Sammelt Dauern unter Namen und gibt sie **einmal** aus.
+
+    Fuer Abschnitte, die sich nicht am Stueck messen lassen. Der wichtigste
+    Fall ist ein **Generator**: Zwischen zwei ``yield`` ist er angehalten,
+    und die Zeit gehoert dem Verbraucher. Ein ``with`` um die Schleife
+    herum maesse dessen Arbeit mit -- beim Export also das Verschluesseln
+    und Schreiben, nicht das Rechnen, um das es geht.
+
+    Gemessen wird deshalb jeder Rechenaufruf einzeln, und am Ende steht eine
+    Zeile mit der Summe je Name. Das ist zugleich die lesbare Form: Eine
+    Zeile je Bericht waeren bei zweihundert Berichten zweihundert Zeilen,
+    durch die niemand sieht.
+    """
+
+    def __init__(self) -> None:
+        self._summen: dict[str, float] = {}
+        self._aufrufe: dict[str, int] = {}
+
+    @contextmanager
+    def bei(self, name: str, *, monotonic: Callable[[], float] = time.monotonic) -> Iterator[None]:
+        begonnen = monotonic()
+        try:
+            yield
+        finally:
+            # Auch ein gescheiterter Aufruf hat gerechnet.
+            self._summen[name] = self._summen.get(name, 0.0) + (monotonic() - begonnen)
+            self._aufrufe[name] = self._aufrufe.get(name, 0) + 1
+
+    def als_felder(self) -> dict[str, Any]:
+        """Die Summen in Millisekunden, je Name zwei Felder."""
+        felder: dict[str, Any] = {}
+        for name, sekunden in sorted(self._summen.items()):
+            felder[f"{name}_ms"] = round(sekunden * 1000, 1)
+            felder[f"{name}_anzahl"] = self._aufrufe[name]
+        return felder
+
+    def protokolliere(self, logger: logging.Logger, event: str, **felder: Any) -> None:
+        """Eine Zeile mit allem, was gesammelt wurde."""
+        logger.info(
+            "%s: %s",
+            event,
+            ", ".join(
+                f"{name} {sekunden:.1f} s ({self._aufrufe[name]}x)"
+                for name, sekunden in sorted(
+                    self._summen.items(), key=lambda paar: paar[1], reverse=True
+                )
+            )
+            or "nichts gemessen",
+            extra={"event": event, **_ungefaehrlich(felder), **self.als_felder()},
+        )

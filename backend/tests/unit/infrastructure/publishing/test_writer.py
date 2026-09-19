@@ -13,6 +13,8 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
+import pytest
+
 from ai_trading_analyst.infrastructure.publishing.crypto import (
     MINDEST_ITERATIONEN,
     Verschluesselung,
@@ -20,6 +22,7 @@ from ai_trading_analyst.infrastructure.publishing.crypto import (
     leite_schluessel_ab,
 )
 from ai_trading_analyst.infrastructure.publishing.writer import (
+    Exporteintrag,
     Exportzustand,
     Verzeichnisschreiber,
 )
@@ -39,8 +42,13 @@ def krypto(baum_id: str = "baum-1", passphrase: str = "eine-lange-passphrase") -
     )
 
 
-def dateien(*paare: tuple[str, bytes]) -> Iterable[tuple[str, bytes]]:
-    return list(paare)
+def dateien(*paare: tuple[str, bytes]) -> Iterable[Exporteintrag]:
+    return [Exporteintrag(pfad=pfad, inhalt=inhalt) for pfad, inhalt in paare]
+
+
+def uebersprungen(*pfade: str) -> Iterable[Exporteintrag]:
+    """Eintraege, die der Erzeuger gar nicht erst gebaut hat (ADR 0068)."""
+    return [Exporteintrag(pfad=pfad, inhalt=None) for pfad in pfade]
 
 
 class TestKlartext:
@@ -240,3 +248,90 @@ class TestZustand:
         zustand.speichere(zustandsdatei)
         assert zustandsdatei.is_file()
         assert not (tmp_path / "public" / "public.zustand.json").exists()
+
+
+class TestUebersprungeneDateien:
+    """Der Erzeuger darf eine Datei gar nicht erst bauen (ADR 0068).
+
+    Der Schreiber übernimmt dann Prüfsumme und Zielnamen aus dem bekannten
+    Stand. Entscheidend ist, dass die Datei danach **weiterhin dazugehört** --
+    sonst räumte der Schreiber sie als verwaist weg, und draußen fehlte sie.
+    """
+
+    def test_der_uebersprungene_stand_bleibt_erhalten(self, tmp_path: Path) -> None:
+        schreiber = Verzeichnisschreiber(tmp_path)
+        zustand = frischer_zustand()
+        schreiber.schreibe(dateien(("data/a.json", b"eins")), zustand)
+        vorher = dict(zustand.dateien)
+
+        bericht = schreiber.schreibe(uebersprungen("data/a.json"), zustand)
+
+        assert bericht.unveraendert == 1
+        assert bericht.geschrieben == 0
+        assert zustand.dateien == vorher
+
+    def test_die_datei_wird_nicht_als_verwaist_entfernt(self, tmp_path: Path) -> None:
+        """Der Fall, der den ganzen Ansatz zunichte machte: Ein Übersprung,
+        der die Datei danach löscht, ist schlimmer als jede Rechenzeit."""
+        schreiber = Verzeichnisschreiber(tmp_path)
+        zustand = frischer_zustand()
+        schreiber.schreibe(dateien(("data/a.json", b"eins")), zustand)
+
+        schreiber.schreibe(uebersprungen("data/a.json"), zustand)
+
+        assert (tmp_path / "data/a.json").read_bytes() == b"eins"
+
+    def test_die_fassung_ueberlebt_den_uebersprung(self, tmp_path: Path) -> None:
+        """Sonst rechnete der dritte Export wieder alles neu."""
+        schreiber = Verzeichnisschreiber(tmp_path)
+        zustand = frischer_zustand()
+        schreiber.schreibe(
+            [Exporteintrag(pfad="data/a.json", inhalt=b"eins", fassung="f1")], zustand
+        )
+
+        schreiber.schreibe(uebersprungen("data/a.json"), zustand)
+
+        assert zustand.dateien["data/a.json"].fassung == "f1"
+
+    def test_ein_unbekannter_pfad_ist_ein_programmfehler(self, tmp_path: Path) -> None:
+        """Der Erzeuger bekommt genau die Pfade, deren Zieldatei noch liegt.
+        Meldet er trotzdem etwas anderes als unverändert, ist der Inhalt
+        danach nirgends mehr -- das darf nicht still durchgehen."""
+        schreiber = Verzeichnisschreiber(tmp_path)
+
+        with pytest.raises(ValueError, match="nicht im bekannten Stand"):
+            schreiber.schreibe(uebersprungen("data/nie-dagewesen.json"), frischer_zustand())
+
+    def test_die_fassung_ueberlebt_das_speichern_und_laden(self, tmp_path: Path) -> None:
+        zustand = frischer_zustand()
+        Verzeichnisschreiber(tmp_path).schreibe(
+            [Exporteintrag(pfad="data/a.json", inhalt=b"eins", fassung="f1")], zustand
+        )
+        zustand.speichere(tmp_path / "zustand.json")
+
+        geladen = Exportzustand.lade(tmp_path / "zustand.json")
+
+        assert geladen is not None
+        assert geladen.dateien["data/a.json"].fassung == "f1"
+
+    def test_ein_zustand_aus_der_zeit_davor_hat_keine_fassung(self, tmp_path: Path) -> None:
+        """Er zählt als unbekannt: Der erste Export danach rechnet einmal
+        alles neu und trägt sie nach. Die sichere Richtung."""
+        pfad = tmp_path / "zustand.json"
+        pfad.write_text(
+            json.dumps(
+                {
+                    "format": 1,
+                    "tree_id": "baum-1",
+                    "salt": SALT.hex(),
+                    "iterations": MINDEST_ITERATIONEN,
+                    "files": {"data/a.json": {"hash": "abc", "ziel": "data/a.json"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        geladen = Exportzustand.lade(pfad)
+
+        assert geladen is not None
+        assert geladen.dateien["data/a.json"].fassung is None

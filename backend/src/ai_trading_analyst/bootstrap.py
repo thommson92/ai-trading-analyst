@@ -10,7 +10,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from functools import cache, partial
 from importlib import metadata
 from pathlib import Path
@@ -119,6 +119,8 @@ from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchem
 from ai_trading_analyst.infrastructure.publishing import (
     MINDEST_ITERATIONEN,
     Bauziel,
+    Dateizustand,
+    Exporteintrag,
     Exportziel,
     FrontendBauer,
     Hochladeziel,
@@ -132,7 +134,11 @@ from ai_trading_analyst.infrastructure.watchlists import (
     load_watchlist_directory,
 )
 from ai_trading_analyst.presentation.api.app import create_app
-from ai_trading_analyst.presentation.export import Exportquellen, iter_snapshot
+from ai_trading_analyst.presentation.export import (
+    BekannteDatei,
+    Exportquellen,
+    iter_snapshot,
+)
 
 
 def project_root(config_path: Path) -> Path:
@@ -804,15 +810,22 @@ def build_dashboard_publisher(
         market_timezone=config.market.timezone,
     )
 
-    def dateien() -> Iterator[tuple[str, bytes]]:
+    def dateien(bekannt: Mapping[str, Dateizustand]) -> Iterator[Exporteintrag]:
         """Die Naht zwischen den Schichten.
 
         Die Infrastruktur darf die Praesentationsschicht nicht kennen
-        (Doc 10, Paragraph 9). Sie bekommt deshalb Pfad und Bytes, und wo
-        die herkommen, weiss allein dieser Composition Root.
+        (Doc 10, Paragraph 9) und umgekehrt genauso wenig. Beide Seiten
+        haben deshalb ihren eigenen Typ fuer denselben Sachverhalt, und
+        dieser Composition Root uebersetzt zwischen ihnen -- in beide
+        Richtungen, seit der Erzeuger den bekannten Stand braucht
+        (ADR 0068).
         """
-        for datei in iter_snapshot(quellen):
-            yield datei.pfad, datei.inhalt
+        vorstand = {
+            pfad: BekannteDatei(hash=stand.hash, fassung=stand.fassung)
+            for pfad, stand in bekannt.items()
+        }
+        for datei in iter_snapshot(quellen, bekannt=vorstand):
+            yield Exporteintrag(pfad=datei.pfad, inhalt=datei.inhalt, fassung=datei.fassung)
 
     return SnapshotPublisher(
         snapshot=dateien,

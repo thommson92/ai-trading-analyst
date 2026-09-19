@@ -9,7 +9,7 @@ Baum und damit ein vollstaendiger Upload.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 
 import pytest
@@ -24,13 +24,30 @@ from ai_trading_analyst.infrastructure.publishing.publisher import (
     SnapshotPublisher,
 )
 from ai_trading_analyst.infrastructure.publishing.upload import Hochladebericht
-from ai_trading_analyst.infrastructure.publishing.writer import Exportzustand
+from ai_trading_analyst.infrastructure.publishing.writer import (
+    Dateizustand,
+    Exporteintrag,
+    Exportzustand,
+)
 
 PASSPHRASE = "eine-lange-zufaellige-passphrase-aus-dem-manager"
 
 
-def baum(*paare: tuple[str, bytes]) -> Iterator[tuple[str, bytes]]:
-    yield from paare
+def baum(*paare: tuple[str, bytes]) -> Iterator[Exporteintrag]:
+    for pfad, inhalt in paare:
+        yield Exporteintrag(pfad=pfad, inhalt=inhalt)
+
+
+Snapshotfabrik = Callable[[Mapping[str, Dateizustand]], Iterator[Exporteintrag]]
+
+
+def snapshot_von(*paare: tuple[str, bytes]) -> Snapshotfabrik:
+    """Eine Snapshot-Fabrik, die den bekannten Stand ignoriert.
+
+    Die meisten Tests hier pruefen das Schreiben und Senden, nicht das
+    Ueberspringen (ADR 0068) -- sie liefern deshalb immer denselben Baum.
+    """
+    return lambda _bekannt: baum(*paare)
 
 
 class _Hochlader:
@@ -58,7 +75,7 @@ def publisher(
     hochlader: _Hochlader | None = None,
 ) -> SnapshotPublisher:
     return SnapshotPublisher(
-        snapshot=lambda: baum(*inhalt),
+        snapshot=lambda _bekannt: baum(*inhalt),
         ziel=Exportziel(
             wurzel=tmp_path / "public",
             zustandsdatei=tmp_path / "zustand.json",
@@ -257,7 +274,7 @@ class TestDerWegNachDraussen:
                 )
 
         SnapshotPublisher(
-            snapshot=lambda: baum(("data/manifest.json", b"{}")),
+            snapshot=snapshot_von(("data/manifest.json", b"{}")),
             ziel=Exportziel(
                 wurzel=tmp_path / "public",
                 zustandsdatei=tmp_path / "zustand.json",
@@ -281,3 +298,64 @@ class TestDerWegNachDraussen:
 
         assert (tmp_path / "zustand.json").is_file()
         assert not (tmp_path / "zustand.json.lock").exists()
+
+
+class TestBekannterStandFuerDenErzeuger:
+    """Was der Erzeuger überspringen darf, entscheidet der Publisher
+    (ADR 0068).
+
+    Er ist die einzige Stelle, die das Verzeichnis kennt -- der Erzeuger
+    kennt nur den Zustand, und der behauptet etwas über ein Verzeichnis,
+    das er nicht kontrolliert.
+    """
+
+    def _publisher(
+        self, tmp_path: Path, gesehen: list[Mapping[str, Dateizustand]]
+    ) -> SnapshotPublisher:
+        def snapshot(bekannt: Mapping[str, Dateizustand]) -> Iterator[Exporteintrag]:
+            gesehen.append(dict(bekannt))
+            yield from baum(("data/a.json", b"eins"), ("data/manifest.json", b"{}"))
+
+        return SnapshotPublisher(
+            snapshot=snapshot,
+            ziel=Exportziel(
+                wurzel=tmp_path / "public",
+                zustandsdatei=tmp_path / "zustand.json",
+                passphrase=None,
+                iterationen=MINDEST_ITERATIONEN,
+            ),
+        )
+
+    def test_der_zweite_lauf_sieht_den_ersten(self, tmp_path: Path) -> None:
+        gesehen: list[Mapping[str, Dateizustand]] = []
+        publisher = self._publisher(tmp_path, gesehen)
+
+        publisher.schreibe_baum()
+        publisher.schreibe_baum()
+
+        assert gesehen[0] == {}
+        assert "data/a.json" in gesehen[1]
+
+    def test_voll_verwirft_den_bekannten_stand(self, tmp_path: Path) -> None:
+        """``publish --full`` ist die Notbremse: Wer zweifelt, ob draußen
+        steht, was hier liegt, bekommt jede Datei neu gerechnet."""
+        gesehen: list[Mapping[str, Dateizustand]] = []
+        publisher = self._publisher(tmp_path, gesehen)
+
+        publisher.schreibe_baum()
+        publisher.schreibe_baum(voll=True)
+
+        assert gesehen[1] == {}
+
+    def test_eine_verschwundene_datei_gilt_als_unbekannt(self, tmp_path: Path) -> None:
+        """Sonst überspränge der Erzeuger eine Datei, deren Inhalt danach
+        nirgends mehr wäre."""
+        gesehen: list[Mapping[str, Dateizustand]] = []
+        publisher = self._publisher(tmp_path, gesehen)
+
+        publisher.schreibe_baum()
+        (tmp_path / "public" / "data" / "a.json").unlink()
+        publisher.schreibe_baum()
+
+        assert "data/a.json" not in gesehen[1]
+        assert "data/manifest.json" in gesehen[1]

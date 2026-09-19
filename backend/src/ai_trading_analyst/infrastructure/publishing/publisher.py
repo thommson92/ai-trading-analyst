@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -42,7 +42,13 @@ from .crypto import (
 )
 from .frontend_build import Baubericht
 from .upload import Hochladebericht, Hochlader
-from .writer import Exportzustand, Schreibbericht, Verzeichnisschreiber
+from .writer import (
+    Dateizustand,
+    Exporteintrag,
+    Exportzustand,
+    Schreibbericht,
+    Verzeichnisschreiber,
+)
 
 _logger = get_logger(__name__)
 
@@ -107,7 +113,7 @@ class SnapshotPublisher:
     def __init__(
         self,
         *,
-        snapshot: Callable[[], Iterable[tuple[str, bytes]]],
+        snapshot: Callable[[Mapping[str, Dateizustand]], Iterable[Exporteintrag]],
         ziel: Exportziel,
         hochlader: Hochlader | None = None,
     ) -> None:
@@ -213,7 +219,7 @@ class SnapshotPublisher:
                 if voll:
                     zustand.dateien.clear()
                 schreiber = self._schreiber(zustand)
-                geschrieben = schreiber.schreibe(self._snapshot(), zustand)
+                geschrieben = schreiber.schreibe(self._snapshot(self._liegt_noch(zustand)), zustand)
                 zustand.speichere(self._ziel.zustandsdatei)
             except KryptoKonfigurationError as fehler:
                 raise DashboardPublisherError(
@@ -263,6 +269,22 @@ class SnapshotPublisher:
                 f"Der Upload ist unerwartet gescheitert: {fehler!r}. Der Datenbaum "
                 f"({geschrieben.dateien} Dateien) liegt geschrieben auf dem Server."
             ) from fehler
+
+    def _liegt_noch(self, zustand: Exportzustand) -> Mapping[str, Dateizustand]:
+        """Der bekannte Stand, beschraenkt auf das, was wirklich noch da ist.
+
+        **Die Pruefung gehoert hierher und nicht zum Erzeuger** (ADR 0068):
+        Der Erzeuger kennt das Verzeichnis nicht, und er darf eine Datei nur
+        dann ueberspringen, wenn sie tatsaechlich noch liegt -- sonst waere
+        ihr Inhalt danach nirgends mehr. Der Zustand behauptet etwas ueber
+        ein Verzeichnis, das er nicht selbst kontrolliert; genau deshalb
+        wird hier nachgesehen.
+        """
+        return {
+            pfad: stand
+            for pfad, stand in zustand.dateien.items()
+            if (self._ziel.wurzel / stand.ziel).is_file()
+        }
 
     def _zustand(self) -> Exportzustand:
         """Der letzte Stand -- oder ein frischer Baum.

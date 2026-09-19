@@ -47,6 +47,7 @@ from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.scheduling import DashboardPublisherError
 from ai_trading_analyst.domain.screening import SIGNAL_RULE_VERSION, CandidateRuleParameters
 from ai_trading_analyst.observability.logging_setup import get_logger
+from ai_trading_analyst.observability.timing import Zeitkonto
 from ai_trading_analyst.presentation.api import views
 from ai_trading_analyst.presentation.api.schemas import (
     AnalysisRunDetailResponse,
@@ -71,6 +72,43 @@ hier, koennte wer das Manifest schreiben darf auf Klartext zurueckschalten.
 
 MANIFEST_PFAD = "data/manifest.json"
 
+_FASSUNG_SALZ = "1"
+"""Von Hand zu erhoehen, wenn sich die **Rechnung** hinter einer der
+unveraenderlichen Pfadfamilien aendert, ohne dass sich ihre Form aendert
+(ADR 0068, Punkt 3).
+
+Der haeufigere Fall -- eine geaenderte Form -- faellt von selbst auf, weil
+``EXPORT_FASSUNG`` ueber die Schemata der Antwortmodelle gebildet wird. Eine
+geaenderte Rechnung bei gleicher Form tut das nicht: Wer etwa ``_gesperrte``
+korrigiert, erhoeht diesen Wert -- oder faehrt einmal ``publish --full``.
+"""
+
+
+def _export_fassung() -> str:
+    """Die Kennung, unter der eine unveraenderliche Datei entstanden ist.
+
+    Abgeleitet statt gepflegt: Eine Fassungsnummer, an die jemand denken
+    muss, wird irgendwann vergessen, und der Fehler waere still -- das
+    Dashboard zeigte fuer die Historie das alte Format und fuer heute das
+    neue. Das Schema der beteiligten Modelle zu hashen macht diesen Fall
+    selbsttragend.
+    """
+    schemata = json.dumps(
+        [
+            AnalysisRunDetailResponse.model_json_schema(),
+            ReportSummaryResponse.model_json_schema(),
+            REPORT_SCHEMA_VERSION,
+            _FASSUNG_SALZ,
+        ],
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(schemata.encode("utf-8")).hexdigest()[:16]
+
+
+EXPORT_FASSUNG = _export_fassung()
+
 _SEITE = 200
 """Wie viele Laeufe je Abfrage geladen werden. Nur eine Speichergrenze."""
 
@@ -87,7 +125,30 @@ class Exportdatei:
     """
 
     pfad: str
-    inhalt: bytes
+    inhalt: bytes | None
+    """``None`` heisst **unveraendert** (ADR 0068).
+
+    Die Datei wurde gar nicht erst gebaut, weil sie aus unveraenderlichen
+    Zeilen entsteht und unter derselben Fassung schon einmal entstanden ist.
+    Der Schreiber uebernimmt Pruefsumme und Zielnamen aus dem bekannten
+    Stand.
+    """
+    fassung: str | None = None
+    """Unter welcher Fassung der Inhalt entstand -- nur fuer die
+    unveraenderlichen Pfadfamilien gesetzt."""
+
+
+@dataclass(frozen=True, slots=True)
+class BekannteDatei:
+    """Was ueber eine Datei des letzten Standes bekannt ist (ADR 0068).
+
+    Bewusst **kein** Import aus der Infrastruktur: Die Praesentationsschicht
+    kennt den Verzeichnisschreiber nicht (Doc 10, Paragraph 9). Der
+    Composition Root uebersetzt.
+    """
+
+    hash: str
+    fassung: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +283,7 @@ def iter_snapshot(
     *,
     export_id: UUID | None = None,
     jetzt: datetime | None = None,
+    bekannt: Mapping[str, BekannteDatei] | None = None,
 ) -> Iterator[Exportdatei]:
     """Der vollstaendige Datenbaum, Datei fuer Datei.
 
@@ -232,6 +294,10 @@ def iter_snapshot(
     **Das Manifest kommt zuletzt.** Es zaehlt, was tatsaechlich entstanden
     ist -- und ein abgebrochener Export hinterlaesst damit keinen Stand,
     statt einen unvollstaendigen zu behaupten.
+
+    ``bekannt`` sind die Dateien des letzten Standes, deren Zieldatei noch
+    liegt (ADR 0068). Was daraus unter derselben Fassung stammt und zu einer
+    unveraenderlichen Pfadfamilie gehoert, wird nicht neu gerechnet.
     """
     kennung = export_id if export_id is not None else uuid4()
     zeitpunkt = jetzt if jetzt is not None else datetime.now(UTC)
@@ -240,8 +306,28 @@ def iter_snapshot(
     charts_gesamt = 0
     fehlende_charts: list[str] = []
     hashes: dict[str, str] = {}
+    # **Nicht ``gemessen`` um die Schleifen herum**: Diese Funktion ist ein
+    # Generator, und zwischen zwei ``yield`` ist sie angehalten. Eine Messung
+    # ueber die Schleife naehme die Zeit des Verbrauchers mit -- also das
+    # Verschluesseln und Schreiben, nicht das Rechnen, um das es geht.
+    konto = Zeitkonto()
+    vorstand = bekannt if bekannt is not None else {}
+    uebersprungen = 0
 
-    def datei(pfad: str, inhalt: bytes) -> Exportdatei:
+    def unveraendert(pfad: str) -> Exportdatei | None:
+        """Die Datei, falls sie unter derselben Fassung schon existiert.
+
+        Die Pruefsumme kommt dann aus dem bekannten Stand statt aus dem
+        Inhalt -- sie ist dieselbe, und genau das ist der Punkt: Das
+        Manifest bleibt vollstaendig, ohne dass die Datei entstehen muss.
+        """
+        eintrag = vorstand.get(pfad)
+        if eintrag is None or eintrag.fassung != EXPORT_FASSUNG:
+            return None
+        hashes[pfad] = eintrag.hash
+        return Exportdatei(pfad, None, EXPORT_FASSUNG)
+
+    def datei(pfad: str, inhalt: bytes, fassung: str | None = None) -> Exportdatei:
         """Merkt sich den Hash und liefert die Datei.
 
         Die Hashes stehen danach im Manifest, und der Browser prueft sie nach
@@ -251,7 +337,7 @@ def iter_snapshot(
         Hash auf.
         """
         hashes[pfad] = hashlib.sha256(inhalt).hexdigest()
-        return Exportdatei(pfad, inhalt)
+        return Exportdatei(pfad, inhalt, fassung)
 
     # **Die Charts kommen zuerst, und das ist kein Geschmack.** Der Schreiber
     # verbraucht diesen Generator traege: Jede Datei, die hier vor einem
@@ -280,7 +366,8 @@ def iter_snapshot(
     for aktie in aktien:
         symbol = aktie.symbol
         try:
-            reihe = marktdaten.get_candle_series(aktie)
+            with konto.bei("chart_kerzenserie"):
+                reihe = marktdaten.get_candle_series(aktie)
         except MarketDataUnavailableError:
             # **Zuerst der Ausfall, und die Reihenfolge ist der ganze
             # Punkt:** ``MarketDataUnavailableError`` ist Unterklasse von
@@ -300,10 +387,11 @@ def iter_snapshot(
             fehlende_charts.append(symbol)
             continue
         charts_gesamt += 1
-        yield datei(
-            f"data/stocks/{namen[symbol]}/chart.json",
-            _als_json(build_chart_payload(symbol, reihe, quellen.candidate_rule_parameters)),
-        )
+        with konto.bei("chart_aufbau"):
+            chart = _als_json(
+                build_chart_payload(symbol, reihe, quellen.candidate_rule_parameters)
+            )
+        yield datei(f"data/stocks/{namen[symbol]}/chart.json", chart)
 
     if aktien and charts_gesamt == 0:
         # **Vor dem Manifest, und deshalb vor dem gueltigen Stand.** Jede
@@ -345,31 +433,70 @@ def iter_snapshot(
         )
         for lauf in laeufe:
             lauf_id = lauf.id
-            detail = uebersicht.execute(lauf_id)
-            if detail is not None:
-                yield datei(
-                    f"data/analysis-runs/{lauf_id}.json",
-                    _modell(AnalysisRunDetailResponse.from_overview(detail)),
-                )
-            kurzliste = views.reports_of_run(uow, lauf_id)
-            yield datei(
-                f"data/analysis-runs/{lauf_id}/reports.json",
-                _als_json(_modelle(kurzliste)),
-            )
+
+            # **Drei unveraenderliche Pfadfamilien** (ADR 0068). Sie
+            # entstehen aus Zeilen, die ein abgeschlossener Lauf nicht mehr
+            # aendert; sie jeden Abend neu zu rechnen ist Arbeit ohne
+            # moeglichen Unterschied im Ergebnis. Die Kurzliste wird dabei
+            # auch dann gebraucht, wenn ihre *Datei* uebersprungen wird --
+            # die Berichte darunter haengen an ihr.
+            ansicht_pfad = f"data/analysis-runs/{lauf_id}.json"
+            schon_da = unveraendert(ansicht_pfad)
+            if schon_da is not None:
+                uebersprungen += 1
+                yield schon_da
+            else:
+                with konto.bei("lauf_uebersicht"):
+                    detail = uebersicht.execute(lauf_id)
+                    inhalt = (
+                        None
+                        if detail is None
+                        else _modell(AnalysisRunDetailResponse.from_overview(detail))
+                    )
+                if inhalt is not None:
+                    yield datei(ansicht_pfad, inhalt, EXPORT_FASSUNG)
+
+            with konto.bei("lauf_kurzliste"):
+                kurzliste = views.reports_of_run(uow, lauf_id)
+            kurzliste_pfad = f"data/analysis-runs/{lauf_id}/reports.json"
+            schon_da = unveraendert(kurzliste_pfad)
+            if schon_da is not None:
+                uebersprungen += 1
+                yield schon_da
+            else:
+                with konto.bei("lauf_kurzliste_json"):
+                    kurzliste_json = _als_json(_modelle(kurzliste))
+                yield datei(kurzliste_pfad, kurzliste_json, EXPORT_FASSUNG)
+
             for eintrag in kurzliste:
-                bericht = uow.stock_reports.get(eintrag.report_id)
-                if bericht is None:
+                bericht_pfad = f"data/reports/{eintrag.report_id}.json"
+                schon_da = unveraendert(bericht_pfad)
+                if schon_da is not None:
+                    berichte_gesamt += 1
+                    uebersprungen += 1
+                    yield schon_da
+                    continue
+                with konto.bei("bericht"):
+                    bericht = uow.stock_reports.get(eintrag.report_id)
+                    # Das gespeicherte Dokument, unveraendert (ADR 0039).
+                    dokument = None if bericht is None else _als_json(dict(bericht.document))
+                if bericht is None or dokument is None:
                     continue
                 berichte_gesamt += 1
-                # Das gespeicherte Dokument, unveraendert (ADR 0039).
-                yield datei(
-                    f"data/reports/{bericht.id}.json", _als_json(dict(bericht.document))
-                )
+                # Derselbe Ausdruck wie bei der Pruefung oben: ``bericht.id``
+                # und ``eintrag.report_id`` sind dasselbe, aber zwei
+                # Schreibweisen desselben Pfades laden zum Auseinanderlaufen
+                # ein -- und ein abweichender Pfad hiesse, dass der
+                # Uebersprung ins Leere greift.
+                yield datei(bericht_pfad, dokument, EXPORT_FASSUNG)
 
         # Die zwei Uebersichten (ADR 0062): eine Datei fuer alle Aktien statt
         # zweihundert Einzeldateien je Listenansicht.
-        yield datei("data/stocks.json", _als_json(_modelle(views.stock_index(uow))))
-        yield datei("data/signal-backtests.json", _modell(views.signal_backtest_overview(uow)))
+        with konto.bei("uebersichten"):
+            stocks_json = _als_json(_modelle(views.stock_index(uow)))
+            signale_json = _modell(views.signal_backtest_overview(uow))
+        yield datei("data/stocks.json", stocks_json)
+        yield datei("data/signal-backtests.json", signale_json)
 
         messungen = views.measurements(uow)
         yield datei(
@@ -378,33 +505,38 @@ def iter_snapshot(
         )
         for messung in messungen:
             messung_id = messung.measurement_id
-            yield datei(
-                f"data/options-backtests/{messung_id}.json",
-                _modell(
+            with konto.bei("optionsmessung"):
+                messung_json = _modell(
                     views.measurement_detail(
                         uow, messung_id, backtest_params=quellen.backtest_parameters
                     )
-                ),
-            )
+                )
+            yield datei(f"data/options-backtests/{messung_id}.json", messung_json)
 
         for symbol in symbole:
             name = namen[symbol]
-            yield datei(
-                f"data/stocks/{name}/reports.json",
-                _als_json(_modelle(_alle_berichte(uow, symbol))),
-            )
-            yield datei(
-                f"data/stocks/{name}/backtest.json",
-                _modell(
+            with konto.bei("aktie_berichtsliste"):
+                liste_json = _als_json(_modelle(_alle_berichte(uow, symbol)))
+            yield datei(f"data/stocks/{name}/reports.json", liste_json)
+            with konto.bei("aktie_backtest"):
+                backtest_json = _modell(
                     views.stock_backtest(
                         uow,
                         symbol,
                         measurement_id=None,
                         backtest_params=quellen.backtest_parameters,
                     )
-                ),
-            )
+                )
+            yield datei(f"data/stocks/{name}/backtest.json", backtest_json)
 
+    konto.protokolliere(
+        _logger,
+        "export_zerlegung",
+        aktien=len(aktien),
+        laeufe=len(laeufe),
+        berichte=berichte_gesamt,
+        uebersprungen=uebersprungen,
+    )
     yield Exportdatei(
         MANIFEST_PFAD,
         _als_json(

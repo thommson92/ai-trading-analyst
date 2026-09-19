@@ -48,6 +48,32 @@ class Dateizustand:
     """SHA-256 des **Klartexts**, hexadezimal."""
     ziel: str
     """Der Name im Verzeichnis -- in Stufe 1 der Pfad selbst, in Stufe 2 opak."""
+    fassung: str | None = None
+    """Unter welcher Fassung der Inhalt entstand (ADR 0068).
+
+    Nur fuer die Pfade gesetzt, die als unveraenderlich gelten. ``None``
+    heisst: unbekannt -- entweder ein Pfad, der ohnehin jedes Mal neu
+    entsteht, oder ein Zustand aus der Zeit vor ADR 0068. Beide Male wird
+    gerechnet, und das ist die sichere Richtung.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class Exporteintrag:
+    """Eine Datei, wie der Schreiber sie entgegennimmt.
+
+    ``inhalt is None`` heisst **unveraendert**: Der Erzeuger hat entschieden,
+    dass sich an dieser Datei nichts geaendert haben kann, und sie deshalb
+    gar nicht erst gebaut (ADR 0068). Der Schreiber uebernimmt dann
+    Pruefsumme und Zielnamen aus dem bekannten Stand.
+
+    Die Infrastruktur kennt die Praesentationsschicht nicht (Doc 10,
+    Paragraph 9) -- deshalb dieser eigene Typ und nicht ``Exportdatei``.
+    """
+
+    pfad: str
+    inhalt: bytes | None
+    fassung: str | None = None
 
 
 @dataclass
@@ -95,7 +121,14 @@ class Exportzustand:
                 salt=bytes.fromhex(str(roh["salt"])),
                 iterationen=int(roh["iterations"]),
                 dateien={
-                    str(p): Dateizustand(hash=str(w["hash"]), ziel=str(w["ziel"]))
+                    str(p): Dateizustand(
+                        hash=str(w["hash"]),
+                        ziel=str(w["ziel"]),
+                        # Ein Zustand aus der Zeit vor ADR 0068 kennt das
+                        # Feld nicht. Der erste Export danach rechnet dann
+                        # einmal alles neu und traegt es nach.
+                        fassung=None if w.get("fassung") is None else str(w["fassung"]),
+                    )
                     for p, w in dict(roh.get("files", {})).items()
                 },
             )
@@ -117,7 +150,12 @@ class Exportzustand:
                 "salt": self.salt.hex(),
                 "iterations": self.iterationen,
                 "files": {
-                    p: {"hash": w.hash, "ziel": w.ziel} for p, w in sorted(self.dateien.items())
+                    p: (
+                        {"hash": w.hash, "ziel": w.ziel}
+                        if w.fassung is None
+                        else {"hash": w.hash, "ziel": w.ziel, "fassung": w.fassung}
+                    )
+                    for p, w in sorted(self.dateien.items())
                 },
             },
             ensure_ascii=False,
@@ -183,7 +221,7 @@ class Verzeichnisschreiber:
         self._kopf = kopf
 
     def schreibe(
-        self, dateien: Iterable[tuple[str, bytes]], zustand: Exportzustand
+        self, dateien: Iterable[Exporteintrag], zustand: Exportzustand
     ) -> Schreibbericht:
         """Schreibt den Baum und fuehrt ``zustand`` nach.
 
@@ -199,15 +237,36 @@ class Verzeichnisschreiber:
         bytes_geschrieben = 0
         vorhandene: set[Path] = set()
 
-        for pfad, klartext in dateien:
+        for eintrag in dateien:
             anzahl += 1
+            pfad = eintrag.pfad
+            alt = vorher.get(pfad)
+
+            if eintrag.inhalt is None:
+                # **Nicht gerechnet, also auch nichts zu pruefen.** Dass der
+                # Pfad bekannt ist und seine Zieldatei liegt, hat der
+                # Erzeuger entschieden -- er bekam genau die Pfade, fuer die
+                # beides gilt. Fehlt der Eintrag hier trotzdem, ist das ein
+                # Programmfehler und kein Betriebszustand.
+                if alt is None:
+                    raise ValueError(
+                        f"'{pfad}' wurde als unveraendert gemeldet, steht aber nicht "
+                        "im bekannten Stand."
+                    )
+                zustand.dateien[pfad] = alt
+                vorhandene.add(self._wurzel / alt.ziel)
+                unveraendert += 1
+                continue
+
+            klartext = eintrag.inhalt
             digest = hashlib.sha256(klartext).hexdigest()
             ziel_name = self._zielname(pfad)
             ziel = self._wurzel / ziel_name
             vorhandene.add(ziel)
-            zustand.dateien[pfad] = Dateizustand(hash=digest, ziel=ziel_name)
+            zustand.dateien[pfad] = Dateizustand(
+                hash=digest, ziel=ziel_name, fassung=eintrag.fassung
+            )
 
-            alt = vorher.get(pfad)
             if alt is not None and alt.hash == digest and alt.ziel == ziel_name and ziel.is_file():
                 unveraendert += 1
                 continue

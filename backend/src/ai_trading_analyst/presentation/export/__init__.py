@@ -6,8 +6,10 @@ den auch die API benutzt.
 """
 
 from .snapshot import (
+    EXPORT_FASSUNG,
     MANIFEST_PFAD,
     SNAPSHOT_FORMAT,
+    BekannteDatei,
     Exportdatei,
     Exportquellen,
     dateisicherer_name,
@@ -15,8 +17,10 @@ from .snapshot import (
 )
 
 __all__ = [
+    "EXPORT_FASSUNG",
     "MANIFEST_PFAD",
     "SNAPSHOT_FORMAT",
+    "BekannteDatei",
     "Exportdatei",
     "Exportquellen",
     "dateisicherer_name",
