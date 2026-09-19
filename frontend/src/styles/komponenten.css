@@ -570,3 +570,137 @@ th[aria-sort] .sortierpfeil {
   min-width: 14rem;
   padding: var(--abstand-2) var(--abstand-3);
 }
+
+/* --- Kandidatenbericht ------------------------------------------------------- */
+
+.berichtskopf {
+  background: var(--flaeche);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius);
+  display: grid;
+  gap: var(--abstand-4);
+  margin-bottom: var(--abstand-4);
+  padding: var(--abstand-4);
+}
+
+.berichtskopf-zeile {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-3);
+  justify-content: space-between;
+}
+
+.berichtskopf-symbol {
+  font-size: 2rem;
+  margin: 0;
+}
+
+.berichtskopf-name {
+  color: var(--gedaempft);
+  margin: 0;
+}
+
+.berichtskopf-kurs {
+  font-size: var(--schrift-xl);
+  font-variant-numeric: tabular-nums;
+}
+
+.berichtskopf-reihe {
+  display: grid;
+  gap: var(--abstand-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.berichtskopf-zweite {
+  align-items: center;
+  border-top: 1px solid var(--linie);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2) var(--abstand-4);
+  padding-top: var(--abstand-3);
+}
+
+.reiter {
+  border-bottom: 1px solid var(--linie);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-1);
+  margin-bottom: var(--abstand-4);
+  overflow-x: auto;
+}
+
+.reiter button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--gedaempft);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--abstand-2) var(--abstand-3);
+  white-space: nowrap;
+}
+
+.reiter button[aria-selected='true'] {
+  border-bottom-color: var(--akzent);
+  color: var(--schrift);
+}
+
+.reiter-zusatz {
+  background: var(--akzent-flaeche);
+  border-radius: 999px;
+  font-size: var(--schrift-xs);
+  margin-left: var(--abstand-2);
+  padding: 0 var(--abstand-2);
+}
+
+.reiterinhalt {
+  overflow-x: visible;
+}
+
+.zweispaltig {
+  display: grid;
+  gap: var(--abstand-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+}
+
+.zweispaltig > .karte {
+  min-width: 0;
+}
+
+.fliesstext {
+  line-height: 1.6;
+  max-width: 70ch;
+}
+
+.signalliste {
+  display: grid;
+  gap: var(--abstand-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.votenbalken {
+  border-radius: 999px;
+  display: flex;
+  height: 0.6rem;
+  margin-bottom: var(--abstand-3);
+  overflow: hidden;
+}
+
+.votenbalken span {
+  display: block;
+  height: 100%;
+}
+
+.putkarte {
+  background: var(--flaeche-erhoben);
+}
+
+.adresse {
+  color: var(--schwach);
+  font-family: var(--mono);
+  font-size: var(--schrift-xs);
+  overflow-wrap: anywhere;
+}

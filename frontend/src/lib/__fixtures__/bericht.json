@@ -1,0 +1,401 @@
+{
+  "berichtsschema_version": "report-v2",
+  "anwendungsversion": "0.1.0",
+  "scoring_version": "scoring-v3",
+  "signalregel_version": "g1-pruefvorlage-2026-09-03",
+  "lauf_id": "2f6b0d3a-1111-4c2e-9a10-0000000000a1",
+  "aktie_id": "df54a351-da98-5dc7-b32a-abd1c87ec791",
+  "erstellt_am": "2026-09-17T17:50:00+00:00",
+  "abschnitte": {
+    "SYMBOL_UND_UNTERNEHMEN": {
+      "nummer": 1,
+      "verfuegbar": true,
+      "inhalt": {
+        "symbol": "NVDA",
+        "boerse": "NASDAQ",
+        "unternehmen": "NVIDIA CORP"
+      },
+      "vorbehalte": []
+    },
+    "ANALYSEZEITPUNKT": {
+      "nummer": 2,
+      "verfuegbar": true,
+      "inhalt": {
+        "ausgewertet_am": "2026-09-17T17:50:00+00:00",
+        "screening_status": "CANDIDATE"
+      },
+      "vorbehalte": []
+    },
+    "TECHNISCHE_SIGNALE": {
+      "nummer": 3,
+      "verfuegbar": true,
+      "inhalt": [
+        {
+          "signal_type": "RSI_CROSS",
+          "candle_index": 2726
+        },
+        {
+          "signal_type": "PRICE_EMA20_BREAKOUT",
+          "candle_index": 2726
+        },
+        {
+          "signal_type": "NO_RECENT_EMA_DOWNCROSS",
+          "candle_index": 2726
+        }
+      ],
+      "vorbehalte": []
+    },
+    "EARNINGS_STATUS": {
+      "nummer": 4,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "EARNINGS_CLEAR",
+        "source": "finnhub",
+        "evaluated_at": "2026-09-17T17:50:00+00:00",
+        "next_earnings_date": "2026-11-17",
+        "candles_until_earnings": 86,
+        "reason": null
+      },
+      "vorbehalte": []
+    },
+    "SIGNALSTATISTIK": {
+      "nummer": 5,
+      "verfuegbar": true,
+      "inhalt": [
+        {
+          "stock_id": "df54a351-da98-5dc7-b32a-abd1c87ec791",
+          "signal_types": [
+            "RSI_CROSS",
+            "PRICE_EMA20_BREAKOUT",
+            "RSI_OVERSOLD"
+          ],
+          "signal_rule_version": "g1-pruefvorlage-2026-09-03",
+          "evaluated_at": "2026-09-17T17:50:00+00:00",
+          "history_start": "2021-09-20T09:30:00-04:00",
+          "history_end": "2026-09-17T09:30:00-04:00",
+          "horizons": [
+            {
+              "horizon": 5,
+              "raw_event_count": 50,
+              "deduplicated_event_count": 43,
+              "hit_rate": 0.6,
+              "mean_return": 0.012,
+              "median_return": 0.009,
+              "max_loss": -0.14,
+              "drawdown": 0.19,
+              "held_above_entry_rate": 0.23,
+              "confidence": "NORMAL"
+            },
+            {
+              "horizon": 10,
+              "raw_event_count": 50,
+              "deduplicated_event_count": 43,
+              "hit_rate": 0.6,
+              "mean_return": 0.012,
+              "median_return": 0.009,
+              "max_loss": -0.14,
+              "drawdown": 0.19,
+              "held_above_entry_rate": 0.23,
+              "confidence": "NORMAL"
+            },
+            {
+              "horizon": 20,
+              "raw_event_count": 50,
+              "deduplicated_event_count": 43,
+              "hit_rate": 0.6,
+              "mean_return": 0.012,
+              "median_return": 0.009,
+              "max_loss": -0.14,
+              "drawdown": 0.19,
+              "held_above_entry_rate": 0.23,
+              "confidence": "NORMAL"
+            }
+          ],
+          "earnings_exclusion_applied": false
+        },
+        {
+          "stock_id": "df54a351-da98-5dc7-b32a-abd1c87ec791",
+          "signal_types": [
+            "RSI_CROSS",
+            "EMA5_EMA20_CROSS",
+            "RSI_OVERSOLD"
+          ],
+          "signal_rule_version": "g1-pruefvorlage-2026-09-03",
+          "evaluated_at": "2026-09-17T17:50:00+00:00",
+          "history_start": "2021-09-20T09:30:00-04:00",
+          "history_end": "2026-09-17T09:30:00-04:00",
+          "horizons": [
+            {
+              "horizon": 5,
+              "raw_event_count": 0,
+              "deduplicated_event_count": 0,
+              "hit_rate": null,
+              "mean_return": null,
+              "median_return": null,
+              "max_loss": null,
+              "drawdown": null,
+              "held_above_entry_rate": null,
+              "confidence": "INSUFFICIENT_DATA"
+            },
+            {
+              "horizon": 10,
+              "raw_event_count": 0,
+              "deduplicated_event_count": 0,
+              "hit_rate": null,
+              "mean_return": null,
+              "median_return": null,
+              "max_loss": null,
+              "drawdown": null,
+              "held_above_entry_rate": null,
+              "confidence": "INSUFFICIENT_DATA"
+            },
+            {
+              "horizon": 20,
+              "raw_event_count": 0,
+              "deduplicated_event_count": 0,
+              "hit_rate": null,
+              "mean_return": null,
+              "median_return": null,
+              "max_loss": null,
+              "drawdown": null,
+              "held_above_entry_rate": null,
+              "confidence": "INSUFFICIENT_DATA"
+            }
+          ],
+          "earnings_exclusion_applied": false
+        }
+      ],
+      "vorbehalte": [
+        {
+          "art": "EINGESCHRAENKT",
+          "grund": "der Replay schliesst keine Ereignisse nahe Berichtsterminen aus -- historische Termine liegen nicht vor (ADR 0017 L9)"
+        }
+      ]
+    },
+    "TECHNISCHE_LAGE": {
+      "nummer": 6,
+      "verfuegbar": true,
+      "inhalt": {
+        "deterministisch": {
+          "status": "COMPLETED",
+          "close": 176.4,
+          "trend": "UP",
+          "rsi": 58.2,
+          "ema5": 174.1,
+          "ema20": 170.8,
+          "atr_pct": 0.028,
+          "candle_timestamp": "2026-09-17T17:50:00+00:00",
+          "neues_feld_aus_der_zukunft": 42
+        },
+        "einordnung": {
+          "status": "COMPLETED",
+          "summary": "Der Ausbruch ueber die EMA 20 traegt, das Momentum ist intakt.",
+          "false_signal_risk": "MEDIUM",
+          "confidence": "NORMAL"
+        }
+      },
+      "vorbehalte": []
+    },
+    "ZONEN": {
+      "nummer": 7,
+      "verfuegbar": true,
+      "inhalt": [
+        {
+          "kind": "SUPPORT",
+          "lower": 168.0,
+          "upper": 170.5,
+          "strength": "STRONG",
+          "touch_count": 4,
+          "distance_pct": -0.04
+        }
+      ],
+      "vorbehalte": []
+    },
+    "NACHRICHTEN": {
+      "nummer": 8,
+      "verfuegbar": true,
+      "inhalt": {
+        "zusammenfassung": "Starke Nachfrage im Rechenzentrumsgeschaeft; Analysten heben Ziele an.",
+        "abdeckung": {
+          "distinct_sources": 4
+        },
+        "belege": [
+          {
+            "label": "Reuters",
+            "url": "https://www.reuters.com/x",
+            "retrieved_at": "2026-09-17T17:50:00+00:00"
+          }
+        ]
+      },
+      "vorbehalte": []
+    },
+    "ANALYSTENMEINUNGEN": {
+      "nummer": 9,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "COMPLETED",
+        "periods": [
+          {
+            "period": "2026-09-01",
+            "strong_buy": 20,
+            "buy": 15,
+            "hold": 5,
+            "sell": 1,
+            "strong_sell": 0
+          }
+        ]
+      },
+      "vorbehalte": []
+    },
+    "FUNDAMENTALE_BEWERTUNG": {
+      "nummer": 10,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "COMPLETED",
+        "price_used": 176.4,
+        "metrics": {
+          "PRICE_EARNINGS_RATIO": {
+            "name": "PRICE_EARNINGS_RATIO",
+            "value": 34.2,
+            "unit": "RATIO",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": null
+          },
+          "GROSS_MARGIN": {
+            "name": "GROSS_MARGIN",
+            "value": 0.42,
+            "unit": "FRACTION",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": null
+          },
+          "REVENUE": {
+            "name": "REVENUE",
+            "value": 130500000000,
+            "unit": "CURRENCY",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": "USD"
+          }
+        }
+      },
+      "vorbehalte": []
+    },
+    "CHANCEN": {
+      "nummer": 11,
+      "verfuegbar": true,
+      "inhalt": [
+        "Rechenzentrumsnachfrage",
+        "Margenausweitung"
+      ],
+      "vorbehalte": []
+    },
+    "RISIKEN": {
+      "nummer": 12,
+      "verfuegbar": true,
+      "inhalt": [
+        "Exportbeschraenkungen",
+        "Bewertung"
+      ],
+      "vorbehalte": []
+    },
+    "PUT_STRATEGIEN": {
+      "nummer": 13,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "COMPLETED",
+        "vorschlaege": [
+          {
+            "strike": 165.0,
+            "expiration": "2026-10-16",
+            "days_to_expiration": 29,
+            "premium": 2.85,
+            "annualized_return": 0.21,
+            "distance_to_price_pct": -0.065,
+            "liquidity": "GOOD",
+            "earnings_within_term": false
+          }
+        ]
+      },
+      "vorbehalte": []
+    },
+    "SWING_SCORE": {
+      "nummer": 14,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "COMPLETED",
+        "value": 7.2,
+        "components": [
+          {
+            "name": "technik",
+            "value": 8.0,
+            "weight": 0.4
+          }
+        ]
+      },
+      "vorbehalte": []
+    },
+    "INVESTMENT_SCORE": {
+      "nummer": 15,
+      "verfuegbar": true,
+      "inhalt": {
+        "status": "COMPLETED",
+        "value": 5.4,
+        "components": []
+      },
+      "vorbehalte": []
+    },
+    "EMPFEHLUNG": {
+      "nummer": 16,
+      "verfuegbar": true,
+      "inhalt": {
+        "stufe": "CANDIDATE",
+        "begruendung": "beide Scores ueber der Schwelle"
+      },
+      "vorbehalte": []
+    },
+    "KONFIDENZ_UND_DATENLUECKEN": {
+      "nummer": 17,
+      "verfuegbar": true,
+      "inhalt": {
+        "konfidenzen": {
+          "research": "NORMAL"
+        },
+        "luecken": [],
+        "fehlende_abschnitte": []
+      },
+      "vorbehalte": []
+    },
+    "QUELLEN": {
+      "nummer": 18,
+      "verfuegbar": true,
+      "inhalt": [
+        {
+          "art": "RESEARCH",
+          "label": "Reuters",
+          "url": "https://www.reuters.com/x",
+          "retrieved_at": "2026-09-17T17:50:00+00:00"
+        }
+      ],
+      "vorbehalte": []
+    },
+    "NEUER_ABSCHNITT": {
+      "nummer": 19,
+      "verfuegbar": true,
+      "inhalt": {
+        "hinweis": "aus einer spaeteren Fassung"
+      },
+      "vorbehalte": []
+    }
+  }
+}
