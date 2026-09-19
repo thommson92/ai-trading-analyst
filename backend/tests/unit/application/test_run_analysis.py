@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -2264,3 +2265,82 @@ class TestVerzahnungAendertNichts:
 
         assert bereitschaft.abfolge[0] == "ende-abgewartet"
         assert bereitschaft.abfolge[1:] == ["optionen:AAA", "optionen:CCC"]
+
+
+class TestVerzahnungMitEchtemThread:
+    """Die Wartephase wirklich durchlaufen, nicht nur ihren Ausgang prüfen.
+
+    Die Tests darüber arbeiten mit einer Wartestelle, die schon fertig ist --
+    sie belegen das Ergebnis, aber nie, dass zwischen Melder und Wartendem
+    tatsächlich etwas passiert. Hier meldet ein Thread verzögert, während
+    die Analyse läuft.
+    """
+
+    FRIST = 20.0
+    """Sekunden, nach denen der Lauf als hängend gilt."""
+
+    @staticmethod
+    def _provider() -> FakeMarketDataProvider:
+        symbole = [f"S{nummer:02d}" for nummer in range(12)]
+        return FakeMarketDataProvider(
+            stocks=tuple(make_stock(symbol) for symbol in symbole),
+            series_by_symbol={
+                symbol: make_series(_SERIES_LENGTH, candidate=nummer % 4 == 0)
+                for nummer, symbol in enumerate(symbole)
+            },
+        )
+
+    def _lauf_mit_meldendem_thread(
+        self, verzoegerung: float, *, nur_die_ersten: int | None = None
+    ) -> AnalysisRunSummary:
+        provider = self._provider()
+        symbole = [stock.symbol for stock in provider.list_stocks()]
+        bereitschaft = Bereitschaft()
+        use_case, *_ = _build_use_case(provider, bereitschaft=bereitschaft)
+
+        def melde_nacheinander() -> None:
+            try:
+                for symbol in symbole[:nur_die_ersten]:
+                    time.sleep(verzoegerung)
+                    bereitschaft.melde(symbol)
+            finally:
+                bereitschaft.beende()
+
+        faden = threading.Thread(target=melde_nacheinander, daemon=True)
+        faden.start()
+        try:
+            return use_case.execute()
+        finally:
+            faden.join(self.FRIST)
+            assert not faden.is_alive(), "der meldende Thread haengt"
+
+    def test_der_lauf_kommt_durch_und_liefert_alles(self) -> None:
+        zusammenfassung = self._lauf_mit_meldendem_thread(verzoegerung=0.01)
+
+        assert len(zusammenfassung.outcomes) == 12
+        assert not zusammenfassung.errors
+        assert [o.stock.symbol for o in zusammenfassung.outcomes] == [
+            f"S{nummer:02d}" for nummer in range(12)
+        ]
+
+    def test_dasselbe_ergebnis_wie_ohne_wartestelle(self) -> None:
+        """**Der Test, auf den es fachlich ankommt.** Die Verzahnung
+        verlagert Arbeit, sie ändert sie nicht."""
+        ohne, *_ = _build_use_case(self._provider())
+
+        seriell = ohne.execute()
+        verzahnt = self._lauf_mit_meldendem_thread(verzoegerung=0.01)
+
+        assert [(o.stock.symbol, o.result.status) for o in seriell.outcomes] == [
+            (o.stock.symbol, o.result.status) for o in verzahnt.outcomes
+        ]
+        assert seriell.run.candidates_found == verzahnt.run.candidates_found
+
+    def test_ein_abbrechender_backfill_haelt_den_lauf_nicht_auf(self) -> None:
+        """Nach dem Abbruch kommen keine Meldungen mehr. Gerechnet wird
+        trotzdem -- auf dem Bestand, den es gibt."""
+        zusammenfassung = self._lauf_mit_meldendem_thread(
+            verzoegerung=0.01, nur_die_ersten=3
+        )
+
+        assert len(zusammenfassung.outcomes) == 12
