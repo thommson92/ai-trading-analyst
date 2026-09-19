@@ -28,6 +28,7 @@ interface Auswahl {
 function LaeufeInhalt(): ReactNode {
   const gewuenscht = useSearchParams().get('id');
   const [laeufe, setLaeufe] = useState<AnalysisRun[] | null>(null);
+  const [gesamt, setGesamt] = useState(0);
   const [auswahl, setAuswahl] = useState<Auswahl | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [laedtAuswahl, setLaedtAuswahl] = useState(false);
@@ -37,7 +38,10 @@ function LaeufeInhalt(): ReactNode {
     // Die groesste Seite der API; ausserhalb liegt ohnehin die ganze Liste.
     listRuns({ limit: 100 })
       .then((seite) => {
-        if (!abgemeldet) setLaeufe(seite.items);
+        if (!abgemeldet) {
+          setLaeufe(seite.items);
+          setGesamt(seite.total);
+        }
       })
       .catch((ursache: unknown) => {
         if (!abgemeldet) setFehler(alsFehlertext(ursache));
@@ -77,6 +81,12 @@ function LaeufeInhalt(): ReactNode {
       {laeufe !== null && laeufe.length === 0 && <Leer>Es gibt noch keinen Analyselauf.</Leer>}
       {laeufe !== null && laeufe.length > 0 && (
         <Karte titel="Alle Läufe">
+          {gesamt > laeufe.length && (
+            <p className="gedaempft">
+              Die {laeufe.length} jüngsten von {gesamt} Läufen. Ältere sind hier nicht aufgeführt;
+              ein älterer Lauf bleibt über seine Adresse (?id=) erreichbar.
+            </p>
+          )}
           <Laufliste laeufe={laeufe} gewaehlt={gewaehlt} />
         </Karte>
       )}

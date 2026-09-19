@@ -232,14 +232,15 @@ export function listRuns(
 export const ERFOLGREICH: readonly RunStatus[] = ['COMPLETED', 'PARTIALLY_COMPLETED'];
 
 export function getRun(runId: string): Promise<AnalysisRunDetail> {
-  return holen<AnalysisRunDetail>(`/api/v1/analysis-runs/${runId}`, (baum) =>
+  return holen<AnalysisRunDetail>(`/api/v1/analysis-runs/${encodeURIComponent(runId)}`, (baum) =>
     baum.lade<AnalysisRunDetail>(`data/analysis-runs/${runId}.json`),
   );
 }
 
 export function listRunReports(runId: string): Promise<ReportSummary[]> {
-  return holen<ReportSummary[]>(`/api/v1/analysis-runs/${runId}/reports`, (baum) =>
-    baum.lade<ReportSummary[]>(`data/analysis-runs/${runId}/reports.json`),
+  return holen<ReportSummary[]>(
+    `/api/v1/analysis-runs/${encodeURIComponent(runId)}/reports`,
+    (baum) => baum.lade<ReportSummary[]>(`data/analysis-runs/${runId}/reports.json`),
   );
 }
 
@@ -250,7 +251,7 @@ export function listStocks(): Promise<Aktieneintrag[]> {
 }
 
 export function getReport(reportId: string): Promise<ReportDocument> {
-  return holen<ReportDocument>(`/api/v1/reports/${reportId}`, (baum) =>
+  return holen<ReportDocument>(`/api/v1/reports/${encodeURIComponent(reportId)}`, (baum) =>
     baum.lade<ReportDocument>(`data/reports/${reportId}.json`),
   );
 }
@@ -462,7 +463,8 @@ export function getAktienBacktest(
   symbol: string,
   messungId?: string,
 ): Promise<AktienBacktest> {
-  const anhang = messungId === undefined ? '' : `?measurement_id=${messungId}`;
+  const anhang =
+    messungId === undefined ? '' : `?measurement_id=${encodeURIComponent(messungId)}`;
   return holen<AktienBacktest>(
     `/api/v1/stocks/${encodeURIComponent(symbol)}/backtest${anhang}`,
     async (baum) => {
