@@ -219,7 +219,7 @@ export function Aktienexplorer({ symbol }: { symbol: string }): ReactNode {
         <Kennzahl
           label="Über null"
           wert={werte.length === 0 ? null : formatProzent(treffer / werte.length)}
-          hinweis={`${String(treffer)} von ${String(werte.length)}`}
+          hinweis={`${String(treffer)} von ${String(werte.length)} gezählt — ohne die Konfidenzschwelle der Trefferquote`}
         />
         <Kennzahl
           label="Beste"

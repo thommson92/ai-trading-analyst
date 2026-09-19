@@ -8,11 +8,12 @@ export function berichtAdresse(reportId: string): string {
 
 export function aktieAdresse(
   symbol: string,
-  optionen: { lauf?: string; episode?: string } = {},
+  optionen: { lauf?: string; episode?: string; messung?: string } = {},
 ): string {
   const suche = new URLSearchParams({ symbol });
   if (optionen.lauf !== undefined) suche.set('lauf', optionen.lauf);
   if (optionen.episode !== undefined) suche.set('episode', optionen.episode);
+  if (optionen.messung !== undefined) suche.set('messung', optionen.messung);
   return `/aktie/?${suche.toString()}`;
 }
 
