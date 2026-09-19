@@ -1944,12 +1944,24 @@ Aufgabenplanung also ins Leere. Wer wissen will, wo die Zeit eines Laufs
 bleibt, trägt dort einen Pfad ein (Abschnitt „Wo die Zeit eines Laufs
 bleibt"). Diese Zeile wird umgeschrieben, sobald er gesetzt ist.
 
-**Der Export nach draußen ist gebaut und beim Anbieter abgenommen**
+**Der Export nach draußen läuft seit dem 2026-09-18 im Tageslauf**
 (Stufen K und L, [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
-angenommen am 2026-09-17), **im Tageslauf aber noch nicht geschaltet**:
-`dashboard_export.target` steht ausgeliefert auf `none`, und die
-Aufgabenplanung führt `--dashboard-export` noch nicht. Diese Zeile wird
-umgeschrieben, sobald sie es tut (Stufe K, Schritt 5).
+angenommen am 2026-09-17). `dashboard_export.target` steht in der
+ausgelieferten Konfiguration weiterhin auf `none`; geschaltet ist er über
+`--dashboard-export` in den Argumenten der Aufgabenplanung.
+
+> **Er kostet mehr als die Einzelmessung erwarten ließ.** Am ersten
+> produktiven Tag dauerte der Abschnitt hinter `completed_at`
+> **42,7 Minuten** — gegenüber 784 Sekunden, die Stufe K Schritt 4 für das
+> bloße Schreiben gemessen hatte. Der Gesamtlauf stieg damit von rund 53
+> auf **103 Minuten**.
+>
+> Der Unterschied liegt nicht am Schreiben, sondern am Rechnen: Der Export
+> baut bei jedem Lauf **jeden je gelaufenen Analyse-Lauf** neu und holt **je
+> historischem Bericht eine eigene Abfrage**. Dieser Anteil wächst mit jedem
+> Handelstag, unabhängig davon, wieviel sich geändert hat. Siehe Abschnitt
+> „Wo die Zeit eines Laufs bleibt"; die Zerlegung dieses Abschnitts steht
+> noch aus.
 
 ## Nach jedem Serverneustart
 
