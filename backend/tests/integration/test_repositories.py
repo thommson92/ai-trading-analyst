@@ -58,6 +58,7 @@ from ai_trading_analyst.domain.report import (
     ReportSection,
     StockReport,
     build_report,
+    extract_summary_fields,
 )
 from ai_trading_analyst.domain.research import (
     Citation,
@@ -977,11 +978,10 @@ class TestLatestCandidateAnalyses:
 
     def _abfrage(self, uow_factory: UowFactory) -> dict[str, datetime]:
         with uow_factory() as uow:
-            return dict(
-                uow.screening_results.latest_candidate_analyses(
-                    since=self._SEIT, until=self._BIS
-                )
+            anker = uow.screening_results.latest_candidate_analyses(
+                since=self._SEIT, until=self._BIS
             )
+            return {symbol: eintrag.evaluated_at for symbol, eintrag in anker.items()}
 
     def test_nur_analysen_im_fenster_zaehlen(self, uow_factory: UowFactory) -> None:
         self._speichere(
@@ -1113,17 +1113,20 @@ class TestBacktestResultRepository:
                 ),
             )
 
+        lauf_alt, lauf_neu = make_run(), make_run()
         with uow_factory() as uow:
             uow.stocks.add(stock)
+            uow.analysis_runs.add(lauf_alt)
+            uow.analysis_runs.add(lauf_neu)
             uow.backtest_results.add_episodes(
-                [episode(alt, datetime(2025, 3, 6, 14, 30, tzinfo=UTC))]
+                [episode(alt, datetime(2025, 3, 6, 14, 30, tzinfo=UTC))], lauf_alt.id
             )
             uow.backtest_results.add_episodes(
                 [
                     episode(neu, datetime(2025, 5, 8, 14, 30, tzinfo=UTC)),
                     episode(neu, datetime(2025, 3, 6, 14, 30, tzinfo=UTC)),
                 ],
-                analysis_run_id=None,
+                lauf_neu.id,
             )
             uow.commit()
 
@@ -2694,3 +2697,100 @@ class TestOptionsBacktestResultRepository:
         with uow_factory() as uow:
             assert len(uow.options_backtest_results.list_for_measurement(erste)) == 1
             assert len(uow.options_backtest_results.list_for_measurement(zweite)) == 1
+
+
+class TestUebersichtsabfragen:
+    """Die Abfragen hinter Aktienliste, Signal-Backtest-Ueberblick und
+    Sperrstatus (ADR 0062) -- eine Abfrage je Quelle, nicht eine je Aktie."""
+
+    def _bericht(self, stock: Stock, run: AnalysisRun, created_at: datetime) -> StockReport:
+        return build_report(
+            make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id),
+            created_at=created_at,
+            app_version="0.1.0",
+        )
+
+    def test_juengster_bericht_und_zahl_je_symbol(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("UEBERSICHT")
+        alt, neu = make_run(), make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(alt)
+            uow.analysis_runs.add(neu)
+            uow.stock_reports.add(self._bericht(stock, alt, datetime(2026, 9, 1, tzinfo=UTC)))
+            uow.stock_reports.add(self._bericht(stock, neu, datetime(2026, 9, 2, tzinfo=UTC)))
+            uow.commit()
+
+        with uow_factory() as uow:
+            juengste = uow.stock_reports.latest_for_all_symbols()
+            anzahl = uow.stock_reports.count_for_all_symbols()
+
+        assert juengste["UEBERSICHT"].analysis_run_id == neu.id
+        assert extract_summary_fields(juengste["UEBERSICHT"].document).signal_letters is None
+        assert anzahl["UEBERSICHT"] == 2
+
+    def test_symbole_eines_laufs_und_der_sperrende_lauf(self, uow_factory: UowFactory) -> None:
+        stock = make_stock("SPERRLAUF")
+        run = make_run()
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.analysis_runs.add(run)
+            uow.screening_results.add(
+                make_outcome(stock, ScreeningStatus.CANDIDATE, analysis_run_id=run.id)
+            )
+            uow.commit()
+
+        with uow_factory() as uow:
+            bewertet = uow.screening_results.symbols_for_run(run.id)
+            anker = uow.screening_results.latest_candidate_analyses(
+                since=datetime.now(UTC) - timedelta(days=1),
+                until=datetime.now(UTC) + timedelta(days=1),
+            )
+
+        assert bewertet == frozenset({"SPERRLAUF"})
+        assert anker["SPERRLAUF"].analysis_run_id == run.id
+
+    def test_juengste_auswertung_je_aktie_und_episodenkennung(
+        self, uow_factory: UowFactory
+    ) -> None:
+        stock = make_stock("JUENGSTE")
+        combination = frozenset({SignalType.RSI_CROSS, SignalType.EMA5_EMA20_CROSS})
+
+        def ergebnis(evaluated_at: datetime) -> BacktestResult:
+            return BacktestResult(
+                stock_id=stock.id,
+                signal_types=combination,
+                signal_rule_version=SIGNAL_RULE_VERSION,
+                evaluated_at=evaluated_at,
+                history_start=datetime(2021, 1, 4, tzinfo=UTC),
+                history_end=evaluated_at,
+                horizons=(
+                    HorizonMetrics(
+                        horizon=5,
+                        raw_event_count=0,
+                        deduplicated_event_count=0,
+                        hit_rate=None,
+                        mean_return=None,
+                        median_return=None,
+                        max_loss=None,
+                        drawdown=None,
+                        held_above_entry_rate=None,
+                        confidence=BacktestConfidence.INSUFFICIENT_DATA,
+                    ),
+                ),
+            )
+
+        alt = datetime(2026, 9, 1, 17, tzinfo=UTC)
+        neu = datetime(2026, 9, 2, 17, tzinfo=UTC)
+        with uow_factory() as uow:
+            uow.stocks.add(stock)
+            uow.backtest_results.add(ergebnis(alt))
+            uow.backtest_results.add(ergebnis(neu))
+            uow.commit()
+
+        with uow_factory() as uow:
+            juengste = uow.backtest_results.latest_for_all_stocks()
+            episoden_stand = uow.backtest_results.latest_episode_evaluations()
+
+        assert [e.evaluated_at for e in juengste[stock.id]] == [neu]
+        assert stock.id not in episoden_stand

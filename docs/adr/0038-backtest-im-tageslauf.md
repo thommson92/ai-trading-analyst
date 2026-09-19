@@ -38,8 +38,8 @@ Strategie als die gehandelte.
 Er rechnet in Phase 1 von `RunAnalysisUseCase`, direkt hinter der
 deterministischen Chartauswertung, **auf derselben bereits geladenen
 Kerzenreihe**. Kein zusätzlicher Abruf beim Marktdatenanbieter, keine neue
-externe Abhängigkeit — `compute_backtest_results` ist eine reine
-Domain-Funktion.
+externe Abhängigkeit — `compute_backtest` (bis ADR 0061
+`compute_backtest_results`) ist eine reine Domain-Funktion.
 
 Wie die Chartauswertung läuft er **vor** dem Earnings-Filter und unabhängig
 von dessen Ergebnis: Er hängt an keiner externen Quelle, und ihn hinter den
@@ -50,7 +50,7 @@ Ergebnisse gehen wie bisher nach `backtest_results`, jetzt mit dem
 
 ### 2. Fehlt die Historie, bleibt der Backtest leer — der Lauf nicht
 
-`compute_backtest_results` bricht ab, wenn im Betrachtungsfenster keine
+`compute_backtest` bricht ab, wenn im Betrachtungsfenster keine
 einzige Kerze liegt. Dieser eine, dokumentierte Fall wird abgefangen,
 protokolliert und führt zu **keinem** Backtest-Ergebnis; der Bericht weist
 Punkt 5 dann als Lücke aus. Jeder andere Fehler schlägt in die

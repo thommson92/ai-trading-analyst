@@ -287,7 +287,9 @@ class RunAnalysisUseCase:
                 "die Daten des laufenden Handelstages."
             )
 
-    def _ohne_kuerzlich_analysierte(self, stocks: Sequence[Stock]) -> Sequence[Stock]:
+    def _ohne_kuerzlich_analysierte(
+        self, stocks: Sequence[Stock], started_at: datetime
+    ) -> Sequence[Stock]:
         """Die Wiederholsperre (ADR 0054): kuerzlich voll analysierte Symbole
         verlassen den Lauf, bevor irgendetwas fuer sie gerechnet wird.
 
@@ -302,7 +304,11 @@ class RunAnalysisUseCase:
         """
         if self._repeat_suppression is None:
             return stocks
-        heute = datetime.now(UTC).astimezone(ZoneInfo(self._market_timezone))
+        # Vom gespeicherten Startzeitpunkt des Laufs, nicht von jetzt: Genau
+        # daraus rekonstruiert die Laufansicht die Sperre spaeter (ADR 0062),
+        # und beide sollen dasselbe Fenster sehen -- auch wenn der Abruf der
+        # Watchlist ueber Mitternacht dauerte.
+        heute = started_at.astimezone(ZoneInfo(self._market_timezone))
         fenster = suppression_window(heute, self._repeat_suppression)
         if fenster is None:
             return stocks
@@ -317,7 +323,7 @@ class RunAnalysisUseCase:
             _logger.info(
                 "Wiederholsperre: %s wird uebersprungen -- zuletzt voll analysiert am %s",
                 stock.symbol,
-                juengste[stock.symbol].isoformat(),
+                juengste[stock.symbol].evaluated_at.isoformat(),
             )
         if gesperrt:
             _logger.info(
@@ -349,7 +355,7 @@ class RunAnalysisUseCase:
                 uow.commit()
             return AnalysisRunSummary(run=run)
 
-        stocks = self._ohne_kuerzlich_analysierte(stocks)
+        stocks = self._ohne_kuerzlich_analysierte(stocks, run.started_at)
 
         # Die GEFILTERTE Zahl (ADR 0054): Der Laufdatensatz beschreibt, was
         # der Lauf gerechnet hat -- completion_ratio, Meldungstext und die

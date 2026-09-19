@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,16 @@ class RepeatSuppressionParameters:
     """
 
     window_days: int
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateAnalysisAnchor:
+    """Die juengste volle Analyse eines Symbols im Sperrfenster -- wann und in
+    welchem Lauf. Der Lauf steht dabei, damit eine Laufansicht sagen kann,
+    **welcher** Lauf ein Symbol gesperrt hat (ADR 0062)."""
+
+    evaluated_at: datetime
+    analysis_run_id: UUID
 
 
 def suppression_window(

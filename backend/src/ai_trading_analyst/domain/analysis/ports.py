@@ -14,6 +14,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from ai_trading_analyst.domain.analysis.repeat_suppression import CandidateAnalysisAnchor
 from ai_trading_analyst.domain.analysts import AnalystRecommendations
 from ai_trading_analyst.domain.backtesting import (
     BacktestEpisode,
@@ -357,17 +358,26 @@ class BacktestResultRepository(Protocol):
 
     def list_for_stock(self, stock_id: UUID) -> Sequence[BacktestResult]: ...
 
-    def add_episodes(
-        self, episodes: Sequence[BacktestEpisode], analysis_run_id: UUID | None = None
-    ) -> None:
+    def add_episodes(self, episodes: Sequence[BacktestEpisode], analysis_run_id: UUID) -> None:
         """Die gezaehlten Ereignisse hinter den Kennzahlen (ADR 0061) --
-        angehaengt, nie ueberschrieben, wie die Kennzahlen selbst. Dasselbe
-        Muster wie die Einzeltrades des Optionsbacktests."""
+        angehaengt, nie ueberschrieben, wie die Kennzahlen selbst. Immer an
+        einen Lauf gebunden: Nur der Tageslauf schreibt Episoden."""
         ...
 
     def list_episodes_for_stock(self, stock_id: UUID) -> Sequence[BacktestEpisode]:
         """Alle Auswertungen, juengste zuerst; innerhalb einer Auswertung nach
         Einstieg aufsteigend."""
+        ...
+
+    def latest_for_all_stocks(self) -> Mapping[UUID, Sequence[BacktestResult]]:
+        """Aktie -> die Ergebnisse ihrer juengsten Auswertung, alle
+        Kombinationen. Fuer die Uebersicht ueber alle Aktien (ADR 0062)."""
+        ...
+
+    def latest_episode_evaluations(self) -> Mapping[UUID, datetime]:
+        """Aktie -> Zeitpunkt der juengsten Auswertung mit Einzelepisoden
+        (ADR 0061). Wer daraus "Episoden vorhanden" macht, vergleicht mit dem
+        Zeitpunkt der gezeigten Aggregate -- ein Handlauf schreibt keine."""
         ...
 
 
@@ -519,7 +529,10 @@ class OptionQuoteRepository(Protocol):
 class StockRepository(Protocol):
     def add(self, stock: Stock) -> None: ...
     def get_by_symbol(self, symbol: str) -> Stock | None: ...
-    def list_all(self) -> Sequence[Stock]: ...
+    def list_all(self) -> Sequence[Stock]:
+        """Alle Aktien, alphabetisch nach Symbol -- die eine Reihenfolge, die
+        jede Liste zeigt."""
+        ...
 
 
 class AnalysisRunRepository(Protocol):
@@ -561,8 +574,8 @@ class ScreeningResultRepository(Protocol):
 
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
-    ) -> Mapping[str, datetime]:
-        """Symbol -> juengstes ``evaluated_at`` aller vollen Analysen im Fenster.
+    ) -> Mapping[str, CandidateAnalysisAnchor]:
+        """Symbol -> juengste volle Analyse im Fenster, mit ihrem Lauf.
 
         Grundlage der Wiederholsperre (ADR 0054). Eine volle Analyse ist eine
         Ergebniszeile mit ``ScreeningStatus.CANDIDATE`` -- der Anker ist die
@@ -572,6 +585,12 @@ class ScreeningResultRepository(Protocol):
         Wiederholungslauf desselben Tages die Zeilen eines abgebrochenen
         Laufs nicht als Sperre sieht.
         """
+        ...
+
+    def symbols_for_run(self, run_id: UUID) -> frozenset[str]:
+        """Welche Symbole in diesem Lauf bewertet wurden -- nur die Symbole,
+        keine Ergebnisse. Die Laufansicht braucht sie, um ein gesperrtes
+        Symbol von einem bewerteten zu unterscheiden (ADR 0062)."""
         ...
 
     def count_by_earnings_status(self, run_id: UUID) -> Mapping[EarningsFilterStatus, int]:
@@ -624,6 +643,15 @@ class StockReportRepository(Protocol):
 
     def get(self, report_id: UUID) -> StoredReport | None:
         """Ein einzelner Bericht."""
+        ...
+
+    def latest_for_all_symbols(self) -> Mapping[str, StoredReport]:
+        """Symbol -> juengster Bericht. Fuer die Aktienliste (ADR 0062):
+        eine Abfrage statt einer je Aktie."""
+        ...
+
+    def count_for_all_symbols(self) -> Mapping[str, int]:
+        """Symbol -> Zahl der Berichte. Symbole ohne Bericht fehlen."""
         ...
 
     def list_for_symbol(self, symbol: str, *, limit: int, offset: int) -> Sequence[StoredReport]:

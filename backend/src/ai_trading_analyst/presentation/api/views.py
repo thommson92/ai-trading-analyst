@@ -31,6 +31,7 @@ from ai_trading_analyst.domain.backtesting import (
     pool_trades,
     thresholds_of,
 )
+from ai_trading_analyst.domain.screening import SIGNAL_RULE_VERSION
 
 from .schemas import (
     AnalysisRunResponse,
@@ -43,8 +44,11 @@ from .schemas import (
     OptionsTradeResponse,
     Page,
     ReportSummaryResponse,
+    SignalBacktestOverviewResponse,
     SignalBacktestResponse,
+    SignalBacktestStockResponse,
     StockBacktestResponse,
+    StockIndexResponse,
 )
 
 
@@ -125,6 +129,56 @@ def reports_of_stock(
         limit=limit,
         offset=offset,
     )
+
+
+def stock_index(uow: UnitOfWork) -> list[StockIndexResponse]:
+    """Alle Aktien mit ihrem letzten Stand -- alphabetisch, wie das
+    Repository sie liefert; eine Abfrage je Quelle statt eine je Aktie
+    (ADR 0062)."""
+    berichte = uow.stock_reports.latest_for_all_symbols()
+    anzahl = uow.stock_reports.count_for_all_symbols()
+    auswertungen = uow.backtest_results.latest_for_all_stocks()
+    episoden_stand = uow.backtest_results.latest_episode_evaluations()
+    eintraege = []
+    for stock in uow.stocks.list_all():
+        letzter = berichte.get(stock.symbol)
+        juengste = auswertungen.get(stock.id, ())
+        eintraege.append(
+            StockIndexResponse(
+                symbol=stock.symbol,
+                exchange=stock.exchange,
+                reports_count=anzahl.get(stock.symbol, 0),
+                last_report=(
+                    ReportSummaryResponse.from_domain(letzter) if letzter is not None else None
+                ),
+                signal_backtest_evaluated_at=juengste[0].evaluated_at if juengste else None,
+                # Wahr nur, wenn die Episoden zur **gezeigten** Auswertung gehoeren:
+                # Ein Handlauf (cli backtest) schreibt Aggregate ohne Episoden.
+                episodes_available=(
+                    bool(juengste) and episoden_stand.get(stock.id) == juengste[0].evaluated_at
+                ),
+            )
+        )
+    return eintraege
+
+
+def signal_backtest_overview(uow: UnitOfWork) -> SignalBacktestOverviewResponse:
+    """Der Signal-Backtest ueber alle Aktien: je Aktie die juengste
+    Auswertung mit allen Kombinationen (ADR 0062)."""
+    auswertungen = uow.backtest_results.latest_for_all_stocks()
+    zeilen = []
+    for stock in uow.stocks.list_all():
+        ergebnisse = auswertungen.get(stock.id)
+        if not ergebnisse:
+            continue
+        zeilen.append(
+            SignalBacktestStockResponse(
+                symbol=stock.symbol,
+                evaluated_at=ergebnisse[0].evaluated_at,
+                combinations=[SignalBacktestResponse.from_domain(e) for e in ergebnisse],
+            )
+        )
+    return SignalBacktestOverviewResponse(signal_rule_version=SIGNAL_RULE_VERSION, stocks=zeilen)
 
 
 def _episoden_je_auswertung(

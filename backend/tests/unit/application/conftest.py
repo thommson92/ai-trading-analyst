@@ -20,6 +20,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalystRecommendationsFormatError,
     AnalystRecommendationsProviderError,
     BacktestResultRepository,
+    CandidateAnalysisAnchor,
     EarningsProviderError,
     FundamentalDataProviderError,
     IntradayBarRepository,
@@ -358,7 +359,7 @@ class FakeStockRepository:
         return next((s for s in self.added if s.symbol == symbol), None)
 
     def list_all(self) -> tuple[Stock, ...]:
-        return tuple(self.added)
+        return tuple(sorted(self.added, key=lambda s: s.symbol))
 
 
 class FakeAnalysisRunRepository:
@@ -404,26 +405,31 @@ class FakeScreeningResultRepository:
 
     def latest_candidate_analyses(
         self, *, since: datetime, until: datetime
-    ) -> dict[str, datetime]:
+    ) -> dict[str, CandidateAnalysisAnchor]:
         # Gleiche Zusagen wie die SQL-Implementierung: nur volle Analysen
         # (ScreeningStatus.CANDIDATE), Fenster since <= t < until,
-        # juengstes evaluated_at je Symbol.
-        juengste: dict[str, datetime] = {}
+        # juengstes evaluated_at je Symbol -- mit seinem Lauf.
+        juengste: dict[str, CandidateAnalysisAnchor] = {}
         for outcome in self.added:
             if outcome.result.status is not ScreeningStatus.CANDIDATE:
                 continue
             if not since <= outcome.evaluated_at < until:
                 continue
             bisher = juengste.get(outcome.stock.symbol)
-            if bisher is None or outcome.evaluated_at > bisher:
-                juengste[outcome.stock.symbol] = outcome.evaluated_at
+            if bisher is None or outcome.evaluated_at > bisher.evaluated_at:
+                juengste[outcome.stock.symbol] = CandidateAnalysisAnchor(
+                    evaluated_at=outcome.evaluated_at, analysis_run_id=outcome.analysis_run_id
+                )
         return juengste
+
+    def symbols_for_run(self, run_id: uuid.UUID) -> frozenset[str]:
+        return frozenset(o.stock.symbol for o in self.list_for_run(run_id))
 
 
 class FakeBacktestResultRepository:
     def __init__(self) -> None:
         self.added: list[tuple[BacktestResult, uuid.UUID | None]] = []
-        self.episodes: list[tuple[BacktestEpisode, uuid.UUID | None]] = []
+        self.episodes: list[tuple[BacktestEpisode, uuid.UUID]] = []
 
     def add(self, result: BacktestResult, analysis_run_id: uuid.UUID | None = None) -> None:
         self.added.append((result, analysis_run_id))
@@ -435,13 +441,35 @@ class FakeBacktestResultRepository:
     def list_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestResult, ...]:
         return tuple(r for r, _ in self.added if r.stock_id == stock_id)
 
-    def add_episodes(
-        self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID | None = None
-    ) -> None:
+    def add_episodes(self, episodes: Sequence[BacktestEpisode], analysis_run_id: uuid.UUID) -> None:
         self.episodes.extend((episode, analysis_run_id) for episode in episodes)
 
     def list_episodes_for_stock(self, stock_id: uuid.UUID) -> tuple[BacktestEpisode, ...]:
-        return tuple(e for e, _ in self.episodes if e.stock_id == stock_id)
+        # Dieselbe Ordnung wie das echte Repository: Auswertung absteigend,
+        # Einstieg aufsteigend -- die Ansicht verlaesst sich darauf.
+        eigene = [e for e, _ in self.episodes if e.stock_id == stock_id]
+        eigene.sort(key=lambda e: e.entry_at)
+        eigene.sort(key=lambda e: e.evaluated_at, reverse=True)
+        return tuple(eigene)
+
+    def latest_for_all_stocks(self) -> dict[uuid.UUID, tuple[BacktestResult, ...]]:
+        je_aktie: dict[uuid.UUID, list[BacktestResult]] = {}
+        for ergebnis, _ in self.added:
+            je_aktie.setdefault(ergebnis.stock_id, []).append(ergebnis)
+        return {
+            stock_id: tuple(
+                e for e in ergebnisse if e.evaluated_at == max(x.evaluated_at for x in ergebnisse)
+            )
+            for stock_id, ergebnisse in je_aktie.items()
+        }
+
+    def latest_episode_evaluations(self) -> dict[uuid.UUID, datetime]:
+        stand: dict[uuid.UUID, datetime] = {}
+        for episode, _ in self.episodes:
+            bisher = stand.get(episode.stock_id)
+            if bisher is None or episode.evaluated_at > bisher:
+                stand[episode.stock_id] = episode.evaluated_at
+        return stand
 
 
 class FakeOptionsBacktestResultRepository:
@@ -563,7 +591,19 @@ class FakeStockReportRepository:
                 bericht.investment_score.value if bericht.investment_score is not None else None
             ),
             document=as_document(bericht),
+            analysis_run_id=bericht.analysis_run_id,
         )
+
+    def latest_for_all_symbols(self) -> dict[str, StoredReport]:
+        juengste: dict[str, StockReport] = {}
+        for bericht in self.added:
+            bisher = juengste.get(bericht.symbol)
+            if bisher is None or bericht.created_at > bisher.created_at:
+                juengste[bericht.symbol] = bericht
+        return {symbol: self._gespeichert(b) for symbol, b in juengste.items()}
+
+    def count_for_all_symbols(self) -> dict[str, int]:
+        return dict(Counter(bericht.symbol for bericht in self.added))
 
     def list_for_run(self, analysis_run_id: uuid.UUID) -> tuple[StoredReport, ...]:
         return tuple(

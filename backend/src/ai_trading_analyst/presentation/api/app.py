@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .v1 import analysis_runs, options_backtests, reports, stocks, system
+from .v1 import analysis_runs, options_backtests, reports, signal_backtests, stocks, system
 
 
 def create_app(dashboard_directory: Path | None = None) -> FastAPI:
@@ -25,6 +25,7 @@ def create_app(dashboard_directory: Path | None = None) -> FastAPI:
     app.include_router(analysis_runs.router)
     app.include_router(options_backtests.router)
     app.include_router(reports.router)
+    app.include_router(signal_backtests.router)
     app.include_router(stocks.router)
     app.include_router(system.router)
     if dashboard_directory is not None and dashboard_directory.is_dir():

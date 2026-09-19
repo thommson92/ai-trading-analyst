@@ -797,6 +797,8 @@ def build_dashboard_publisher(
         backtest_parameters=build_backtest_params(config),
         candidate_rule_parameters=build_candidate_rule_params(indicators, config),
         chart_market_data=build_chart_market_data(config, indicators, root, uow_factory),
+        repeat_suppression=build_repeat_suppression_params(config),
+        market_timezone=config.market.timezone,
     )
 
     def dateien() -> Iterator[tuple[str, bytes]]:
@@ -929,7 +931,11 @@ def build_app() -> FastAPI:
     # anders setzt (ADR 0052).
     app = create_app(project_root(loaded.source_path) / "frontend" / "out")
     app.state.uow_factory = uow_factory
-    app.state.run_overview_use_case = ReadRunOverviewUseCase(uow_factory)
+    app.state.run_overview_use_case = ReadRunOverviewUseCase(
+        uow_factory,
+        repeat_suppression=build_repeat_suppression_params(loaded.config),
+        market_timezone=loaded.config.market.timezone,
+    )
     app.state.check_database_ready = check_database_ready
     # Die Schwellen der Stichprobengroesse und die Kandidatenregel kommen aus
     # derselben Konfiguration wie im Lauf. Eine Oberflaeche, die anders

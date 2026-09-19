@@ -166,6 +166,11 @@ class StoredReport:
     """Die drei Werte, nach denen eine Liste gelesen wird. Leer, wenn kein
     Score entstand (``INSUFFICIENT_DATA``) -- kein Ersatzwert, keine Null."""
     document: Mapping[str, Any]
+    analysis_run_id: uuid.UUID
+    """Der Lauf, zu dem der Bericht gehoert -- eine Spalte, keine Ableitung.
+    Die Kurzfassung fuer Listen liest ``summary.extract_summary_fields`` aus
+    ``document`` (ADR 0062); sie haengt nicht hier, damit das Wertobjekt
+    nichts von seiner Ableitung weiss."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from ai_trading_analyst.application.read_run_overview import RunOverview
+from ai_trading_analyst.application.read_run_overview import RunOverview, SuppressedSymbol
 from ai_trading_analyst.domain.analysis import AnalysisRun, RunStatus
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
@@ -24,7 +24,7 @@ from ai_trading_analyst.domain.backtesting import (
     kombinationskuerzel,
 )
 from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade, TradeOutcome
-from ai_trading_analyst.domain.report import StoredReport
+from ai_trading_analyst.domain.report import PutSummary, StoredReport, extract_summary_fields
 from ai_trading_analyst.domain.scoring import Recommendation
 
 
@@ -64,12 +64,31 @@ class AnalysisRunResponse(BaseModel):
         )
 
 
+class SuppressedSymbolResponse(BaseModel):
+    symbol: str
+    blocking_run_id: UUID
+    blocking_evaluated_at: datetime
+
+    @classmethod
+    def from_domain(cls, eintrag: SuppressedSymbol) -> SuppressedSymbolResponse:
+        return cls(
+            symbol=eintrag.symbol,
+            blocking_run_id=eintrag.blocking_run_id,
+            blocking_evaluated_at=eintrag.blocking_evaluated_at,
+        )
+
+
 class AnalysisRunDetailResponse(AnalysisRunResponse):
     """Ein Lauf mit den Zahlen, die nicht an ihm selbst stehen."""
 
     earnings_excluded: int
     earnings_unknown: int
     module_errors: int
+    suppressed: list[SuppressedSymbolResponse]
+    """Von der Wiederholsperre uebersprungen -- rekonstruiert, nicht
+    aufgezeichnet (ADR 0062). ``suppression_window_days`` ist ``null``, wenn
+    nicht gerechnet wurde; dann sagt die leere Liste nichts."""
+    suppression_window_days: int | None
 
     @classmethod
     def from_overview(cls, overview: RunOverview) -> AnalysisRunDetailResponse:
@@ -85,34 +104,123 @@ class AnalysisRunDetailResponse(AnalysisRunResponse):
             earnings_excluded=overview.earnings_excluded,
             earnings_unknown=overview.earnings_unknown,
             module_errors=overview.module_errors,
+            suppressed=[SuppressedSymbolResponse.from_domain(s) for s in overview.suppressed],
+            suppression_window_days=overview.suppression_window_days,
+        )
+
+
+class PutSummaryResponse(BaseModel):
+    """Der beste Put-Vorschlag, wie ihn auch die Meldung nennt (ADR 0055).
+    ``premium`` je Aktie, nicht je Kontrakt."""
+
+    strike: float
+    expiration: str
+    days_to_expiration: int
+    premium: float
+    annualized_return: float | None
+    distance_to_price_pct: float | None
+    liquidity: str | None
+    earnings_within_term: bool | None
+
+    @classmethod
+    def from_domain(cls, put: PutSummary) -> PutSummaryResponse:
+        return cls(
+            strike=put.strike,
+            expiration=put.expiration,
+            days_to_expiration=put.days_to_expiration,
+            premium=put.premium,
+            annualized_return=put.annualized_return,
+            distance_to_price_pct=put.distance_to_price_pct,
+            liquidity=put.liquidity,
+            earnings_within_term=put.earnings_within_term,
         )
 
 
 class ReportSummaryResponse(BaseModel):
     """Die Kurzfassung eines Berichts -- was in einer Liste steht.
 
-    Genau die Werte, die als eigene Spalten an ``stock_reports`` liegen. Wer
-    mehr braucht, holt das Dokument; alles andere hiesse, es hier in Teilen
-    nachzubauen.
+    Die ersten Werte sind die Spalten an ``stock_reports``; die uebrigen
+    liest die Domain **aus dem gespeicherten Dokument** (ADR 0062), damit
+    Liste und Einzelsicht denselben Stand zeigen. Jedes davon ``null``, wenn
+    der Bericht dazu nichts sagt.
     """
 
     report_id: UUID
+    analysis_run_id: UUID
     symbol: str
     created_at: datetime
     recommendation: Recommendation | None
     swing_score: float | None
     investment_score: float | None
+    company_name: str | None
+    close: float | None
+    decision_candle_at: str | None
+    signal_letters: str | None
+    false_signal_risk: str | None
+    earnings_status: str | None
+    earnings_next_date: str | None
+    earnings_candles_until: int | None
+    options_status: str | None
+    options_reason: str | None
+    put_suggestion: PutSummaryResponse | None
 
     @classmethod
     def from_domain(cls, report: StoredReport) -> ReportSummaryResponse:
+        kurz = extract_summary_fields(report.document)
         return cls(
             report_id=report.id,
+            analysis_run_id=report.analysis_run_id,
             symbol=report.symbol,
             created_at=report.created_at,
             recommendation=report.recommendation,
             swing_score=report.swing_score,
             investment_score=report.investment_score,
+            company_name=kurz.company_name,
+            close=kurz.close,
+            decision_candle_at=kurz.decision_candle_at,
+            signal_letters=kurz.signal_letters,
+            false_signal_risk=kurz.false_signal_risk,
+            earnings_status=kurz.earnings_status,
+            earnings_next_date=kurz.earnings_next_date,
+            earnings_candles_until=kurz.earnings_candles_until,
+            options_status=kurz.options_status,
+            options_reason=kurz.options_reason,
+            put_suggestion=(
+                PutSummaryResponse.from_domain(kurz.put_suggestion)
+                if kurz.put_suggestion is not None
+                else None
+            ),
         )
+
+
+class StockIndexResponse(BaseModel):
+    """Eine Aktie in der Aktienliste (ADR 0062): Stammdaten und ihr
+    letzter Stand -- eine Datei fuer alle statt eine je Aktie."""
+
+    symbol: str
+    exchange: str
+    reports_count: int
+    last_report: ReportSummaryResponse | None
+    """Traegt auch den Unternehmensnamen -- er steht nicht ein zweites Mal hier."""
+    signal_backtest_evaluated_at: datetime | None
+    episodes_available: bool
+
+
+class SignalBacktestStockResponse(BaseModel):
+    """Die juengste Auswertung einer Aktie, alle Kombinationen."""
+
+    symbol: str
+    evaluated_at: datetime
+    combinations: list[SignalBacktestResponse]
+
+
+class SignalBacktestOverviewResponse(BaseModel):
+    """Der Signal-Backtest ueber alle Aktien (ADR 0062): je Aktie die
+    juengste Auswertung. ``signal_rule_version`` ist die heutige Regel; die
+    Version jeder Auswertung steht an ihren Kombinationen."""
+
+    signal_rule_version: str
+    stocks: list[SignalBacktestStockResponse]
 
 
 class HealthResponse(BaseModel):

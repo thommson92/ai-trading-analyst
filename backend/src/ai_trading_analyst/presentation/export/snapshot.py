@@ -39,6 +39,7 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
     MarketDataProviderError,
     MarketDataUnavailableError,
+    RepeatSuppressionParameters,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -111,6 +112,11 @@ class Exportquellen:
     backtest_parameters: BacktestParameters
     candidate_rule_parameters: CandidateRuleParameters
     chart_market_data: Callable[[], MarketDataProvider]
+    repeat_suppression: RepeatSuppressionParameters | None = None
+    """Fuer den rekonstruierten Sperrstatus je Lauf (ADR 0062). Ohne die
+    Parameter bleibt die Liste leer -- als "nicht gerechnet", was das
+    Manifestfeld ``suppression_window_days: null`` dem Leser sagt."""
+    market_timezone: str = "America/New_York"
 
 
 _UNSICHER = re.compile(r"[^A-Za-z0-9_-]")
@@ -164,6 +170,10 @@ def _als_json(nutzlast: Any) -> bytes:
     umsortierte Abschnittsfolge waere eine Veraenderung.
     """
     return json.dumps(nutzlast, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _modelle(modelle: Sequence[BaseModel]) -> list[dict[str, Any]]:
+    return [modell.model_dump(mode="json") for modell in modelle]
 
 
 def _modell(antwort: BaseModel) -> bytes:
@@ -256,7 +266,7 @@ def iter_snapshot(
     # und eine Transaktion ueber zweihundert Kursreihen und eine
     # Viertelstunde offen zu halten waere eine lange Sperre ohne Gegenwert.
     with quellen.uow_factory() as uow:
-        aktien = sorted(uow.stocks.list_all(), key=lambda stock: stock.symbol)
+        aktien = list(uow.stocks.list_all())  # alphabetisch, wie das Repository liefert
     symbole = [stock.symbol for stock in aktien]
     namen = _symbolnamen(symbole)
 
@@ -325,10 +335,14 @@ def iter_snapshot(
         laeufe = _alle_laeufe(uow)
         yield datei(
             "data/analysis-runs.json",
-            _als_json([lauf.model_dump(mode="json") for lauf in laeufe]),
+            _als_json(_modelle(laeufe)),
         )
 
-        uebersicht = ReadRunOverviewUseCase(quellen.uow_factory)
+        uebersicht = ReadRunOverviewUseCase(
+            quellen.uow_factory,
+            repeat_suppression=quellen.repeat_suppression,
+            market_timezone=quellen.market_timezone,
+        )
         for lauf in laeufe:
             lauf_id = lauf.id
             detail = uebersicht.execute(lauf_id)
@@ -340,7 +354,7 @@ def iter_snapshot(
             kurzliste = views.reports_of_run(uow, lauf_id)
             yield datei(
                 f"data/analysis-runs/{lauf_id}/reports.json",
-                _als_json([eintrag.model_dump(mode="json") for eintrag in kurzliste]),
+                _als_json(_modelle(kurzliste)),
             )
             for eintrag in kurzliste:
                 bericht = uow.stock_reports.get(eintrag.report_id)
@@ -352,10 +366,15 @@ def iter_snapshot(
                     f"data/reports/{bericht.id}.json", _als_json(dict(bericht.document))
                 )
 
+        # Die zwei Uebersichten (ADR 0062): eine Datei fuer alle Aktien statt
+        # zweihundert Einzeldateien je Listenansicht.
+        yield datei("data/stocks.json", _als_json(_modelle(views.stock_index(uow))))
+        yield datei("data/signal-backtests.json", _modell(views.signal_backtest_overview(uow)))
+
         messungen = views.measurements(uow)
         yield datei(
             "data/options-backtests.json",
-            _als_json([messung.model_dump(mode="json") for messung in messungen]),
+            _als_json(_modelle(messungen)),
         )
         for messung in messungen:
             messung_id = messung.measurement_id
@@ -372,9 +391,7 @@ def iter_snapshot(
             name = namen[symbol]
             yield datei(
                 f"data/stocks/{name}/reports.json",
-                _als_json(
-                    [eintrag.model_dump(mode="json") for eintrag in _alle_berichte(uow, symbol)]
-                ),
+                _als_json(_modelle(_alle_berichte(uow, symbol))),
             )
             yield datei(
                 f"data/stocks/{name}/backtest.json",

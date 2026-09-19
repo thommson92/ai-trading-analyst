@@ -4,6 +4,7 @@ Die gezaehlten Ereignisse des Signal-Backtests, eine Zeile je Episode und
 Horizont (ADR 0061). Dasselbe Muster wie ``backtest_results``: kein
 Unique-Constraint, kein Update-Pfad -- jede Auswertung haengt an.
 
+``analysis_run_id`` ist nicht nullbar: Nur der Tageslauf schreibt Episoden.
 ``entry_at`` ist ein Zeitstempel und kein Kerzenindex. Der Tiefen-Backfill
 fuegt aeltere Bars vorn an und verschoebe jeden Index; ``signal_events.
 candle_index`` traegt genau diese Buerde, und diese Tabelle soll sie nicht
@@ -46,7 +47,7 @@ def upgrade() -> None:
             "analysis_run_id",
             postgresql.UUID(as_uuid=True),
             sa.ForeignKey("analysis_runs.id"),
-            nullable=True,
+            nullable=False,
         ),
         sa.Column("signal_types", postgresql.ARRAY(sa.String()), nullable=False),
         sa.Column("signal_rule_version", sa.String(), nullable=False),
