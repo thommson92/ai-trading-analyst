@@ -2148,24 +2148,20 @@ abtrennen.
 
 ```powershell
 cd C:\Users\Administrator\Documents\TradingViewAnalyzer
-$env:PGPASSFILE = "$env:APPDATA\postgresql\pgpass.conf"
-psql -h localhost -U ata -d ai_trading_analyst -c @"
-SELECT d.session_date,
-       a.number_of_stocks AS aktien, a.candidates_found AS kandidaten,
-       round(extract(epoch from a.started_at   - d.last_attempt_at)) AS backfill_s,
-       round(extract(epoch from a.completed_at - a.started_at))      AS analyse_s,
-       round(extract(epoch from d.finished_at  - a.completed_at))    AS rest_s,
-       round(extract(epoch from d.finished_at  - d.last_attempt_at)) AS gesamt_s
-FROM dispatcher_runs d
-JOIN analysis_runs a ON a.started_at BETWEEN d.last_attempt_at AND d.finished_at
-WHERE d.status = 'succeeded'
-ORDER BY d.session_date DESC LIMIT 30;
-"@
+backend\.venv\Scripts\python.exe scripts\laufzeiten.py
 ```
 
-**Die Streuung über mehrere Wochen ist aussagekräftiger als ein Einzelwert.**
-Ein einzelner Lauf sagt wenig — die TWS antwortet nicht jeden Tag gleich
-schnell.
+Das Skript nimmt die Zugangsdaten aus derselben Quelle wie die Anwendung
+(`ATA_DATABASE_URL`, ersatzweise die `.env`). Auf der Kommandozeile steht
+damit kein Passwort, und es braucht **kein `psql` im Suchpfad** — das liegt
+auf dem Server nicht dort.
+
+Ausgegeben werden die letzten 30 Läufe (`--limit` ändert das) und darunter
+der Median je Abschnitt. **Die Streuung über mehrere Wochen ist
+aussagekräftiger als ein Einzelwert** — die TWS antwortet nicht jeden Tag
+gleich schnell. Gescheiterte Versuche bleiben draußen; ein Lauf ohne
+`completed_at` hat keine Analysedauer, und eine Null hineinzuschreiben
+behauptete eine Messung, die es nicht gibt.
 
 ### Die feine Zerlegung braucht die Protokolldatei
 
