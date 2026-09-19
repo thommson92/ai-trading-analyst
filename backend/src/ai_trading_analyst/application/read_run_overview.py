@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     RepeatSuppressionParameters,
+    StockProcessingError,
     UnitOfWork,
     suppression_window,
 )
@@ -62,6 +63,9 @@ class RunOverview:
     Zahl werfen.
     """
     module_errors: int
+    processing_errors: tuple[StockProcessingError, ...] = ()
+    """Die Aktien, die an einem Fehler haengen blieben -- der Grund, aus dem
+    ein Lauf ``PARTIALLY_COMPLETED`` heisst. ``module_errors`` zaehlt sie."""
     suppressed: tuple[SuppressedSymbol, ...] = ()
     """Rekonstruiert, nicht aufgezeichnet (ADR 0062). Die Grenzen: Das
     Fenster ist das **heutige**; ein Symbol, das die Watchlist verlassen hat
@@ -98,6 +102,7 @@ class ReadRunOverviewUseCase:
                 earnings_excluded=earnings.get(EarningsFilterStatus.EARNINGS_EXCLUDED, 0),
                 earnings_unknown=earnings.get(EarningsFilterStatus.UNKNOWN, 0),
                 module_errors=uow.processing_errors.count_for_run(run_id),
+                processing_errors=tuple(uow.processing_errors.list_for_run(run_id)),
                 suppressed=gesperrt,
                 suppression_window_days=fenster_tage,
             )

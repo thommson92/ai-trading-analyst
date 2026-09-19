@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ai_trading_analyst.application.read_run_overview import RunOverview, SuppressedSymbol
-from ai_trading_analyst.domain.analysis import AnalysisRun, RunStatus
+from ai_trading_analyst.domain.analysis import AnalysisRun, RunStatus, StockProcessingError
 from ai_trading_analyst.domain.backtesting import (
     BacktestConfidence,
     BacktestEpisode,
@@ -78,12 +78,28 @@ class SuppressedSymbolResponse(BaseModel):
         )
 
 
+class ProcessingErrorResponse(BaseModel):
+    """Eine Aktie, die im Lauf an einem Fehler haengen blieb."""
+
+    symbol: str
+    message: str
+    occurred_at: datetime
+
+    @classmethod
+    def from_domain(cls, fehler: StockProcessingError) -> ProcessingErrorResponse:
+        return cls(
+            symbol=fehler.stock_symbol, message=fehler.message, occurred_at=fehler.occurred_at
+        )
+
+
 class AnalysisRunDetailResponse(AnalysisRunResponse):
     """Ein Lauf mit den Zahlen, die nicht an ihm selbst stehen."""
 
     earnings_excluded: int
     earnings_unknown: int
     module_errors: int
+    processing_errors: list[ProcessingErrorResponse]
+    """Warum ein Lauf ``PARTIALLY_COMPLETED`` ist: je Aktie der Fehler."""
     suppressed: list[SuppressedSymbolResponse]
     """Von der Wiederholsperre uebersprungen -- rekonstruiert, nicht
     aufgezeichnet (ADR 0062). ``suppression_window_days`` ist ``null``, wenn
@@ -104,6 +120,9 @@ class AnalysisRunDetailResponse(AnalysisRunResponse):
             earnings_excluded=overview.earnings_excluded,
             earnings_unknown=overview.earnings_unknown,
             module_errors=overview.module_errors,
+            processing_errors=[
+                ProcessingErrorResponse.from_domain(f) for f in overview.processing_errors
+            ],
             suppressed=[SuppressedSymbolResponse.from_domain(s) for s in overview.suppressed],
             suppression_window_days=overview.suppression_window_days,
         )

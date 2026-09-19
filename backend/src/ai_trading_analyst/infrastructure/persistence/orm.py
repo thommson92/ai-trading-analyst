@@ -470,6 +470,8 @@ class SignalEventOrm(Base):
     screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
     signal_type: Mapped[SignalType] = mapped_column(_enum_column(SignalType))
     candle_index: Mapped[int]
+    candle_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """NULL bei Ereignissen vor ADR 0066."""
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="signal_events")
 

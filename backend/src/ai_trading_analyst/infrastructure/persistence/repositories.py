@@ -967,7 +967,11 @@ def _technical_ai_from_row(row: ScreeningResultOrm) -> TechnicalAssessment | Non
 def _outcome_from_row(row: ScreeningResultOrm) -> StockScreeningOutcome:
     stock = Stock(id=row.stock.id, symbol=row.stock.symbol, exchange=row.stock.exchange)
     events = tuple(
-        SignalEvent(signal_type=SignalType(event.signal_type), candle_index=event.candle_index)
+        SignalEvent(
+            signal_type=SignalType(event.signal_type),
+            candle_index=event.candle_index,
+            candle_at=event.candle_at,
+        )
         for event in row.signal_events
     )
     result = ScreeningResult(
@@ -1109,7 +1113,10 @@ class SqlAlchemyScreeningResultRepository:
         )
         row.signal_events = [
             SignalEventOrm(
-                id=uuid.uuid4(), signal_type=event.signal_type, candle_index=event.candle_index
+                id=uuid.uuid4(),
+                signal_type=event.signal_type,
+                candle_index=event.candle_index,
+                candle_at=event.candle_at,
             )
             for event in outcome.result.signal_events
         ]

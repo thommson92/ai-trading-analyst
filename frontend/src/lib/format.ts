@@ -163,6 +163,21 @@ export function formatKurs(wert: number | null): string {
   return wert === null ? '–' : `${wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 }
 
+/**
+ * Ein grosser Betrag lesbar: 62.363.000.000 wird zu "62,36 Mrd.", Millionen
+ * zu "Mio.", darunter bleibt die volle Zahl. Nur Darstellung -- der Wert
+ * selbst steht unveraendert im Bericht.
+ */
+export function formatBetrag(wert: number | null, einheit = ''): string {
+  if (wert === null) return '–';
+  const betrag = Math.abs(wert);
+  const [teiler, stufe] = betrag >= 1e9 ? [1e9, ' Mrd.'] : betrag >= 1e6 ? [1e6, ' Mio.'] : [1, ''];
+  const zahl = (wert / teiler).toLocaleString('de-DE', {
+    maximumFractionDigits: teiler === 1 ? 0 : 2,
+  });
+  return `${zahl}${stufe}${einheit === '' ? '' : ` ${einheit}`}`;
+}
+
 /** Ein Zeitpunkt nur als Datum -- fuer Listen, in denen die Uhrzeit nichts sagt. */
 export function formatTag(iso: string | null): string {
   return iso === null ? '–' : formatDatum(iso);

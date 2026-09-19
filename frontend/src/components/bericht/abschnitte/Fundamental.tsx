@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Karte } from '@/components/ui/Karte';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { ReportDocument } from '@/lib/api';
-import { beschrifte, formatKurs } from '@/lib/format';
+import { beschrifte, formatBetrag, formatKurs } from '@/lib/format';
 
 import { Restfelder } from '../Restfelder';
 import { Vorbehalte } from '../Vorbehalte';
@@ -37,11 +37,6 @@ const KENNZAHL_TEXT: Record<string, string | undefined> = {
   PRICE_FREE_CASH_FLOW_RATIO: 'Kurs/Free Cashflow',
 };
 
-function waehrung(m: JsonObjekt): string {
-  const w = feldText(m, 'currency');
-  return w === null ? '' : ` ${w}`;
-}
-
 // Die Einheiten des Backends (`domain/fundamentals/values.py`, `MetricUnit`):
 // FRACTION ist ein Anteil (0,25 = 25 %), RATIO ein dimensionsloses
 // Verhaeltnis (KGV 34,2), CURRENCY ein Betrag, SHARES eine Stueckzahl. Eine
@@ -58,9 +53,9 @@ function wertMitEinheit(m: JsonObjekt): string {
     case 'RATIO':
       return wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     case 'CURRENCY':
-      return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 0 })}${waehrung(m)}`;
+      return formatBetrag(wert, feldText(m, 'currency') ?? '');
     case 'SHARES':
-      return wert.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+      return formatBetrag(wert, 'Stück');
     default:
       return `${String(wert)}${einheit === null ? '' : ` ${einheit}`}`;
   }

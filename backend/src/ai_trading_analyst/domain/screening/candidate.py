@@ -188,12 +188,24 @@ def evaluate_candidate(
                     continue
                 fired_types.add(signal_type)
                 signal_positions.setdefault(signal_type, i)
-                firings.add(SignalEvent(signal_type=signal_type, candle_index=i))
+                firings.add(
+                    SignalEvent(
+                        signal_type=signal_type,
+                        candle_index=i,
+                        candle_at=series.candle(i).timestamp,
+                    )
+                )
         for signal_type, signal_fn in _DECISION_CANDLE_FUNCTIONS.items():
             if signal_fn(series, t):
                 fired_types.add(signal_type)
                 signal_positions.setdefault(signal_type, t)
-                firings.add(SignalEvent(signal_type=signal_type, candle_index=t))
+                firings.add(
+                    SignalEvent(
+                        signal_type=signal_type,
+                        candle_index=t,
+                        candle_at=series.candle(t).timestamp,
+                    )
+                )
     except DataIncompleteError as exc:
         return ScreeningResult(
             status=ScreeningStatus.UNKNOWN_DATA_INCOMPLETE,
@@ -202,7 +214,9 @@ def evaluate_candidate(
         )
 
     events = tuple(
-        SignalEvent(signal_type=signal_type, candle_index=index)
+        SignalEvent(
+            signal_type=signal_type, candle_index=index, candle_at=series.candle(index).timestamp
+        )
         for signal_type, index in signal_positions.items()
     )
     if not qualifies(frozenset(fired_types), params.required_crossing_signals):

@@ -100,6 +100,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0063](0063-dashboard-redesign.md) | Dashboard-Redesign — sechs Seiten, Seitenleiste, Design-Tokens, gleichwertig auf dem Smartphone | Vorgeschlagen (Gestaltungsentscheidungen des Inhabers vom 2026-09-18; die delegierten ADRs liegen vor: Datenseite 0061/0062, Chartbibliothek 0064, Build und Meldung 0065) |
 | [0064](0064-lightweight-charts-fuer-den-kerzenchart.md) | Lightweight Charts fuer den Kerzenchart der Einzelaktie | Angenommen (Apache-2.0 mit Attribution; kein Bezug zu ADR 0012, keine TradingView-Daten; Horizontfenster als Primitiv) |
 | [0065](0065-oberflaechen-build-im-exportschritt-und-dashboard-link.md) | Der Bau der Oberflaeche im Exportschritt und der Link zum Dashboard in der Ergebnismeldung | Angenommen (`publish --full` baut; `ATA_DASHBOARD_URL` geprueft beim Start; Nachtraege zu 0060 und 0040) |
+| [0066](0066-kerzenzeitpunkt-an-signalereignissen.md) | Signalereignisse tragen den Kerzenzeitpunkt, Läufe ihre Verarbeitungsfehler | Angenommen |
 
 ## Offene Entscheidungen
 

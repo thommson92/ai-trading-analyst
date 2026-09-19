@@ -87,7 +87,7 @@ describe('Der Kandidatenbericht', () => {
     expect(screen.getByText('KGV')).toBeTruthy();
     expect(screen.getByText('34,20')).toBeTruthy();
     expect(screen.getByText('42 %')).toBeTruthy();
-    expect(screen.getByText('130.500.000.000 USD')).toBeTruthy();
+    expect(screen.getByText('130,5 Mrd. USD')).toBeTruthy();
     expect(screen.queryByText(/3420/)).toBeNull();
   });
 });
