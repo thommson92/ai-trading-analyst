@@ -396,6 +396,15 @@ class IbAsyncBarSource:
         self._ib: Any | None = None
         self._owner_thread: int | None = None
         self._last_request_at: float | None = None
+        self.verschlafene_sekunden = 0.0
+        """Summe der Wartezeit, die die eigene Drossel bisher erzwungen hat.
+
+        Rein zur Auswertung: Bei rund 190 Symbolen und elf Sekunden Abstand
+        ist das der groesste einzelne Posten des Tageslaufs -- und bis hierher
+        die einzige grosse Zeit, die niemand gemessen hat.
+        """
+        self.anfragen = 0
+        """Zahl der gedrosselten Historienanfragen."""
 
     def fetch_intraday_bars(
         self, contract: ContractSpec, days: int | None = None
@@ -774,7 +783,13 @@ class IbAsyncBarSource:
         Watchlist mit dreistelliger Symbolzahl faellt der Lauf sonst
         mittendrin aus. Der Abstand wird deshalb hier eingehalten und nicht
         der Gegenstelle ueberlassen.
+
+        Die erzwungene Wartezeit wird dabei aufsummiert statt verworfen. Ohne
+        diese Zahl laesst sich nicht belegen, wieviel eines Laufs blosses
+        Warten war -- und damit auch nicht, was Beschleunigen ueberhaupt
+        erreichen kann.
         """
+        self.anfragen += 1
         if self._minimum_request_interval <= 0:
             return
         now = self._monotonic()
@@ -782,6 +797,7 @@ class IbAsyncBarSource:
             wait = self._minimum_request_interval - (now - self._last_request_at)
             if wait > 0:
                 self._sleep(wait)
+                self.verschlafene_sekunden += wait
         self._last_request_at = self._monotonic()
 
     def _connection(self) -> Any:

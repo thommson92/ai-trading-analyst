@@ -14,7 +14,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import logging.handlers
 import sys
+from pathlib import Path
 from typing import Any
 
 from ai_trading_analyst.config.settings import LoggingConfig
@@ -53,14 +55,18 @@ _STANDARD_RECORD_ATTRIBUTES = frozenset(
 
 # Feldnamen, die der Formatter selbst belegt. Ein `extra` mit diesem Namen
 # wuerde die Zuordnung eines Logeintrags zerstoeren und wird deshalb umbenannt.
+#
+# ``duration_ms`` und ``error_code`` standen hier, obwohl der Formatter
+# **keines von beiden** setzt. Die Folge war, dass ein
+# ``extra={"duration_ms": ...}`` als ``extra_duration_ms`` herauskam -- genau
+# entgegen der Zusage im Modulkopf. Die Liste beschreibt, was der Formatter
+# belegt; wer sie erweitert, belegt es auch.
 _RESERVED_OUTPUT_FIELDS = frozenset(
     {
         "timestamp",
         "level",
         "logger",
         "message",
-        "error_code",
-        "duration_ms",
         "correlation_id",
         "analysis_run_id",
         "stock_symbol",
@@ -126,23 +132,58 @@ class ConsoleLogFormatter(logging.Formatter):
 def configure_logging(config: LoggingConfig | None = None) -> None:
     """Richtet das Root-Logging ein.
 
-    Idempotent: Ein erneuter Aufruf ersetzt den bestehenden Handler, statt
-    einen zweiten hinzuzufuegen -- sonst erschiene jede Zeile doppelt.
+    Idempotent: Ein erneuter Aufruf ersetzt die bestehenden Handler, statt
+    weitere hinzuzufuegen -- sonst erschiene jede Zeile doppelt.
+
+    Ist ``logging.file`` gesetzt, kommt **zusaetzlich** zur Ausgabe auf
+    ``stdout`` eine rotierende Datei dazu. Der Tageslauf laeuft unter der
+    Windows-Aufgabenplanung, und deren ``stdout`` ist fluechtig: Ohne Datei
+    ist nach einem Lauf nicht mehr nachvollziehbar, wo seine Zeit geblieben
+    ist. Die Datei traegt **immer JSON**, unabhaengig von ``format`` -- sie
+    wird ausgewertet, nicht gelesen.
     """
     settings = config if config is not None else LoggingConfig()
 
     formatter: logging.Formatter = (
         JsonLogFormatter() if settings.format == "json" else ConsoleLogFormatter()
     )
-    handler = logging.StreamHandler(stream=sys.stdout)
-    handler.setFormatter(formatter)
+    handlers: list[logging.Handler] = []
+
+    stream_handler = logging.StreamHandler(stream=sys.stdout)
+    stream_handler.setFormatter(formatter)
+    handlers.append(stream_handler)
+
+    if settings.file:
+        handlers.append(_datei_handler(settings.file, settings))
 
     root = logging.getLogger()
     for existing in list(root.handlers):
         root.removeHandler(existing)
         existing.close()
-    root.addHandler(handler)
+    for handler in handlers:
+        root.addHandler(handler)
     root.setLevel(settings.level)
+
+
+def _datei_handler(ziel: str, settings: LoggingConfig) -> logging.Handler:
+    """Die rotierende Datei -- immer JSON, und immer geschwaerzt.
+
+    Die Schwaerzung haengt nicht am Handler, sondern am Formatter:
+    ``JsonLogFormatter.format`` ruft ``redact_registered`` auf der fertigen
+    Zeile. Ein zweiter Ausgang ist damit keine zweite Stelle, an der ein
+    Geheimnis entwischen koennte (ADR 0044) -- genau deshalb bekommt die
+    Datei denselben Formatter und keinen eigenen.
+    """
+    pfad = Path(ziel)
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(
+        pfad,
+        maxBytes=settings.max_bytes,
+        backupCount=settings.backups,
+        encoding="utf-8",
+    )
+    handler.setFormatter(JsonLogFormatter())
+    return handler
 
 
 def get_logger(name: str) -> logging.Logger:

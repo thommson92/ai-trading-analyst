@@ -99,6 +99,7 @@ from ai_trading_analyst.domain.technical import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact_registered
+from ai_trading_analyst.observability.timing import gemessen
 
 _logger = get_logger(__name__)
 
@@ -375,20 +376,30 @@ class RunAnalysisUseCase:
         # Aktienreihenfolge -- fuer Aufrufer wie CLI/Frontend bleibt die
         # Reihenfolge von ``outcomes``/``errors`` unveraendert, unabhaengig
         # davon, welche Recherche zuerst fertig wurde.
-        prepared = [self._prepare_stock(stock) for stock in stocks]
-        self._run_agents_concurrently(prepared)
+        with gemessen(_logger, "phase_1_screening", aktien=len(stocks)) as messwerte:
+            prepared = [self._prepare_stock(stock) for stock in stocks]
+            messwerte["kandidaten"] = sum(
+                1
+                for item in prepared
+                if isinstance(item, _PreparedOutcome)
+                and item.result.status == ScreeningStatus.CANDIDATE
+            )
+
+        with gemessen(_logger, "phase_2_agenten"):
+            self._run_agents_concurrently(prepared)
 
         outcomes: list[StockScreeningOutcome] = []
         errors: list[StockProcessingError] = []
 
-        for item in prepared:
-            if isinstance(item, _PreparedError):
-                errors.append(self._persist_error(run, item.stock, item.exc))
-                continue
-            try:
-                outcomes.append(self._persist_outcome(run, item))
-            except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
-                errors.append(self._persist_error(run, item.stock, exc))
+        with gemessen(_logger, "phase_3_persistenz", aktien=len(prepared)):
+            for item in prepared:
+                if isinstance(item, _PreparedError):
+                    errors.append(self._persist_error(run, item.stock, item.exc))
+                    continue
+                try:
+                    outcomes.append(self._persist_outcome(run, item))
+                except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
+                    errors.append(self._persist_error(run, item.stock, exc))
 
         run.candidates_found = sum(
             1 for outcome in outcomes if outcome.result.status == ScreeningStatus.CANDIDATE
@@ -406,8 +417,13 @@ class RunAnalysisUseCase:
             uow.commit()
 
         summary = AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
-        self._notify(summary)
-        self._publish_dashboard()
+        # **Beide ausserhalb von ``completed_at``** und deshalb aus der
+        # Datenbank allein nicht voneinander zu trennen: Der Laufdatensatz
+        # gilt oben bereits als abgeschlossen (ADR 0024, ADR 0060).
+        with gemessen(_logger, "meldung"):
+            self._notify(summary)
+        with gemessen(_logger, "dashboard_export"):
+            self._publish_dashboard()
         return summary
 
     def _notify(self, summary: AnalysisRunSummary) -> None:
@@ -515,7 +531,8 @@ class RunAnalysisUseCase:
         (folgt nebenlaeufig in ``_run_agents_concurrently``) und ohne
         Persistenz (folgt sequentiell in ``_persist_outcome``)."""
         try:
-            series = self._market_data_provider.get_candle_series(stock)
+            with gemessen(_logger, "kerzenserie", symbol=stock.symbol):
+                series = self._market_data_provider.get_candle_series(stock)
             decision_index = len(series) - 1
             self._require_expected_candle(series, decision_index)
             result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
@@ -832,14 +849,15 @@ class RunAnalysisUseCase:
         je Aktie durch, statt still zu verschwinden.
         """
         try:
-            return compute_backtest(
-                series,
-                stock_id=stock.id,
-                candidate_params=self._candidate_rule_params,
-                backtest_params=self._backtest_params,
-                signal_rule_version=SIGNAL_RULE_VERSION,
-                evaluated_at=evaluated_at,
-            )
+            with gemessen(_logger, "backtest", symbol=stock.symbol):
+                return compute_backtest(
+                    series,
+                    stock_id=stock.id,
+                    candidate_params=self._candidate_rule_params,
+                    backtest_params=self._backtest_params,
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                    evaluated_at=evaluated_at,
+                )
         except ValueError as error:
             _logger.warning(
                 "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
@@ -861,7 +879,8 @@ class RunAnalysisUseCase:
         bleibt leer.
         """
         try:
-            return self._fundamental_data_provider.fundamentals(stock, price=price)
+            with gemessen(_logger, "fundamentaldaten", symbol=stock.symbol):
+                return self._fundamental_data_provider.fundamentals(stock, price=price)
         except FundamentalDataProviderError as error:
             _logger.warning("Fundamentaldaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
@@ -894,15 +913,16 @@ class RunAnalysisUseCase:
         abhaengigen Felder leer.
         """
         try:
-            return self._options_data_provider.options(
-                stock,
-                price=price,
-                as_of=as_of,
-                zones=technical.zones if technical is not None else (),
-                next_earnings_date=(
-                    earnings.next_earnings_date if earnings is not None else None
-                ),
-            )
+            with gemessen(_logger, "optionsanalyse", symbol=stock.symbol):
+                return self._options_data_provider.options(
+                    stock,
+                    price=price,
+                    as_of=as_of,
+                    zones=technical.zones if technical is not None else (),
+                    next_earnings_date=(
+                        earnings.next_earnings_date if earnings is not None else None
+                    ),
+                )
         except OptionsDataProviderError as error:
             _logger.warning("Optionsdaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
@@ -924,7 +944,8 @@ class RunAnalysisUseCase:
         Bericht soll sie unterscheiden koennen (ADR 0043).
         """
         try:
-            return self._analyst_recommendations_provider.recommendations(stock)
+            with gemessen(_logger, "analystenvoten", symbol=stock.symbol):
+                return self._analyst_recommendations_provider.recommendations(stock)
         except AnalystRecommendationsFormatError as error:
             # Der Anbieter war erreichbar, seine Antwort aber nicht lesbar.
             # Ein eigener Grund, weil das etwas anderes ueber die Datenlage
@@ -959,7 +980,8 @@ class RunAnalysisUseCase:
         verschieben (ADR 0017).
         """
         try:
-            next_earnings = self._earnings_provider.next_earnings_date(stock)
+            with gemessen(_logger, "earnings_termin", symbol=stock.symbol):
+                next_earnings = self._earnings_provider.next_earnings_date(stock)
         except EarningsProviderError as error:
             _logger.warning("Earnings-Termin fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return EarningsFilterResult(

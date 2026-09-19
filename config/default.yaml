@@ -717,6 +717,17 @@ scoring:
 logging:
   level: INFO
   format: json
+  # Zusaetzlicher, rotierender Dateiausgang -- immer JSON, unabhaengig von
+  # 'format'. Leer heisst: nur stdout, also genau der Zustand ohne diese
+  # Einstellung.
+  #
+  # Der Tageslauf laeuft unter der Windows-Aufgabenplanung, und deren stdout
+  # ist fluechtig: Ohne Datei laesst sich nach einem Lauf nicht mehr sagen,
+  # wo seine Zeit geblieben ist. Fuer den Dauerbetrieb gehoert hier ein Pfad
+  # hinein (Doc 14, Abschnitt "Betriebszustand"), etwa var/logs/tageslauf.log.
+  file: null
+  max_bytes: 20971520
+  backups: 5
 
 # ---------------------------------------------------------------------------
 # GATE G1 -- fachlich freigegeben (docs/adr/0010-gate-g1-freigegeben.md).

@@ -12,6 +12,7 @@ Adapters bereits geschwaerzt war.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import httpx
 import pytest
@@ -167,3 +168,49 @@ class TestDieAnmeldungHaengtAmModellNichtAmLadeweg:
         ausgabe = capsys.readouterr().out
         assert "HTTP Request" in ausgabe, "ohne die Zeile prueft der Test nichts"
         assert GEHEIM not in ausgabe
+
+
+class TestDerDateiausgang:
+    """Ein zweiter Ausgang ist ein zweiter Weg nach draussen (ADR 0044).
+
+    Die Datei ist **nicht** fluechtig: Anders als ``stdout`` unter der
+    Aufgabenplanung bleibt sie liegen, mit Rotation sogar ueber mehrere
+    Laeufe. Ein Geheimnis darin waere dauerhaft, nicht voruebergehend -- die
+    Schwaerzung muss dort also mindestens so sicher greifen wie auf der
+    Konsole.
+    """
+
+    def test_das_geheimnis_steht_nicht_in_der_datei(
+        self, tmp_path: Path, format_name: str
+    ) -> None:
+        ziel = tmp_path / "lauf.log"
+        configure_logging(LoggingConfig(level="INFO", format=format_name, file=str(ziel)))
+        try:
+            get_logger("ata.test").warning("Abruf gescheitert: token=%s", GEHEIM)
+        finally:
+            # Erst schliessen, dann lesen: Unter Windows haelt ein offener
+            # RotatingFileHandler die Datei, und tmp_path liesse sich nicht
+            # aufraeumen.
+            configure_logging(LoggingConfig(format="json"))
+
+        inhalt = ziel.read_text(encoding="utf-8")
+
+        assert GEHEIM not in inhalt
+        assert "***" in inhalt
+
+    def test_auch_eine_fremde_zeile_wird_in_der_datei_geschwaerzt(
+        self, tmp_path: Path, format_name: str
+    ) -> None:
+        """Nicht nur die eigenen Meldungen -- die Zugriffszeile von ``httpx``
+        traegt den Schluessel genauso, und sie kommt aus einer fremden
+        Bibliothek."""
+        ziel = tmp_path / "lauf.log"
+        configure_logging(LoggingConfig(level="INFO", format=format_name, file=str(ziel)))
+        try:
+            get_logger("httpx").info(
+                'HTTP Request: GET https://example.invalid/x?token=%s "200 OK"', GEHEIM
+            )
+        finally:
+            configure_logging(LoggingConfig(format="json"))
+
+        assert GEHEIM not in ziel.read_text(encoding="utf-8")

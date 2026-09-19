@@ -39,7 +39,7 @@ from ai_trading_analyst.cli import (
 )
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
 from ai_trading_analyst.config.loader import LoadedConfig, load_config
-from ai_trading_analyst.config.settings import IndicatorConfig
+from ai_trading_analyst.config.settings import IndicatorConfig, LoggingConfig
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -4001,3 +4001,58 @@ class TestOptionsBacktestKommando:
         # werden, und die Mitte ist die sparsamste Uebersetzung.
         assert params.target_delta == pytest.approx(0.30)
         assert params.volatility_uplift == pytest.approx(1.2)
+
+
+class TestProtokollzielDesTageslaufs:
+    """``dispatch`` nimmt den Dateiausgang aus der Konfiguration.
+
+    Der Grund, warum es ihn ueberhaupt gibt: Die Windows-Aufgabenplanung
+    startet den Lauf ohne Umleitung, und ihr ``stdout`` ist fluechtig. Nach
+    einem Lauf war bis hierher nicht mehr feststellbar, wo seine Zeit
+    geblieben ist.
+    """
+
+    @staticmethod
+    def _mitschnitt(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> list[LoggingConfig]:
+        gesehen: list[LoggingConfig] = []
+        monkeypatch.setattr(cli, "configure_logging", gesehen.append)
+        return gesehen
+
+    def test_die_datei_aus_der_konfiguration_wird_durchgereicht(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  file: var/logs/tageslauf.log\n",
+            encoding="utf-8",
+        )
+
+        # Rueckgabewert 2: 'fixture' ist fuer den Tageslauf unzulaessig. Die
+        # Protokolleinrichtung liegt davor und hat bereits stattgefunden.
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.file for s in gesehen] == ["var/logs/tageslauf.log"]
+
+    def test_die_konsole_bleibt_lesbar(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nicht die ganze Konfiguration wird uebernommen: Auf ``stdout``
+        bleibt es bei ``console``, damit ein Aufruf von Hand mitlesbar ist.
+        Maschinenlesbar wird es trotzdem -- die Datei traegt immer JSON."""
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.format for s in gesehen] == ["console"]
+
+    def test_ohne_eintrag_bleibt_es_beim_bisherigen_zustand(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.file for s in gesehen] == [None]

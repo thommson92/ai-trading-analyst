@@ -7,6 +7,7 @@ dass ein zweiter Lauf nichts doppelt schreibt.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 
@@ -18,8 +19,10 @@ from ai_trading_analyst.application.backfill_history import (
     SymbolBackfill,
     missing_days,
 )
+from ai_trading_analyst.config import LoggingConfig
 from ai_trading_analyst.domain.analysis import ContractSpec, MarketDataProviderError
 from ai_trading_analyst.domain.screening import IntradayBar
+from ai_trading_analyst.observability import configure_logging
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeProcessingErrorRepository,
@@ -481,3 +484,85 @@ class TestLueckeZumBestand:
         """Am Feiertag kommt nichts -- der Bestand bleibt, wie er ist."""
         bericht = self._bericht([], [bar(JETZT - timedelta(days=2))])
         assert bericht.gaps == ()
+
+
+class TestLaufzeitmessung:
+    """Der Backfill ist der groesste Posten des Tageslaufs -- und war bis
+    hierher der am schlechtesten belegte.
+
+    Entscheidend ist nicht seine Dauer, sondern **wieviel davon Warten war**:
+    Bei rund 190 Symbolen und elf Sekunden Abstand ist fast alles Warten, und
+    das laesst sich durch kein Umbauen beschleunigen. Ohne diese Zahl sieht
+    ein Backfill, der an der Leitung haengt, genauso aus wie einer, der an
+    der eigenen Drossel haengt.
+    """
+
+    class GedrosselteQuelle(FakeBarSource):
+        def __init__(self, bars: dict[str, Sequence[IntradayBar]]) -> None:
+            super().__init__(bars)
+            self.verschlafene_sekunden = 0.0
+            self.anfragen = 0
+
+        def fetch_intraday_bars(
+            self, contract: ContractSpec, days: int | None = None
+        ) -> Sequence[IntradayBar]:
+            self.anfragen += 1
+            self.verschlafene_sekunden += 11.0
+            return super().fetch_intraday_bars(contract, days)
+
+    def _use_case(self, quelle: FakeBarSource) -> BackfillHistoryUseCase:
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(
+                FakeStockRepository(),
+                InMemoryIntradayBarRepository(),
+                FakeAnalysisRunRepository(),
+                FakeScreeningResultRepository(),
+                FakeProcessingErrorRepository(),
+            )
+
+        return BackfillHistoryUseCase(quelle, uow_factory, now=lambda: JETZT)
+
+    def test_die_verschlafene_zeit_steht_in_der_zeile(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        quelle = self.GedrosselteQuelle({"AAPL": [bar(JETZT)], "MSFT": [bar(JETZT)]})
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        self._use_case(quelle).execute(WATCHLIST)
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        gesamt = next(z for z in zeilen if z.get("event") == "backfill")
+
+        assert gesamt["symbole"] == 2
+        assert gesamt["anfragen"] == 2
+        assert gesamt["verschlafene_sekunden"] == 22.0
+
+    def test_eine_quelle_ohne_drossel_meldet_keine_wartezeit(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Bestand aus PostgreSQL hat keine Drossel. Eine Null zu melden
+        behauptete, gemessen zu haben, was es dort nicht gibt."""
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        self._use_case(FakeBarSource({"AAPL": [bar(JETZT)]})).execute(
+            (ContractSpec(symbol="AAPL"),)
+        )
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        gesamt = next(z for z in zeilen if z.get("event") == "backfill")
+
+        assert "verschlafene_sekunden" not in gesamt
+
+    def test_jedes_symbol_wird_einzeln_gemessen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        self._use_case(FakeBarSource({"AAPL": [bar(JETZT)], "MSFT": [bar(JETZT)]})).execute(
+            WATCHLIST
+        )
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        je_symbol = [z for z in zeilen if z.get("event") == "backfill_symbol"]
+
+        assert {str(z["symbol"]) for z in je_symbol} == {"AAPL", "MSFT"}

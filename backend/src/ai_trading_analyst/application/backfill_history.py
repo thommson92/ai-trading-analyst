@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Protocol, runtime_checkable
 
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
@@ -34,8 +35,24 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.observability.logging_setup import get_logger
+from ai_trading_analyst.observability.timing import gemessen
 
 _logger = get_logger(__name__)
+
+
+@runtime_checkable
+class Gedrosselt(Protocol):
+    """Eine Barquelle, die ihre eigene Wartezeit kennt.
+
+    **Nicht** Teil von ``HistoricalBarSource``: Die Drossel ist eine Eigenheit
+    des IBKR-Adapters (60 Historienanfragen je zehn Minuten), und der Bestand
+    aus PostgreSQL hat sie nicht. Sie in den Port zu heben zwaenge jeder
+    Quelle ein Feld auf, das nur eine von ihnen fuellen kann.
+    """
+
+    verschlafene_sekunden: float
+    anfragen: int
+
 
 UEBERLAPPUNG_TAGE = 1
 """Wieviel ueber den letzten bekannten Bar hinaus zurueckgefragt wird.
@@ -216,11 +233,21 @@ class BackfillHistoryUseCase:
         on_progress: Callable[[int, int, SymbolBackfill], None] | None = None,
     ) -> BackfillReport:
         ergebnisse: list[SymbolBackfill] = []
-        for index, contract in enumerate(watchlist, start=1):
-            ergebnis = self._backfill_one(contract)
-            ergebnisse.append(ergebnis)
-            if on_progress is not None:
-                on_progress(index, len(watchlist), ergebnis)
+        with gemessen(_logger, "backfill", symbole=len(watchlist)) as messwerte:
+            for index, contract in enumerate(watchlist, start=1):
+                with gemessen(_logger, "backfill_symbol", symbol=contract.symbol):
+                    ergebnis = self._backfill_one(contract)
+                ergebnisse.append(ergebnis)
+                if on_progress is not None:
+                    on_progress(index, len(watchlist), ergebnis)
+            # **Die Wartezeit getrennt ausweisen.** Ohne sie sagt die
+            # Gesamtdauer nicht, ob der Backfill an der Leitung haengt oder
+            # an der eigenen Drossel -- und das ist der Unterschied zwischen
+            # "schneller machen" und "nicht schneller machen koennen".
+            quelle = self._bar_source
+            if isinstance(quelle, Gedrosselt):
+                messwerte["verschlafene_sekunden"] = round(quelle.verschlafene_sekunden, 1)
+                messwerte["anfragen"] = quelle.anfragen
         return BackfillReport(results=tuple(ergebnisse))
 
     def _backfill_one(self, contract: ContractSpec) -> SymbolBackfill:

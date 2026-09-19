@@ -12,6 +12,7 @@ from ai_trading_analyst.observability.logging_setup import (
     configure_logging,
     get_logger,
 )
+from ai_trading_analyst.observability.timing import gemessen
 
 __all__ = [
     "ConsoleLogFormatter",
@@ -19,6 +20,7 @@ __all__ = [
     "LogContext",
     "configure_logging",
     "current_context",
+    "gemessen",
     "get_logger",
     "log_context",
     "new_correlation_id",

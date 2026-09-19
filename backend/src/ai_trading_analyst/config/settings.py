@@ -1107,6 +1107,23 @@ class LoggingConfig(_Section):
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     format: Literal["json", "console"] = "json"
+    file: str | None = None
+    """Zusaetzlicher, rotierender Dateiausgang -- immer JSON.
+
+    ``None`` heisst: nur ``stdout``, also genau der Zustand vor dieser
+    Einstellung. Der Pfad ist relativ zum Arbeitsverzeichnis; fehlende
+    Verzeichnisse werden angelegt.
+    """
+    max_bytes: int = 20 * 1024 * 1024
+    backups: int = 5
+
+    @model_validator(mode="after")
+    def _pruefe_rotation(self) -> LoggingConfig:
+        if self.max_bytes <= 0:
+            raise ValueError(f"logging.max_bytes muss positiv sein, war {self.max_bytes}")
+        if self.backups < 0:
+            raise ValueError(f"logging.backups darf nicht negativ sein, war {self.backups}")
+        return self
 
 
 class AppConfig(_Section):

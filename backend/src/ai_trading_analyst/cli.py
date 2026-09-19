@@ -3784,7 +3784,12 @@ def command_dispatch(args: argparse.Namespace) -> int:
         # daran nichts, und die Aufgabenplanung soll das unterscheiden koennen.
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
-    configure_logging(LoggingConfig(level="INFO", format="console"))
+    # **Konsole fuer den Menschen, Datei fuer die Auswertung.** Das Format auf
+    # stdout bleibt bewusst "console": Wer den Lauf von Hand anstoesst, liest
+    # mit. Die Dauern werden trotzdem maschinenlesbar, weil der Dateiausgang
+    # immer JSON traegt -- "logging.file", "max_bytes" und "backups" kommen
+    # deshalb aus der Konfiguration und werden hier nicht uebersteuert.
+    configure_logging(config.logging.model_copy(update={"format": "console"}))
 
     if args.provider is not None:
         market_data = config.market_data.model_copy(update={"provider": args.provider})

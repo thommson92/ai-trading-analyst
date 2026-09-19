@@ -9,6 +9,7 @@ dem Ergebnis richtig umgeht.
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,7 @@ import pytest
 from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
+from ai_trading_analyst.config import LoggingConfig
 from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
@@ -63,6 +65,7 @@ from ai_trading_analyst.domain.technical import (
     TechnicalSnapshot,
     TechnicalStatus,
 )
+from ai_trading_analyst.observability import configure_logging
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeAnalystRecommendationsProvider,
@@ -2035,3 +2038,88 @@ class TestDreiAusgaengeDreiMeldungen:
             assert summary.run.status is RunStatus.COMPLETED
             assert summary.run.error_message is None
 
+
+
+class TestLaufzeitmessung:
+    """Der Lauf sagt selbst, wo seine Zeit geblieben ist.
+
+    Bis hierher war die einzige ableitbare Zahl ``completed_at`` minus
+    ``started_at`` -- ein Wert fuer alles zusammen. Welcher der drei
+    Abschnitte die Zeit verbraucht, stand nirgends.
+    """
+
+    def _zeilen(self, ausgabe: str) -> dict[str, dict[str, object]]:
+        zeilen = [json.loads(z) for z in ausgabe.splitlines() if z.strip().startswith("{")]
+        gemessene = [z for z in zeilen if "duration_ms" in z]
+        return {str(z["event"]): z for z in gemessene}
+
+    def test_jede_phase_meldet_ihre_dauer_genau_einmal(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+            },
+        )
+        use_case, *_ = _build_use_case(provider)
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        nach_ereignis = self._zeilen(capsys.readouterr().out)
+
+        for phase in ("phase_1_screening", "phase_2_agenten", "phase_3_persistenz"):
+            assert phase in nach_ereignis, f"{phase} fehlt"
+        assert nach_ereignis["phase_1_screening"]["aktien"] == 2
+        assert nach_ereignis["phase_1_screening"]["kandidaten"] == 1
+        assert nach_ereignis["phase_3_persistenz"]["aktien"] == 2
+
+    def test_die_kerzenserie_wird_je_aktie_gemessen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Verdacht, dem diese Messung gilt: Das Laden und Aggregieren
+        des Bestands laeuft fuer **jede** Aktie, nicht nur fuer Kandidaten."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+            },
+        )
+        use_case, *_ = _build_use_case(provider)
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        kerzen = [z for z in zeilen if z.get("event") == "kerzenserie"]
+
+        # ``symbol`` und nicht ``stock_symbol``: Letzteres gehoert dem
+        # Korrelationskontext und wuerde als ``extra_stock_symbol``
+        # umbenannt -- ein Feld, das niemand sucht.
+        assert {str(z["symbol"]) for z in kerzen} == {"AAA", "BBB"}
+
+    def test_meldung_und_export_werden_getrennt_gemessen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Beide liegen **hinter** ``completed_at`` und sind aus der
+        Datenbank allein nicht voneinander zu trennen."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),),
+            series_by_symbol={"AAA": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=_MitschreibenderKanal(),
+            dashboard_publisher=_FakeDashboardPublisher(),
+        )
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        nach_ereignis = self._zeilen(capsys.readouterr().out)
+
+        assert "meldung" in nach_ereignis
+        assert "dashboard_export" in nach_ereignis
