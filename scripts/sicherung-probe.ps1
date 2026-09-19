@@ -25,6 +25,11 @@
 .PARAMETER Datei
     Statt des jüngsten ein bestimmter Dump.
 
+.PARAMETER PgBin
+    Verzeichnis mit `psql.exe` und `pg_restore.exe`. Nur nötig, wenn die
+    PostgreSQL-Werkzeuge weder im Suchpfad noch unter
+    `C:\Program Files\PostgreSQL\<Fassung>\bin` liegen.
+
 .EXAMPLE
     powershell.exe -NoProfile -File C:\...\scripts\sicherung-probe.ps1 -Quelle D:\backups\ata
 #>
@@ -32,10 +37,29 @@
 param(
     [Parameter(Mandatory = $true)][string]$Quelle,
     [string]$Datei,
-    [string]$Benutzer = 'ata'
+    [string]$Benutzer = 'ata',
+    [string]$PgBin
 )
 
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'postgres-werkzeuge.ps1')
+
+function Abbruch($Text) {
+    # **Nicht Write-Error.** Bei $ErrorActionPreference = 'Stop' ist das ein
+    # abbrechender Fehler: Das Skript endet sofort mit Rueckgabewert 1, und
+    # das 'exit 2' dahinter laeuft nie.
+    [Console]::Error.WriteLine($Text)
+    exit 2
+}
+
+try {
+    $psql = Finde-PostgresWerkzeug -Name 'psql' -PgBin $PgBin
+    $pgRestore = Finde-PostgresWerkzeug -Name 'pg_restore' -PgBin $PgBin
+}
+catch {
+    Abbruch $_.Exception.Message
+}
 
 # Fest verdrahtet und nicht als Parameter: Ein Parameter liesse sich mit dem
 # Produktivnamen belegen, und dieses Skript loescht seine Zieldatenbank am
@@ -44,8 +68,7 @@ $Probedatenbank = 'ata_restore_probe'
 $Produktivdatenbank = 'ai_trading_analyst'
 
 if ($Probedatenbank -eq $Produktivdatenbank) {
-    Write-Error 'Die Probedatenbank darf nicht die Produktivdatenbank sein.'
-    exit 2
+    Abbruch 'Die Probedatenbank darf nicht die Produktivdatenbank sein.'
 }
 
 $dump = if ($Datei) {
@@ -57,20 +80,19 @@ else {
 }
 
 if (-not $dump) {
-    Write-Error "In '$Quelle' liegt kein Dump. Lief die Sicherung schon einmal?"
-    exit 2
+    Abbruch "In '$Quelle' liegt kein Dump. Lief die Sicherung schon einmal?"
 }
 
 Write-Output "Probe auf: $($dump.FullName) ($('{0:N1}' -f ($dump.Length / 1MB)) MB, $($dump.LastWriteTime))"
 
 try {
-    psql --username=$Benutzer --dbname=postgres `
+    & $psql --username=$Benutzer --dbname=postgres `
         --command="DROP DATABASE IF EXISTS $Probedatenbank;" | Out-Null
-    psql --username=$Benutzer --dbname=postgres `
+    & $psql --username=$Benutzer --dbname=postgres `
         --command="CREATE DATABASE $Probedatenbank OWNER $Benutzer;" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Die Probedatenbank liess sich nicht anlegen." }
 
-    pg_restore --username=$Benutzer --dbname=$Probedatenbank $dump.FullName
+    & $pgRestore --username=$Benutzer --dbname=$Probedatenbank $dump.FullName
     # pg_restore meldet auch bei harmlosen Abweichungen einen Wert ungleich 0
     # (fehlende Rollen etwa). Deshalb entscheidet hier nicht der
     # Rueckgabewert, sondern ob die Zahlen darunter stimmen.
@@ -101,7 +123,7 @@ try {
 finally {
     # Auch nach einem Abbruch: Eine liegen gebliebene Probedatenbank waere
     # beim naechsten Lauf im Weg und belegt Platz.
-    psql --username=$Benutzer --dbname=postgres `
+    & $psql --username=$Benutzer --dbname=postgres `
         --command="DROP DATABASE IF EXISTS $Probedatenbank;" | Out-Null
     Write-Output "Probedatenbank '$Probedatenbank' entfernt."
 }

@@ -4074,6 +4074,37 @@ class TestProtokollzielDesTageslaufs:
         assert main(["--config", str(config), "dispatch"]) == 2
         assert [s.level for s in gesehen] == ["INFO"]
 
+    def test_das_argument_uebersteuert_die_konfiguration(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Weg fuer die Aufgabenplanung.
+
+        Ein Eintrag in config/default.yaml hinterliesse auf dem Server einen
+        dauerhaften lokalen Diff, den jedes 'git pull' vorfindet -- dieselbe
+        Falle, die ADR 0031 fuer die EDGAR-Kontaktadresse geschlossen hat.
+        """
+        gesehen = self._mitschnitt(monkeypatch)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  file: aus-der-datei.log\n",
+            encoding="utf-8",
+        )
+
+        code = main(["--config", str(config), "dispatch", "--log-file", "var/argument.log"])
+
+        assert code == 2
+        assert [s.file for s in gesehen] == [str(projekt / "var" / "argument.log")]
+
+    def test_ohne_argument_und_ohne_eintrag_bleibt_es_bei_stdout(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.file for s in gesehen] == [None]
+
     def test_die_datei_entsteht_wirklich(self, projekt: Path) -> None:
         """Ohne Attrappe: der echte ``configure_logging``-Pfad.
 

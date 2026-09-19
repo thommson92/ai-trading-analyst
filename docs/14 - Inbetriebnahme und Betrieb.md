@@ -1993,6 +1993,19 @@ Ausfallrisiko.
 |---|---|
 | `scripts\sicherung.ps1` | täglicher Dump, Lesbarkeitsprüfung, Aufräumen alter Stände |
 | `scripts\sicherung-probe.ps1` | Zählprobe: Wiederherstellung in eine Wegwerfdatenbank |
+| `scripts\postgres-werkzeuge.ps1` | findet `pg_dump`, `pg_restore` und `psql`; von beiden anderen eingebunden |
+
+> **Die PostgreSQL-Werkzeuge liegen auf diesem Server nicht im Suchpfad.**
+> Der Installer trägt sein `bin`-Verzeichnis nicht zwangsläufig ein; ein
+> blankes `psql` endet mit „wurde nicht als Name eines Cmdlet … erkannt".
+> Die Skripte suchen deshalb selbst: erst ein ausdrücklich genanntes
+> `-PgBin`, dann den Suchpfad, zuletzt
+> `C:\Program Files\PostgreSQL\<Fassung>\bin` in der neuesten Fassung.
+> Finden sie nichts, enden sie mit Rückgabewert 2 und sagen, was fehlt —
+> statt mitten in der Nacht an einem Tippfehler-artigen Fehler zu scheitern.
+>
+> Liegen die Werkzeuge woanders:
+> `powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel D:\backups\ata -PgBin "D:\pgsql\bin"`
 
 Erster Lauf von Hand, um zu sehen, dass er trägt:
 
@@ -2170,19 +2183,26 @@ unter der Aufgabenplanung flüchtig. Mit einem Pfad entsteht **zusätzlich**
 eine rotierende Datei. Auf der Konsole bleibt es beim lesbaren Format — die
 Datei trägt immer JSON, denn sie wird ausgewertet und nicht gelesen.
 
-In `config/default.yaml`:
+**In die Argumente, nicht in die Konfigurationsdatei** — aus demselben
+Grund wie bei den Anbieterschaltern: Ein Eintrag in `config/default.yaml`
+wäre auf dem Server ein dauerhafter lokaler Diff, den jedes `git pull`
+vorfindet ([ADR 0031](adr/0031-merge-schutz-aktiv.md)).
 
-```yaml
-logging:
-  file: var/logs/tageslauf.log
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli dispatch --provider ibkr `
+    --log-file var/logs/tageslauf.log
 ```
 
-Der Pfad ist **relativ zur Projektwurzel**, wie jeder andere Pfad dieser
-Datei — nicht zum Arbeitsverzeichnis. Eine Aufgabenplanung ohne „Starten in"
-legt die Datei damit trotzdem dort ab, wo man sie sucht. Fehlende
-Verzeichnisse entstehen; ist der Pfad nicht beschreibbar, endet der Lauf
-sofort mit Rückgabewert 2 und einer Meldung, statt es alle 15 Minuten
-erneut zu versuchen.
+Für den Dauerbetrieb gehört `--log-file var/logs/tageslauf.log` in die
+Argumentliste des Aufgabenplanungs-Eintrags. `logging.file` in der
+Konfiguration gibt es weiterhin — als Voreinstellung für eine eigene
+Konfigurationsdatei; das Argument übersteuert sie.
+
+Der Pfad ist **relativ zur Projektwurzel**, nicht zum Arbeitsverzeichnis.
+Eine Aufgabenplanung ohne „Starten in" legt die Datei damit trotzdem dort
+ab, wo man sie sucht. Fehlende Verzeichnisse entstehen; ist der Pfad nicht
+beschreibbar, endet der Lauf sofort mit Rückgabewert 2 und einer Meldung,
+statt es alle 15 Minuten erneut zu versuchen.
 
 `level` und `format` kommen für den Tageslauf bewusst **nicht** aus der
 Konfiguration: Auf der Konsole bleibt es bei `INFO` und der lesbaren Form.

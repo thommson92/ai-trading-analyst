@@ -3795,7 +3795,13 @@ def command_dispatch(args: argparse.Namespace) -> int:
     # Der Pfad ist relativ zur **Projektwurzel**, wie jeder andere Pfad
     # derselben Datei. Gegen das Arbeitsverzeichnis aufgeloest landete er bei
     # einer Aufgabenplanung ohne "Starten in" in C:\Windows\System32.
-    protokoll = config.logging.model_copy(update={"level": "INFO", "format": "console"})
+    protokoll = config.logging.model_copy(
+        update={
+            "level": "INFO",
+            "format": "console",
+            "file": args.log_file if args.log_file is not None else config.logging.file,
+        }
+    )
     if protokoll.file is not None:
         protokoll = protokoll.model_copy(
             update={"file": str(project_root(loaded.source_path) / protokoll.file)}
@@ -4467,6 +4473,18 @@ def build_parser() -> argparse.ArgumentParser:
             "nur -- die Rueckfallstufe, wenn der Weg nach draussen klemmt. 'none' ist "
             "der Notausschalter: Er haelt den Tageslauf nicht an, sondern laesst nur "
             "den Snapshot aus."
+        ),
+    )
+    dispatch.add_argument(
+        "--log-file",
+        default=None,
+        help=(
+            "Uebersteuert logging.file nur fuer diesen Lauf: ein zusaetzlicher, "
+            "rotierender Dateiausgang mit den Laufzeiten, immer in JSON. Relativ "
+            "zum Projektwurzelverzeichnis. Kein Geheimnis, gehoert aber wie die "
+            "Anbieter-Schalter in die Argumente der Aufgabenplanung statt in "
+            "config/default.yaml -- sonst hinterlaesst er dort einen dauerhaften "
+            "lokalen Diff, den jedes 'git pull' vorfindet."
         ),
     )
     dispatch.set_defaults(handler=command_dispatch)
