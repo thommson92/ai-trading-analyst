@@ -233,21 +233,35 @@ class BackfillHistoryUseCase:
         on_progress: Callable[[int, int, SymbolBackfill], None] | None = None,
     ) -> BackfillReport:
         ergebnisse: list[SymbolBackfill] = []
+        quelle = self._bar_source
+        gedrosselt = quelle if isinstance(quelle, Gedrosselt) else None
+        # **Differenz, nicht Absolutwert.** Die Zaehler der Quelle laufen ueber
+        # deren Lebensdauer. Heute ruft der Tageslauf ``execute`` genau einmal
+        # je Prozess -- aber eine Wiederholung nach Teilausfall traegt sonst
+        # die Summe beider Laeufe, und der Betreiber liest eine Wartezeit, die
+        # es in diesem Lauf nie gab.
+        vorher = (
+            (gedrosselt.verschlafene_sekunden, gedrosselt.anfragen)
+            if gedrosselt is not None
+            else None
+        )
         with gemessen(_logger, "backfill", symbole=len(watchlist)) as messwerte:
-            for index, contract in enumerate(watchlist, start=1):
-                with gemessen(_logger, "backfill_symbol", symbol=contract.symbol):
-                    ergebnis = self._backfill_one(contract)
-                ergebnisse.append(ergebnis)
-                if on_progress is not None:
-                    on_progress(index, len(watchlist), ergebnis)
-            # **Die Wartezeit getrennt ausweisen.** Ohne sie sagt die
-            # Gesamtdauer nicht, ob der Backfill an der Leitung haengt oder
-            # an der eigenen Drossel -- und das ist der Unterschied zwischen
-            # "schneller machen" und "nicht schneller machen koennen".
-            quelle = self._bar_source
-            if isinstance(quelle, Gedrosselt):
-                messwerte["verschlafene_sekunden"] = round(quelle.verschlafene_sekunden, 1)
-                messwerte["anfragen"] = quelle.anfragen
+            try:
+                for index, contract in enumerate(watchlist, start=1):
+                    with gemessen(_logger, "backfill_symbol", symbol=contract.symbol):
+                        ergebnis = self._backfill_one(contract)
+                    ergebnisse.append(ergebnis)
+                    if on_progress is not None:
+                        on_progress(index, len(watchlist), ergebnis)
+            finally:
+                # **Auch beim Abbruch.** Gerade dann ist die Frage offen, ob
+                # der Lauf an der Drossel hing oder an der Leitung; stuende
+                # das hinter der Schleife, bliebe sie unbeantwortet.
+                if gedrosselt is not None and vorher is not None:
+                    messwerte["verschlafene_sekunden"] = round(
+                        gedrosselt.verschlafene_sekunden - vorher[0], 1
+                    )
+                    messwerte["anfragen"] = gedrosselt.anfragen - vorher[1]
         return BackfillReport(results=tuple(ergebnisse))
 
     def _backfill_one(self, contract: ContractSpec) -> SymbolBackfill:

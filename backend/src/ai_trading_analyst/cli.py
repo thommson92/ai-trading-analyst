@@ -3784,12 +3784,36 @@ def command_dispatch(args: argparse.Namespace) -> int:
         # daran nichts, und die Aufgabenplanung soll das unterscheiden koennen.
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
-    # **Konsole fuer den Menschen, Datei fuer die Auswertung.** Das Format auf
-    # stdout bleibt bewusst "console": Wer den Lauf von Hand anstoesst, liest
-    # mit. Die Dauern werden trotzdem maschinenlesbar, weil der Dateiausgang
-    # immer JSON traegt -- "logging.file", "max_bytes" und "backups" kommen
-    # deshalb aus der Konfiguration und werden hier nicht uebersteuert.
-    configure_logging(config.logging.model_copy(update={"format": "console"}))
+    # **Konsole fuer den Menschen, Datei fuer die Auswertung.** Stufe und
+    # Format auf stdout bleiben bewusst fest: Wer den Lauf von Hand anstoesst,
+    # liest mit, und ein versehentliches DEBUG liesse die Rotationsdatei
+    # innerhalb weniger Laeufe durchrollen -- samt der Historie, fuer die sie
+    # gebaut ist. Aus der Konfiguration kommt allein der Dateiausgang; er
+    # traegt immer JSON und ist damit auswertbar, ohne die Konsole zu
+    # veraendern.
+    #
+    # Der Pfad ist relativ zur **Projektwurzel**, wie jeder andere Pfad
+    # derselben Datei. Gegen das Arbeitsverzeichnis aufgeloest landete er bei
+    # einer Aufgabenplanung ohne "Starten in" in C:\Windows\System32.
+    protokoll = config.logging.model_copy(update={"level": "INFO", "format": "console"})
+    if protokoll.file is not None:
+        protokoll = protokoll.model_copy(
+            update={"file": str(project_root(loaded.source_path) / protokoll.file)}
+        )
+    try:
+        configure_logging(protokoll)
+    except OSError as error:
+        # Dateisystem als Systemgrenze: ein nicht anlegbares Verzeichnis, eine
+        # volle oder schreibgeschuetzte Platte. Rueckgabewert 2 wie bei jedem
+        # anderen Konfigurationsfehler -- der naechste Start in 15 Minuten
+        # findet dieselbe Platte vor. Ohne diesen Zweig endete der Tageslauf
+        # mit einem Traceback, und zwar alle 15 Minuten erneut.
+        print(
+            f"Konfiguration: logging.file '{protokoll.file}' ist nicht "
+            f"beschreibbar: {error}",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.provider is not None:
         market_data = config.market_data.model_copy(update={"provider": args.provider})

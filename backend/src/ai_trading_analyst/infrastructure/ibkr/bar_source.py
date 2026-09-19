@@ -788,6 +788,13 @@ class IbAsyncBarSource:
         diese Zahl laesst sich nicht belegen, wieviel eines Laufs blosses
         Warten war -- und damit auch nicht, was Beschleunigen ueberhaupt
         erreichen kann.
+
+        Gezaehlt wird die **angeordnete** Wartezeit, nicht die nachgemessene:
+        Was ``_sleep`` tatsaechlich braucht, liegt je Aufruf um die
+        Timergranularitaet darueber (unter Windows rund 15 ms). Bei 192
+        Symbolen sind das keine drei Sekunden -- aber die Zahl steht in der
+        Logzeile neben einem echt gemessenen ``duration_ms``, und wer beide
+        voneinander abzieht, soll wissen, was er da abzieht.
         """
         self.anfragen += 1
         if self._minimum_request_interval <= 0:

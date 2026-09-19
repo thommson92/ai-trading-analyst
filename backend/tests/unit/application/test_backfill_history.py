@@ -510,6 +510,17 @@ class TestLaufzeitmessung:
             self.verschlafene_sekunden += 11.0
             return super().fetch_intraday_bars(contract, days)
 
+    class AbreissendeQuelle(GedrosselteQuelle):
+        """Wie oben, reisst aber beim zweiten Symbol die Schleife ab."""
+
+        def fetch_intraday_bars(
+            self, contract: ContractSpec, days: int | None = None
+        ) -> Sequence[IntradayBar]:
+            bars = super().fetch_intraday_bars(contract, days)
+            if contract.symbol == "MSFT":
+                raise KeyboardInterrupt("abgebrochen")
+            return bars
+
     def _use_case(self, quelle: FakeBarSource) -> BackfillHistoryUseCase:
         def uow_factory() -> FakeUnitOfWork:
             return FakeUnitOfWork(
@@ -552,6 +563,51 @@ class TestLaufzeitmessung:
         gesamt = next(z for z in zeilen if z.get("event") == "backfill")
 
         assert "verschlafene_sekunden" not in gesamt
+
+    def test_ein_zweiter_lauf_meldet_nur_seine_eigene_wartezeit(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Die Zaehler der Quelle laufen ueber deren Lebensdauer.
+
+        Gemeldet wird deshalb die Differenz. Ohne sie truege eine
+        Wiederholung nach Teilausfall die Summe beider Laeufe -- und der
+        Betreiber laese eine Wartezeit, die es in diesem Lauf nie gab.
+        """
+        quelle = self.GedrosselteQuelle({"AAPL": [bar(JETZT)], "MSFT": [bar(JETZT)]})
+        use_case = self._use_case(quelle)
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute(WATCHLIST)
+        use_case.execute(WATCHLIST)
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        gesamt = [z for z in zeilen if z.get("event") == "backfill"]
+
+        assert [z["verschlafene_sekunden"] for z in gesamt] == [22.0, 22.0]
+        assert [z["anfragen"] for z in gesamt] == [2, 2]
+
+    def test_auch_ein_abgebrochener_backfill_weist_die_wartezeit_aus(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Gerade beim Abbruch ist die Frage offen, ob der Lauf an der
+        Drossel hing oder an der Leitung.
+
+        ``KeyboardInterrupt`` ist hier nicht willkuerlich gewaehlt, sondern
+        der realistische Fall: ``_backfill_one`` faengt jede ``Exception`` je
+        Symbol ab, durch die Schleife kommt also nur eine ``BaseException``
+        -- und Strg-C ist die, die der Betrieb kennt (Rueckgabewert 130).
+        """
+        quelle = self.AbreissendeQuelle({"AAPL": [bar(JETZT)], "MSFT": [bar(JETZT)]})
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        with pytest.raises(KeyboardInterrupt):
+            self._use_case(quelle).execute(WATCHLIST)
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        gesamt = next(z for z in zeilen if z.get("event") == "backfill")
+
+        assert gesamt["ausgang"] == "fehler"
+        assert gesamt["verschlafene_sekunden"] == 22.0
 
     def test_jedes_symbol_wird_einzeln_gemessen(
         self, capsys: pytest.CaptureFixture[str]

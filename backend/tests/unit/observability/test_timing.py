@@ -111,3 +111,41 @@ def test_die_stufe_laesst_sich_absenken(capsys: pytest.CaptureFixture[str]) -> N
         pass
 
     assert capsys.readouterr().out == ""
+
+
+def test_ein_feldname_von_logging_verdraengt_nicht_die_echte_ausnahme(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``logging`` weist Namen zurueck, die der LogRecord selbst belegt --
+    und zwar **vor** dem Formatter, dessen Umbenennung hier nicht mehr
+    greift.
+
+    Aus dem ``finally`` heraus waere das besonders tueckisch: Der Aufrufer
+    saehe einen KeyError ueber ein Logfeld statt des Anbieterfehlers, den er
+    sucht. Umbenannt wird deshalb schon hier.
+    """
+    configure_logging(LoggingConfig(level="INFO", format="json"))
+
+    with pytest.raises(ValueError, match="der echte Fehler"):
+        with gemessen(get_logger("ata.test"), "abruf", module="optionen", args="x"):
+            raise ValueError("der echte Fehler")
+
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert payload["feld_module"] == "optionen"
+    assert payload["feld_args"] == "x"
+    assert payload["module"] == "ata.test"
+
+
+def test_unverfaengliche_feldnamen_bleiben_unveraendert(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging(LoggingConfig(level="INFO", format="json"))
+
+    with gemessen(get_logger("ata.test"), "abruf", symbol="NVDA", aktien=192):
+        pass
+
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert payload["symbol"] == "NVDA"
+    assert payload["aktien"] == 192

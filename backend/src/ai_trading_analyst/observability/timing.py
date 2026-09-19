@@ -15,9 +15,27 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
+
+_RECORD_EIGENE_NAMEN = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None)))
+"""Namen, die ``logging`` selbst am ``LogRecord`` belegt.
+
+``Logger.log`` wirft fuer jeden davon ein ``KeyError`` -- und zwar **vor**
+dem Formatter, dessen Umbenennung hier also nicht mehr greift. Aus dem
+``finally`` heraus verdraengte das die echte Ausnahme des Abschnitts: Der
+Aufrufer saehe einen KeyError ueber ein Logfeld statt des Anbieterfehlers,
+den er sucht.
+"""
+
+
+def _ungefaehrlich(felder: Mapping[str, Any]) -> dict[str, Any]:
+    """Benennt um, was ``logging`` sonst zurueckweist."""
+    return {
+        (f"feld_{name}" if name in _RECORD_EIGENE_NAMEN else name): wert
+        for name, wert in felder.items()
+    }
 
 
 @contextmanager
@@ -58,7 +76,6 @@ def gemessen(
                 "event": event,
                 "duration_ms": dauer_ms,
                 "ausgang": ausgang,
-                **felder,
-                **zusatz,
+                **_ungefaehrlich({**felder, **zusatz}),
             },
         )

@@ -1114,16 +1114,8 @@ class LoggingConfig(_Section):
     Einstellung. Der Pfad ist relativ zum Arbeitsverzeichnis; fehlende
     Verzeichnisse werden angelegt.
     """
-    max_bytes: int = 20 * 1024 * 1024
-    backups: int = 5
-
-    @model_validator(mode="after")
-    def _pruefe_rotation(self) -> LoggingConfig:
-        if self.max_bytes <= 0:
-            raise ValueError(f"logging.max_bytes muss positiv sein, war {self.max_bytes}")
-        if self.backups < 0:
-            raise ValueError(f"logging.backups darf nicht negativ sein, war {self.backups}")
-        return self
+    max_bytes: PositiveInt = 20 * 1024 * 1024
+    backups: NonNegativeInt = 5
 
 
 class AppConfig(_Section):

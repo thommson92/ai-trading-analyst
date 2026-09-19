@@ -2181,6 +2181,18 @@ logging:
   file: var/logs/tageslauf.log
 ```
 
+Der Pfad ist **relativ zur Projektwurzel**, wie jeder andere Pfad dieser
+Datei — nicht zum Arbeitsverzeichnis. Eine Aufgabenplanung ohne „Starten in"
+legt die Datei damit trotzdem dort ab, wo man sie sucht. Fehlende
+Verzeichnisse entstehen; ist der Pfad nicht beschreibbar, endet der Lauf
+sofort mit Rückgabewert 2 und einer Meldung, statt es alle 15 Minuten
+erneut zu versuchen.
+
+`level` und `format` kommen für den Tageslauf bewusst **nicht** aus der
+Konfiguration: Auf der Konsole bleibt es bei `INFO` und der lesbaren Form.
+Ein versehentliches `DEBUG` ließe die Rotationsdatei innerhalb weniger Läufe
+durchrollen — samt der Historie, für die sie gebaut ist.
+
 Jede gemessene Zeile trägt `event`, `duration_ms` und `ausgang`. Gemessen
 werden: die drei Phasen des Laufs (`phase_1_screening`, `phase_2_agenten`,
 `phase_3_persistenz`), `meldung` und `dashboard_export` getrennt, je Aktie die
@@ -2198,6 +2210,7 @@ gesamte Backfill Warten, und daran ändert kein Umbau etwas
 Die Summe je Ereignis über einen Lauf:
 
 ```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
 Get-Content var\logs\tageslauf.log |
   ForEach-Object { $_ | ConvertFrom-Json } |
   Where-Object { $_.duration_ms } |
