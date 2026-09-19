@@ -47,9 +47,9 @@ from ai_trading_analyst.domain.analysts import (
     AnalystRecommendationStatus,
 )
 from ai_trading_analyst.domain.backtesting import (
+    BacktestComputation,
     BacktestParameters,
-    BacktestResult,
-    compute_backtest_results,
+    compute_backtest,
 )
 from ai_trading_analyst.domain.earnings import (
     EarningsFilterParameters,
@@ -155,7 +155,7 @@ class _PreparedOutcome:
     analysts: AnalystRecommendations | None
     earnings: EarningsFilterResult | None
     options: OptionsAnalysis | None
-    backtest: tuple[BacktestResult, ...]
+    backtest: BacktestComputation
     needs_research: bool
     research: ResearchReport | None = None
     technical_assessment: TechnicalAssessment | None = None
@@ -516,7 +516,7 @@ class RunAnalysisUseCase:
             analysts: AnalystRecommendations | None = None
             earnings: EarningsFilterResult | None = None
             options: OptionsAnalysis | None = None
-            backtest: tuple[BacktestResult, ...] = ()
+            backtest = BacktestComputation(results=(), episodes=())
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
                 # Bewusst vor dem Earnings-Filter und unabhaengig von dessen
@@ -699,7 +699,7 @@ class RunAnalysisUseCase:
             return None, None, None
         swing = compute_swing_score(
             item.result,
-            backtest=item.backtest,
+            backtest=item.backtest.results,
             assessment=item.technical_assessment,
             analysts=item.analysts,
             options=item.options,
@@ -735,7 +735,7 @@ class RunAnalysisUseCase:
             earnings=item.earnings,
             options=item.options,
             research=item.research,
-            backtest=item.backtest,
+            backtest=item.backtest.results,
             swing_score=swing_score,
             investment_score=investment_score,
             recommendation=empfehlung,
@@ -747,8 +747,11 @@ class RunAnalysisUseCase:
             # In derselben Transaktion wie das Screening-Ergebnis: Beide
             # gehoeren zu demselben Lauf und derselben Kerze, eines ohne das
             # andere waere ein halber Datensatz (ADR 0038).
-            for backtest_result in item.backtest:
+            for backtest_result in item.backtest.results:
                 uow.backtest_results.add(backtest_result, run.id)
+            # Die Episoden hinter den Kennzahlen, in derselben Transaktion
+            # und aus derselben Rechnung (ADR 0061).
+            uow.backtest_results.add_episodes(item.backtest.episodes, run.id)
             if bericht is not None:
                 uow.stock_reports.add(bericht)
             uow.commit()
@@ -805,7 +808,7 @@ class RunAnalysisUseCase:
 
     def _evaluate_backtest(
         self, stock: Stock, series: CandleSeries, evaluated_at: datetime
-    ) -> tuple[BacktestResult, ...]:
+    ) -> BacktestComputation:
         """Die historische Signalstatistik einer bereits qualifizierten Aktie
         (Doc 10, Paragraph 7; ADR 0038).
 
@@ -819,7 +822,7 @@ class RunAnalysisUseCase:
         je Aktie durch, statt still zu verschwinden.
         """
         try:
-            return compute_backtest_results(
+            return compute_backtest(
                 series,
                 stock_id=stock.id,
                 candidate_params=self._candidate_rule_params,
@@ -831,7 +834,7 @@ class RunAnalysisUseCase:
             _logger.warning(
                 "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
             )
-            return ()
+            return BacktestComputation(results=(), episodes=())
 
     def _evaluate_fundamentals(self, stock: Stock, price: float) -> FundamentalSnapshot | None:
         """Die Fundamentalkennzahlen einer bereits qualifizierten Aktie.

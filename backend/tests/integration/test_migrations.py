@@ -495,3 +495,32 @@ def test_das_downgrade_bricht_auch_bei_belegten_backtest_zeilen_ab(
         _run_alembic(database_url, "downgrade", "a7d3e05c81f4")
 
     assert "NO_RECENT_EMA_DOWNCROSS" in _enum_werte(engine, "signaltype")
+
+
+def test_die_episodentabelle_traegt_ihre_spalten_und_indizes(engine: Engine) -> None:
+    """ADR 0061. Der zusammengesetzte Index steht in Migration **und**
+    ORM-Modell -- sonst raeumte das naechste ``--autogenerate`` ihn ab."""
+    inspector = inspect(engine)
+    spalten = {spalte["name"] for spalte in inspector.get_columns("backtest_episodes")}
+    assert {
+        "id",
+        "stock_id",
+        "analysis_run_id",
+        "signal_types",
+        "signal_rule_version",
+        "evaluated_at",
+        "entry_at",
+        "entry_close",
+        "trigger_count",
+        "last_trigger_at",
+        "horizon",
+        "return_pct",
+        "max_loss",
+        "drawdown",
+        "held_above_entry",
+    } <= spalten
+    indizes = {index["name"] for index in inspector.get_indexes("backtest_episodes")}
+    assert {
+        "ix_backtest_episodes_analysis_run_id",
+        "ix_backtest_episodes_stock_evaluated",
+    } <= indizes

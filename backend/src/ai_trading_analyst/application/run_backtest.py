@@ -16,7 +16,7 @@ from ai_trading_analyst.domain.analysis import MarketDataProvider, Stock, UnitOf
 from ai_trading_analyst.domain.backtesting import (
     BacktestParameters,
     BacktestResult,
-    compute_backtest_results,
+    compute_backtest,
 )
 from ai_trading_analyst.domain.screening import SIGNAL_RULE_VERSION, CandidateRuleParameters
 from ai_trading_analyst.observability.logging_setup import get_logger
@@ -70,7 +70,7 @@ class BacktestUseCase:
     def _backtest_one(self, stock: Stock) -> StockBacktest:
         try:
             series = self._market_data_provider.get_candle_series(stock)
-            results = compute_backtest_results(
+            rechnung = compute_backtest(
                 series,
                 stock_id=stock.id,
                 candidate_params=self._candidate_rule_params,
@@ -78,10 +78,15 @@ class BacktestUseCase:
                 signal_rule_version=SIGNAL_RULE_VERSION,
                 evaluated_at=self._now(),
             )
+            results = rechnung.results
             with self._uow_factory() as uow:
                 uow.stocks.add(stock)
                 for result in results:
                     uow.backtest_results.add(result)
+                # Keine Episoden aus dem Handlauf (ADR 0061, Entscheidung 5):
+                # Er laeuft ueber die ganze Watchlist, und jeder Aufruf haengte
+                # sonst rund 7 MB an den Export -- die Episoden gehoeren zum
+                # Tageslauf, an dem ihr Wachstum bemessen ist.
                 uow.commit()
         except Exception as error:  # Systemgrenze: eine Aktie, nicht der Lauf
             _logger.warning("%s: %s -- %s", stock.symbol, type(error).__name__, error)

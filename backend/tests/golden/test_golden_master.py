@@ -240,3 +240,23 @@ def test_verworfene_qualifikationen_sind_aufgezeichnet() -> None:
     # Die Signale bleiben am verworfenen Ergebnis -- es soll nachlesbar sein,
     # was erfuellt war und woran es dennoch scheiterte.
     assert all(len(eintrag["fired_signal_types"]) >= 3 for eintrag in verworfen)
+
+
+def test_die_episoden_decken_die_stichprobe_der_kennzahlen() -> None:
+    """ADR 0061: Aggregat und Einzelwert kommen aus einer Rechnung. Je
+    Kombination muss die Zahl der Episoden mit vollstaendigem kuerzestem
+    Horizont der gezaehlten Stichprobe dieses Horizonts entsprechen -- ueber
+    jeden eingefrorenen Fall."""
+    for fall in FAELLE:
+        snapshot = compute_snapshot(read_bars(fall.bars_path))
+        for ergebnis in snapshot["backtest"]:
+            kuerzester = min(ergebnis["horizons"], key=lambda h: h["horizon"])
+            vollstaendige = [
+                episode
+                for episode in snapshot["episodes"]
+                if episode["signal_types"] == ergebnis["signal_types"]
+                and min(episode["horizons"], key=lambda h: h["horizon"])["return_pct"] is not None
+            ]
+            assert len(vollstaendige) == kuerzester["deduplicated_event_count"], (
+                f"{fall.name}: {ergebnis['signal_types']}"
+            )

@@ -1437,6 +1437,11 @@ class TestBacktestImTageslauf:
 
         assert backtests.added, "Nichts gespeichert"
         assert {lauf for _, lauf in backtests.added} == {summary.run.id}
+        # Die Episoden hinter den Kennzahlen, mit derselben Lauf-Bindung
+        # (ADR 0061). Ob es welche gibt, entscheidet die Serie; dass sie
+        # ohne Lauf-ID gespeichert wuerden, darf sie nicht entscheiden.
+        assert all(lauf == summary.run.id for _, lauf in backtests.episodes)
+        assert {e.stock_id for e, _ in backtests.episodes} <= {stock.id}
 
     def test_ohne_historie_im_fenster_bleibt_die_statistik_leer_und_der_lauf_heil(self) -> None:
         """Der eine dokumentierte Ausfall: Im Betrachtungsfenster liegt keine
@@ -1447,7 +1452,7 @@ class TestBacktestImTageslauf:
             series_by_symbol={"ALT": make_series(_SERIES_LENGTH, candidate=True)},
         )
         # Nullstunden-Fenster: Die Kerzen von 2024 liegen ausserhalb, obwohl
-        # sie da sind. Genau der Fall, den compute_backtest_results meldet.
+        # sie da sind. Genau der Fall, den compute_backtest meldet.
         use_case, *_ = _build_use_case(
             provider,
             backtest_params=BacktestParameters(

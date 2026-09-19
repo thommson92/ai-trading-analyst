@@ -20,10 +20,13 @@ Kein FastAPI in diesem Modul: Ein fehlender Datensatz ist hier ein
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 from ai_trading_analyst.domain.analysis import RunStatus, Stock, UnitOfWork
 from ai_trading_analyst.domain.backtesting import (
+    BacktestEpisode,
     BacktestParameters,
     pool_trades,
     thresholds_of,
@@ -31,6 +34,8 @@ from ai_trading_analyst.domain.backtesting import (
 
 from .schemas import (
     AnalysisRunResponse,
+    BacktestEpisodeResponse,
+    EpisodeEvaluationResponse,
     OptionsCombinationResponse,
     OptionsMeasurementDetailResponse,
     OptionsMeasurementResponse,
@@ -122,6 +127,24 @@ def reports_of_stock(
     )
 
 
+def _episoden_je_auswertung(
+    episoden: Sequence[BacktestEpisode],
+) -> list[EpisodeEvaluationResponse]:
+    """Gruppiert nach Auswertungszeitpunkt, in der Reihenfolge des
+    Repositories (juengste zuerst, Einstiege aufsteigend)."""
+    gruppen: dict[datetime, list[BacktestEpisode]] = {}
+    for episode in episoden:
+        gruppen.setdefault(episode.evaluated_at, []).append(episode)
+    return [
+        EpisodeEvaluationResponse(
+            evaluated_at=evaluated_at,
+            signal_rule_version=eintraege[0].signal_rule_version,
+            episodes=[BacktestEpisodeResponse.from_domain(e) for e in eintraege],
+        )
+        for evaluated_at, eintraege in gruppen.items()
+    ]
+
+
 def stock_backtest(
     uow: UnitOfWork,
     symbol: str,
@@ -141,6 +164,9 @@ def stock_backtest(
         SignalBacktestResponse.from_domain(ergebnis)
         for ergebnis in uow.backtest_results.list_for_stock(gefundene_aktie.id)
     ]
+    episode_evaluations = _episoden_je_auswertung(
+        uow.backtest_results.list_episodes_for_stock(gefundene_aktie.id)
+    )
     messung_id = (
         measurement_id
         if measurement_id is not None
@@ -150,6 +176,7 @@ def stock_backtest(
         return StockBacktestResponse(
             symbol=gesucht,
             signal_backtests=signal_backtests,
+            episode_evaluations=episode_evaluations,
             measurement=None,
             combinations=[],
             pooled=None,
@@ -166,6 +193,7 @@ def stock_backtest(
     return StockBacktestResponse(
         symbol=gesucht,
         signal_backtests=signal_backtests,
+        episode_evaluations=episode_evaluations,
         measurement=OptionsMeasurementResponse.from_domain(kopf[0], kopf[1]),
         combinations=[
             OptionsCombinationResponse.from_domain(ergebnis)
