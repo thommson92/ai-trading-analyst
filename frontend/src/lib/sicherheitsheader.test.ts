@@ -131,12 +131,15 @@ describe('Die Annahmen hinter dem zugelassenen Inline-Skript', () => {
     // Die Senke, die 'unsafe-inline' tatsaechlich oeffnet: Ein `href`, das
     // aus Daten stammt, koennte `javascript:` tragen. Ein konstantes
     // Praefix schliesst das aus -- eine Zeichenkette oder ein Template, das
-    // mit '/' beginnt.
+    // mit '/' beginnt, oder einer der Adresshelfer aus `lib/url.ts`, die
+    // genau das tun (der Test darunter haelt sie daran fest).
     const treffer: string[] = [];
     for (const pfad of DATEIEN) {
-      for (const fund of readFileSync(pfad, 'utf-8').matchAll(/\b(?:href|src)=(.{0,3})/g)) {
+      for (const fund of readFileSync(pfad, 'utf-8').matchAll(
+        /\b(?:href|src)=(\{(?:berichtAdresse|aktieAdresse|laufAdresse)\(|.{0,3})/g,
+      )) {
         const anfang = fund[1] ?? '';
-        if (!/^(["'`]\/|\{`\/)/.test(anfang)) {
+        if (!/^(["'`]\/|\{`\/|\{(?:berichtAdresse|aktieAdresse|laufAdresse)\()/.test(anfang)) {
           treffer.push(`${pfad.replace(process.cwd(), '')}: ${anfang}`);
         }
       }
@@ -148,6 +151,20 @@ describe('Die Annahmen hinter dem zugelassenen Inline-Skript', () => {
         "der Wert aus Daten, liesse 'unsafe-inline' eine javascript:-URL zu. " +
         'Entweder das Schema pruefen oder die Richtlinie auf Hashes umstellen.',
     ).toEqual([]);
+  });
+});
+
+describe('Die Adresshelfer', () => {
+  it('beginnen jede Adresse mit einem konstanten Pfad', () => {
+    // Wer hier eine Adresse aus Daten zusammensetzt, oeffnet die Senke von
+    // oben durch die Hintertuer. Jedes `return` in lib/url.ts beginnt mit
+    // einem Schraegstrich in einer Zeichenkette oder einem Template.
+    const quelle = readFileSync(join(process.cwd(), 'src/lib/url.ts'), 'utf-8');
+    const rueckgaben = [...quelle.matchAll(/return (.{0,2})/g)].map((fund) => fund[1] ?? '');
+    expect(rueckgaben.length).toBeGreaterThan(0);
+    for (const anfang of rueckgaben) {
+      expect(anfang, `lib/url.ts: return ${anfang}`).toMatch(/^["'`]\//);
+    }
   });
 });
 

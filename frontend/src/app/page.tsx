@@ -1,12 +1,12 @@
 'use client';
 
-// Die Tagesuebersicht holt ihre Daten im Browser: Das Dashboard ist ein
-// statischer Export (ADR 0052), es gibt keinen Renderserver.
+// Die Uebersicht: der neueste Lauf, vollstaendig. Die Daten kommen im
+// Browser -- das Dashboard ist ein statischer Export (ADR 0052).
 
-import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { Tagesuebersicht } from '@/components/Tagesuebersicht';
+import { Laufdetail } from '@/components/laeufe/Laufdetail';
+import { Fehler, Laedt, Leer, alsFehlertext } from '@/components/ui/Zustand';
 import {
   ERFOLGREICH,
   getRun,
@@ -49,19 +49,13 @@ export default function HomePage(): ReactNode {
     let abgemeldet = false;
     ladeUebersicht()
       .then((geladen) => {
-        if (!abgemeldet) {
-          setUebersicht(geladen);
-        }
+        if (!abgemeldet) setUebersicht(geladen);
       })
       .catch((ursache: unknown) => {
-        if (!abgemeldet) {
-          setFehler(ursache instanceof Error ? ursache.message : String(ursache));
-        }
+        if (!abgemeldet) setFehler(alsFehlertext(ursache));
       })
       .finally(() => {
-        if (!abgemeldet) {
-          setLaedt(false);
-        }
+        if (!abgemeldet) setLaedt(false);
       });
     return () => {
       abgemeldet = true;
@@ -70,22 +64,19 @@ export default function HomePage(): ReactNode {
 
   return (
     <main>
-      <h1>Tagesübersicht</h1>
-      <p>
-        <Link href="/backtests">Backtests →</Link>
-      </p>
-      {laedt && <p>Wird geladen …</p>}
+      <h1>Übersicht</h1>
+      {laedt && <Laedt />}
       {fehler !== null && (
-        <p role="alert">
-          Die Analysedaten sind nicht erreichbar: {fehler}. Läuft der Dienst, und ist die
-          Datenbank erreichbar?
-        </p>
+        <Fehler>
+          Die Analysedaten sind nicht erreichbar: {fehler}. Läuft der Dienst, und ist die Datenbank
+          erreichbar?
+        </Fehler>
       )}
       {!laedt && fehler === null && uebersicht === null && (
-        <p>Es gibt noch keinen Analyselauf.</p>
+        <Leer>Es gibt noch keinen Analyselauf.</Leer>
       )}
       {uebersicht !== null && (
-        <Tagesuebersicht
+        <Laufdetail
           lauf={uebersicht.lauf}
           letzterErfolg={uebersicht.letzterErfolg}
           kandidaten={uebersicht.kandidaten}

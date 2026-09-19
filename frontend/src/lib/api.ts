@@ -26,6 +26,11 @@ export function setzeDatenbaum(baum: Datenbaum | null): void {
   offenerBaum = baum;
 }
 
+/** Der geoeffnete Datenbaum -- fuer Ansichten, die sein Manifest brauchen. */
+export function setzeDatenbaumBeobachter(): Datenbaum {
+  return baum();
+}
+
 function baum(): Datenbaum {
   if (offenerBaum === null) {
     // Kein stiller Ersatz: Ohne geoeffneten Stand gibt es nichts anzuzeigen,
@@ -67,19 +72,70 @@ export interface AnalysisRun {
   error_message: string | null;
 }
 
+/** Ein Symbol, das die Wiederholsperre aus dem Lauf genommen hat (ADR 0062). */
+export interface GesperrtesSymbol {
+  symbol: string;
+  blocking_run_id: string;
+  blocking_evaluated_at: string;
+}
+
 export interface AnalysisRunDetail extends AnalysisRun {
   earnings_excluded: number;
   earnings_unknown: number;
   module_errors: number;
+  /** Rekonstruiert, nicht aufgezeichnet (ADR 0062); null bei `suppression_window_days` heisst: nicht gerechnet. */
+  suppressed: GesperrtesSymbol[];
+  suppression_window_days: number | null;
 }
 
+export type EarningsStatus = 'EARNINGS_CLEAR' | 'EARNINGS_EXCLUDED' | 'UNKNOWN';
+
+/** Der beste Put-Vorschlag eines Berichts; die Praemie je Aktie, wie im Bericht. */
+export interface PutVorschlag {
+  strike: number;
+  expiration: string;
+  days_to_expiration: number;
+  premium: number;
+  annualized_return: number | null;
+  distance_to_price_pct: number | null;
+  liquidity: string | null;
+  earnings_within_term: boolean | null;
+}
+
+/**
+ * Die Kurzfassung eines Berichts. Die ersten Werte sind Spalten, die
+ * uebrigen liest das Backend aus dem gespeicherten Dokument (ADR 0062) --
+ * jedes davon null, wenn der Bericht dazu nichts sagt.
+ */
 export interface ReportSummary {
   report_id: string;
+  analysis_run_id: string;
   symbol: string;
   created_at: string;
   recommendation: Recommendation | null;
   swing_score: number | null;
   investment_score: number | null;
+  company_name: string | null;
+  close: number | null;
+  decision_candle_at: string | null;
+  signal_letters: string | null;
+  false_signal_risk: string | null;
+  earnings_status: EarningsStatus | null;
+  earnings_next_date: string | null;
+  earnings_candles_until: number | null;
+  options_status: string | null;
+  options_reason: string | null;
+  put_suggestion: PutVorschlag | null;
+}
+
+/** Eine Aktie in der Aktienliste mit ihrem letzten Stand (ADR 0062). */
+export interface Aktieneintrag {
+  symbol: string;
+  exchange: string;
+  reports_count: number;
+  last_report: ReportSummary | null;
+  signal_backtest_evaluated_at: string | null;
+  episodes_available: boolean;
 }
 
 export type JsonWert =
@@ -176,19 +232,26 @@ export function listRuns(
 export const ERFOLGREICH: readonly RunStatus[] = ['COMPLETED', 'PARTIALLY_COMPLETED'];
 
 export function getRun(runId: string): Promise<AnalysisRunDetail> {
-  return holen<AnalysisRunDetail>(`/api/v1/analysis-runs/${runId}`, (baum) =>
+  return holen<AnalysisRunDetail>(`/api/v1/analysis-runs/${encodeURIComponent(runId)}`, (baum) =>
     baum.lade<AnalysisRunDetail>(`data/analysis-runs/${runId}.json`),
   );
 }
 
 export function listRunReports(runId: string): Promise<ReportSummary[]> {
-  return holen<ReportSummary[]>(`/api/v1/analysis-runs/${runId}/reports`, (baum) =>
-    baum.lade<ReportSummary[]>(`data/analysis-runs/${runId}/reports.json`),
+  return holen<ReportSummary[]>(
+    `/api/v1/analysis-runs/${encodeURIComponent(runId)}/reports`,
+    (baum) => baum.lade<ReportSummary[]>(`data/analysis-runs/${runId}/reports.json`),
+  );
+}
+
+export function listStocks(): Promise<Aktieneintrag[]> {
+  return holen<Aktieneintrag[]>('/api/v1/stocks', (baum) =>
+    baum.lade<Aktieneintrag[]>('data/stocks.json'),
   );
 }
 
 export function getReport(reportId: string): Promise<ReportDocument> {
-  return holen<ReportDocument>(`/api/v1/reports/${reportId}`, (baum) =>
+  return holen<ReportDocument>(`/api/v1/reports/${encodeURIComponent(reportId)}`, (baum) =>
     baum.lade<ReportDocument>(`data/reports/${reportId}.json`),
   );
 }
@@ -400,7 +463,8 @@ export function getAktienBacktest(
   symbol: string,
   messungId?: string,
 ): Promise<AktienBacktest> {
-  const anhang = messungId === undefined ? '' : `?measurement_id=${messungId}`;
+  const anhang =
+    messungId === undefined ? '' : `?measurement_id=${encodeURIComponent(messungId)}`;
   return holen<AktienBacktest>(
     `/api/v1/stocks/${encodeURIComponent(symbol)}/backtest${anhang}`,
     async (baum) => {
@@ -419,6 +483,18 @@ export function getAktienBacktest(
       }
       return backtest;
     },
+  );
+}
+
+/** Der Signal-Backtest ueber alle Aktien: je Aktie die juengste Auswertung (ADR 0062). */
+export interface SignalBacktestUeberblick {
+  signal_rule_version: string;
+  stocks: { symbol: string; evaluated_at: string; combinations: SignalBacktest[] }[];
+}
+
+export function getSignalBacktestUeberblick(): Promise<SignalBacktestUeberblick> {
+  return holen<SignalBacktestUeberblick>('/api/v1/signal-backtests', (baum) =>
+    baum.lade<SignalBacktestUeberblick>('data/signal-backtests.json'),
   );
 }
 
