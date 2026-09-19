@@ -4,7 +4,7 @@ import { Karte } from '@/components/ui/Karte';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { ReportDocument } from '@/lib/api';
 import { sichereAdresse } from '@/lib/adresse';
-import { beschrifte, formatDatum } from '@/lib/format';
+import { beschrifte, formatTag } from '@/lib/format';
 
 import { Vorbehalte } from '../Vorbehalte';
 import { feldText, inhaltListe, objektliste, type JsonObjekt } from '../typwaechter';
@@ -39,7 +39,7 @@ const SPALTEN: readonly Spalte<JsonObjekt>[] = [
   {
     schluessel: 'wann',
     titel: 'Abruf / Einreichung',
-    render: (q) => formatDatum(feldText(q, 'retrieved_at') ?? feldText(q, 'filed') ?? ''),
+    render: (q) => formatTag(feldText(q, 'retrieved_at') ?? feldText(q, 'filed')),
     sortWert: (q) => feldText(q, 'retrieved_at') ?? feldText(q, 'filed'),
   },
   { schluessel: 'alter', titel: 'Alter', render: (q) => feldText(q, 'source_age') ?? '–' },

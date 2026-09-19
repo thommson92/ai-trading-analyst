@@ -18,6 +18,7 @@ import {
   createChart,
   createSeriesMarkers,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type MouseEventParams,
@@ -25,7 +26,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
   episodenZuMarkern,
@@ -55,6 +56,7 @@ interface Aufbau {
   pfad: ISeriesApi<'Line'>;
   marker: ISeriesMarkersPluginApi<Time>;
   fenster: Horizontfenster;
+  rsiStufen: IPriceLine[];
 }
 
 function farbenAnwenden(a: Aufbau): void {
@@ -81,6 +83,7 @@ function farbenAnwenden(a: Aufbau): void {
   a.rsi.applyOptions({ color: token('--rsi') });
   a.rsiDurchschnitt.applyOptions({ color: token('--gedaempft') });
   a.pfad.applyOptions({ color: token('--akzent') });
+  for (const stufe of a.rsiStufen) stufe.applyOptions({ color: token('--linie') });
 }
 
 export function Kerzenchart({
@@ -99,7 +102,8 @@ export function Kerzenchart({
   /** Die Entscheidungskerze eines Laufs, aus dem der Leser kommt. */
   laufzeitpunkt: string | null;
   onWahl: (episode: BacktestEpisode | null) => void;
-  onAusserhalb: (anzahl: number) => void;
+  /** Einstiege ohne exportierte Kerze -- und ob der Laufzeitpunkt eine hat. */
+  onAusserhalb: (anzahl: number, laufOhneKerze: boolean) => void;
 }): ReactNode {
   const behaelter = useRef<HTMLDivElement>(null);
   const aufbau = useRef<Aufbau | null>(null);
@@ -110,6 +114,10 @@ export function Kerzenchart({
   const markerZeiten = useRef<Map<number, BacktestEpisode>>(new Map());
   const wahl = useRef(onWahl);
   wahl.current = onWahl;
+  // Zaehlt die Themenwechsel: Marker und Fenster tragen ihre Farben als
+  // Werte, nicht als Verweise, und muessen nach jedem Wechsel neu gesetzt
+  // werden -- sonst blieben Pfeile und Flaeche im alten Thema.
+  const [thema, setThema] = useState(0);
 
   // Aufbau einmal je Kursreihe.
   useEffect(() => {
@@ -159,7 +167,7 @@ export function Kerzenchart({
       },
       1,
     );
-    for (const stufe of [30, 50, 70]) {
+    const rsiStufen = [30, 50, 70].map((stufe) =>
       rsi.createPriceLine({
         price: stufe,
         color: token('--linie'),
@@ -167,8 +175,8 @@ export function Kerzenchart({
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: false,
         title: '',
-      });
-    }
+      }),
+    );
     chart.panes()[1]?.setHeight(110);
     const fenster = new Horizontfenster();
     kerzen.attachPrimitive(fenster);
@@ -184,6 +192,7 @@ export function Kerzenchart({
       pfad,
       marker,
       fenster,
+      rsiStufen,
     };
     aufbau.current = gebaut;
     const abgebildet = kerzenZuSerien(daten.kerzen);
@@ -211,6 +220,7 @@ export function Kerzenchart({
 
     const beobachter = new MutationObserver(() => {
       farbenAnwenden(gebaut);
+      setThema((n) => n + 1);
     });
     beobachter.observe(document.documentElement, {
       attributes: true,
@@ -232,7 +242,8 @@ export function Kerzenchart({
     const s = serien.current;
     if (a === null || s === null) return;
     const { marker, ausserhalb } = episodenZuMarkern(episoden, s, horizont);
-    onAusserhalb(ausserhalb);
+    const laufOhneKerze = laufzeitpunkt !== null && !s.indexVonZeit.has(zeitSekunden(laufzeitpunkt));
+    onAusserhalb(ausserhalb, laufOhneKerze);
     markerZeiten.current = new Map(marker.map((m) => [m.time, m.episode]));
     const gewinn = token('--gewinn');
     const verlust = token('--verlust');
@@ -259,7 +270,7 @@ export function Kerzenchart({
     }
     liste.sort((x, y) => (x.time as number) - (y.time as number));
     a.marker.setMarkers(liste);
-  }, [episoden, horizont, gewaehlt, laufzeitpunkt, onAusserhalb]);
+  }, [episoden, horizont, gewaehlt, laufzeitpunkt, onAusserhalb, thema]);
 
   // Fenster und Pfad der gewaehlten Episode.
   useEffect(() => {
@@ -287,7 +298,7 @@ export function Kerzenchart({
         .timeScale()
         .setVisibleLogicalRange({ from: stelle - 40, to: stelle + laengster + 20 });
     }
-  }, [gewaehlt, horizont]);
+  }, [gewaehlt, horizont, thema]);
 
   return (
     <div

@@ -16,6 +16,7 @@ import {
   type Messungsdetail,
 } from '@/lib/api';
 import { KONFIDENZ_TEXT, formatGeld, formatProzent, formatZeitpunkt } from '@/lib/format';
+import { aktieAdresse } from '@/lib/url';
 
 type Reiter = 'aktien' | 'kombinationen';
 
@@ -60,11 +61,7 @@ function Aktientabelle({
               {/* Die gewählte Messung wandert mit: Sonst zeigte die
                   Aktienseite die Zahlen der jüngsten, während man von einer
                   älteren kam. */}
-              <Link
-                href={`/aktie/?symbol=${encodeURIComponent(zeile.symbol)}&messung=${encodeURIComponent(messungId)}`}
-              >
-                {zeile.symbol}
-              </Link>
+              <Link href={aktieAdresse(zeile.symbol, { messung: messungId })}>{zeile.symbol}</Link>
             </th>
             <td className="zahl">{zeile.trades}</td>
             <td className="zahl">{formatProzent(zeile.held?.win_rate ?? null)}</td>

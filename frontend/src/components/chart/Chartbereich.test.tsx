@@ -12,7 +12,7 @@ vi.mock('lightweight-charts', () => {
   const serie = (): Record<string, unknown> => ({
     setData,
     applyOptions: vi.fn(),
-    createPriceLine: vi.fn(),
+    createPriceLine: () => ({ applyOptions: vi.fn() }),
     attachPrimitive: vi.fn(),
   });
   return {
@@ -103,5 +103,17 @@ describe('Der Chartbereich', () => {
     expect(screen.getByText(/Signale AC/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'schließen' }));
     expect(screen.getByText('Keine Episode gewählt.')).toBeTruthy();
+  });
+
+  it('sagt, wenn die Entscheidungskerze des Laufs nicht im Export liegt', () => {
+    render(
+      <Chartbereich
+        daten={KERZEN}
+        auswertungen={[]}
+        laufzeitpunkt="2020-01-01T14:30:00+00:00"
+        vorgewaehlt={null}
+      />,
+    );
+    expect(screen.getByText(/Entscheidungskerze des Laufs liegt außerhalb/)).toBeTruthy();
   });
 });
