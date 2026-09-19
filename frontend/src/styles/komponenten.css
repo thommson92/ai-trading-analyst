@@ -787,3 +787,71 @@ th[aria-sort] .sortierpfeil {
     height: 22rem;
   }
 }
+
+/* --- Backtest-Explorer ----------------------------------------------------- */
+
+.filterzeile {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-3) var(--abstand-4);
+  margin-bottom: var(--abstand-3);
+}
+
+.filterzeile label {
+  color: var(--gedaempft);
+  display: grid;
+  font-size: var(--schrift-xs);
+  gap: var(--abstand-1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filterzeile label.schalter {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: var(--abstand-2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--schrift-s);
+}
+
+.filterzeile select,
+.filterzeile input {
+  background: var(--grund);
+  border: 1px solid var(--linie);
+  border-radius: var(--radius-klein);
+  color: var(--schrift);
+  font: inherit;
+  padding: var(--abstand-1) var(--abstand-2);
+}
+
+.quartalsliste {
+  display: grid;
+  gap: var(--abstand-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.quartalsliste li {
+  align-items: center;
+  display: grid;
+  gap: var(--abstand-3);
+  grid-template-columns: 5rem minmax(0, 1fr) 7rem;
+}
+
+.quartalsbalken {
+  background: var(--linie);
+  border-radius: 999px;
+  display: block;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.quartalsbalken span {
+  background: var(--gewinn);
+  display: block;
+  height: 100%;
+}
