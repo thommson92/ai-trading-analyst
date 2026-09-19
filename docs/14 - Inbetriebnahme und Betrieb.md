@@ -1111,6 +1111,12 @@ Datenbaum neu; die alten Dateien verschwinden dabei.
 
 ## Schritt 2 — Die Oberfläche im Zero-Knowledge-Modus bauen
 
+> **Seit ADR 0065 (2026-09-19) übernimmt das `cli publish --full`:** Es baut die
+> Oberfläche im Zero-Knowledge-Modus nach `frontend\out-verschluesselt`, leert
+> das veröffentlichte Verzeichnis außer `data\` und kopiert den Bau hinein. Die
+> Handarbeit unten bleibt als Beschreibung dessen, was der Schritt tut, und als
+> Rückfall mit `--ohne-build`. `frontend\out` (LAN-Build) bleibt unberührt.
+
 Das ist ein **anderer Build** als der aus Stufe J: Er nimmt ausschließlich
 Chiffrat an und kennt keine API. Das Verfahren ist Eigenschaft des Builds und
 steht in keiner Datei, die neben den Daten liegt — wer beim Anbieter

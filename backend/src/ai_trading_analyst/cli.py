@@ -78,8 +78,10 @@ from ai_trading_analyst.bootstrap import (
     build_backtest_params,
     build_candidate_rule_params,
     build_dashboard_publisher,
+    build_dashboard_url,
     build_earnings_filter_params,
     build_earnings_provider,
+    build_frontend_bauer,
     build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
@@ -3727,6 +3729,20 @@ def command_publish(args: argparse.Namespace) -> int:
     if publisher is None:  # pragma: no cover -- oben bereits abgefangen
         return 2
 
+    if args.full and not args.ohne_build:
+        # Die Oberflaeche zuerst (ADR 0065): Ein voller Export soll nicht eine
+        # alte Oberflaeche zu neuen Daten hinausschicken. Scheitert der Bau,
+        # wird nichts geschrieben -- Server und Anbieter bleiben beide alt.
+        try:
+            baubericht = build_frontend_bauer(config, project_root(loaded.source_path)).baue()
+        except ValueError as error:
+            print(f"Konfiguration: {error}", file=sys.stderr)
+            return 2
+        except DashboardPublisherError as error:
+            print(f"Oberflaeche nicht gebaut: {redact_registered(str(error))}", file=sys.stderr)
+            return 1
+        print(f"Oberflaeche gebaut: {baubericht.als_text()}")
+
     try:
         bericht = publisher.schreibe_baum(voll=args.full)
     except DashboardPreviewUrlError as error:
@@ -3949,6 +3965,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Der Snapshot fuer das Dashboard ausserhalb des Servers
             # (ADR 0060). Ausgeliefert ist er abgeschaltet und damit ``None``.
             dashboard_publisher=dashboard_publisher,
+            # Der Link in der Meldung (ADR 0065) -- nur mit Export zum
+            # Anbieter und nur verschluesselt (ADR 0060, E5).
+            dashboard_url=build_dashboard_url(config, secrets),
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
@@ -4890,6 +4909,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Verwirft den bekannten Stand und schreibt jede Datei neu. Nach einem "
             "Anbieterwechsel, nach einem Wechsel der Passphrase und immer dann, wenn "
             "zweifelhaft ist, ob draussen steht, was hier liegt."
+        ),
+    )
+    publish.add_argument(
+        "--ohne-build",
+        action="store_true",
+        help=(
+            "Mit --full: nur den Datenbaum neu schreiben, die Oberflaeche nicht bauen. "
+            "Ohne den Schalter baut --full sie zuerst (ADR 0065)."
         ),
     )
     publish.add_argument(

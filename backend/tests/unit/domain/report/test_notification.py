@@ -504,3 +504,26 @@ class TestPutZeile:
         )
         assert "WATCH" in text
         assert "Put-Verkauf" not in text
+
+
+class TestDashboardLink:
+    def test_ohne_adresse_keine_zeile(self) -> None:
+        _, text = render_notification(zusammenfassung(make_outcome()), timezone=_NY)
+        assert "Dashboard:" not in text
+
+    def test_der_link_nennt_den_lauf_und_steht_vorn(self) -> None:
+        """Vorn, damit die Kuerzung des Kanals ihn nicht trifft; ohne Symbol,
+        weil die Adresse ueber ein fremdes Netz geht (ADR 0065)."""
+        summary = zusammenfassung(make_outcome())
+        _, text = render_notification(
+            summary, timezone=_NY, dashboard_url="https://w.k.workers.dev/"
+        )
+        erster_block = text.split("\n\n")[0]
+        assert erster_block.startswith(f"Dashboard: https://w.k.workers.dev/laeufe/?id={summary.run.id}")
+        assert "nach dem Export" in erster_block
+        assert summary.outcomes[0].stock.symbol not in erster_block
+
+    def test_auch_ohne_kandidaten_steht_der_link(self) -> None:
+        summary = zusammenfassung()
+        _, text = render_notification(summary, timezone=_NY, dashboard_url="https://w.k.workers.dev/")
+        assert text.startswith("Dashboard:")

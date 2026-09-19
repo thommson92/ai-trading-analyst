@@ -117,7 +117,9 @@ from ai_trading_analyst.infrastructure.persistence.stored_bar_source import Stor
 from ai_trading_analyst.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ai_trading_analyst.infrastructure.publishing import (
     MINDEST_ITERATIONEN,
+    Bauziel,
     Exportziel,
+    FrontendBauer,
     Hochladeziel,
     SnapshotPublisher,
     WranglerHochlader,
@@ -824,6 +826,58 @@ def build_dashboard_publisher(
             if einstellungen.target == "cloudflare"
             else None
         ),
+    )
+
+
+def build_dashboard_url(config: AppConfig, secrets: Secrets) -> str | None:
+    """Die Adresse des Dashboards fuer die Ergebnismeldung (ADR 0065).
+
+    Nur wenn der Export zum Anbieter geht **und** verschluesselt ist -- so
+    lautet E5 aus ADR 0060: der Link erst nach Stufe 2. Ohne ``ATA_DASHBOARD_URL``
+    gibt es keinen Link und keinen Fehler; mit einer Adresse, die nicht zum
+    Anbieter oder nicht zum Worker passt, bricht der Start ab: Ein falscher
+    Link in jeder Meldung waere schlimmer als keiner.
+    """
+    einstellungen = config.dashboard_export
+    if einstellungen.target != "cloudflare" or not einstellungen.encrypt:
+        return None
+    roh = secrets.dashboard_url
+    if roh is None:
+        return None
+    adresse = roh.get_secret_value().strip()
+    if not adresse.startswith("https://"):
+        raise ValueError("ATA_DASHBOARD_URL muss mit https:// beginnen.")
+    host = adresse.removeprefix("https://").split("/", 1)[0].lower()
+    # <worker>.<subdomain>.workers.dev: genau drei Punkte.
+    if not host.endswith(".workers.dev") or host.count(".") != 3:
+        raise ValueError(
+            "ATA_DASHBOARD_URL muss die Form https://<worker>.<subdomain>.workers.dev/ haben."
+        )
+    worker = secrets.dashboard_publish_worker
+    if worker is not None and host.split(".", 1)[0] != worker.get_secret_value().strip():
+        raise ValueError(
+            "ATA_DASHBOARD_URL nennt einen anderen Worker als ATA_DASHBOARD_PUBLISH_WORKER."
+        )
+    return f"https://{host}/"
+
+
+def build_frontend_bauer(config: AppConfig, root: Path) -> FrontendBauer:
+    """Der Bau der Oberflaeche fuer ``publish --full`` (ADR 0065).
+
+    Raises:
+        ValueError: wenn kein veroeffentlichtes Verzeichnis eingestellt ist.
+    """
+    einstellungen = config.dashboard_export
+    if not einstellungen.directory:
+        raise ValueError(
+            "dashboard_export.directory fehlt -- ohne Ziel gibt es nichts zu bauen."
+        )
+    return FrontendBauer(
+        Bauziel(
+            frontend=(root / "frontend").resolve(),
+            verzeichnis=(root / einstellungen.directory).resolve(),
+            zeitgrenze=einstellungen.build_timeout_seconds,
+        )
     )
 
 

@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
   // auf eine Datei, die er nicht sucht.
   trailingSlash: true,
   poweredByHeader: false,
+  // Der Zero-Knowledge-Build landet in einem eigenen Verzeichnis: Next nimmt
+  // bei `output: 'export'` das `distDir` als Exportziel. So ueberschreibt
+  // `cli publish --full` nicht den LAN-Build in `out/` (ADR 0065). Das
+  // Zwischenverzeichnis `.next` teilen sich beide -- nie parallel bauen.
+  ...(process.env.NEXT_PUBLIC_DATENMODUS === 'verschluesselt' ? { distDir: 'out-verschluesselt' } : {}),
 };
 
 export default nextConfig;
