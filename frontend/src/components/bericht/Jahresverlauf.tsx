@@ -50,7 +50,9 @@ function achsenwert(wert: number, einheit: Einheit): string {
   if (einheit === 'RATIO') {
     return wert.toLocaleString('de-DE', { maximumFractionDigits: 2 });
   }
-  return formatBetrag(wert);
+  // Nur die Abkuerzung verliert ihren Punkt: "130 Mrd" bleibt einzeilig,
+  // "130 Mrd." bricht um. Das Tausendertrennzeichen bleibt, wo es ist.
+  return formatBetrag(wert).replace(/ (Mrd|Mio)\./, ' $1');
 }
 
 function punktwert(wert: number, einheit: Einheit, waehrung: string | null): string {
@@ -86,7 +88,9 @@ function Reihenchart({ reihe }: { reihe: Kennzahlenreihe }): ReactNode {
           <YAxis
             stroke="var(--gedaempft)"
             fontSize={12}
-            width={64}
+            // Breit genug fuer "130 Mrd": Bricht der Wert um, schiebt sich
+            // die oberste Beschriftung aus dem Bild.
+            width={76}
             tickFormatter={(wert: unknown) =>
               typeof wert === 'number' ? achsenwert(wert, einheit) : ''
             }
@@ -116,6 +120,10 @@ function Reihenchart({ reihe }: { reihe: Kennzahlenreihe }): ReactNode {
               stroke={farbe(stelle)}
               strokeWidth={2}
               dot={{ r: 3 }}
+              // Ohne Einblendung: Das Bild ist eine Auskunft, keine
+              // Vorfuehrung -- und ein Chart, der erst nach einer Sekunde
+              // vollstaendig ist, ist in einem Screenshot unvollstaendig.
+              isAnimationActive={false}
               // Ein fehlendes Jahr wird nicht ueberbrueckt: Die Luecke ist
               // die Aussage, eine durchgezogene Linie waere eine Erfindung.
               connectNulls={false}

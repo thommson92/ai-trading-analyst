@@ -528,7 +528,7 @@ def _freier_cashflow(rechner: _Rechner, stichtag: date) -> _FreierCashflow | Non
     )
 
 
-def _niveaukennzahlen(rechner: _Rechner, stichtag: date) -> None:
+def _niveaukennzahlen(rechner: _Rechner, stichtag: date) -> _FreierCashflow | None:
     """Betraege, Margen, Renditen und Bilanzverhaeltnisse zu einem Stichtag.
 
     **Die eine Rechnung** (ADR 0067): Der aktuelle Stand und jedes
@@ -538,6 +538,9 @@ def _niveaukennzahlen(rechner: _Rechner, stichtag: date) -> None:
     Nicht enthalten sind Wachstumsraten, Verwaesserung und Bewertung: Die
     erste Gruppe rechnet ueber mehrere Jahre, die zweite braucht einen Kurs.
     Beide gehoeren zum aktuellen Stand, nicht zu einem einzelnen Jahr.
+
+    Gibt den freien Cashflow zurueck, weil die Bewertung ihn noch einmal
+    braucht -- zweimal gerechnet waere zweimal zu aendern.
     """
     umsatz = rechner.aktuell(FigureName.REVENUE)
     rechner.betrag(MetricName.REVENUE, FigureName.REVENUE)
@@ -604,6 +607,7 @@ def _niveaukennzahlen(rechner: _Rechner, stichtag: date) -> None:
         unit=MetricUnit.RATIO,
         stichtag=stichtag,
     )
+    return freier_cashflow
 
 
 def _historie(
@@ -676,8 +680,7 @@ def compute_fundamental_snapshot(
             tag_conflicts=tuple(tag_conflicts),
         )
 
-    _niveaukennzahlen(rechner, stichtag)
-    freier_cashflow = _freier_cashflow(rechner, stichtag)
+    freier_cashflow = _niveaukennzahlen(rechner, stichtag)
 
     _wachstum(rechner, MetricName.REVENUE_GROWTH, FigureName.REVENUE, params.growth_years)
     _wachstum(rechner, MetricName.NET_INCOME_GROWTH, FigureName.NET_INCOME, params.growth_years)

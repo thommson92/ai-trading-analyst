@@ -22,6 +22,7 @@ from ai_trading_analyst.domain.backtesting import (
 )
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
+    FiscalYearMetrics,
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
@@ -284,11 +285,31 @@ def make_fundamentals(
         )
         for name in namen
     }
+    historie = tuple(
+        FiscalYearMetrics(
+            period_end=date(jahr, 9, 30),
+            metrics={
+                MetricName.REVENUE: Metric(
+                    name=MetricName.REVENUE,
+                    value=float(jahr),
+                    unit=MetricUnit.CURRENCY,
+                    basis=MetricBasis.FISCAL_YEAR,
+                    period_start=date(jahr - 1, 10, 1),
+                    period_end=date(jahr, 9, 30),
+                    currency="USD",
+                    sources=(quelle("TagREVENUE"),),
+                    retrieved_at=JETZT,
+                )
+            },
+        )
+        for jahr in (2023, 2024, 2025)
+    )
     return FundamentalSnapshot(
         symbol="AAPL",
         status=status,
         evaluated_at=JETZT,
         company_name=company_name,
         metrics=metriken if status is FundamentalStatus.COMPLETED else {},
+        history=historie if status is FundamentalStatus.COMPLETED and vollstaendig else (),
         reason=None if status is FundamentalStatus.COMPLETED else "nichts rechenbar",
     )

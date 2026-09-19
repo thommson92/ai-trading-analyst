@@ -10,8 +10,10 @@
 
 import {
   feldListe,
+  feldObjekt,
   feldText,
   feldZahl,
+  istObjekt,
   objektliste,
   type JsonObjekt,
 } from '@/components/bericht/typwaechter';
@@ -48,7 +50,14 @@ function jahreszeilen(inhalt: JsonObjekt | null): Jahreszeile[] {
     const ende = feldText(eintrag, 'period_end');
     const jahr = ende === null ? NaN : Number(ende.slice(0, 4));
     if (!Number.isFinite(jahr)) continue;
-    zeilen.push({ jahr, metriken: objektliste(feldListe(eintrag, 'metrics')) });
+    // `metrics` ist eine Abbildung Kennzahlname -> Kennzahl, genau wie der
+    // aktuelle Stand darueber: Im Dokument wird aus `Mapping[MetricName,
+    // Metric]` ein Objekt, keine Liste.
+    const abbildung = feldObjekt(eintrag, 'metrics');
+    zeilen.push({
+      jahr,
+      metriken: abbildung === null ? [] : Object.values(abbildung).filter(istObjekt),
+    });
   }
   return zeilen.sort((a, b) => a.jahr - b.jahr);
 }
@@ -94,12 +103,4 @@ export function reihenAusDokument(inhalt: JsonObjekt | null): Kennzahlenreihe[] 
   return reihen;
 }
 
-/** Die Geschaeftsjahre, die im Kopf des Abschnitts stehen (ohne Historie). */
-export function berichtsjahre(inhalt: JsonObjekt | null): number[] {
-  return feldListe(inhalt, 'fiscal_years').filter((w): w is number => typeof w === 'number');
-}
 
-/** Der Abschnittsinhalt, wenn er eine Historie traegt -- sonst null. */
-export function hatHistorie(inhalt: JsonObjekt | null): boolean {
-  return jahreszeilen(inhalt).length > 0;
-}

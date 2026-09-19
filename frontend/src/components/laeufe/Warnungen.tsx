@@ -10,7 +10,8 @@ export function Warnungen({ lauf }: { lauf: AnalysisRunDetail }): ReactNode {
     eintraege.push(
       <>
         {lauf.module_errors} Aktien sind an einem Fehler hängen geblieben — deshalb gilt der Lauf
-        als „teilweise abgeschlossen": Alle übrigen Aktien sind vollständig bewertet.
+        als „teilweise abgeschlossen". Die übrigen wurden ausgewertet; ob einzelne Abschnitte
+        ihrer Berichte fehlen, sagt der jeweilige Bericht.
         {fehler.length > 0 && (
           <ul className="fehlerliste">
             {fehler.map((f) => (

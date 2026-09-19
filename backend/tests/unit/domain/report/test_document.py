@@ -468,3 +468,53 @@ class TestEmpfehlungImDokument:
     def test_die_zusammenfassung_steht_ausdruecklich_als_leer(self) -> None:
         """Ein fehlender Schluessel saehe aus wie ein vergessener."""
         assert self._inhalt()["zusammenfassung"] is None
+
+
+class TestJahresreiheImDokument:
+    """Die Form, in der die Jahresreihe (ADR 0067) im Dokument steht.
+
+    Sie ist ein **Vertrag mit der Oberflaeche**: `frontend/src/lib/jahresreihen.ts`
+    liest genau diese Form, und `jahresreihen.test.ts` haelt dieselbe fest.
+    Eine Liste statt einer Abbildung faellt dort nicht auf -- die Charts
+    blieben leer und meldeten "keine Jahresreihe", waehrend die Zahlen da sind.
+    """
+
+    def _fundamental(self) -> dict:  # type: ignore[type-arg]
+        abschnitte = vollstaendig()["abschnitte"]
+        inhalt = abschnitte[ReportSection.FUNDAMENTALE_BEWERTUNG.value]["inhalt"]
+        assert isinstance(inhalt, dict)
+        return inhalt
+
+    def test_die_reihe_steht_als_liste_von_jahren(self) -> None:
+        historie = self._fundamental()["history"]
+
+        assert isinstance(historie, list)
+        assert [jahr["period_end"] for jahr in historie] == [
+            "2023-09-30",
+            "2024-09-30",
+            "2025-09-30",
+        ]
+
+    def test_die_kennzahlen_eines_jahres_stehen_unter_ihrem_namen(self) -> None:
+        # Eine Abbildung, keine Liste -- wie der aktuelle Stand darueber.
+        jahr = self._fundamental()["history"][0]
+
+        assert isinstance(jahr["metrics"], dict)
+        assert list(jahr["metrics"]) == ["REVENUE"]
+        assert jahr["metrics"]["REVENUE"]["unit"] == "CURRENCY"
+
+    def test_jede_zahl_der_reihe_nennt_ihre_quelle(self) -> None:
+        # Die Quellenbindung aus CLAUDE.md gilt auch in der Historie.
+        kennzahl = self._fundamental()["history"][0]["metrics"]["REVENUE"]
+
+        assert kennzahl["sources"]
+        assert kennzahl["sources"][0]["accession"]
+
+    def test_ohne_reihe_steht_eine_leere_liste(self) -> None:
+        # Kein Feld waere dasselbe wie "nicht gerechnet"; die leere Liste
+        # sagt: dieser Bericht hat keine (ADR 0067, Punkt 7).
+        abschnitte = dokument(fundamentals=make_fundamentals())["abschnitte"]
+        inhalt = abschnitte[ReportSection.FUNDAMENTALE_BEWERTUNG.value]["inhalt"]
+        assert isinstance(inhalt, dict)
+
+        assert inhalt["history"] == []

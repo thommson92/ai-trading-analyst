@@ -300,8 +300,8 @@
         "history": [
           {
             "period_end": "2022-12-31",
-            "metrics": [
-              {
+            "metrics": {
+              "REVENUE": {
                 "name": "REVENUE",
                 "value": 98000000000,
                 "unit": "CURRENCY",
@@ -320,7 +320,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_INCOME": {
                 "name": "NET_INCOME",
                 "value": 22100000000,
                 "unit": "CURRENCY",
@@ -339,7 +339,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "GROSS_MARGIN": {
                 "name": "GROSS_MARGIN",
                 "value": 0.38,
                 "unit": "FRACTION",
@@ -358,7 +358,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_MARGIN": {
                 "name": "NET_MARGIN",
                 "value": 0.2255,
                 "unit": "FRACTION",
@@ -377,7 +377,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "DEBT_TO_EQUITY": {
                 "name": "DEBT_TO_EQUITY",
                 "value": 1.42,
                 "unit": "RATIO",
@@ -396,12 +396,12 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               }
-            ]
+            }
           },
           {
             "period_end": "2023-12-31",
-            "metrics": [
-              {
+            "metrics": {
+              "REVENUE": {
                 "name": "REVENUE",
                 "value": 110200000000,
                 "unit": "CURRENCY",
@@ -420,7 +420,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_INCOME": {
                 "name": "NET_INCOME",
                 "value": 26400000000,
                 "unit": "CURRENCY",
@@ -439,7 +439,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "GROSS_MARGIN": {
                 "name": "GROSS_MARGIN",
                 "value": 0.4,
                 "unit": "FRACTION",
@@ -458,7 +458,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_MARGIN": {
                 "name": "NET_MARGIN",
                 "value": 0.2396,
                 "unit": "FRACTION",
@@ -477,7 +477,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "DEBT_TO_EQUITY": {
                 "name": "DEBT_TO_EQUITY",
                 "value": 1.31,
                 "unit": "RATIO",
@@ -496,12 +496,12 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               }
-            ]
+            }
           },
           {
             "period_end": "2024-12-31",
-            "metrics": [
-              {
+            "metrics": {
+              "REVENUE": {
                 "name": "REVENUE",
                 "value": 121400000000,
                 "unit": "CURRENCY",
@@ -520,7 +520,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_INCOME": {
                 "name": "NET_INCOME",
                 "value": 31900000000,
                 "unit": "CURRENCY",
@@ -539,7 +539,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "GROSS_MARGIN": {
                 "name": "GROSS_MARGIN",
                 "value": 0.41,
                 "unit": "FRACTION",
@@ -558,7 +558,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_MARGIN": {
                 "name": "NET_MARGIN",
                 "value": 0.2628,
                 "unit": "FRACTION",
@@ -577,7 +577,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "DEBT_TO_EQUITY": {
                 "name": "DEBT_TO_EQUITY",
                 "value": 1.18,
                 "unit": "RATIO",
@@ -596,12 +596,12 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               }
-            ]
+            }
           },
           {
             "period_end": "2025-12-31",
-            "metrics": [
-              {
+            "metrics": {
+              "REVENUE": {
                 "name": "REVENUE",
                 "value": 130500000000,
                 "unit": "CURRENCY",
@@ -620,7 +620,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_INCOME": {
                 "name": "NET_INCOME",
                 "value": 36300000000,
                 "unit": "CURRENCY",
@@ -639,7 +639,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "GROSS_MARGIN": {
                 "name": "GROSS_MARGIN",
                 "value": 0.42,
                 "unit": "FRACTION",
@@ -658,7 +658,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "NET_MARGIN": {
                 "name": "NET_MARGIN",
                 "value": 0.2782,
                 "unit": "FRACTION",
@@ -677,7 +677,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               },
-              {
+              "DEBT_TO_EQUITY": {
                 "name": "DEBT_TO_EQUITY",
                 "value": 1.09,
                 "unit": "RATIO",
@@ -696,7 +696,7 @@
                 ],
                 "retrieved_at": "2026-09-17T17:40:00+00:00"
               }
-            ]
+            }
           }
         ]
       },
