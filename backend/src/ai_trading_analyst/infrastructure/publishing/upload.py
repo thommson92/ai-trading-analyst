@@ -124,6 +124,15 @@ _GESENDET = re.compile(r"Uploaded (\d+) files?", re.IGNORECASE)
 _VERSION = re.compile(r"Current Version ID:\s*([0-9A-Za-z-]{8,})")
 
 
+def basisumgebung() -> dict[str, str]:
+    """Die Umgebung, die jeder Unterprozess dieses Pakets sieht -- die
+    Erlaubnisliste oben, sonst nichts. Der Upload und der Bau der
+    Oberflaeche ergaenzen sie je um ihre eigenen Variablen."""
+    return {
+        name: wert for name in _UMGEBUNG_UEBERNOMMEN if (wert := os.environ.get(name)) is not None
+    }
+
+
 def wrangler_befehl(paket: Path) -> list[str]:
     """Wie das Upload-Werkzeug gestartet wird.
 
@@ -435,11 +444,7 @@ class WranglerHochlader:
             )
 
     def _umgebung(self) -> dict[str, str]:
-        umgebung = {
-            name: wert
-            for name in _UMGEBUNG_UEBERNOMMEN
-            if (wert := os.environ.get(name)) is not None
-        }
+        umgebung = basisumgebung()
         umgebung["CLOUDFLARE_API_TOKEN"] = self._ziel.token
         umgebung["CLOUDFLARE_ACCOUNT_ID"] = self._ziel.konto
         # Keine Nutzungsdaten an den Anbieter, keine Steuerzeichen in der

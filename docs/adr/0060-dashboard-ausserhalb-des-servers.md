@@ -576,3 +576,12 @@ build` im Zero-Knowledge-Modus bleibt Handarbeit aus Doc 14, Stufe K,
 Schritt 2. Wer das Frontend ändert und diesen Schritt vergisst, schickt eine
 alte Oberfläche mit neuen Daten hinaus — der Upload prüft nur, dass
 überhaupt eine da ist, nicht welche.
+
+## Nachtrag vom 2026-09-19 — Bau der Oberflaeche und E5
+
+Der Bau der Oberflaeche ist keine Handarbeit mehr: `cli publish --full` baut
+sie im Zero-Knowledge-Modus und legt sie in das veroeffentlichte Verzeichnis,
+bevor der Baum geschrieben wird. Der Tageslauf baut weiterhin nicht. Und
+E5 ist umgesetzt: Die Ergebnismeldung traegt den Link zum Lauf im Dashboard,
+nur mit Export zum Anbieter und nur verschluesselt. Beides in
+[ADR 0065](0065-oberflaechen-build-im-exportschritt-und-dashboard-link.md).

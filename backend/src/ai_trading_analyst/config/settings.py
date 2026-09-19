@@ -929,6 +929,11 @@ class DashboardExportConfig(_Section):
     pbkdf2_iterations: PositiveInt = 600_000
     """Mindestens 600.000 (ADR 0060, Punkt 6); der Browser prueft es erneut."""
 
+    build_timeout_seconds: PositiveInt = 600
+    """Geduld fuer den Bau der Oberflaeche bei ``publish --full`` (ADR 0065).
+    Ein `next build` braucht auf dem Server unter einer Minute; zehn Minuten
+    lassen Luft und beenden trotzdem einen haengenden Aufruf."""
+
 
 class SwingWeightsConfig(_Section):
     """Gewichte der sechs Swing-Komponenten (ADR 0041).
@@ -1229,6 +1234,14 @@ class Secrets(BaseSettings):
     **Kein Geheimnis im Wortsinn** -- dieselbe Lage wie bei
     ``edgar_contact``: Sie steht hier, weil dieses Repository oeffentlich ist
     (ADR 0031), nicht weil sie schuetzenswert waere."""
+    dashboard_url: SecretStr | None = None
+    """Die Adresse des Dashboards fuer den Link in der Ergebnismeldung
+    (ADR 0060 E5, ADR 0065): ``https://<worker>.<subdomain>.workers.dev/``.
+
+    Aus den anderen Werten nicht ableitbar -- ``dashboard_publish_account``
+    ist die Konto-Kennung, nicht die Subdomain. Kein Geheimnis im Wortsinn,
+    aber nicht im oeffentlichen Repository (E6). Ohne sie traegt die Meldung
+    keinen Link."""
     dashboard_publish_worker: SecretStr | None = None
     """Der Name des Workers beim Anbieter.
 

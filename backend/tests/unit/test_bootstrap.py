@@ -21,8 +21,10 @@ from ai_trading_analyst.bootstrap import (
     build_analyst_recommendations_provider,
     build_backtest_params,
     build_bar_source,
+    build_dashboard_url,
     build_earnings_provider,
     build_finnhub_earnings_provider,
+    build_frontend_bauer,
     build_fundamental_data_provider,
     build_market_data_provider,
     build_research_provider,
@@ -691,3 +693,89 @@ class TestFinnhubDrossel:
         zweite = build_analyst_recommendations_provider(langsam, Secrets())
 
         assert erste._drossel is not zweite._drossel  # type: ignore[attr-defined]
+
+
+class TestDashboardAdresse:
+    """ADR 0065: Der Link in der Meldung -- nur mit Export zum Anbieter und
+    verschluesselt, und nur in der Form des Anbieters."""
+
+    def _config(self, target: str = "cloudflare", encrypt: bool = True) -> AppConfig:
+        config = load_config().config
+        return config.model_copy(
+            update={
+                "dashboard_export": config.dashboard_export.model_copy(
+                    update={"target": target, "encrypt": encrypt, "directory": "var/dashboard"}
+                )
+            }
+        )
+
+    def test_ohne_variable_kein_link(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ATA_DASHBOARD_URL", raising=False)
+        assert build_dashboard_url(self._config(), Secrets()) is None
+
+    def test_nur_mit_export_zum_anbieter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", "https://w.k.workers.dev/")
+        assert build_dashboard_url(self._config(target="directory"), Secrets()) is None
+        assert build_dashboard_url(self._config(encrypt=False), Secrets()) is None
+
+    def test_die_adresse_wird_normalisiert(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", " https://W.K.workers.dev ")
+        monkeypatch.setenv("ATA_DASHBOARD_PUBLISH_WORKER", "w")
+        assert build_dashboard_url(self._config(), Secrets()) == "https://w.k.workers.dev/"
+
+    @pytest.mark.parametrize(
+        "adresse",
+        [
+            "http://w.k.workers.dev/",
+            "https://beispiel.de/",
+            "https://a.b.c.workers.dev/",
+            "https://w.io?.workers.dev/",
+            "https://evil.com#.workers.dev",
+            "https://user:pw@w.k.workers.dev/",
+            "https://w.k.workers.dev:8443/",
+            "https://w.k.workers.dev/laeufe/",
+        ],
+    )
+    def test_fremde_formen_brechen_den_start_ab(
+        self, adresse: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", adresse)
+        monkeypatch.setenv("ATA_DASHBOARD_PUBLISH_WORKER", "w")
+        with pytest.raises(ValueError, match="ATA_DASHBOARD_URL"):
+            build_dashboard_url(self._config(), Secrets())
+
+    def test_ohne_worker_name_gibt_es_keinen_link_sondern_einen_fehler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", "https://w.k.workers.dev/")
+        monkeypatch.delenv("ATA_DASHBOARD_PUBLISH_WORKER", raising=False)
+        with pytest.raises(MissingSecretError):
+            build_dashboard_url(self._config(), Secrets())
+
+    def test_ein_anderer_worker_faellt_auf(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", "https://x.k.workers.dev/")
+        monkeypatch.setenv("ATA_DASHBOARD_PUBLISH_WORKER", "w")
+        with pytest.raises(ValueError, match="anderen Worker"):
+            build_dashboard_url(self._config(), Secrets())
+
+
+class TestFrontendBauerAufbau:
+    def _config(self, directory: str, encrypt: bool = True) -> AppConfig:
+        config = load_config().config
+        export = config.dashboard_export.model_copy(
+            update={"target": "directory", "encrypt": encrypt, "directory": directory}
+        )
+        return config.model_copy(update={"dashboard_export": export})
+
+    def test_ein_verzeichnis_ueber_dem_projekt_wird_abgewiesen(self, tmp_path: Path) -> None:
+        for directory in (".", "..", "frontend"):
+            with pytest.raises(ValueError, match="umfasst das Projekt"):
+                build_frontend_bauer(self._config(directory), tmp_path)
+
+    def test_der_datenmodus_folgt_encrypt(self, tmp_path: Path) -> None:
+        # Ohne Verschluesselung baut er die statische Fassung -- sonst fragte
+        # die Oberflaeche nach einer Passphrase, die es nicht gibt.
+        verschluesselt = build_frontend_bauer(self._config("var/dashboard"), tmp_path)
+        statisch = build_frontend_bauer(self._config("var/dashboard", encrypt=False), tmp_path)
+        assert verschluesselt._ziel.datenmodus == "verschluesselt"
+        assert statisch._ziel.datenmodus == "statisch"

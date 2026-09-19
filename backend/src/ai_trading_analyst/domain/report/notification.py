@@ -32,7 +32,9 @@ Vorschlag der Zweck der Meldung; bei WATCH und darunter waere er eine
 Handlungsaufforderung, die die Stufe gerade nicht ausspricht."""
 
 
-def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[str, str]:
+def render_notification(
+    summary: AnalysisRunSummary, *, timezone: str, dashboard_url: str | None = None
+) -> tuple[str, str]:
     """Die kompakte Zusammenfassung fuer den Benachrichtigungskanal (ADR 0055).
 
     ``timezone`` ist die Boersenzeitzone; sie bestimmt, welchen Handelstag der
@@ -62,10 +64,13 @@ def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[
     # bereits am Folgetag und truege sonst das falsche Datum im Betreff.
     tag = summary.run.started_at.astimezone(ZoneInfo(timezone)).date().isoformat()
     betreff = f"Analyse-Lauf {tag}: {len(kandidaten)} Kandidat(en)"
+    # Der Link zum Dashboard (ADR 0060 E5, ADR 0065) steht **vor** den
+    # Bloecken: Der Kanal kuerzt am Ende, und der Link soll die Kuerzung
+    # ueberleben. Ohne Symbole in der Adresse -- sie nennt nur den Lauf.
+    link = None if dashboard_url is None else _dashboard_zeile(dashboard_url, summary)
     if not kandidaten:
-        return betreff, (
-            f"Der Lauf ueber {summary.run.number_of_stocks} Aktien fand keinen Kandidaten."
-        )
+        text = f"Der Lauf ueber {summary.run.number_of_stocks} Aktien fand keinen Kandidaten."
+        return betreff, text if link is None else f"{link}\n\n{text}"
 
     bloecke = [_kandidatenblock(outcome) for outcome in sorted(kandidaten, key=_rangfolge)]
     legende = "\n".join(
@@ -75,7 +80,21 @@ def render_notification(summary: AnalysisRunSummary, *, timezone: str) -> tuple[
             f"cli report --run {summary.run.id}",
         )
     )
-    return betreff, "\n\n".join([*bloecke, legende])
+    teile = [*bloecke, legende] if link is None else [link, *bloecke, legende]
+    return betreff, "\n\n".join(teile)
+
+
+def _dashboard_zeile(dashboard_url: str, summary: AnalysisRunSummary) -> str:
+    """Die Adresse des Laufs im Dashboard -- mit dem Hinweis, dass der Stand
+    dort erst nach dem Export steht: Die Meldung geht vor dem Export hinaus,
+    und der dauert eine Viertelstunde (ADR 0065). Die Form ``laeufe/?id=``
+    ist die des Frontends (``frontend/src/lib/url.ts``, ``laufAdresse``);
+    beide Seiten halten sie in einem Test fest."""
+    return (
+        f"Dashboard: {dashboard_url}laeufe/?id={summary.run.id}\n"
+        "(der Stand dieses Laufs steht dort, sobald der Export durch ist -- meist "
+        "eine Viertelstunde nach dieser Meldung)"
+    )
 
 
 def _rangfolge(outcome: StockScreeningOutcome) -> tuple[float, str]:

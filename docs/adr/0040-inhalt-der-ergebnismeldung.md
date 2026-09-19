@@ -152,3 +152,10 @@ dieses ADR im Punkt „je Kandidat die Signaltypen, die gefeuert haben" ab: Die
 Meldung zählt jetzt (`3/3 Signale`) statt aufzuzählen — bei einer
 2-aus-3-Regel unterscheiden die Namen nichts, die Anzahl schon. Alles Übrige
 gilt unverändert.
+
+## Nachtrag vom 2026-09-19 — Link zum Dashboard
+
+Der hier verneinte Link ist seit [ADR 0065](0065-oberflaechen-build-im-exportschritt-und-dashboard-link.md)
+erlaubt, unter den Bedingungen aus ADR 0060, E5: Export zum Anbieter,
+verschluesselt, kein Symbol in der Adresse. Der Link steht vor den
+Kandidatenbloecken, damit die Kuerzung des Kanals ihn nicht trifft.

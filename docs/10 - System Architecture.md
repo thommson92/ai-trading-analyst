@@ -960,16 +960,18 @@ GET    /api/v1/system/readiness
 
 ## 6.15 Web Dashboard
 
-> **Zuschnitt des MVP:** Gebaut sind vier der zehn Hauptansichten —
-> Tagesübersicht, Detailansicht, historische Analysen pro Aktie
-> ([ADR 0053](adr/0053-lese-api-kein-lauf-ueber-http.md)) und seit dem
-> 2026-09-05 die **Backtesting-Ansicht**. Die Detailansicht zeigt den
-> gespeicherten Bericht mit allen achtzehn Punkten und deckt damit
-> Optionsstrategien und Quellen bereits inhaltlich ab; als eigene Ansichten
-> bleiben sie Zielbild, ebenso Systemstatus und Konfiguration. Das Dashboard ist ausschließlich aus dem eigenen Netz
-> erreichbar ([ADR 0049](adr/0049-dashboard-mvp-nur-lan.md)) und wird als
-> statischer Export von der API mit ausgeliefert
-> ([ADR 0052](adr/0052-dashboard-als-statischer-export.md)).
+> **Stand nach dem Redesign (ADR 0063, 2026-09-19):** Gebaut sind sechs
+> Seiten — Übersicht (der neueste Lauf), Tagesläufe (Liste aller Läufe mit
+> Auswahl), Aktien (alle Titel mit letztem Stand), Einzelaktie (Kerzenchart
+> mit Episoden, Kandidatenhistorie, beide Backtests), Kandidatenbericht
+> (Kopf und Reiter über alle achtzehn Punkte, darunter Optionsstrategien und
+> Quellen) und Backtest-Explorer (Signal- und Optionsbacktest über alle
+> Aktien). Damit sind von den zehn Hauptansichten unten alle bis auf
+> Systemstatus und Konfiguration abgedeckt; die beiden bleiben Zielbild.
+> Ausgeliefert wird das Dashboard außerhalb des Servers als
+> Zero-Knowledge-Snapshot ([ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md));
+> der LAN-Weg aus [ADR 0052](adr/0052-dashboard-als-statischer-export.md)
+> bleibt bestehen.
 
 Das Dashboard ist eine responsive Webanwendung.
 

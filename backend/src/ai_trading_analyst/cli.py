@@ -78,8 +78,10 @@ from ai_trading_analyst.bootstrap import (
     build_backtest_params,
     build_candidate_rule_params,
     build_dashboard_publisher,
+    build_dashboard_url,
     build_earnings_filter_params,
     build_earnings_provider,
+    build_frontend_bauer,
     build_fundamental_data_provider,
     build_ibkr_bar_source,
     build_market_data_provider,
@@ -3696,6 +3698,10 @@ def command_publish(args: argparse.Namespace) -> int:
             }
         )
 
+    if args.ohne_build and not args.full:
+        print("--ohne-build gilt nur zusammen mit --full.", file=sys.stderr)
+        return 2
+
     # Vor der Datenbank: Ein abgeschalteter Export braucht keine Verbindung,
     # und die Meldung dazu soll nicht hinter einem Verbindungsfehler stehen.
     if config.dashboard_export.target == "none":
@@ -3727,8 +3733,19 @@ def command_publish(args: argparse.Namespace) -> int:
     if publisher is None:  # pragma: no cover -- oben bereits abgefangen
         return 2
 
+    oberflaeche = None
+    if args.full and not args.ohne_build:
+        # Die Oberflaeche zuerst (ADR 0065): Ein voller Export soll nicht eine
+        # alte Oberflaeche zu neuen Daten hinausschicken. Gebaut wird unter
+        # der Exportsperre; scheitert der Bau, wird nichts geschrieben.
+        try:
+            oberflaeche = build_frontend_bauer(config, project_root(loaded.source_path)).baue
+        except ValueError as error:
+            print(f"Konfiguration: {error}", file=sys.stderr)
+            return 2
+
     try:
-        bericht = publisher.schreibe_baum(voll=args.full)
+        bericht = publisher.schreibe_baum(voll=args.full, oberflaeche=oberflaeche)
     except DashboardPreviewUrlError as error:
         # Der Baum ist draussen. Trotzdem Rueckgabewert 1: Das hier ist ein
         # Sicherheitsbefund, und er soll nicht in einer gruenen Ausgabe
@@ -3884,6 +3901,10 @@ def command_dispatch(args: argparse.Namespace) -> int:
         dashboard_publisher = build_dashboard_publisher(
             config, secrets, project_root(loaded.source_path), uow_factory=uow_factory
         )
+        # Der Link in der Meldung (ADR 0065) -- hier und nicht im Lauf, damit
+        # eine falsche Adresse vor dem Backfill auffaellt und nicht jeden
+        # Versuch des Tages als gescheiterten Lauf verbucht.
+        dashboard_url = build_dashboard_url(config, secrets)
     except (ValueError, MissingSecretError) as error:
         print(f"Konfiguration (Dashboard-Export): {error}", file=sys.stderr)
         return 2
@@ -3949,6 +3970,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Der Snapshot fuer das Dashboard ausserhalb des Servers
             # (ADR 0060). Ausgeliefert ist er abgeschaltet und damit ``None``.
             dashboard_publisher=dashboard_publisher,
+            dashboard_url=dashboard_url,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
@@ -4890,6 +4912,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Verwirft den bekannten Stand und schreibt jede Datei neu. Nach einem "
             "Anbieterwechsel, nach einem Wechsel der Passphrase und immer dann, wenn "
             "zweifelhaft ist, ob draussen steht, was hier liegt."
+        ),
+    )
+    publish.add_argument(
+        "--ohne-build",
+        action="store_true",
+        help=(
+            "Mit --full: nur den Datenbaum neu schreiben, die Oberflaeche nicht bauen. "
+            "Ohne den Schalter baut --full sie zuerst (ADR 0065)."
         ),
     )
     publish.add_argument(

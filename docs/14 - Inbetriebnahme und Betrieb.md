@@ -1111,6 +1111,19 @@ Datenbaum neu; die alten Dateien verschwinden dabei.
 
 ## Schritt 2 — Die Oberfläche im Zero-Knowledge-Modus bauen
 
+> **Seit ADR 0065 (2026-09-19) übernimmt das der Exportschritt:**
+>
+> ```powershell
+> cd C:\Users\Administrator\Documents\TradingViewAnalyzer\backend
+> .venv\Scripts\python.exe -m ai_trading_analyst.cli publish --full --dashboard-export cloudflare
+> ```
+>
+> Er baut die Oberfläche im Zero-Knowledge-Modus nach `frontend\out-verschluesselt`,
+> leert das veröffentlichte Verzeichnis außer `data\`, kopiert den Bau hinein und
+> schreibt und sendet dann den Baum — alles unter der Exportsperre. Mit
+> `--full --ohne-build` schreibt er nur den Baum neu. `frontend\out` (LAN-Build)
+> bleibt unberührt. Die Handarbeit unten beschreibt, was der Schritt tut.
+
 Das ist ein **anderer Build** als der aus Stufe J: Er nimmt ausschließlich
 Chiffrat an und kennt keine API. Das Verfahren ist Eigenschaft des Builds und
 steht in keiner Datei, die neben den Daten liegt — wer beim Anbieter
@@ -1123,34 +1136,24 @@ npm run build
 Remove-Item Env:\NEXT_PUBLIC_DATENMODUS
 ```
 
-**Beide Builds landen in demselben `frontend\out`** — Next kennt nur dieses
-eine Ausgabeverzeichnis. Genau daraus liefert der Dienst aus Stufe J das
-LAN-Dashboard aus. Wer hier baut, überschreibt es also; der
-Zero-Knowledge-Build fände im eigenen Netz keine API und zeigte nur die
-Passphrase-Abfrage.
-
-Deshalb: das Ergebnis in das Verzeichnis kopieren, das später hinausgeht,
-und den LAN-Build sofort wiederherstellen.
+**Der Zero-Knowledge-Build landet in `frontend\out-verschluesselt`**, der
+LAN-Build aus Stufe J in `frontend\out` — seit ADR 0065 zwei Verzeichnisse,
+nichts überschreibt sich. Von Hand hieße das: das Ergebnis in das
+Verzeichnis kopieren, das später hinausgeht, und dabei den Datenbaum stehen
+lassen.
 
 ```powershell
 New-Item -ItemType Directory -Force ..\var\dashboard | Out-Null
 
 # Die alte Oberflaeche zuerst weg, den Datenbaum aber stehen lassen.
-# **Das Sternchen am Pfad und -Force sind beide noetig.** Microsoft
-# dokumentiert -Exclude als wirksam nur dort, wo der Befehl den *Inhalt*
-# eines Elements adressiert; ohne das Sternchen ist das Verhalten
-# versionsabhaengig, und greift die Ausnahme nicht, loescht die Zeile
-# 'data' mit. -Force nimmt versteckte Eintraege mit, die sonst liegen
-# blieben und weiter mit hinausgingen.
-# 'Copy-Item -Force' ueberschreibt nur gleichnamige Dateien, und die Namen
-# der Next-Buendel tragen einen Hash je Build -- ohne dieses Aufraeumen
-# blieben die Buendel *jedes* frueheren Builds liegen und gingen bei jedem
-# Upload mit hinaus. Das Verzeichnis 'data' gehoert dem Exportschritt, der
-# darin selbst aufraeumt.
+# **Das Sternchen am Pfad und -Force sind beide noetig.** Ohne das Sternchen
+# ist -Exclude versionsabhaengig und loescht im schlimmsten Fall 'data' mit;
+# -Force nimmt versteckte Eintraege mit. Die Buendel von Next tragen einen
+# Hash je Bau -- ohne dieses Aufraeumen gingen die Buendel jedes frueheren
+# Baus mit hinaus.
 Get-ChildItem ..\var\dashboard\* -Force -Exclude data | Remove-Item -Recurse -Force
 
-Copy-Item -Recurse -Force out\* ..\var\dashboard\
-npm run build          # ohne die Variable -- das ist wieder der LAN-Build
+Copy-Item -Recurse -Force out-verschluesselt\* ..\var\dashboard\
 ```
 
 In dasselbe `var\dashboard` schreibt Schritt 3 gleich den Datenbaum unter
@@ -1342,9 +1345,9 @@ unterwegs war nichts davon lesbar.
 
 **Die Sicherheits-Header sind seit dem 2026-09-17 dabei** — sie liegen als
 `frontend/public/_headers` im Repository und werden von `next build` nach
-`out/` kopiert, gehen also mit jedem Upload mit. Workers liest die Datei und
-liefert sie selbst nicht aus. **Offen bleibt** der Upload aus dem
-Exportschritt heraus; bis dahin ist Schritt 6 Handarbeit.
+`out-verschluesselt/` kopiert, gehen also mit jedem Upload mit. Workers liest
+die Datei und liefert sie selbst nicht aus. Der Upload aus dem Exportschritt
+heraus ist seit dem 2026-09-18 gebaut, der Bau der Oberfläche seit ADR 0065.
 
 Diese Stufe setzt die Anbieterentscheidung um
 ([Anbieterevaluation](requirements/f12-hosting-anbieter-evaluation.md),
@@ -1604,6 +1607,7 @@ im Projektwurzelverzeichnis, zusammen mit Konto-Kennung und Worker-Namen:
 ATA_DASHBOARD_PUBLISH_TOKEN=<das Token>
 ATA_DASHBOARD_PUBLISH_ACCOUNT=<die Konto-Kennung>
 ATA_DASHBOARD_PUBLISH_WORKER=<der Worker-Name, NUR der Name>
+ATA_DASHBOARD_URL=https://<worker>.<subdomain>.workers.dev/   # fuer den Link in der Meldung (ADR 0065); der erste Namensteil muss dem Worker-Namen entsprechen
 ```
 
 > **Die Falle beim Worker-Namen**, am 2026-09-18 bei der Abnahme
@@ -1902,11 +1906,11 @@ der Vorschau-Adressen sitzt darin, die Sicherheits-Header sind seit dem
 
 Zwei Handgriffe bleiben bewusst Handarbeit:
 
-- **Die Oberfläche baut niemand nächtlich.** `npm run build` im
-  Zero-Knowledge-Modus und das Kopieren nach `var\dashboard` stehen weiter
-  in Stufe K, Schritt 2. Der Upload prüft nur, dass `index.html` und
-  `_headers` dort liegen, und geht sonst gar nicht erst los. Nach jeder
-  Änderung am Frontend gehört dieser Schritt also wiederholt — sonst geht
+- **Die Oberfläche baut niemand nächtlich.** Der Tageslauf schreibt nur den
+  Baum. Gebaut wird sie mit `publish --full` (ADR 0065), das den
+  Zero-Knowledge-Build nach `var\dashboard` legt. Der Upload prüft, dass
+  `index.html` und `_headers` dort liegen, und geht sonst gar nicht erst los.
+  Nach jeder Änderung am Frontend gehört `publish --full` also wiederholt — sonst geht
   eine alte Oberfläche mit neuen Daten hinaus.
 - **Alte Worker-Versionen löscht niemand**, weil Cloudflare es nicht
   anbietet (Schritt 7).
@@ -2142,10 +2146,10 @@ Handgriff im Protokoll.
 
 Der Oberflächen-Build bleibt davon getrennt und läuft **nur**, wenn sich
 unter `frontend\` etwas geändert hat. Zwei verschiedene Builds gehören
-dazu, und sie überschreiben einander (`frontend\out` gibt es nur einmal):
-`npm run build` für den LAN-Dienst aus Stufe J, und der
-Zero-Knowledge-Build aus Stufe K, Schritt 2 für den Weg nach draußen. Wer
-die Oberfläche ändert, führt Stufe K, Schritt 2 danach erneut aus — sonst
+dazu, in zwei Verzeichnissen: `npm run build` für den LAN-Dienst aus Stufe J
+(`frontend\out`), und der Zero-Knowledge-Build für den Weg nach draußen
+(`frontend\out-verschluesselt`), den `publish --full` selbst ausführt
+(ADR 0065). Wer die Oberfläche ändert, ruft danach `publish --full` — sonst
 geht beim nächsten Lauf eine alte Oberfläche mit neuen Daten hinaus.
 
 Findet `git pull` einen lokalen Diff in `config/default.yaml`, wurde auf dem

@@ -235,6 +235,7 @@ class RunAnalysisUseCase:
         market_timezone: str = "America/New_York",
         repeat_suppression: RepeatSuppressionParameters | None = None,
         dashboard_publisher: DashboardPublisher | None = None,
+        dashboard_url: str | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         self._earnings_provider = earnings_provider
@@ -256,6 +257,7 @@ class RunAnalysisUseCase:
         self._notify_without_candidates = notify_without_candidates
         self._market_timezone = market_timezone
         self._dashboard_publisher = dashboard_publisher
+        self._dashboard_url = dashboard_url
         self._repeat_suppression = repeat_suppression
         """``None`` heisst Sperre aus -- fuer manuelle Aufrufer und Tests,
         die keinen Bestand kennen. Der Tageslauf reicht die konfigurierten
@@ -425,7 +427,9 @@ class RunAnalysisUseCase:
             # Auch das Rendern gehoert hinein: Der Docstring sagt, dass der
             # Kanal den Lauf nicht nachtraeglich scheitern laesst, und das
             # Ergebnis steht zu diesem Zeitpunkt bereits in der Datenbank.
-            betreff, text = render_notification(summary, timezone=self._market_timezone)
+            betreff, text = render_notification(
+                summary, timezone=self._market_timezone, dashboard_url=self._dashboard_url
+            )
             self._notifier.send(betreff, text)
         except NotifierError as error:
             _logger.error("Ergebnismeldung ging nicht raus: %s", error)
