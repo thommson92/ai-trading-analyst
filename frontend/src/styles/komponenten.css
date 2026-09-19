@@ -855,3 +855,24 @@ th[aria-sort] .sortierpfeil {
   display: block;
   height: 100%;
 }
+
+/* Die Jahresverlaeufe im Fundamental-Reiter (ADR 0067). Ein Bild je Einheit,
+   nebeneinander, wo Platz ist -- auf dem Smartphone untereinander. */
+.jahresverlaeufe {
+  display: grid;
+  gap: var(--abstand-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  margin-top: var(--abstand-4);
+}
+
+.jahresverlauf {
+  margin: 0;
+  min-width: 0;
+}
+
+.jahresverlauf figcaption {
+  color: var(--schrift);
+  font-size: var(--schrift-s);
+  font-weight: 600;
+  margin-bottom: var(--abstand-2);
+}

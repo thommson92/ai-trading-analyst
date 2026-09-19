@@ -3,10 +3,13 @@ import type { ReactNode } from 'react';
 import { Karte } from '@/components/ui/Karte';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { ReportDocument } from '@/lib/api';
-import { beschrifte, formatKurs } from '@/lib/format';
+import { beschrifte, formatBetrag, formatKurs } from '@/lib/format';
+import { reihenAusDokument } from '@/lib/jahresreihen';
 
+import { Jahresverlauf } from '../Jahresverlauf';
 import { Restfelder } from '../Restfelder';
 import { Vorbehalte } from '../Vorbehalte';
+import { KENNZAHL_TEXT } from './kennzahlnamen';
 import {
   feldObjekt,
   feldText,
@@ -16,31 +19,6 @@ import {
   type JsonObjekt,
 } from '../typwaechter';
 
-const KENNZAHL_TEXT: Record<string, string | undefined> = {
-  REVENUE: 'Umsatz',
-  REVENUE_GROWTH: 'Umsatzwachstum',
-  NET_INCOME: 'Nettogewinn',
-  NET_INCOME_GROWTH: 'Gewinnwachstum',
-  FREE_CASH_FLOW: 'Freier Cashflow',
-  GROSS_MARGIN: 'Bruttomarge',
-  OPERATING_MARGIN: 'Operative Marge',
-  NET_MARGIN: 'Nettomarge',
-  FREE_CASH_FLOW_MARGIN: 'Free-Cashflow-Marge',
-  RETURN_ON_EQUITY: 'Eigenkapitalrendite',
-  RETURN_ON_ASSETS: 'Gesamtkapitalrendite',
-  DEBT_TO_EQUITY: 'Verschuldungsgrad',
-  CURRENT_RATIO: 'Liquiditätsgrad',
-  SHARE_COUNT_GROWTH: 'Aktienzahl (Veränderung)',
-  MARKET_CAPITALIZATION: 'Marktkapitalisierung',
-  PRICE_EARNINGS_RATIO: 'KGV',
-  PRICE_SALES_RATIO: 'KUV',
-  PRICE_FREE_CASH_FLOW_RATIO: 'Kurs/Free Cashflow',
-};
-
-function waehrung(m: JsonObjekt): string {
-  const w = feldText(m, 'currency');
-  return w === null ? '' : ` ${w}`;
-}
 
 // Die Einheiten des Backends (`domain/fundamentals/values.py`, `MetricUnit`):
 // FRACTION ist ein Anteil (0,25 = 25 %), RATIO ein dimensionsloses
@@ -58,9 +36,9 @@ function wertMitEinheit(m: JsonObjekt): string {
     case 'RATIO':
       return wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     case 'CURRENCY':
-      return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 0 })}${waehrung(m)}`;
+      return formatBetrag(wert, feldText(m, 'currency') ?? '');
     case 'SHARES':
-      return wert.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+      return formatBetrag(wert, 'Stück');
     default:
       return `${String(wert)}${einheit === null ? '' : ` ${einheit}`}`;
   }
@@ -88,6 +66,7 @@ export function Fundamental({ dokument }: { dokument: ReportDocument }): ReactNo
   const inhalt = inhaltObjekt(abschnitt);
   const metriken = feldObjekt(inhalt, 'metrics');
   const zeilen = metriken === null ? [] : Object.values(metriken).filter(istObjekt);
+  const reihen = reihenAusDokument(inhalt);
   return (
     <Karte titel="Fundamentale Bewertung">
       <Vorbehalte name="FUNDAMENTALE_BEWERTUNG" abschnitt={abschnitt} />
@@ -110,10 +89,19 @@ export function Fundamental({ dokument }: { dokument: ReportDocument }): ReactNo
           beschriftung="Kennzahlen"
         />
       )}
+      {reihen.length > 0 ? (
+        <Jahresverlauf reihen={reihen} />
+      ) : (
+        <p className="gedaempft">
+          Keine Jahresreihe in diesem Bericht — sie entsteht seit ADR 0067 und nur in Läufen
+          danach; ältere Berichte tragen allein den Stand ihres Tages.
+        </p>
+      )}
       <Restfelder
         objekt={inhalt}
         ausser={[
           'metrics',
+          'history',
           'company_name',
           'price_used',
           'status',

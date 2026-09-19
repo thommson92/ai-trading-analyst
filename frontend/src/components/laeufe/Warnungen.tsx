@@ -3,11 +3,25 @@ import type { ReactNode } from 'react';
 import type { AnalysisRunDetail } from '@/lib/api';
 
 export function Warnungen({ lauf }: { lauf: AnalysisRunDetail }): ReactNode {
-  const eintraege: string[] = [];
+  const eintraege: ReactNode[] = [];
   if (lauf.error_message !== null) eintraege.push(`Lauf meldet: ${lauf.error_message}`);
   if (lauf.module_errors > 0) {
+    const fehler = lauf.processing_errors ?? [];
     eintraege.push(
-      `${String(lauf.module_errors)} Aktien sind an einem Modulfehler hängen geblieben.`,
+      <>
+        {lauf.module_errors} Aktien sind an einem Fehler hängen geblieben — deshalb gilt der Lauf
+        als „teilweise abgeschlossen". Die übrigen wurden ausgewertet; ob einzelne Abschnitte
+        ihrer Berichte fehlen, sagt der jeweilige Bericht.
+        {fehler.length > 0 && (
+          <ul className="fehlerliste">
+            {fehler.map((f) => (
+              <li key={`${f.symbol}-${f.occurred_at}`}>
+                <strong>{f.symbol}</strong>: {f.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </>,
     );
   }
   if (lauf.earnings_unknown > 0) {
@@ -20,7 +34,7 @@ export function Warnungen({ lauf }: { lauf: AnalysisRunDetail }): ReactNode {
       {eintraege.length === 0 ? (
         <li className="keine">Keine.</li>
       ) : (
-        eintraege.map((text) => <li key={text}>{text}</li>)
+        eintraege.map((inhalt, stelle) => <li key={stelle}>{inhalt}</li>)
       )}
     </ul>
   );

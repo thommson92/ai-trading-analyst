@@ -115,6 +115,15 @@ function Einstufung({
   return <Kennzahl label={label} wert={wert === null ? null : beschrifte(wert.toLowerCase())} />;
 }
 
+/** "Datum (Kerze n)" -- oder nur der Index bei Berichten vor ADR 0066. */
+function signalkerze(s: JsonObjekt): string {
+  const zeit = feldText(s, 'candle_at');
+  const index = feldZahl(s, 'candle_index');
+  const kerze = index === null ? '' : `Kerze ${String(index)}`;
+  if (zeit === null) return kerze === '' ? 'Kerze unbekannt' : kerze;
+  return kerze === '' ? formatZeitpunkt(zeit) : `${formatZeitpunkt(zeit)} (${kerze})`;
+}
+
 export function Technik({ dokument }: { dokument: ReportDocument }): ReactNode {
   const a = dokument.abschnitte;
   const signale = objektliste(inhaltListe(a['TECHNISCHE_SIGNALE']));
@@ -136,9 +145,7 @@ export function Technik({ dokument }: { dokument: ReportDocument }): ReactNode {
                 <li key={stelle}>
                   <span className="signalbuchstabe">{SIGNALBUCHSTABE[typ] ?? '?'}</span>{' '}
                   {SIGNALTEXT[typ] ?? beschrifte(typ)}
-                  {feldZahl(s, 'candle_index') !== null && (
-                    <span className="gedaempft"> · Kerze {feldZahl(s, 'candle_index')}</span>
-                  )}
+                  <span className="gedaempft"> · {signalkerze(s)}</span>
                 </li>
               );
             })}

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { empfehlungsrang, formatDatum, formatEmpfehlung, formatScore } from '@/lib/format';
+import {
+  empfehlungsrang,
+  formatBetrag,
+  formatDatum,
+  formatEmpfehlung,
+  formatScore,
+} from '@/lib/format';
 
 describe('formatScore', () => {
   it('zeigt einen Strich, wo es keinen Score gibt', () => {
@@ -35,5 +41,15 @@ describe('empfehlungsrang', () => {
     expect(empfehlungsrang('STRONG_CANDIDATE')).toBe(0);
     expect(empfehlungsrang('INSUFFICIENT_DATA')).toBe(4);
     expect(empfehlungsrang(null)).toBeNull();
+  });
+});
+
+describe('formatBetrag', () => {
+  it('schreibt Milliarden und Millionen kurz, Kleines voll', () => {
+    expect(formatBetrag(62363000000, 'USD')).toBe('62,36 Mrd. USD');
+    expect(formatBetrag(4500000)).toBe('4,5 Mio.');
+    expect(formatBetrag(12345, 'USD')).toBe('12.345 USD');
+    expect(formatBetrag(-1200000000, 'USD')).toBe('-1,2 Mrd. USD');
+    expect(formatBetrag(null)).toBe('–');
   });
 });

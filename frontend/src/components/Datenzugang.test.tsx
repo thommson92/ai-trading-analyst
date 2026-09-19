@@ -146,16 +146,16 @@ describe('Der Stand', () => {
   it('nennt Lauf und Exportzeitpunkt', () => {
     render(<Stand baum={baumMit()} />);
 
-    expect(screen.getByText(/2026-09-07T17:20/)).toBeTruthy();
-    expect(screen.getByText(/2026-09-07T21:00/)).toBeTruthy();
+    // Lesbar formatiert, nicht als ISO-Zeichenkette (Rueckmeldung 2026-09-19).
+    expect(screen.getByText(/Lauf vom/).textContent).toMatch(/07\.09\.2026/);
+    expect(screen.queryByText(/T17:20|T21:00/)).toBeNull();
   });
 
-  it('nennt die Aktien ohne Chart', () => {
-    // Ohne die Liste saehe eine Aktie ohne Kursreihe im Bestand aus wie eine,
-    // deren Datei beim Hochladen verloren ging.
+  it('haelt die Kopfzeile frei von der Liste der Aktien ohne Chart', () => {
+    // Die steht je Zeile in der Aktienliste; in der Kopfzeile war sie Rauschen.
     render(<Stand baum={baumMit({ ...MANIFEST, stocks_without_chart: ['MSFT'] })} />);
 
-    expect(screen.getByText(/ohne Chart: MSFT/)).toBeTruthy();
+    expect(screen.queryByText(/ohne Chart/)).toBeNull();
   });
 
   it('warnt, wenn der Stand aelter ist als der zuletzt gesehene', () => {

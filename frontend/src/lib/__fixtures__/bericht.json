@@ -32,15 +32,18 @@
       "inhalt": [
         {
           "signal_type": "RSI_CROSS",
-          "candle_index": 2726
+          "candle_index": 2726,
+          "candle_at": "2026-09-17T17:50:00+00:00"
         },
         {
           "signal_type": "PRICE_EMA20_BREAKOUT",
-          "candle_index": 2726
+          "candle_index": 2726,
+          "candle_at": "2026-09-17T17:50:00+00:00"
         },
         {
           "signal_type": "NO_RECENT_EMA_DOWNCROSS",
-          "candle_index": 2726
+          "candle_index": 2726,
+          "candle_at": "2026-09-17T17:50:00+00:00"
         }
       ],
       "vorbehalte": []
@@ -287,7 +290,415 @@
             "period_start": "2025-07-01",
             "currency": "USD"
           }
-        }
+        },
+        "fiscal_years": [
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "history": [
+          {
+            "period_end": "2022-12-31",
+            "metrics": {
+              "REVENUE": {
+                "name": "REVENUE",
+                "value": 98000000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2022-01-01",
+                "period_end": "2022-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-22-000001",
+                    "form": "10-K",
+                    "filed": "2023-02-01",
+                    "tag": "Revenues"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_INCOME": {
+                "name": "NET_INCOME",
+                "value": 22100000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2022-01-01",
+                "period_end": "2022-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-22-000001",
+                    "form": "10-K",
+                    "filed": "2023-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "GROSS_MARGIN": {
+                "name": "GROSS_MARGIN",
+                "value": 0.38,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2022-01-01",
+                "period_end": "2022-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-22-000001",
+                    "form": "10-K",
+                    "filed": "2023-02-01",
+                    "tag": "GrossProfit"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_MARGIN": {
+                "name": "NET_MARGIN",
+                "value": 0.2255,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2022-01-01",
+                "period_end": "2022-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-22-000001",
+                    "form": "10-K",
+                    "filed": "2023-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "DEBT_TO_EQUITY": {
+                "name": "DEBT_TO_EQUITY",
+                "value": 1.42,
+                "unit": "RATIO",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2022-01-01",
+                "period_end": "2022-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-22-000001",
+                    "form": "10-K",
+                    "filed": "2023-02-01",
+                    "tag": "Liabilities"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              }
+            }
+          },
+          {
+            "period_end": "2023-12-31",
+            "metrics": {
+              "REVENUE": {
+                "name": "REVENUE",
+                "value": 110200000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2023-01-01",
+                "period_end": "2023-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-23-000001",
+                    "form": "10-K",
+                    "filed": "2024-02-01",
+                    "tag": "Revenues"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_INCOME": {
+                "name": "NET_INCOME",
+                "value": 26400000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2023-01-01",
+                "period_end": "2023-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-23-000001",
+                    "form": "10-K",
+                    "filed": "2024-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "GROSS_MARGIN": {
+                "name": "GROSS_MARGIN",
+                "value": 0.4,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2023-01-01",
+                "period_end": "2023-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-23-000001",
+                    "form": "10-K",
+                    "filed": "2024-02-01",
+                    "tag": "GrossProfit"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_MARGIN": {
+                "name": "NET_MARGIN",
+                "value": 0.2396,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2023-01-01",
+                "period_end": "2023-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-23-000001",
+                    "form": "10-K",
+                    "filed": "2024-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "DEBT_TO_EQUITY": {
+                "name": "DEBT_TO_EQUITY",
+                "value": 1.31,
+                "unit": "RATIO",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2023-01-01",
+                "period_end": "2023-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-23-000001",
+                    "form": "10-K",
+                    "filed": "2024-02-01",
+                    "tag": "Liabilities"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              }
+            }
+          },
+          {
+            "period_end": "2024-12-31",
+            "metrics": {
+              "REVENUE": {
+                "name": "REVENUE",
+                "value": 121400000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-24-000001",
+                    "form": "10-K",
+                    "filed": "2025-02-01",
+                    "tag": "Revenues"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_INCOME": {
+                "name": "NET_INCOME",
+                "value": 31900000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-24-000001",
+                    "form": "10-K",
+                    "filed": "2025-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "GROSS_MARGIN": {
+                "name": "GROSS_MARGIN",
+                "value": 0.41,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-24-000001",
+                    "form": "10-K",
+                    "filed": "2025-02-01",
+                    "tag": "GrossProfit"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_MARGIN": {
+                "name": "NET_MARGIN",
+                "value": 0.2628,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-24-000001",
+                    "form": "10-K",
+                    "filed": "2025-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "DEBT_TO_EQUITY": {
+                "name": "DEBT_TO_EQUITY",
+                "value": 1.18,
+                "unit": "RATIO",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-24-000001",
+                    "form": "10-K",
+                    "filed": "2025-02-01",
+                    "tag": "Liabilities"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              }
+            }
+          },
+          {
+            "period_end": "2025-12-31",
+            "metrics": {
+              "REVENUE": {
+                "name": "REVENUE",
+                "value": 130500000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-25-000001",
+                    "form": "10-K",
+                    "filed": "2026-02-01",
+                    "tag": "Revenues"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_INCOME": {
+                "name": "NET_INCOME",
+                "value": 36300000000,
+                "unit": "CURRENCY",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "currency": "USD",
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-25-000001",
+                    "form": "10-K",
+                    "filed": "2026-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "GROSS_MARGIN": {
+                "name": "GROSS_MARGIN",
+                "value": 0.42,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-25-000001",
+                    "form": "10-K",
+                    "filed": "2026-02-01",
+                    "tag": "GrossProfit"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "NET_MARGIN": {
+                "name": "NET_MARGIN",
+                "value": 0.2782,
+                "unit": "FRACTION",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-25-000001",
+                    "form": "10-K",
+                    "filed": "2026-02-01",
+                    "tag": "NetIncomeLoss"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              },
+              "DEBT_TO_EQUITY": {
+                "name": "DEBT_TO_EQUITY",
+                "value": 1.09,
+                "unit": "RATIO",
+                "basis": "FISCAL_YEAR",
+                "period_start": "2025-01-01",
+                "period_end": "2025-12-31",
+                "currency": null,
+                "sources": [
+                  {
+                    "cik": 320193,
+                    "accession": "0000320193-25-000001",
+                    "form": "10-K",
+                    "filed": "2026-02-01",
+                    "tag": "Liabilities"
+                  }
+                ],
+                "retrieved_at": "2026-09-17T17:40:00+00:00"
+              }
+            }
+          }
+        ]
       },
       "vorbehalte": []
     },

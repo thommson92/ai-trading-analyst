@@ -120,6 +120,11 @@ class SignalEvent:
 
     signal_type: SignalType
     candle_index: int
+    candle_at: datetime | None = None
+    """Der Zeitpunkt der Kerze -- weil der Index nach einem Tiefen-Backfill
+    auf eine andere Kerze zeigt (ADR 0061, Befund 1) und ein Bericht ohne
+    Datum niemandem sagt, wann das Signal war. ``None`` nur bei Ereignissen,
+    die vor dieser Aenderung gespeichert wurden (ADR 0066)."""
 
 
 @dataclass(frozen=True, slots=True)

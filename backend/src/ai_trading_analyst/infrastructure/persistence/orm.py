@@ -310,6 +310,16 @@ class ScreeningResultOrm(Base):
     nicht nachrechnen, und die Kennzahl waere eine Behauptung statt eines
     Belegs."""
     fundamentals_fiscal_years: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    fundamentals_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    """Je Geschaeftsjahr die Kennzahlen dieses Jahres (ADR 0067).
+
+    JSONB und keine Kindtabelle -- derselbe Grund wie bei
+    ``fundamentals_tag_conflicts``: Die Reihe wird im Ganzen geschrieben und
+    im Ganzen gelesen, nie einzeln abgefragt. Eine Tabelle mit fuenfzig
+    Zeilen je Kandidat truege nur Fremdschluessel dazu bei.
+
+    ``NULL`` bei Auswertungen vor dieser Aenderung. Keine Rueckrechnung: Eine
+    Historie aus heutigen Einreichungen waere nicht der damalige Stand."""
     fundamentals_tag_conflicts: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB, nullable=True
     )
@@ -470,6 +480,8 @@ class SignalEventOrm(Base):
     screening_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("screening_results.id"))
     signal_type: Mapped[SignalType] = mapped_column(_enum_column(SignalType))
     candle_index: Mapped[int]
+    candle_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """NULL bei Ereignissen vor ADR 0066."""
 
     screening_result: Mapped[ScreeningResultOrm] = relationship(back_populates="signal_events")
 

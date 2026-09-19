@@ -274,6 +274,35 @@ class TagConflict:
 
 
 @dataclass(frozen=True, slots=True)
+class FiscalYearMetrics:
+    """Die Kennzahlen **eines abgeschlossenen Geschaeftsjahres** (ADR 0067).
+
+    Dieselbe Struktur wie der aktuelle Stand, weil es dieselbe Rechnung ist:
+    Es laeuft derselbe ``_Rechner``, nur auf die Jahreswerte genau dieses
+    Stichtags festgelegt. Zwei Fassungen derselben Formel liefen sonst
+    auseinander, ohne dass ein Test es merkte.
+
+    Was hier **nicht** steht, steht aus einem Grund nicht da:
+
+    * **Keine Bewertungskennzahlen.** Ein KGV von 2022 brauchte den Kurs von
+      2022. Den hat dieses Modul nicht, und der heutige Kurs gegen einen
+      alten Gewinn waere keine historische Bewertung, sondern eine
+      Verwechslung.
+    * **Keine Wachstumsraten.** Sie sind selbst Mehrjahresgroessen
+      (ADR 0033). Eine Reihe von Dreijahresraten je Jahr saehe aus wie
+      Jahreswachstum und waere es nicht -- die Umsatzreihe daneben zeigt die
+      Entwicklung unmittelbar.
+    """
+
+    period_end: date
+    """Das Ende des Geschaeftsjahres."""
+    metrics: Mapping[MetricName, Metric] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+
+
+@dataclass(frozen=True, slots=True)
 class FundamentalSnapshot:
     """Das Ergebnis der deterministischen Fundamentalanalyse einer Aktie."""
 
@@ -294,6 +323,11 @@ class FundamentalSnapshot:
     metrics: Mapping[MetricName, Metric] = field(default_factory=dict)
     fiscal_years: tuple[int, ...] = ()
     """Die Geschaeftsjahre, fuer die Jahreszahlen vorlagen -- aufsteigend."""
+    history: tuple[FiscalYearMetrics, ...] = ()
+    """Je Geschaeftsjahr die Kennzahlen dieses Jahres, aeltestes zuerst
+    (ADR 0067). Leer bei Auswertungen vor dieser Aenderung und bei
+    Emittenten ohne auswertbare Jahresreihe -- und das ist eine Auskunft,
+    kein Platzhalter."""
     price_used: float | None = None
     """Der Kurs, mit dem die Bewertungskennzahlen gerechnet wurden, oder
     ``None``, wenn keiner hineingereicht wurde (ADR 0032, Entscheidung 4).

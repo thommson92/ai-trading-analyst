@@ -25,6 +25,7 @@ import { useEffect, useState, type ReactNode, type SyntheticEvent } from 'react'
 
 import { setzeDatenbaum } from '@/lib/api';
 import { datenmodus, oeffneDatenbaum, type Datenbaum } from '@/lib/datenbaum';
+import { formatZeitpunkt } from '@/lib/format';
 
 import { Seitenrahmen } from './rahmen/Seitenrahmen';
 
@@ -74,16 +75,16 @@ function pruefeRueckschritt(exportiertAm: string): string | null {
 
 export function Stand({ baum }: { baum: Datenbaum }): ReactNode {
   const manifest = baum.manifest;
-  const lauf =
-    manifest.run_completed_at ?? manifest.run_started_at ?? 'noch kein abgeschlossener Lauf';
+  // Aktien ohne Kursreihe stehen in der Aktienliste als Hinweis je Zeile,
+  // nicht mehr in der Kopfzeile (Rueckmeldung des Inhabers, 2026-09-19).
+  const lauf = manifest.run_completed_at ?? manifest.run_started_at;
   const [rueckschritt] = useState(() => pruefeRueckschritt(manifest.exported_at));
   return (
     <>
       <p className="stand">
-        Stand: Lauf vom <strong>{lauf}</strong>, exportiert {manifest.exported_at}
-        {manifest.stocks_without_chart.length > 0
-          ? ` -- ohne Chart: ${manifest.stocks_without_chart.join(', ')}`
-          : ''}
+        Stand: Lauf vom{' '}
+        <strong>{lauf === null ? 'noch kein abgeschlossener Lauf' : formatZeitpunkt(lauf)}</strong>,
+        exportiert {formatZeitpunkt(manifest.exported_at)}
       </p>
       {rueckschritt !== null ? <p className="stand fehler">{rueckschritt}</p> : null}
     </>

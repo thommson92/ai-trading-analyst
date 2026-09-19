@@ -79,10 +79,19 @@ export interface GesperrtesSymbol {
   blocking_evaluated_at: string;
 }
 
+/** Eine Aktie, die im Lauf an einem Fehler haengen blieb (ADR 0066). */
+export interface Verarbeitungsfehler {
+  symbol: string;
+  message: string;
+  occurred_at: string;
+}
+
 export interface AnalysisRunDetail extends AnalysisRun {
   earnings_excluded: number;
   earnings_unknown: number;
   module_errors: number;
+  /** Der Grund fuer PARTIALLY_COMPLETED: je Aktie der Fehler; leer bei Exporten vor ADR 0066. */
+  processing_errors?: Verarbeitungsfehler[];
   /** Rekonstruiert, nicht aufgezeichnet (ADR 0062); null bei `suppression_window_days` heisst: nicht gerechnet. */
   suppressed: GesperrtesSymbol[];
   suppression_window_days: number | null;

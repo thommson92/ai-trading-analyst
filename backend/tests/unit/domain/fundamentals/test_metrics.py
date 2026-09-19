@@ -699,3 +699,96 @@ class TestHerkunftIstPflicht:
         assert metric.retrieved_at == JETZT
         assert metric.sources
         assert metric.sources[0].url.startswith("https://www.sec.gov/Archives/edgar/data/")
+
+
+class TestJahresreihe:
+    """Die Historie je Geschaeftsjahr (ADR 0067).
+
+    Die Reihe ist kein zweites Verfahren: Sie laeuft durch dieselbe
+    Kennzahlenrechnung wie der aktuelle Stand, nur auf ein Jahr festgelegt.
+    Geprueft wird vor allem, dass sie keine Jahre mischt.
+    """
+
+    def _figures(self) -> dict[FigureName, tuple[ReportedFigure, ...]]:
+        return {
+            FigureName.REVENUE: _reihe({2022: 100.0, 2023: 120.0, 2024: 150.0}),
+            FigureName.NET_INCOME: _reihe({2022: 10.0, 2023: 18.0, 2024: 30.0}),
+        }
+
+    def test_je_jahr_stehen_die_kennzahlen_dieses_jahres(self) -> None:
+        historie = _snapshot(self._figures()).history
+
+        assert [jahr.period_end for jahr in historie] == [
+            date(2022, 12, 31),
+            date(2023, 12, 31),
+            date(2024, 12, 31),
+        ]
+        margen = [jahr.metrics[MetricName.NET_MARGIN].value for jahr in historie]
+        assert margen == pytest.approx([0.10, 0.15, 0.20])
+        umsaetze = [jahr.metrics[MetricName.REVENUE].value for jahr in historie]
+        assert umsaetze == [100.0, 120.0, 150.0]
+
+    def test_das_juengste_jahr_deckt_sich_mit_dem_aktuellen_stand(self) -> None:
+        # Ohne Zwoelfmonatswerte steht der aktuelle Stand auf demselben
+        # Geschaeftsjahr. Liefen beide durch verschiedene Rechnungen, fiele
+        # genau hier der Unterschied auf.
+        snapshot = _snapshot(self._figures())
+        juengstes = snapshot.history[-1]
+
+        assert juengstes.period_end == date(2024, 12, 31)
+        assert juengstes.metrics[MetricName.NET_MARGIN].value == pytest.approx(
+            snapshot.metrics[MetricName.NET_MARGIN].value
+        )
+
+    def test_ein_jahr_ohne_gegenstueck_traegt_keine_marge(self) -> None:
+        # 2023 hat keinen Gewinn: Die Marge dieses Jahres entsteht nicht --
+        # und schon gar nicht aus dem Gewinn eines Nachbarjahres.
+        figures = self._figures()
+        figures[FigureName.NET_INCOME] = _reihe({2022: 10.0, 2024: 30.0})
+        nach_jahr = {jahr.period_end.year: jahr for jahr in _snapshot(figures).history}
+
+        assert MetricName.NET_MARGIN not in nach_jahr[2023].metrics
+        assert nach_jahr[2023].metrics[MetricName.REVENUE].value == 120.0
+        assert nach_jahr[2024].metrics[MetricName.NET_MARGIN].value == pytest.approx(0.20)
+
+    def test_die_reihe_endet_am_aktuellen_rand(self) -> None:
+        # Mehr Jahre als ``history_years``: Die juengsten bleiben, die
+        # aeltesten fallen weg -- eine Reihe, die vor drei Jahren aufhoert,
+        # zeigte eine Entwicklung, die es so nicht mehr gibt.
+        figures = {
+            FigureName.REVENUE: _reihe({jahr: float(jahr) for jahr in range(2017, 2025)}),
+            FigureName.NET_INCOME: _reihe({jahr: float(jahr) / 10 for jahr in range(2017, 2025)}),
+        }
+        historie = _snapshot(figures, parameters=FundamentalParameters(history_years=3)).history
+
+        assert [jahr.period_end.year for jahr in historie] == [2022, 2023, 2024]
+
+    def test_bewertung_und_wachstum_stehen_in_keiner_jahreszeile(self) -> None:
+        # Ein KGV von 2022 braeuchte den Kurs von 2022, eine Dreijahresrate
+        # mehrere Jahre. Beides gehoert zum aktuellen Stand, nicht zu einem
+        # einzelnen Jahr.
+        # Jahre bis 2025: Nur so ist die Bewertung jung genug, um ueberhaupt
+        # zu entstehen (MAX_BEWERTUNGSALTER_TAGE).
+        figures = {
+            FigureName.REVENUE: _reihe({2022: 100.0, 2023: 120.0, 2024: 150.0, 2025: 180.0}),
+            FigureName.NET_INCOME: _reihe({2022: 10.0, 2023: 18.0, 2024: 30.0, 2025: 36.0}),
+        }
+        snapshot = _snapshot(
+            figures,
+            price=42.0,
+            shares_outstanding=_figure(10.0, 2025, instant=True, unit="shares"),
+        )
+
+        assert MetricName.PRICE_EARNINGS_RATIO in snapshot.metrics
+        assert MetricName.REVENUE_GROWTH in snapshot.metrics
+        for jahr in snapshot.history:
+            assert MetricName.PRICE_EARNINGS_RATIO not in jahr.metrics
+            assert MetricName.REVENUE_GROWTH not in jahr.metrics
+
+    def test_jede_zahl_der_reihe_nennt_ihre_quelle(self) -> None:
+        # Die Quellenbindung aus CLAUDE.md gilt auch hier: Jede Zahl der
+        # Historie verweist auf die Einreichung, aus der sie stammt.
+        for jahr in _snapshot(self._figures()).history:
+            for metric in jahr.metrics.values():
+                assert metric.sources
+                assert all(quelle.accession for quelle in metric.sources)

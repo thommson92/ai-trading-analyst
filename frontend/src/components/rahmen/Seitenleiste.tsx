@@ -49,7 +49,7 @@ export function Seitenleiste({ onNavigiert }: { onNavigiert: () => void }): Reac
           })}
         </ul>
       </nav>
-      <p className="seitenleiste-fuss">Persönliches Analyse-Dashboard</p>
+      <p className="seitenleiste-fuss">© Thomas Kellner</p>
     </aside>
   );
 }
