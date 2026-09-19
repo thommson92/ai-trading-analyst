@@ -5,7 +5,13 @@ import { Empfehlungsbadge } from '@/components/kandidaten/Empfehlungsbadge';
 import { Signalbuchstaben } from '@/components/kandidaten/Signalbuchstaben';
 import { Tabelle, type Spalte } from '@/components/ui/Tabelle';
 import type { ReportSummary } from '@/lib/api';
-import { EARNINGS_TEXT, formatKurs, formatScore, formatZeitpunkt } from '@/lib/format';
+import {
+  EARNINGS_TEXT,
+  empfehlungsrang,
+  formatKurs,
+  formatScore,
+  formatZeitpunkt,
+} from '@/lib/format';
 import { berichtAdresse, laufAdresse } from '@/lib/url';
 
 const SPALTEN: readonly Spalte<ReportSummary>[] = [
@@ -32,7 +38,7 @@ const SPALTEN: readonly Spalte<ReportSummary>[] = [
     schluessel: 'empfehlung',
     titel: 'Empfehlung',
     render: (b) => <Empfehlungsbadge stufe={b.recommendation} />,
-    sortWert: (b) => b.recommendation,
+    sortWert: (b) => empfehlungsrang(b.recommendation),
   },
   {
     schluessel: 'swing',
