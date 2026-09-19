@@ -3698,6 +3698,10 @@ def command_publish(args: argparse.Namespace) -> int:
             }
         )
 
+    if args.ohne_build and not args.full:
+        print("--ohne-build gilt nur zusammen mit --full.", file=sys.stderr)
+        return 2
+
     # Vor der Datenbank: Ein abgeschalteter Export braucht keine Verbindung,
     # und die Meldung dazu soll nicht hinter einem Verbindungsfehler stehen.
     if config.dashboard_export.target == "none":
@@ -3729,22 +3733,19 @@ def command_publish(args: argparse.Namespace) -> int:
     if publisher is None:  # pragma: no cover -- oben bereits abgefangen
         return 2
 
+    oberflaeche = None
     if args.full and not args.ohne_build:
         # Die Oberflaeche zuerst (ADR 0065): Ein voller Export soll nicht eine
-        # alte Oberflaeche zu neuen Daten hinausschicken. Scheitert der Bau,
-        # wird nichts geschrieben -- Server und Anbieter bleiben beide alt.
+        # alte Oberflaeche zu neuen Daten hinausschicken. Gebaut wird unter
+        # der Exportsperre; scheitert der Bau, wird nichts geschrieben.
         try:
-            baubericht = build_frontend_bauer(config, project_root(loaded.source_path)).baue()
+            oberflaeche = build_frontend_bauer(config, project_root(loaded.source_path)).baue
         except ValueError as error:
             print(f"Konfiguration: {error}", file=sys.stderr)
             return 2
-        except DashboardPublisherError as error:
-            print(f"Oberflaeche nicht gebaut: {redact_registered(str(error))}", file=sys.stderr)
-            return 1
-        print(f"Oberflaeche gebaut: {baubericht.als_text()}")
 
     try:
-        bericht = publisher.schreibe_baum(voll=args.full)
+        bericht = publisher.schreibe_baum(voll=args.full, oberflaeche=oberflaeche)
     except DashboardPreviewUrlError as error:
         # Der Baum ist draussen. Trotzdem Rueckgabewert 1: Das hier ist ein
         # Sicherheitsbefund, und er soll nicht in einer gruenen Ausgabe
@@ -3900,6 +3901,10 @@ def command_dispatch(args: argparse.Namespace) -> int:
         dashboard_publisher = build_dashboard_publisher(
             config, secrets, project_root(loaded.source_path), uow_factory=uow_factory
         )
+        # Der Link in der Meldung (ADR 0065) -- hier und nicht im Lauf, damit
+        # eine falsche Adresse vor dem Backfill auffaellt und nicht jeden
+        # Versuch des Tages als gescheiterten Lauf verbucht.
+        dashboard_url = build_dashboard_url(config, secrets)
     except (ValueError, MissingSecretError) as error:
         print(f"Konfiguration (Dashboard-Export): {error}", file=sys.stderr)
         return 2
@@ -3965,9 +3970,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Der Snapshot fuer das Dashboard ausserhalb des Servers
             # (ADR 0060). Ausgeliefert ist er abgeschaltet und damit ``None``.
             dashboard_publisher=dashboard_publisher,
-            # Der Link in der Meldung (ADR 0065) -- nur mit Export zum
-            # Anbieter und nur verschluesselt (ADR 0060, E5).
-            dashboard_url=build_dashboard_url(config, secrets),
+            dashboard_url=dashboard_url,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol

@@ -14,18 +14,24 @@ die Umgebung, Ausgabe in Dateien, Zeitgrenze.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ai_trading_analyst.domain.scheduling import DashboardPublisherError
 from ai_trading_analyst.observability.logging_setup import get_logger
 
-from .upload import _UMGEBUNG_UEBERNOMMEN, PFLICHTDATEIEN, _starte_prozess
+from .upload import (
+    _STEUERZEICHEN,
+    PFLICHTDATEIEN,
+    Prozessstarter,
+    _letzte_zeilen,
+    _starte_prozess,
+    basisumgebung,
+)
 
 _logger = get_logger(__name__)
 
@@ -37,11 +43,6 @@ DATENVERZEICHNIS = "data"
 """Der Datenbaum im veroeffentlichten Verzeichnis. Er gehoert dem
 Exportschritt und bleibt beim Kopieren der Oberflaeche unangetastet."""
 
-Prozessstarter = Callable[
-    [Sequence[str], Path, dict[str, str], int], "subprocess.CompletedProcess[str]"
-]
-
-
 @dataclass(frozen=True, slots=True)
 class Bauziel:
     frontend: Path
@@ -49,6 +50,10 @@ class Bauziel:
     verzeichnis: Path
     """Das veroeffentlichte Verzeichnis, in das die Oberflaeche kommt."""
     zeitgrenze: int
+    datenmodus: Literal["verschluesselt", "statisch"] = "verschluesselt"
+    """Das Verfahren des Baums -- Eigenschaft des Builds (ADR 0060). Folgt
+    ``dashboard_export.encrypt``: Eine verschluesselte Oberflaeche ueber
+    einem Klartextbaum fragte nach einer Passphrase, die es nicht gibt."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,9 +119,10 @@ class FrontendBauer:
                 "geantwortet und wurde abgebrochen."
             ) from fehler
         if ergebnis.returncode != 0:
+            ausgabe = _STEUERZEICHEN.sub("", f"{ergebnis.stdout or ''}\n{ergebnis.stderr or ''}")
             raise DashboardPublisherError(
                 f"Der Bau der Oberflaeche ist gescheitert (Rueckgabe {ergebnis.returncode}): "
-                f"{_letzte_zeilen(ergebnis.stderr or ergebnis.stdout)}"
+                f"{_letzte_zeilen(ausgabe)}"
             )
         quelle = self._ziel.frontend / AUSGABEVERZEICHNIS
         fehlende = [name for name in PFLICHTDATEIEN if not (quelle / name).is_file()]
@@ -124,17 +130,31 @@ class FrontendBauer:
             raise DashboardPublisherError(
                 f"Der Bau hat {', '.join(fehlende)} nicht erzeugt ({quelle})."
             )
-        anzahl = self._kopiere(quelle)
+        try:
+            anzahl = self._kopiere(quelle)
+        except OSError as fehler:
+            # Unter Windows haelt schon ein offener Explorer eine Datei fest.
+            raise DashboardPublisherError(
+                f"Die Oberflaeche liess sich nicht in {self._ziel.verzeichnis} legen: {fehler}"
+            ) from fehler
         return Baubericht(dateien=anzahl, dauer_sekunden=time.monotonic() - begonnen)
 
     def _kopiere(self, quelle: Path) -> int:
         """Alte Oberflaeche raus, neue rein, Datenbaum stehen lassen.
 
-        Die Buendel von Next tragen einen Hash je Bau; ohne das Aufraeumen
-        blieben die Buendel jedes frueheren Baus liegen und gingen mit hinaus
-        (Doc 14, Stufe K, Schritt 2).
+        Erst vollstaendig in ein Zwischenverzeichnis daneben kopiert, dann
+        getauscht: Das Fenster, in dem das veroeffentlichte Verzeichnis ohne
+        ``index.html`` steht, ist damit ein Verschieben je Eintrag und kein
+        Kopieren je Datei. Die Buendel von Next tragen einen Hash je Bau;
+        ohne das Aufraeumen blieben die Buendel jedes frueheren Baus liegen
+        und gingen mit hinaus (Doc 14, Stufe K, Schritt 2).
         """
         ziel = self._ziel.verzeichnis
+        zwischen = ziel.with_name(ziel.name + ".neu")
+        if zwischen.exists():
+            shutil.rmtree(zwischen)
+        shutil.copytree(quelle, zwischen, ignore=shutil.ignore_patterns(DATENVERZEICHNIS))
+        anzahl = sum(1 for pfad in zwischen.rglob("*") if pfad.is_file())
         ziel.mkdir(parents=True, exist_ok=True)
         for eintrag in ziel.iterdir():
             if eintrag.name == DATENVERZEICHNIS:
@@ -143,35 +163,17 @@ class FrontendBauer:
                 shutil.rmtree(eintrag)
             else:
                 eintrag.unlink()
-        anzahl = 0
-        for pfad in quelle.rglob("*"):
-            if not pfad.is_file():
-                continue
-            relativ = pfad.relative_to(quelle)
-            if relativ.parts[0] == DATENVERZEICHNIS:
-                # Kaeme je ein `data/` aus dem Bau, laege es ueber dem Baum.
-                continue
-            wohin = ziel / relativ
-            wohin.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(pfad, wohin)
-            anzahl += 1
+        for eintrag in zwischen.iterdir():
+            shutil.move(str(eintrag), str(ziel / eintrag.name))
+        zwischen.rmdir()
         return anzahl
 
     def _umgebung(self) -> dict[str, str]:
-        umgebung = {
-            name: wert
-            for name in _UMGEBUNG_UEBERNOMMEN
-            if (wert := os.environ.get(name)) is not None
-        }
+        umgebung = basisumgebung()
         # Das Verfahren ist Eigenschaft des Builds (ADR 0060): Nur dieser
         # Wert macht aus der Oberflaeche die Zero-Knowledge-Fassung.
-        umgebung["NEXT_PUBLIC_DATENMODUS"] = "verschluesselt"
+        umgebung["NEXT_PUBLIC_DATENMODUS"] = self._ziel.datenmodus
         umgebung["NEXT_TELEMETRY_DISABLED"] = "1"
         umgebung["NO_COLOR"] = "1"
         umgebung["CI"] = "1"
         return umgebung
-
-
-def _letzte_zeilen(text: str, anzahl: int = 10) -> str:
-    zeilen = [zeile for zeile in text.splitlines() if zeile.strip()]
-    return "\n".join(zeilen[-anzahl:])

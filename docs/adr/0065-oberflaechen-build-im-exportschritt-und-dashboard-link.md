@@ -45,8 +45,14 @@ Der Inhaber hat beides am 2026-09-18 für den Plan bestätigt.
    (`frontend/out-verschluesselt`, über `distDir` in `next.config.ts`).
    Der LAN-Build in `frontend/out` bleibt stehen; Doc 14 verliert damit
    den Schritt „LAN-Build sofort wiederherstellen". Das Zwischenverzeichnis
-   `.next` teilen sich beide — nie parallel bauen; die Exportsperre deckt
-   den Tageslauf, `publish` läuft von Hand.
+   `.next` teilen sich beide — nie parallel bauen. Deshalb läuft der Bau
+   **unter der Exportsperre**, als Schritt von `schreibe_baum`: Ein
+   Tageslauf, der während des Kopierens exportierte, läse ein halbes
+   Verzeichnis. Der Bau folgt `dashboard_export.encrypt` — ohne
+   Verschlüsselung entsteht die statische Fassung, denn eine
+   Zero-Knowledge-Oberfläche über einem Klartextbaum fragte nach einer
+   Passphrase, die es nicht gibt. Und weil der Bau das Verzeichnis leert,
+   weist der Start ein Ziel ab, das das Projekt oder das Frontend umfasst.
 4. **Die Ergebnismeldung trägt den Link zum Lauf** —
    `https://<worker>.<subdomain>.workers.dev/laeufe/?id=<lauf>` — aus der
    neuen Variablen `ATA_DASHBOARD_URL`. Sie wird beim Start geprüft:

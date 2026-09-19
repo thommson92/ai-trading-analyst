@@ -520,10 +520,17 @@ class TestDashboardLink:
         )
         erster_block = text.split("\n\n")[0]
         assert erster_block.startswith(f"Dashboard: https://w.k.workers.dev/laeufe/?id={summary.run.id}")
-        assert "nach dem Export" in erster_block
+        assert "sobald der Export durch ist" in erster_block
         assert summary.outcomes[0].stock.symbol not in erster_block
 
     def test_auch_ohne_kandidaten_steht_der_link(self) -> None:
         summary = zusammenfassung()
         _, text = render_notification(summary, timezone=_NY, dashboard_url="https://w.k.workers.dev/")
         assert text.startswith("Dashboard:")
+
+    def test_die_adressform_ist_die_des_frontends(self) -> None:
+        """Vertrag mit ``frontend/src/lib/url.ts`` (``laufAdresse``): dort steht
+        ``/laeufe/?id=<lauf>``; ``url.test.ts`` haelt dieselbe Form fest."""
+        summary = zusammenfassung(make_outcome())
+        _, text = render_notification(summary, timezone=_NY, dashboard_url="https://w.k.workers.dev/")
+        assert f"https://w.k.workers.dev/laeufe/?id={summary.run.id}" in text

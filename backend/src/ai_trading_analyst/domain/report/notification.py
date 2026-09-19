@@ -87,10 +87,13 @@ def render_notification(
 def _dashboard_zeile(dashboard_url: str, summary: AnalysisRunSummary) -> str:
     """Die Adresse des Laufs im Dashboard -- mit dem Hinweis, dass der Stand
     dort erst nach dem Export steht: Die Meldung geht vor dem Export hinaus,
-    und der dauert eine Viertelstunde (ADR 0065)."""
+    und der dauert eine Viertelstunde (ADR 0065). Die Form ``laeufe/?id=``
+    ist die des Frontends (``frontend/src/lib/url.ts``, ``laufAdresse``);
+    beide Seiten halten sie in einem Test fest."""
     return (
         f"Dashboard: {dashboard_url}laeufe/?id={summary.run.id}\n"
-        "(Stand dort nach dem Export, etwa eine Viertelstunde nach dieser Meldung)"
+        "(der Stand dieses Laufs steht dort, sobald der Export durch ist -- meist "
+        "eine Viertelstunde nach dieser Meldung)"
     )
 
 

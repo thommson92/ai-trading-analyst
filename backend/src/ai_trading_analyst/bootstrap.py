@@ -15,6 +15,7 @@ from functools import cache, partial
 from importlib import metadata
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -837,6 +838,10 @@ def build_dashboard_url(config: AppConfig, secrets: Secrets) -> str | None:
     gibt es keinen Link und keinen Fehler; mit einer Adresse, die nicht zum
     Anbieter oder nicht zum Worker passt, bricht der Start ab: Ein falscher
     Link in jeder Meldung waere schlimmer als keiner.
+
+    Raises:
+        ValueError: bei einer Adresse in fremder Form.
+        MissingSecretError: wenn der Worker-Name fehlt, gegen den geprueft wird.
     """
     einstellungen = config.dashboard_export
     if einstellungen.target != "cloudflare" or not einstellungen.encrypt:
@@ -844,17 +849,24 @@ def build_dashboard_url(config: AppConfig, secrets: Secrets) -> str | None:
     roh = secrets.dashboard_url
     if roh is None:
         return None
-    adresse = roh.get_secret_value().strip()
-    if not adresse.startswith("https://"):
-        raise ValueError("ATA_DASHBOARD_URL muss mit https:// beginnen.")
-    host = adresse.removeprefix("https://").split("/", 1)[0].lower()
-    # <worker>.<subdomain>.workers.dev: genau drei Punkte.
-    if not host.endswith(".workers.dev") or host.count(".") != 3:
-        raise ValueError(
-            "ATA_DASHBOARD_URL muss die Form https://<worker>.<subdomain>.workers.dev/ haben."
-        )
-    worker = secrets.dashboard_publish_worker
-    if worker is not None and host.split(".", 1)[0] != worker.get_secret_value().strip():
+    form = "ATA_DASHBOARD_URL muss die Form https://<worker>.<subdomain>.workers.dev/ haben."
+    teile = urlsplit(roh.get_secret_value().strip())
+    host = teile.hostname
+    if (
+        teile.scheme != "https"
+        or host is None
+        or teile.username is not None
+        or teile.port is not None
+        or teile.query
+        or teile.fragment
+        or teile.path not in ("", "/")
+    ):
+        raise ValueError(form)
+    glieder = host.split(".")
+    if len(glieder) != 4 or glieder[-2:] != ["workers", "dev"]:
+        raise ValueError(form)
+    worker = secrets.require("dashboard_publish_worker").strip()
+    if glieder[0] != worker:
         raise ValueError(
             "ATA_DASHBOARD_URL nennt einen anderen Worker als ATA_DASHBOARD_PUBLISH_WORKER."
         )
@@ -865,18 +877,27 @@ def build_frontend_bauer(config: AppConfig, root: Path) -> FrontendBauer:
     """Der Bau der Oberflaeche fuer ``publish --full`` (ADR 0065).
 
     Raises:
-        ValueError: wenn kein veroeffentlichtes Verzeichnis eingestellt ist.
+        ValueError: wenn kein veroeffentlichtes Verzeichnis eingestellt ist
+            oder es das Projekt selbst umfasst -- der Bau leert es.
     """
     einstellungen = config.dashboard_export
     if not einstellungen.directory:
+        raise ValueError("dashboard_export.directory fehlt -- ohne Ziel gibt es nichts zu bauen.")
+    frontend = (root / "frontend").resolve()
+    verzeichnis = (root / einstellungen.directory).resolve()
+    if root.resolve().is_relative_to(verzeichnis) or frontend.is_relative_to(verzeichnis):
+        # Der Bau leert das Verzeichnis bis auf ``data/``. Zeigte es auf das
+        # Projekt oder das Frontend, waere das ein Loeschen des Quellcodes.
         raise ValueError(
-            "dashboard_export.directory fehlt -- ohne Ziel gibt es nichts zu bauen."
+            f"dashboard_export.directory ({verzeichnis}) umfasst das Projekt -- der Bau der "
+            "Oberflaeche leert das Verzeichnis und darf dort nicht arbeiten."
         )
     return FrontendBauer(
         Bauziel(
-            frontend=(root / "frontend").resolve(),
-            verzeichnis=(root / einstellungen.directory).resolve(),
+            frontend=frontend,
+            verzeichnis=verzeichnis,
             zeitgrenze=einstellungen.build_timeout_seconds,
+            datenmodus="verschluesselt" if einstellungen.encrypt else "statisch",
         )
     )
 

@@ -4,6 +4,7 @@ eingesetzten Prozessstarter, `next` selbst laeuft hier nicht."""
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -137,4 +138,31 @@ def test_eine_zeitueberschreitung_ist_ein_bau_fehler(tmp_path: Path) -> None:
         starter=Starter(fehler=subprocess.TimeoutExpired(cmd="next", timeout=1)),
     )
     with pytest.raises(DashboardPublisherError, match="1 s"):
+        bauer.baue()
+
+
+def test_der_statische_datenmodus_wird_durchgereicht(tmp_path: Path) -> None:
+    starter = Starter()
+    ziel_statisch = Bauziel(
+        frontend=frontend(tmp_path),
+        verzeichnis=ziel(tmp_path),
+        zeitgrenze=30,
+        datenmodus="statisch",
+    )
+    FrontendBauer(ziel_statisch, starter=starter).baue()
+    assert starter.aufrufe[0][2]["NEXT_PUBLIC_DATENMODUS"] == "statisch"
+
+
+def test_ein_fehler_beim_ablegen_ist_ein_bau_fehler_und_kein_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def kaputt(*_: object, **__: object) -> None:
+        raise PermissionError("Datei gesperrt")
+
+    monkeypatch.setattr(shutil, "copytree", kaputt)
+    bauer = FrontendBauer(
+        Bauziel(frontend=frontend(tmp_path), verzeichnis=ziel(tmp_path), zeitgrenze=30),
+        starter=Starter(),
+    )
+    with pytest.raises(DashboardPublisherError, match="Datei gesperrt"):
         bauer.baue()

@@ -321,7 +321,7 @@ class TestKommandozeile:
 
         assert config.dashboard_export.target == "cloudflare"
         assert config.dashboard_export.directory == "var/vorgabe"
-        assert argumente == {"voll": False}
+        assert argumente == {"voll": False, "oberflaeche": None}
 
     def test_directory_uebersteuert_kein_ausdrueckliches_ziel(
         self, monkeypatch: pytest.MonkeyPatch
@@ -599,3 +599,70 @@ class TestDerAusgelieferteStand:
     def test_ausgeliefert_bleibt_der_export_aus(self) -> None:
         """Der Pfad ist ein Ort, kein Betriebszustand."""
         assert load_config().config.dashboard_export.target == "none"
+
+
+class TestOberflaechenbau:
+    """ADR 0065: ``--full`` baut die Oberflaeche -- ueber den Publisher, unter
+    dessen Sperre; ``--ohne-build`` laesst es aus."""
+
+    def _publish(
+        self, monkeypatch: pytest.MonkeyPatch, *argumente: str
+    ) -> tuple[int, dict[str, object], list[str]]:
+        from types import SimpleNamespace
+
+        from ai_trading_analyst import cli
+
+        geladen = load_config()
+        vorgabe = SimpleNamespace(
+            config=konfiguration(target="directory", directory="var/vorgabe"),
+            source_path=geladen.source_path,
+        )
+        gesehen: dict[str, object] = {}
+        reihenfolge: list[str] = []
+
+        class _Bauer:
+            def baue(self) -> object:
+                reihenfolge.append("bau")
+                return SimpleNamespace(als_text=lambda: "gebaut")
+
+        class _Veroeffentlicher:
+            def schreibe_baum(self, **argumente: object) -> object:
+                gesehen.update(argumente)
+                oberflaeche = argumente.get("oberflaeche")
+                if callable(oberflaeche):
+                    oberflaeche()
+                reihenfolge.append("schreiben")
+                return SimpleNamespace(als_text=lambda: "geschrieben")
+
+        monkeypatch.setattr(cli, "load_config", lambda *_: vorgabe)
+        monkeypatch.setattr(cli, "_open_database", lambda: object())
+        monkeypatch.setattr(cli, "build_session_factory", lambda _: None)
+        monkeypatch.setattr(cli, "build_dashboard_publisher", lambda *a, **k: _Veroeffentlicher())
+        monkeypatch.setattr(cli, "build_frontend_bauer", lambda *a, **k: _Bauer())
+        code = cli.main(["publish", *argumente])
+        return code, gesehen, reihenfolge
+
+    def test_full_baut_vor_dem_schreiben(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        code, gesehen, reihenfolge = self._publish(monkeypatch, "--full")
+        assert code == 0
+        assert callable(gesehen["oberflaeche"])
+        assert reihenfolge == ["bau", "schreiben"]
+
+    def test_ohne_build_laesst_den_bau_aus(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        code, gesehen, reihenfolge = self._publish(monkeypatch, "--full", "--ohne-build")
+        assert code == 0
+        assert gesehen["oberflaeche"] is None
+        assert reihenfolge == ["schreiben"]
+
+    def test_ohne_full_wird_nie_gebaut(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, gesehen, reihenfolge = self._publish(monkeypatch)
+        assert gesehen["oberflaeche"] is None
+        assert reihenfolge == ["schreiben"]
+
+    def test_ohne_build_allein_ist_ein_fehler(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code, _, reihenfolge = self._publish(monkeypatch, "--ohne-build")
+        assert code == 2
+        assert reihenfolge == []
+        assert "--full" in capsys.readouterr().err

@@ -40,6 +40,7 @@ from .crypto import (
     kopf,
     leite_schluessel_ab,
 )
+from .frontend_build import Baubericht
 from .upload import Hochladebericht, Hochlader
 from .writer import Exportzustand, Schreibbericht, Verzeichnisschreiber
 
@@ -89,10 +90,15 @@ class Exportbericht:
     schreiben: Schreibbericht
     hochladen: Hochladebericht | None
 
+    oberflaeche: Baubericht | None = None
+    """Gesetzt, wenn ``publish --full`` die Oberflaeche mitgebaut hat (ADR 0065)."""
+
     def als_text(self) -> str:
-        if self.hochladen is None:
-            return self.schreiben.als_text()
-        return f"{self.schreiben.als_text()}; {self.hochladen.als_text()}"
+        teile = [] if self.oberflaeche is None else [self.oberflaeche.als_text()]
+        teile.append(self.schreiben.als_text())
+        if self.hochladen is not None:
+            teile.append(self.hochladen.als_text())
+        return "; ".join(teile)
 
 
 class SnapshotPublisher:
@@ -164,8 +170,15 @@ class SnapshotPublisher:
         """
         self.schreibe_baum()
 
-    def schreibe_baum(self, *, voll: bool = False) -> Exportbericht:
+    def schreibe_baum(
+        self, *, voll: bool = False, oberflaeche: Callable[[], Baubericht] | None = None
+    ) -> Exportbericht:
         """Schreibt den Snapshot und sendet ihn, wenn ein Hochlader da ist.
+
+        ``oberflaeche`` baut vorher die Oberflaeche in das Verzeichnis
+        (ADR 0065) -- **unter derselben Sperre** wie Schreiben und Senden:
+        Ein Tageslauf, der waehrend des Baus exportierte, laese ein halbes
+        Verzeichnis. Scheitert der Bau, wird nichts geschrieben.
 
         ``voll`` verwirft den bekannten Stand und schreibt jede Datei neu.
         Das ist der Weg nach einem Anbieterwechsel und nach jedem Zweifel,
@@ -194,6 +207,7 @@ class SnapshotPublisher:
             "Vollexport" if voll else "nur Aenderungen",
         )
         with self._sperre():
+            gebaut = None if oberflaeche is None else oberflaeche()
             try:
                 zustand = self._zustand()
                 if voll:
@@ -214,7 +228,9 @@ class SnapshotPublisher:
             # dem Anbieter voraus ist und im anderen nicht.
             hochgeladen = self._sende(geschrieben)
 
-        bericht = Exportbericht(schreiben=geschrieben, hochladen=hochgeladen)
+        bericht = Exportbericht(
+            schreiben=geschrieben, hochladen=hochgeladen, oberflaeche=gebaut
+        )
         _logger.info(
             "Dashboard-Export fertig nach %.1f s: %s",
             time.monotonic() - begonnen,

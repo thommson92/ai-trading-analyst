@@ -24,6 +24,7 @@ from ai_trading_analyst.bootstrap import (
     build_dashboard_url,
     build_earnings_provider,
     build_finnhub_earnings_provider,
+    build_frontend_bauer,
     build_fundamental_data_provider,
     build_market_data_provider,
     build_research_provider,
@@ -724,13 +725,31 @@ class TestDashboardAdresse:
 
     @pytest.mark.parametrize(
         "adresse",
-        ["http://w.k.workers.dev/", "https://beispiel.de/", "https://a.b.c.workers.dev/"],
+        [
+            "http://w.k.workers.dev/",
+            "https://beispiel.de/",
+            "https://a.b.c.workers.dev/",
+            "https://w.io?.workers.dev/",
+            "https://evil.com#.workers.dev",
+            "https://user:pw@w.k.workers.dev/",
+            "https://w.k.workers.dev:8443/",
+            "https://w.k.workers.dev/laeufe/",
+        ],
     )
     def test_fremde_formen_brechen_den_start_ab(
         self, adresse: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("ATA_DASHBOARD_URL", adresse)
+        monkeypatch.setenv("ATA_DASHBOARD_PUBLISH_WORKER", "w")
         with pytest.raises(ValueError, match="ATA_DASHBOARD_URL"):
+            build_dashboard_url(self._config(), Secrets())
+
+    def test_ohne_worker_name_gibt_es_keinen_link_sondern_einen_fehler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ATA_DASHBOARD_URL", "https://w.k.workers.dev/")
+        monkeypatch.delenv("ATA_DASHBOARD_PUBLISH_WORKER", raising=False)
+        with pytest.raises(MissingSecretError):
             build_dashboard_url(self._config(), Secrets())
 
     def test_ein_anderer_worker_faellt_auf(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -738,3 +757,25 @@ class TestDashboardAdresse:
         monkeypatch.setenv("ATA_DASHBOARD_PUBLISH_WORKER", "w")
         with pytest.raises(ValueError, match="anderen Worker"):
             build_dashboard_url(self._config(), Secrets())
+
+
+class TestFrontendBauerAufbau:
+    def _config(self, directory: str, encrypt: bool = True) -> AppConfig:
+        config = load_config().config
+        export = config.dashboard_export.model_copy(
+            update={"target": "directory", "encrypt": encrypt, "directory": directory}
+        )
+        return config.model_copy(update={"dashboard_export": export})
+
+    def test_ein_verzeichnis_ueber_dem_projekt_wird_abgewiesen(self, tmp_path: Path) -> None:
+        for directory in (".", "..", "frontend"):
+            with pytest.raises(ValueError, match="umfasst das Projekt"):
+                build_frontend_bauer(self._config(directory), tmp_path)
+
+    def test_der_datenmodus_folgt_encrypt(self, tmp_path: Path) -> None:
+        # Ohne Verschluesselung baut er die statische Fassung -- sonst fragte
+        # die Oberflaeche nach einer Passphrase, die es nicht gibt.
+        verschluesselt = build_frontend_bauer(self._config("var/dashboard"), tmp_path)
+        statisch = build_frontend_bauer(self._config("var/dashboard", encrypt=False), tmp_path)
+        assert verschluesselt._ziel.datenmodus == "verschluesselt"
+        assert statisch._ziel.datenmodus == "statisch"
