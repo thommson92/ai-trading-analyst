@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Karte } from '@/components/ui/Karte';
 import { Kennzahl, Kennzahlen } from '@/components/ui/Kennzahl';
 import type { ReportDocument } from '@/lib/api';
-import { LIQUIDITAET_TEXT, beschrifte, formatDatum, formatKurs, formatProzent } from '@/lib/format';
+import { LIQUIDITAET_TEXT, beschrifte, formatKurs, formatProzent, formatTag } from '@/lib/format';
 
 import { Restfelder } from '../Restfelder';
 import { Vorbehalte } from '../Vorbehalte';
@@ -49,7 +49,7 @@ function Vorschlag({ put, rang }: { put: JsonObjekt; rang: number }): ReactNode 
   return (
     <Karte
       className="putkarte"
-      titel={`${String(rang)}. Strike ${formatKurs(feldZahl(put, 'strike'))} · Verfall ${formatDatum(feldText(put, 'expiration') ?? '')}`}
+      titel={`${String(rang)}. Strike ${formatKurs(feldZahl(put, 'strike'))} · Verfall ${formatTag(feldText(put, 'expiration'))}`}
       kopf={
         <>
           {liquiditaet !== null && <Badge>{LIQUIDITAET_TEXT[liquiditaet] ?? liquiditaet}</Badge>}

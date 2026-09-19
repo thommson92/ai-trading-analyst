@@ -78,4 +78,16 @@ describe('Der Kandidatenbericht', () => {
       'https://www.reuters.com/x',
     );
   });
+
+  it('rechnet die Einheiten des Backends richtig um', () => {
+    // FRACTION ist ein Anteil, RATIO ein Verhaeltnis: 0,42 sind 42 %, ein
+    // KGV von 34,2 bleibt 34,20 -- und nie 3420 %.
+    suche.set('tab', 'fundamental');
+    render(<Berichtsseite dokument={DOKUMENT} />);
+    expect(screen.getByText('KGV')).toBeTruthy();
+    expect(screen.getByText('34,20')).toBeTruthy();
+    expect(screen.getByText('42 %')).toBeTruthy();
+    expect(screen.getByText('130.500.000.000 USD')).toBeTruthy();
+    expect(screen.queryByText(/3420/)).toBeNull();
+  });
 });

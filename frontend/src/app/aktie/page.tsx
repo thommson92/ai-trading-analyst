@@ -43,14 +43,23 @@ function AktieInhalt(): ReactNode {
   // Getrennt vom Rest: Dass keine Kerzen im Bestand liegen, ist eine
   // Auskunft ueber die Datenlage; Historie und Kennzahlen bleiben gueltig.
   const [chartfehler, setChartfehler] = useState<string | null>(null);
+  // Eine aeltere Messung (`?messung=`) betrifft nur den Optionsbacktest.
+  // Sie wird getrennt geladen: Ausserhalb des Servers liegt je Aktie nur
+  // die juengste, und dieser eine Fehler soll Historie, Chart und
+  // Signal-Backtest nicht mitreissen.
+  const [messungsstand, setMessungsstand] = useState<AktienBacktest | null>(null);
+  const [messungsfehler, setMessungsfehler] = useState<string | null>(null);
 
   useEffect(() => {
     if (symbol === null) return;
     let abgemeldet = false;
-    Promise.all([
-      listStockReports(symbol, { limit: 100 }),
-      getAktienBacktest(symbol, messung ?? undefined),
-    ])
+    // Sonst staenden beim Wechsel der Aktie (Browser-Zurueck) Kerzen,
+    // Historie und Fehler der vorigen unter dem neuen Kopf.
+    setStand(null);
+    setChart(null);
+    setFehler(null);
+    setChartfehler(null);
+    Promise.all([listStockReports(symbol, { limit: 100 }), getAktienBacktest(symbol)])
       .then(([seite, backtest]) => {
         if (!abgemeldet) setStand({ berichte: seite.items, gesamt: seite.total, backtest });
       })
@@ -63,6 +72,23 @@ function AktieInhalt(): ReactNode {
       })
       .catch((ursache: unknown) => {
         if (!abgemeldet) setChartfehler(alsFehlertext(ursache));
+      });
+    return () => {
+      abgemeldet = true;
+    };
+  }, [symbol]);
+
+  useEffect(() => {
+    setMessungsstand(null);
+    setMessungsfehler(null);
+    if (symbol === null || messung === null) return;
+    let abgemeldet = false;
+    getAktienBacktest(symbol, messung)
+      .then((geladen) => {
+        if (!abgemeldet) setMessungsstand(geladen);
+      })
+      .catch((ursache: unknown) => {
+        if (!abgemeldet) setMessungsfehler(alsFehlertext(ursache));
       });
     return () => {
       abgemeldet = true;
@@ -154,7 +180,19 @@ function AktieInhalt(): ReactNode {
               <Signalbacktest ergebnisse={stand.backtest.signal_backtests} />
             </div>
           </Karte>
-          <Optionsbacktest backtest={stand.backtest} />
+          {messung === null ? (
+            <Optionsbacktest backtest={stand.backtest} />
+          ) : messungsfehler !== null ? (
+            <Karte titel="Optionsbacktest">
+              <Fehler>Die gewählte Messung ist nicht abrufbar: {messungsfehler}</Fehler>
+            </Karte>
+          ) : messungsstand === null ? (
+            <Karte titel="Optionsbacktest">
+              <Laedt was="Messung wird geladen …" />
+            </Karte>
+          ) : (
+            <Optionsbacktest backtest={messungsstand} />
+          )}
         </>
       )}
     </>

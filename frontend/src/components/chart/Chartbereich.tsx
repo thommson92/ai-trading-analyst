@@ -29,6 +29,7 @@ export function Chartbereich({
   const [horizont, setHorizont] = useState(10);
   const [gewaehlt, setGewaehlt] = useState<BacktestEpisode | null>(null);
   const [ausserhalb, setAusserhalb] = useState(0);
+  const [laufOhneKerze, setLaufOhneKerze] = useState(false);
   const aktuelle = auswertungen[auswertung];
   const episoden = aktuelle?.episodes ?? [];
 
@@ -37,8 +38,9 @@ export function Chartbereich({
     setGewaehlt(episoden.find((e) => e.entry_at === vorgewaehlt) ?? null);
   }, [vorgewaehlt, episoden]);
 
-  const beiAusserhalb = useCallback((anzahl: number) => {
+  const beiAusserhalb = useCallback((anzahl: number, ohneKerze: boolean) => {
     setAusserhalb(anzahl);
+    setLaufOhneKerze(ohneKerze);
   }, []);
 
   const stelle =
@@ -79,6 +81,13 @@ export function Chartbereich({
         )}
         {ausserhalb > 0 && (
           <span> · {ausserhalb} Einstiege liegen außerhalb der exportierten Kerzen</span>
+        )}
+        {laufOhneKerze && (
+          <span>
+            {' '}
+            · Die Entscheidungskerze des Laufs liegt außerhalb der exportierten Kerzen; der Kreis
+            fehlt deshalb.
+          </span>
         )}
       </p>
       <Kerzenchart

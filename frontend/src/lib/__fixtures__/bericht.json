@@ -236,7 +236,7 @@
         "status": "COMPLETED",
         "periods": [
           {
-            "period": "2026-09",
+            "period": "2026-09-01",
             "strong_buy": 20,
             "buy": 15,
             "hold": 5,
@@ -253,16 +253,41 @@
       "inhalt": {
         "status": "COMPLETED",
         "price_used": 176.4,
-        "metrics": [
-          {
-            "name": "kgv",
-            "value": 34.2
+        "metrics": {
+          "PRICE_EARNINGS_RATIO": {
+            "name": "PRICE_EARNINGS_RATIO",
+            "value": 34.2,
+            "unit": "RATIO",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": null
           },
-          {
-            "name": "umsatzwachstum",
-            "value": 0.42
+          "GROSS_MARGIN": {
+            "name": "GROSS_MARGIN",
+            "value": 0.42,
+            "unit": "FRACTION",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": null
+          },
+          "REVENUE": {
+            "name": "REVENUE",
+            "value": 130500000000,
+            "unit": "CURRENCY",
+            "basis": "TRAILING_TWELVE_MONTHS",
+            "period_end": "2026-06-30",
+            "sources": [],
+            "retrieved_at": "2026-09-17T17:40:00+00:00",
+            "period_start": "2025-07-01",
+            "currency": "USD"
           }
-        ]
+        }
       },
       "vorbehalte": []
     },
