@@ -111,7 +111,31 @@ export function formatDatum(iso: string): string {
           Number(iso.slice(5, 7)) - 1,
           Number(iso.slice(8, 10)),
         );
+  // Ein Wert, der kein Datum ist, bleibt sichtbar, wie er ist -- besser
+  // als "Invalid Date", und nichts wird still zu einem Strich.
+  if (Number.isNaN(zeitpunkt.getTime())) return iso === '' ? '–' : iso;
   return zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'medium' });
+}
+
+/**
+ * Die Reihenfolge der Stufen, wie das Backend sie deklariert
+ * (`domain/scoring/values.py`, `Recommendation`) -- zum Sortieren einer
+ * Spalte. Alphabetisch stuende "stark" zwischen "zu wenig Daten" und
+ * "beobachten". Das ist Anzeigereihenfolge, keine Bewertung: Die Stufe
+ * selbst vergibt das Backend.
+ */
+export const EMPFEHLUNG_REIHENFOLGE: readonly Recommendation[] = [
+  'STRONG_CANDIDATE',
+  'CANDIDATE',
+  'WATCH',
+  'AVOID_FOR_NOW',
+  'INSUFFICIENT_DATA',
+];
+
+export function empfehlungsrang(stufe: Recommendation | null | undefined): number | null {
+  if (stufe === null || stufe === undefined) return null;
+  const rang = EMPFEHLUNG_REIHENFOLGE.indexOf(stufe);
+  return rang < 0 ? null : rang;
 }
 
 export const EARNINGS_TEXT: Record<EarningsStatus, string> = {
