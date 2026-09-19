@@ -50,6 +50,7 @@ from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
     SymbolBackfill,
 )
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.application.deepen_history import (
     FENSTERGROESSE_HANDELSTAGE,
     DeepenHistoryUseCase,
@@ -3944,10 +3945,18 @@ def command_dispatch(args: argparse.Namespace) -> int:
         print(f"Konfiguration (Dashboard-Export): {error}", file=sys.stderr)
         return 2
 
-    def backfill() -> None:
+    def backfill(melde: Callable[[str], None] | None = None) -> None:
+        def fortschritt(nummer: int, gesamt: int, ergebnis: SymbolBackfill) -> None:
+            _print_backfill_progress(nummer, gesamt, ergebnis)
+            if melde is not None:
+                # **Nach dem Ablegen, nicht davor** (ADR 0069): Die Analyse
+                # liest den Bestand, und sie darf erst lesen, wenn er steht.
+                # ``on_progress`` laeuft hinter dem Speichern.
+                melde(ergebnis.symbol)
+
         bericht = BackfillHistoryUseCase(
             bar_source, uow_factory, default_days=standardzeitraum
-        ).execute(watchlist, on_progress=_print_backfill_progress)
+        ).execute(watchlist, on_progress=fortschritt)
         if bericht.failures:
             # Einzelne Ausfaelle sind hingenommen -- faellt aber *alles* aus,
             # ist die TWS weg, und daraus darf kein Analyse-Lauf entstehen.
@@ -3962,7 +3971,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
                 len(bericht.results),
             )
 
-    def analyse(erwartete_kerze: datetime) -> None:
+    def analyse(erwartete_kerze: datetime, bereitschaft: Bereitschaft | None = None) -> None:
         provider = build_market_data_provider(
             config,
             indicators,
@@ -4006,6 +4015,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # (ADR 0060). Ausgeliefert ist er abgeschaltet und damit ``None``.
             dashboard_publisher=dashboard_publisher,
             dashboard_url=dashboard_url,
+            # Nur im verzahnten Tageslauf gesetzt (ADR 0069): Die Analyse
+            # wartet dann je Aktie, bis der Backfill deren Bars abgelegt hat.
+            bereitschaft=bereitschaft,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
@@ -4042,6 +4054,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         latest_stored_bar=latest_stored_bar,
         notifier=notifier,
         native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
+        verzahnt=config.scheduler.verzahnter_backfill,
     )
 
     try:

@@ -816,6 +816,17 @@ class SchedulerConfig(_Section):
     vom Dispatcher nicht verwendet -- bei ihm uebernimmt der 15-Minuten-Takt
     das Wiederholen.
     """
+    verzahnter_backfill: bool = True
+    """Ob die Analyse schon rechnet, waehrend der Backfill noch holt (ADR 0069).
+
+    Der Backfill wird dadurch nicht schneller -- er darf es nicht, IBKR
+    begrenzt die Rate. Beschleunigt wird, was waehrenddessen stillsteht: Von
+    seinen rund fuenfunddreissig Minuten sind rund vierunddreissig
+    ``time.sleep``.
+
+    ``false`` stellt die Reihenfolge von vorher wieder her: erst alles holen,
+    dann alles rechnen. Der Weg zurueck, ohne Deployment.
+    """
     max_catch_up_seconds: PositiveInt = 2 * 3600
     """Wie lange ein verpasster Lauf noch nachgeholt werden darf.
 

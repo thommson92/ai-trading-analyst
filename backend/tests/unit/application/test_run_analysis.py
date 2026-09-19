@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -20,6 +21,7 @@ from itertools import cycle
 import pytest
 
 from ai_trading_analyst.application import run_analysis
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config import LoggingConfig
@@ -40,7 +42,7 @@ from ai_trading_analyst.domain.earnings import (
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
-from ai_trading_analyst.domain.options import OptionsStatus
+from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import (
@@ -59,6 +61,7 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
 )
 from ai_trading_analyst.domain.technical import (
+    PriceZone,
     TechnicalAnalysisParameters,
     TechnicalAssessment,
     TechnicalAssessmentStatus,
@@ -139,6 +142,7 @@ def _build_use_case(
     notify_without_candidates: bool = False,
     repeat_suppression: RepeatSuppressionParameters | None = None,
     dashboard_publisher: DashboardPublisher | None = None,
+    bereitschaft: Bereitschaft | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -174,6 +178,7 @@ def _build_use_case(
         notify_without_candidates=notify_without_candidates,
         repeat_suppression=repeat_suppression,
         dashboard_publisher=dashboard_publisher,
+        bereitschaft=bereitschaft,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -2123,3 +2128,139 @@ class TestLaufzeitmessung:
 
         assert "meldung" in nach_ereignis
         assert "dashboard_export" in nach_ereignis
+
+
+class TestVerzahnungAendertNichts:
+    """Die Verzahnung verlagert Arbeit, sie ändert sie nicht (ADR 0069).
+
+    Der Backfill wird nicht schneller -- er darf es nicht, IBKR begrenzt die
+    Rate. Beschleunigt wird, was währenddessen stillstand. Das Ergebnis muss
+    davon unberührt bleiben, und zwar ziffernweise.
+    """
+
+    @staticmethod
+    def _provider() -> FakeMarketDataProvider:
+        return FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB"), make_stock("CCC")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+                "CCC": make_series(_SERIES_LENGTH, candidate=True),
+            },
+        )
+
+    @staticmethod
+    def _fertige_bereitschaft(*symbole: str) -> Bereitschaft:
+        """Ein Backfill, der schon durch ist -- der Normalfall am Ende."""
+        bereitschaft = Bereitschaft()
+        for symbol in symbole:
+            bereitschaft.melde(symbol)
+        bereitschaft.beende()
+        return bereitschaft
+
+    def test_dieselben_ergebnisse_mit_und_ohne_wartestelle(self) -> None:
+        ohne, *_ = _build_use_case(self._provider())
+        mit, *_ = _build_use_case(
+            self._provider(),
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        seriell = ohne.execute()
+        verzahnt = mit.execute()
+
+        assert [o.stock.symbol for o in seriell.outcomes] == [
+            o.stock.symbol for o in verzahnt.outcomes
+        ]
+        assert [o.result.status for o in seriell.outcomes] == [
+            o.result.status for o in verzahnt.outcomes
+        ]
+        assert seriell.run.candidates_found == verzahnt.run.candidates_found
+        assert not seriell.errors and not verzahnt.errors
+
+    def test_die_optionsanalyse_laeuft_weiterhin_fuer_jeden_kandidaten(self) -> None:
+        """Sie ist nur an eine andere Stelle gewandert (Phase 1b), nicht
+        entfallen -- und sie bekommt dieselben Eingaben."""
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            options_provider=optionen,
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        zusammenfassung = use_case.execute()
+
+        mit_optionen = [o.stock.symbol for o in zusammenfassung.outcomes if o.options is not None]
+        assert mit_optionen == ["AAA", "CCC"]
+
+    def test_die_reihenfolge_bleibt_die_der_watchlist(self) -> None:
+        """Zugesichert in ADR 0069, Punkt 5."""
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        zusammenfassung = use_case.execute()
+
+        assert [o.stock.symbol for o in zusammenfassung.outcomes] == ["AAA", "BBB", "CCC"]
+
+    def test_ein_nie_gemeldetes_symbol_haelt_den_lauf_nicht_auf(self) -> None:
+        """Der Backfill hat es nicht mehr geschafft. Gerechnet wird trotzdem
+        -- auf dem Bestand, den es gibt; ob der aktuell genug ist,
+        entscheidet die Prüfung der erwarteten Kerze."""
+        bereitschaft = Bereitschaft()
+        bereitschaft.melde("AAA")
+        bereitschaft.beende()  # BBB und CCC kommen nie
+        use_case, *_ = _build_use_case(self._provider(), bereitschaft=bereitschaft)
+
+        zusammenfassung = use_case.execute()
+
+        assert len(zusammenfassung.outcomes) == 3
+
+    def test_vor_der_optionsanalyse_wird_das_ende_abgewartet(self) -> None:
+        """Die entscheidende Reihenfolge (ADR 0069, Punkt 2): Die
+        Optionsanalyse benutzt dieselbe TWS-Verbindung wie der Backfill, und
+        die ist an den Thread gebunden, der sie aufgebaut hat."""
+
+        class MitschreibendeBereitschaft(Bereitschaft):
+            def __init__(self) -> None:
+                super().__init__()
+                self.abfolge: list[str] = []
+
+            def warte_auf_ende(self) -> None:
+                self.abfolge.append("ende-abgewartet")
+                super().warte_auf_ende()
+
+        bereitschaft = MitschreibendeBereitschaft()
+        for symbol in ("AAA", "BBB", "CCC"):
+            bereitschaft.melde(symbol)
+        bereitschaft.beende()
+
+        class MitschreibenderOptionsanbieter(FakeOptionsDataProvider):
+            def options(
+                self,
+                stock: Stock,
+                *,
+                price: float,
+                as_of: date,
+                zones: Sequence[PriceZone] = (),
+                next_earnings_date: date | None = None,
+            ) -> OptionsAnalysis:
+                bereitschaft.abfolge.append(f"optionen:{stock.symbol}")
+                return super().options(
+                    stock,
+                    price=price,
+                    as_of=as_of,
+                    zones=zones,
+                    next_earnings_date=next_earnings_date,
+                )
+
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            options_provider=MitschreibenderOptionsanbieter(),
+            bereitschaft=bereitschaft,
+        )
+
+        use_case.execute()
+
+        assert bereitschaft.abfolge[0] == "ende-abgewartet"
+        assert bereitschaft.abfolge[1:] == ["optionen:AAA", "optionen:CCC"]

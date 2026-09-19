@@ -6,10 +6,12 @@ Meldung. Geprueft wird die Entscheidung, nicht die Arbeit dahinter.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.application.dispatch_daily_run import (
     DispatchDailyRunUseCase,
 )
@@ -133,6 +135,7 @@ class Aufbau:
     melder: FakeMelder
     backfills: list[int]
     analysen: list[int]
+    bereitschaften: list[Bereitschaft | None]
 
 
 STANDARD = object()
@@ -148,21 +151,28 @@ def baue(
     letzter_bar: datetime | None = None,
     backfill_fehler: Exception | None = None,
     analyse_fehler: Exception | None = None,
+    verzahnt: bool = False,
+    symbole: tuple[str, ...] = ("A", "B", "C", "D", "E"),
 ) -> tuple[DispatchDailyRunUseCase, Aufbau]:
     aufbau = Aufbau(
         zustand=zustand or FakeZustand(),
         melder=FakeMelder(),
         backfills=[],
         analysen=[],
+        bereitschaften=[],
     )
 
-    def backfill() -> None:
+    def backfill(melde: Callable[[str], None] | None = None) -> None:
         aufbau.backfills.append(1)
+        for symbol in symbole:
+            if melde is not None:
+                melde(symbol)
         if backfill_fehler is not None:
             raise backfill_fehler
 
-    def analyse(erwartete_kerze: datetime) -> None:
+    def analyse(erwartete_kerze: datetime, bereitschaft: Bereitschaft | None = None) -> None:
         aufbau.analysen.append(1)
+        aufbau.bereitschaften.append(bereitschaft)
         if analyse_fehler is not None:
             raise analyse_fehler
 
@@ -176,6 +186,7 @@ def baue(
         notifier=aufbau.melder,
         native_bar_minutes=15,
         now=lambda: jetzt,
+        verzahnt=verzahnt,
     )
     return use_case, aufbau
 
@@ -571,3 +582,92 @@ class TestErledigtOhneKalender:
         use_case.execute()
 
         assert kalender.aufrufe == 1
+
+
+class TestVerzahnterLauf:
+    """Backfill im Hintergrund, Analyse davor her (ADR 0069).
+
+    Der Backfill wird dadurch nicht schneller -- er darf es nicht. Was sich
+    ändert, ist nur, dass währenddessen nicht mehr alles stillsteht.
+    """
+
+    def test_die_analyse_bekommt_die_wartestelle(self) -> None:
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=True)
+
+        use_case.execute()
+
+        assert aufbau.analysen == [1]
+        assert isinstance(aufbau.bereitschaften[0], Bereitschaft)
+
+    def test_ohne_verzahnung_bekommt_sie_keine(self) -> None:
+        """``scheduler.verzahnter_backfill: false`` stellt die Reihenfolge
+        von vorher wieder her -- der Weg zurück, ohne Deployment."""
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=False)
+
+        use_case.execute()
+
+        assert aufbau.bereitschaften == [None]
+
+    def test_die_wartestelle_ist_am_ende_beendet(self) -> None:
+        """Sonst hinge der nächste Wartende auf ewig -- und mit ihm der Lauf."""
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=True)
+
+        use_case.execute()
+
+        bereitschaft = aufbau.bereitschaften[0]
+        assert bereitschaft is not None
+        assert bereitschaft.warte_auf("NIE-GEMELDET") is False
+
+    def test_ein_gescheiterter_backfill_laesst_den_lauf_scheitern(self) -> None:
+        """Er ist heute der Grund, aus dem ein Lauf als gescheitert gilt und
+        in fünfzehn Minuten erneut versucht wird. Daran ändert die
+        Verzahnung nichts -- der Fehler wird aus dem Thread in den
+        Hauptthread weitergereicht."""
+        use_case, _ = baue(
+            jetzt=FRUEHESTENS,
+            verzahnt=True,
+            backfill_fehler=MarketDataProviderError("TWS weg"),
+        )
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert "TWS weg" in str(ergebnis.error)
+
+    def test_ein_backfill_ohne_ein_einziges_symbol_bricht_frueh_ab(self) -> None:
+        """Das Datengate, nur früher (ADR 0069, Punkt 3): Liefert der
+        Backfill gar nichts, hat ein Lauf keine Grundlage -- und der nächste
+        Start in fünfzehn Minuten soll noch ins Zeitfenster fallen."""
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=True, symbole=())
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert aufbau.analysen == [], "die Analyse haette gar nicht beginnen duerfen"
+
+    def test_veraltete_daten_brechen_weiterhin_ab(self) -> None:
+        """Dieselbe Prüfung wie ohne Verzahnung, nur an früherer Stelle."""
+        use_case, aufbau = baue(
+            jetzt=FRUEHESTENS,
+            verzahnt=True,
+            letzter_bar=KERZE_ZU - timedelta(days=3),
+        )
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert aufbau.analysen == []
+
+    def test_der_backfill_laeuft_trotz_gescheiterter_analyse_zu_ende(self) -> None:
+        """Der Thread hält die TWS-Verbindung. Bliebe er stehen, träfe der
+        nächste Start in fünfzehn Minuten auf eine belegte Client-ID."""
+        use_case, aufbau = baue(
+            jetzt=FRUEHESTENS,
+            verzahnt=True,
+            analyse_fehler=MarketDataProviderError("Analyse kaputt"),
+        )
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert aufbau.backfills == [1], "der Backfill wurde nicht zu Ende gefuehrt"

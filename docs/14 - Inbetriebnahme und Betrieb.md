@@ -2188,6 +2188,22 @@ gleich schnell. Gescheiterte Versuche bleiben draußen; ein Lauf ohne
 `completed_at` hat keine Analysedauer, und eine Null hineinzuschreiben
 behauptete eine Messung, die es nicht gibt.
 
+### Was der Lauf seit ADR 0069 anders macht
+
+Backfill und Analyse laufen **verzahnt**: Der Backfill holt im Hintergrund
+Symbol für Symbol, die Analyse rechnet jede Aktie, sobald deren Bars liegen.
+Der Backfill wird dadurch **nicht** schneller — er darf es nicht, IBKR
+begrenzt die Rate. Beschleunigt wird, was währenddessen stillstand: Von
+seinen rund 35 Minuten sind rund 34 reines Warten.
+
+Die Optionsanalyse läuft bewusst **hinter** dem Backfill (Phase 1b). Sie ist
+der einzige Teil der Aktienschleife, der die TWS anfasst, und sie benutzt
+dieselbe Verbindung; ein Wechsel zwischen beiden Threads würde sie verwerfen
+und neu aufbauen.
+
+`scheduler.verzahnter_backfill: false` stellt die alte Reihenfolge wieder her
+— erst alles holen, dann alles rechnen. Der Weg zurück, ohne Deployment.
+
 ### Die feine Zerlegung braucht die Protokolldatei
 
 `logging.file` ist ausgeliefert leer; dann bleibt es bei `stdout`, und das ist
