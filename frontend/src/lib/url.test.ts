@@ -14,5 +14,6 @@ describe('Die Adressen des Dashboards', () => {
     expect(aktieAdresse('BRK B', { lauf: 'l1', episode: '2025-03-06T14:30:00+00:00' })).toBe(
       '/aktie/?symbol=BRK+B&lauf=l1&episode=2025-03-06T14%3A30%3A00%2B00%3A00',
     );
+    expect(aktieAdresse('AAPL', { messung: 'm/1' })).toBe('/aktie/?symbol=AAPL&messung=m%2F1');
   });
 });
