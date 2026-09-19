@@ -371,6 +371,17 @@ class TestScreeningResultRepository:
         # Geprueft wird jedes Feld einzeln: Ein stillschweigend verlorenes
         # Einreichungsdatum faellt beim Vergleich der Objekte zwar auf, aber
         # erst, wenn jemand die Meldung liest.
+        # Die Jahresreihe faehrt mit (ADR 0067). Sie steht als JSONB neben den
+        # Kennzahlenzeilen; ginge sie beim Lesen verloren, saehe der Bericht
+        # aus wie einer von einem Emittenten ohne Historie.
+        assert gelesen.history, "Die Vorlage muss eine Jahresreihe liefern"
+        assert gelesen.history == fundamentals.history
+        assert [jahr.period_end for jahr in gelesen.history] == [
+            jahr.period_end for jahr in fundamentals.history
+        ]
+        jahresquelle = next(iter(gelesen.history[-1].metrics.values())).sources[0]
+        assert jahresquelle.accession and jahresquelle.tag
+
         original = next(iter(fundamentals.metrics.values())).sources[0]
         quelle = next(iter(gelesen.metrics.values())).sources[0]
         assert (quelle.cik, quelle.accession, quelle.form, quelle.tag, quelle.filed) == (

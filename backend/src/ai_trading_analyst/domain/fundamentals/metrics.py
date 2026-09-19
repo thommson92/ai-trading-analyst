@@ -32,6 +32,7 @@ from datetime import date, datetime
 from .values import (
     FUNDAMENTAL_ANALYSIS_VERSION,
     FigureName,
+    FiscalYearMetrics,
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
@@ -84,10 +85,19 @@ class FundamentalParameters:
     vorliegt. Eine Wachstumsrate ueber zwei Jahre neben einer ueber drei
     saehe wie dieselbe Kennzahl aus und waere keine -- bei einem jungen
     Unternehmen fehlt sie deshalb lieber ganz."""
+    history_years: int = 5
+    """Wie viele abgeschlossene Geschaeftsjahre die Historie zeigt (ADR 0067).
+
+    Fuenf, weil ein Chart daraus eine Entwicklung erkennen laesst und weil
+    EDGAR nicht verlaesslich mehr hergibt -- ein 10-K weist drei Jahre aus,
+    und aeltere Einreichungen tragen aeltere Tags. Wo weniger vorliegt,
+    steht weniger; aufgefuellt wird nichts."""
 
     def __post_init__(self) -> None:
         if self.growth_years < 1:
             raise ValueError(f"growth_years muss mindestens 1 sein, war {self.growth_years}")
+        if self.history_years < 1:
+            raise ValueError(f"history_years muss mindestens 1 sein, war {self.history_years}")
 
 
 def compound_annual_growth(start_value: float, end_value: float, years: int) -> float | None:
@@ -148,7 +158,12 @@ class _Rechner:
         *,
         retrieved_at: datetime,
         currency: str,
+        nur_stichtag: date | None = None,
     ) -> None:
+        """``nur_stichtag`` legt den Rechner auf ein einzelnes Geschaeftsjahr
+        fest (ADR 0067): Jede Rohgroesse ist dann der Wert **dieses** Jahres
+        oder gar keiner -- kein Zwoelfmonatswert, kein Rueckfall auf ein
+        juengeres Jahr. Ohne diese Festlegung mischte die Historie Jahre."""
         self._jahre = {
             name: {figure.period_end: figure for figure in figures.get(name, ())}
             for name in FigureName
@@ -177,6 +192,15 @@ class _Rechner:
             default=None,
         )
         self._juengster_abschluss = juengster_abschluss
+        self._retrieved_at = retrieved_at
+        self._currency = currency
+        self.metrics: dict[MetricName, Metric] = {}
+        if nur_stichtag is not None:
+            for name in FigureName:
+                jahreswert = self._jahre[name].get(nur_stichtag)
+                if jahreswert is not None:
+                    self._aktuell[name] = jahreswert
+            return
         for name in FigureName:
             zwoelf = trailing.get(name)
             if (
@@ -199,9 +223,6 @@ class _Rechner:
                 if self.ist_ueberholt(juengster):
                     continue
                 self._aktuell[name] = juengster
-        self._retrieved_at = retrieved_at
-        self._currency = currency
-        self.metrics: dict[MetricName, Metric] = {}
 
     def ist_ueberholt(self, figure: ReportedFigure) -> bool:
         """Liegt dieser Wert ein halbes Jahr oder mehr hinter dem Rest?
@@ -507,52 +528,18 @@ def _freier_cashflow(rechner: _Rechner, stichtag: date) -> _FreierCashflow | Non
     )
 
 
-def compute_fundamental_snapshot(
-    *,
-    symbol: str,
-    figures: Mapping[FigureName, Sequence[ReportedFigure]],
-    retrieved_at: datetime,
-    company_name: str | None = None,
-    evaluated_at: datetime,
-    trailing: Mapping[FigureName, ReportedFigure] | None = None,
-    shares_outstanding: ReportedFigure | None = None,
-    price: float | None = None,
-    currency: str = "USD",
-    parameters: FundamentalParameters | None = None,
-    tag_conflicts: Sequence[TagConflict] = (),
-) -> FundamentalSnapshot:
-    """Rechnet alle Kennzahlen, die die vorliegenden Werte hergeben.
+def _niveaukennzahlen(rechner: _Rechner, stichtag: date) -> None:
+    """Betraege, Margen, Renditen und Bilanzverhaeltnisse zu einem Stichtag.
 
-    ``price`` ist die **optionale, nicht blockierende** Eingabe aus ADR 0032:
-    Fehlt er, entstehen die vier bewertungsabhaengigen Kennzahlen nicht, alle
-    uebrigen vollstaendig. Das Modul beschafft selbst keinen Kurs.
+    **Die eine Rechnung** (ADR 0067): Der aktuelle Stand und jedes
+    Geschaeftsjahr der Historie laufen hier hindurch. Was hier steht, gilt
+    fuer beide; was sich hier aendert, aendert sich fuer beide.
 
-    ``trailing`` sind die Zwoelfmonatswerte aus ADR 0033. Fehlen sie, rechnet
-    alles auf Geschaeftsjahren weiter -- das Verfahren bleibt vollstaendig,
-    nur aelter.
+    Nicht enthalten sind Wachstumsraten, Verwaesserung und Bewertung: Die
+    erste Gruppe rechnet ueber mehrere Jahre, die zweite braucht einen Kurs.
+    Beide gehoeren zum aktuellen Stand, nicht zu einem einzelnen Jahr.
     """
-    params = parameters or FundamentalParameters()
-    rechner = _Rechner(figures, trailing or {}, retrieved_at=retrieved_at, currency=currency)
-
     umsatz = rechner.aktuell(FigureName.REVENUE)
-    # Der Umsatz gibt den Stichtag vor, wo es ihn gibt -- er ist die Groesse,
-    # gegen die die meisten Kennzahlen laufen. Er ist aber **keine
-    # Bedingung** mehr (ADR 0034): Goldman Sachs traegt seine Ertraege in
-    # einem Tag, das keine Umsatzzeile im hiesigen Sinn ist, und verlor
-    # dadurch Jahresueberschuss, Bilanz und Cashflow gleich mit -- Status
-    # INSUFFICIENT_DATA bei vollstaendig vorliegender Einreichung.
-    stichtag = umsatz.period_end if umsatz is not None else rechner.juengster_zeitraum()
-    if stichtag is None:
-        return FundamentalSnapshot(
-            symbol=symbol,
-            status=FundamentalStatus.INSUFFICIENT_DATA,
-            evaluated_at=evaluated_at,
-            analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
-            company_name=company_name,
-            reason="keine auswertbaren Zeitraumangaben in den Einreichungen",
-            tag_conflicts=tuple(tag_conflicts),
-        )
-
     rechner.betrag(MetricName.REVENUE, FigureName.REVENUE)
     rechner.betrag(MetricName.NET_INCOME, FigureName.NET_INCOME)
 
@@ -618,6 +605,80 @@ def compute_fundamental_snapshot(
         stichtag=stichtag,
     )
 
+
+def _historie(
+    figures: Mapping[FigureName, Sequence[ReportedFigure]],
+    *,
+    jahre: Sequence[date],
+    retrieved_at: datetime,
+    currency: str,
+) -> tuple[FiscalYearMetrics, ...]:
+    """Je Geschaeftsjahr die Kennzahlen dieses Jahres (ADR 0067).
+
+    Ein eigener Rechner je Jahr, festgelegt auf dessen Stichtag. Jahre ohne
+    eine einzige rechenbare Kennzahl entstehen nicht -- ein Eintrag mit
+    leerer Abbildung saehe aus wie ein Jahr, in dem alles null war.
+    """
+    reihe = []
+    for stichtag in jahre:
+        rechner = _Rechner(
+            figures, {}, retrieved_at=retrieved_at, currency=currency, nur_stichtag=stichtag
+        )
+        _niveaukennzahlen(rechner, stichtag)
+        if rechner.metrics:
+            reihe.append(FiscalYearMetrics(period_end=stichtag, metrics=dict(rechner.metrics)))
+    return tuple(reihe)
+
+
+def compute_fundamental_snapshot(
+    *,
+    symbol: str,
+    figures: Mapping[FigureName, Sequence[ReportedFigure]],
+    retrieved_at: datetime,
+    company_name: str | None = None,
+    evaluated_at: datetime,
+    trailing: Mapping[FigureName, ReportedFigure] | None = None,
+    shares_outstanding: ReportedFigure | None = None,
+    price: float | None = None,
+    currency: str = "USD",
+    parameters: FundamentalParameters | None = None,
+    tag_conflicts: Sequence[TagConflict] = (),
+) -> FundamentalSnapshot:
+    """Rechnet alle Kennzahlen, die die vorliegenden Werte hergeben.
+
+    ``price`` ist die **optionale, nicht blockierende** Eingabe aus ADR 0032:
+    Fehlt er, entstehen die vier bewertungsabhaengigen Kennzahlen nicht, alle
+    uebrigen vollstaendig. Das Modul beschafft selbst keinen Kurs.
+
+    ``trailing`` sind die Zwoelfmonatswerte aus ADR 0033. Fehlen sie, rechnet
+    alles auf Geschaeftsjahren weiter -- das Verfahren bleibt vollstaendig,
+    nur aelter.
+    """
+    params = parameters or FundamentalParameters()
+    rechner = _Rechner(figures, trailing or {}, retrieved_at=retrieved_at, currency=currency)
+
+    umsatz = rechner.aktuell(FigureName.REVENUE)
+    # Der Umsatz gibt den Stichtag vor, wo es ihn gibt -- er ist die Groesse,
+    # gegen die die meisten Kennzahlen laufen. Er ist aber **keine
+    # Bedingung** mehr (ADR 0034): Goldman Sachs traegt seine Ertraege in
+    # einem Tag, das keine Umsatzzeile im hiesigen Sinn ist, und verlor
+    # dadurch Jahresueberschuss, Bilanz und Cashflow gleich mit -- Status
+    # INSUFFICIENT_DATA bei vollstaendig vorliegender Einreichung.
+    stichtag = umsatz.period_end if umsatz is not None else rechner.juengster_zeitraum()
+    if stichtag is None:
+        return FundamentalSnapshot(
+            symbol=symbol,
+            status=FundamentalStatus.INSUFFICIENT_DATA,
+            evaluated_at=evaluated_at,
+            analysis_version=FUNDAMENTAL_ANALYSIS_VERSION,
+            company_name=company_name,
+            reason="keine auswertbaren Zeitraumangaben in den Einreichungen",
+            tag_conflicts=tuple(tag_conflicts),
+        )
+
+    _niveaukennzahlen(rechner, stichtag)
+    freier_cashflow = _freier_cashflow(rechner, stichtag)
+
     _wachstum(rechner, MetricName.REVENUE_GROWTH, FigureName.REVENUE, params.growth_years)
     _wachstum(rechner, MetricName.NET_INCOME_GROWTH, FigureName.NET_INCOME, params.growth_years)
     _verwaesserung(rechner)
@@ -656,6 +717,15 @@ def compute_fundamental_snapshot(
         company_name=company_name,
         metrics=rechner.metrics,
         fiscal_years=tuple(tag.year for tag in rechner.berichtsjahre()),
+        history=_historie(
+            figures,
+            # Dieselbe Jahresliste, die auch ``fiscal_years`` nennt -- die
+            # juengsten zuerst abgeschnitten, damit die Reihe am aktuellen
+            # Rand endet und nicht an einem beliebigen alten Jahr.
+            jahre=rechner.berichtsjahre()[-params.history_years :],
+            retrieved_at=retrieved_at,
+            currency=currency,
+        ),
         price_used=price,
         tag_conflicts=tuple(tag_conflicts),
     )

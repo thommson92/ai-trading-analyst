@@ -79,6 +79,39 @@ describe('Der Kandidatenbericht', () => {
     );
   });
 
+  it('zeichnet die Jahresreihen und nennt jede Kennzahl beim Namen', () => {
+    // ADR 0067: Der Verlauf steht neben der Tabelle. In jsdom hat der
+    // Container die Breite null und zeichnet keine Linie -- pruefbar ist
+    // damit die Gliederung, nicht das Bild. Die Zahlen selbst prueft
+    // `jahresreihen.test.ts`.
+    suche.set('tab', 'fundamental');
+    render(<Berichtsseite dokument={DOKUMENT} />);
+
+    expect(screen.getByText('Geschäftsgang')).toBeTruthy();
+    expect(screen.getByText('Margen und Renditen')).toBeTruthy();
+    expect(screen.getByText('Bilanzverhältnisse')).toBeTruthy();
+    expect(screen.queryByText(/Keine Jahresreihe/)).toBeNull();
+  });
+
+  it('sagt bei einem Bericht ohne Jahresreihe, warum keine da ist', () => {
+    // Ein leerer Platz saehe aus wie ein Fehler. Berichte vor ADR 0067
+    // tragen keine Reihe, und das ist eine Auskunft.
+    suche.set('tab', 'fundamental');
+    const ohneHistorie = {
+      ...DOKUMENT,
+      abschnitte: {
+        ...DOKUMENT.abschnitte,
+        FUNDAMENTALE_BEWERTUNG: {
+          ...DOKUMENT.abschnitte['FUNDAMENTALE_BEWERTUNG'],
+          inhalt: { status: 'COMPLETED', metrics: {} },
+        },
+      },
+    } as unknown as ReportDocument;
+    render(<Berichtsseite dokument={ohneHistorie} />);
+
+    expect(screen.getByText(/Keine Jahresreihe/)).toBeTruthy();
+  });
+
   it('rechnet die Einheiten des Backends richtig um', () => {
     // FRACTION ist ein Anteil, RATIO ein Verhaeltnis: 0,42 sind 42 %, ein
     // KGV von 34,2 bleibt 34,20 -- und nie 3420 %.

@@ -677,6 +677,16 @@ Jede Kennzahl benötigt:
 - Quelle,
 - Abrufzeitpunkt.
 
+### Jahresreihe
+
+Seit [ADR 0067](adr/0067-jahresreihen-der-fundamentalkennzahlen.md) trägt das
+Ergebnis neben dem aktuellen Stand die Kennzahlen **je abgeschlossenem
+Geschäftsjahr** — dieselbe Rechnung, auf ein Jahr festgelegt. Ohne
+Bewertungskennzahlen (sie bräuchten den Kurs des damaligen Jahres) und ohne
+Wachstumsraten (sie rechnen selbst über mehrere Jahre). Jede Zahl der Reihe
+trägt dieselben fünf Angaben wie oben. Die Reihe ist die Grundlage der
+Verlaufscharts im Kandidatenbericht.
+
 ---
 
 ## 6.10 Options Analysis Module

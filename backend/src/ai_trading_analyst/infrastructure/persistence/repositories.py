@@ -40,6 +40,7 @@ from ai_trading_analyst.domain.backtesting.options_trade import OptionTrade
 from ai_trading_analyst.domain.earnings import EarningsFilterResult, EarningsFilterStatus
 from ai_trading_analyst.domain.fundamentals import (
     FigureName,
+    FiscalYearMetrics,
     FundamentalSnapshot,
     FundamentalStatus,
     Metric,
@@ -387,6 +388,7 @@ _FUNDAMENTALS_FIELDS = (
     "reason",
     "price_used",
     "fiscal_years",
+    "history",
     "tag_conflicts",
 )
 
@@ -405,6 +407,56 @@ def _quelle_als_json(quelle: SourceRef) -> dict[str, Any]:
         "filed": quelle.filed.isoformat(),
         "tag": quelle.tag,
     }
+
+
+def _metrik_als_json(metric: Metric) -> dict[str, Any]:
+    """Eine Kennzahl flach, mit ihrer Quellenbindung (CLAUDE.md).
+
+    Dieselben Felder wie die Spalten in ``fundamental_metrics`` -- die
+    Historie steht nur deshalb als JSONB daneben, weil sie im Ganzen
+    geschrieben und gelesen wird (ADR 0067).
+    """
+    return {
+        "name": metric.name.value,
+        "value": metric.value,
+        "unit": metric.unit.value,
+        "basis": metric.basis.value,
+        "currency": metric.currency,
+        "period_start": None if metric.period_start is None else metric.period_start.isoformat(),
+        "period_end": metric.period_end.isoformat(),
+        "retrieved_at": metric.retrieved_at.isoformat(),
+        "sources": [_quelle_als_json(quelle) for quelle in metric.sources],
+    }
+
+
+def _metrik_aus_json(eintrag: dict[str, Any]) -> Metric:
+    roh_start = eintrag.get("period_start")
+    return Metric(
+        name=MetricName(eintrag["name"]),
+        value=float(eintrag["value"]),
+        unit=MetricUnit(eintrag["unit"]),
+        basis=MetricBasis(eintrag["basis"]),
+        period_start=None if roh_start is None else date.fromisoformat(str(roh_start)),
+        period_end=date.fromisoformat(str(eintrag["period_end"])),
+        currency=eintrag.get("currency"),
+        sources=tuple(_quelle_aus_json(quelle) for quelle in eintrag.get("sources", ())),
+        retrieved_at=datetime.fromisoformat(str(eintrag["retrieved_at"])),
+    )
+
+
+def _jahr_als_json(jahr: FiscalYearMetrics) -> dict[str, Any]:
+    return {
+        "period_end": jahr.period_end.isoformat(),
+        "metrics": [_metrik_als_json(metric) for metric in jahr.metrics.values()],
+    }
+
+
+def _jahr_aus_json(eintrag: dict[str, Any]) -> FiscalYearMetrics:
+    metriken = [_metrik_aus_json(metrik) for metrik in eintrag.get("metrics", ())]
+    return FiscalYearMetrics(
+        period_end=date.fromisoformat(str(eintrag["period_end"])),
+        metrics={metric.name: metric for metric in metriken},
+    )
 
 
 def _quelle_aus_json(eintrag: dict[str, Any]) -> SourceRef:
@@ -545,6 +597,7 @@ def _fundamentals_columns(snapshot: FundamentalSnapshot | None) -> dict[str, Any
         "fundamentals_reason": snapshot.reason,
         "fundamentals_price_used": snapshot.price_used,
         "fundamentals_fiscal_years": list(snapshot.fiscal_years),
+        "fundamentals_history": [_jahr_als_json(jahr) for jahr in snapshot.history],
         "fundamentals_tag_conflicts": [
             {
                 "figure": konflikt.figure.value,
@@ -809,6 +862,7 @@ def _fundamentals_from_row(row: ScreeningResultOrm) -> FundamentalSnapshot | Non
             for metrik in row.fundamental_metrics
         },
         fiscal_years=tuple(row.fundamentals_fiscal_years or ()),
+        history=tuple(_jahr_aus_json(eintrag) for eintrag in row.fundamentals_history or ()),
         price_used=row.fundamentals_price_used,
         tag_conflicts=tuple(
             TagConflict(
