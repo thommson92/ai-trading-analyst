@@ -102,6 +102,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0065](0065-oberflaechen-build-im-exportschritt-und-dashboard-link.md) | Der Bau der Oberflaeche im Exportschritt und der Link zum Dashboard in der Ergebnismeldung | Angenommen (`publish --full` baut; `ATA_DASHBOARD_URL` geprueft beim Start; Nachtraege zu 0060 und 0040) |
 | [0066](0066-kerzenzeitpunkt-an-signalereignissen.md) | Signalereignisse tragen den Kerzenzeitpunkt, Läufe ihre Verarbeitungsfehler | Angenommen |
 | [0067](0067-jahresreihen-der-fundamentalkennzahlen.md) | Jahresreihen der Fundamentalkennzahlen im Bericht | Angenommen |
+| [0068](0068-export-rechnet-abgeschlossene-laeufe-nicht-neu.md) | Der Export rechnet abgeschlossene Läufe nicht jeden Tag neu | Vorgeschlagen |
+| [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
 
 ## Offene Entscheidungen
 
