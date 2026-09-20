@@ -70,7 +70,9 @@ class DispatchDailyRunUseCase:
         calendar: TradingCalendar,
         runs: DispatcherRunRepository,
         parameters: SchedulerParameters,
-        backfill: Callable[[Callable[[str], None] | None], None],
+        backfill: Callable[
+            [Callable[[str, bool], None] | None, Callable[[], bool] | None], None
+        ],
         analyse: Callable[[datetime, Bereitschaft | None], None],
         latest_stored_bar: Callable[[], datetime | None],
         notifier: Notifier,
@@ -267,7 +269,7 @@ class DispatchDailyRunUseCase:
             if self._verzahnt:
                 self._verzahnter_lauf(geplant, erwartete_kerze)
             else:
-                self._backfill(None)
+                self._backfill(None, None)
                 self._require_target_candle(geplant)
                 self._analyse(erwartete_kerze, None)
         except Exception as error:  # Systemgrenze: TWS, Datenbank, Anbieter
@@ -299,10 +301,14 @@ class DispatchDailyRunUseCase:
         """
         bereitschaft = Bereitschaft()
         gescheitert: list[BaseException] = []
+        abbruch = threading.Event()
 
         def hole_bars() -> None:
             try:
-                self._backfill(bereitschaft.melde)
+                self._backfill(
+                    lambda symbol, geliefert: bereitschaft.melde(symbol, geliefert=geliefert),
+                    abbruch.is_set,
+                )
             except BaseException as fehler:
                 gescheitert.append(fehler)
             finally:
@@ -315,11 +321,25 @@ class DispatchDailyRunUseCase:
         faden.start()
         try:
             self._require_target_candle_frueh(geplant, bereitschaft)
+            # **Vor der Analyse, nicht erst danach.** Ist der Backfill zu
+            # diesem Zeitpunkt bereits gescheitert, darf kein vollstaendiger
+            # Lauf mehr entstehen: Er wuerde persistiert, gemeldet und
+            # exportiert -- und erst danach gaelte er als gescheitert und
+            # wuerde in fuenfzehn Minuten wiederholt, mitsamt einem zweiten
+            # Laufdatensatz fuer denselben Tag.
+            if gescheitert:
+                raise gescheitert[0]
             self._analyse(erwartete_kerze, bereitschaft)
         finally:
-            # Auch nach einem Abbruch der Analyse: Der Thread haelt die
-            # TWS-Verbindung, und ein zweiter Lauf in fuenfzehn Minuten
-            # traefe sonst auf eine belegte Client-ID.
+            # **Erst abbrechen, dann warten.** Ohne das Signal liefe der
+            # Backfill nach einem frueh abgebrochenen Lauf noch rund eine
+            # halbe Stunde weiter -- und der Dispatcher hielte seine Sperre
+            # so lange, sodass die naechsten beiden Starts mit "in Arbeit"
+            # endeten. Genau die Zeit, die das fruehe Datengate sparen soll.
+            # Der Abbruch wirkt zwischen zwei Symbolen.
+            abbruch.set()
+            # Der Thread haelt die TWS-Verbindung und gibt sie selbst wieder
+            # frei; ein zweiter Lauf traefe sonst auf eine belegte Client-ID.
             faden.join()
         if gescheitert:
             raise gescheitert[0]

@@ -21,6 +21,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     MarketDataProvider,
     MarketDataUnavailableError,
+    RepeatSuppressionParameters,
     RunStatus,
     UnitOfWork,
 )
@@ -34,7 +35,6 @@ from ai_trading_analyst.infrastructure.publishing import (
     MANIFEST_PFAD as MANIFEST_PFAD_INFRA,
 )
 from ai_trading_analyst.presentation.export import (
-    EXPORT_FASSUNG,
     MANIFEST_PFAD,
     SNAPSHOT_FORMAT,
     BekannteDatei,
@@ -521,5 +521,50 @@ class TestUnveraenderlicheLaeufe:
     def test_die_fassung_haengt_am_schema_der_modelle(self) -> None:
         """Sie ist abgeleitet und nicht gepflegt: Eine Nummer, an die jemand
         denken muss, wird irgendwann vergessen -- und der Fehler wäre still."""
-        assert len(EXPORT_FASSUNG) == 16
-        assert EXPORT_FASSUNG == _export_fassung()
+        fassung = _export_fassung(repeat_suppression=None, market_timezone="America/New_York")
+
+        assert len(fassung) == 16
+        assert fassung == _export_fassung(
+            repeat_suppression=None, market_timezone="America/New_York"
+        )
+
+    def test_eine_andere_sperrfrist_ergibt_eine_andere_fassung(self) -> None:
+        """Die Laufansicht trägt ``suppressed`` und
+        ``suppression_window_days`` (ADR 0062). Wer ``window_days`` in der
+        YAML ändert, ändert den Inhalt **aller** historischen Laufansichten
+        -- ohne dass sich ein Schema rührt und ohne dass jemand an ein Salz
+        denkt. Genau der stille Fall, gegen den die abgeleitete Fassung
+        gebaut ist."""
+        sieben = RepeatSuppressionParameters(window_days=7)
+        vierzehn = RepeatSuppressionParameters(window_days=14)
+
+        assert _export_fassung(
+            repeat_suppression=sieben, market_timezone="America/New_York"
+        ) != _export_fassung(repeat_suppression=vierzehn, market_timezone="America/New_York")
+
+    def test_eine_andere_boersenzeitzone_ebenso(self) -> None:
+        """Sie geht in dieselbe Rechnung ein."""
+        assert _export_fassung(
+            repeat_suppression=None, market_timezone="America/New_York"
+        ) != _export_fassung(repeat_suppression=None, market_timezone="Europe/Berlin")
+
+    def test_ein_noch_laufender_lauf_wird_nicht_eingefroren(self) -> None:
+        """Ein ``cli publish`` während eines Screenings schriebe sonst den
+        Zwischenstand mit gültiger Fassung -- und er käme nie wieder an die
+        Reihe. Das Dashboard zeigte den Lauf dauerhaft als laufend, mit
+        halber Berichtsliste."""
+        quellen, _ = quellen_mit(laeufe=(lauf(status=RunStatus.SCREENING),))
+
+        erste = eintraege(quellen)
+        laufpfade = [e for e in erste if e.pfad.startswith("data/analysis-runs/")]
+
+        assert laufpfade, "der Testaufbau liefert keine Laufdateien"
+        assert all(e.fassung is None for e in laufpfade)
+
+    def test_ein_noch_laufender_lauf_wird_beim_zweiten_mal_neu_gerechnet(self) -> None:
+        quellen, _ = quellen_mit(laeufe=(lauf(status=RunStatus.SCREENING),))
+        bekannt = self._bekannt_aus(quellen)
+
+        zweite = eintraege(quellen, bekannt=bekannt)
+
+        assert not [e for e in zweite if e.inhalt is None]

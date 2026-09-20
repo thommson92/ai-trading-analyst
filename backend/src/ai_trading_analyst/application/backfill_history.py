@@ -231,7 +231,20 @@ class BackfillHistoryUseCase:
         self,
         watchlist: Sequence[ContractSpec],
         on_progress: Callable[[int, int, SymbolBackfill], None] | None = None,
+        soll_abbrechen: Callable[[], bool] | None = None,
     ) -> BackfillReport:
+        """``soll_abbrechen`` wird **zwischen** zwei Symbolen gefragt.
+
+        Nicht waehrend eines Abrufs: Ein halb empfangenes Fenster
+        wegzuwerfen brachte nichts, und der Abstand zur naechsten Anfrage
+        muss ohnehin eingehalten werden.
+
+        Gebraucht vom verzahnten Tageslauf (ADR 0069): Bricht das Datengate
+        nach einer Minute ab, waere es sinnlos, die restlichen
+        vierunddreissig Minuten Bars zu holen, die niemand mehr rechnet --
+        und der naechste Start in fuenfzehn Minuten soll noch ins
+        Zeitfenster fallen.
+        """
         ergebnisse: list[SymbolBackfill] = []
         quelle = self._bar_source
         gedrosselt = quelle if isinstance(quelle, Gedrosselt) else None
@@ -248,6 +261,13 @@ class BackfillHistoryUseCase:
         with gemessen(_logger, "backfill", symbole=len(watchlist)) as messwerte:
             try:
                 for index, contract in enumerate(watchlist, start=1):
+                    if soll_abbrechen is not None and soll_abbrechen():
+                        _logger.info(
+                            "Backfill abgebrochen nach %d von %d Symbolen.",
+                            index - 1,
+                            len(watchlist),
+                        )
+                        break
                     with gemessen(_logger, "backfill_symbol", symbol=contract.symbol):
                         ergebnis = self._backfill_one(contract)
                     ergebnisse.append(ergebnis)

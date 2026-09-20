@@ -564,7 +564,6 @@ class RunAnalysisUseCase:
             fundamentals: FundamentalSnapshot | None = None
             analysts: AnalystRecommendations | None = None
             earnings: EarningsFilterResult | None = None
-            options: OptionsAnalysis | None = None
             backtest = BacktestComputation(results=(), episodes=())
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
@@ -612,7 +611,8 @@ class RunAnalysisUseCase:
                 fundamentals=fundamentals,
                 analysts=analysts,
                 earnings=earnings,
-                options=options,
+                # Phase 1b traegt sie nach, hinter dem Backfill (ADR 0069).
+                options=None,
                 backtest=backtest,
                 needs_research=needs_research,
             )

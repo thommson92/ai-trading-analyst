@@ -359,3 +359,86 @@ class TestBekannterStandFuerDenErzeuger:
 
         assert "data/a.json" not in gesehen[1]
         assert "data/manifest.json" in gesehen[1]
+
+
+class TestSchluesselwechselUndUebersprung:
+    """Ein Übersprung darf einen Schlüsselwechsel nicht überleben (ADR 0068).
+
+    Bei Verschlüsselung leitet sich der **Dateiname** aus dem Schlüssel ab.
+    Nach einem Wechsel der Passphrase oder der Rundenzahl heißt dieselbe
+    Datei anders. Würde sie übersprungen, bliebe sie unter dem alten Namen
+    liegen -- und damit mit der alten Passphrase lesbar --, während die
+    Oberfläche sie unter dem neuen Namen suchte, den nie jemand geschrieben
+    hat.
+
+    **Eine Rotation findet meist statt, weil die alte Passphrase
+    abhandengekommen ist.** Genau dann wäre das Liegenbleiben der Schaden.
+    """
+
+    INHALT = (("data/reports/r1.json", b'{"bericht":1}'), ("data/manifest.json", b"{}"))
+
+    def _sparsamer_publisher(
+        self, tmp_path: Path, *, passphrase: str, iterationen: int = MINDEST_ITERATIONEN
+    ) -> SnapshotPublisher:
+        """Eine Fabrik, die ``bekannt`` wirklich beachtet -- wie die echte.
+
+        Der Helfer ``publisher`` ignoriert es und liefert immer alles; an ihm
+        wäre dieser Befund vorbeigelaufen.
+        """
+
+        def snapshot(bekannt: Mapping[str, Dateizustand]) -> Iterator[Exporteintrag]:
+            for pfad, inhalt in self.INHALT:
+                if pfad in bekannt:
+                    yield Exporteintrag(pfad=pfad, inhalt=None)
+                else:
+                    yield Exporteintrag(pfad=pfad, inhalt=inhalt, fassung="f1")
+
+        return SnapshotPublisher(
+            snapshot=snapshot,
+            ziel=Exportziel(
+                wurzel=tmp_path / "public",
+                zustandsdatei=tmp_path / "zustand.json",
+                passphrase=passphrase,
+                iterationen=iterationen,
+            ),
+        )
+
+    def _namen(self, tmp_path: Path) -> set[str]:
+        return {p.name for p in (tmp_path / "public" / "data").iterdir()}
+
+    def test_eine_neue_passphrase_laesst_nichts_altes_liegen(self, tmp_path: Path) -> None:
+        self._sparsamer_publisher(tmp_path, passphrase=PASSPHRASE).schreibe_baum()
+        vorher = self._namen(tmp_path)
+
+        self._sparsamer_publisher(
+            tmp_path, passphrase="eine-ganz-andere-passphrase"
+        ).schreibe_baum()
+
+        nachher = self._namen(tmp_path)
+        assert nachher & vorher == {"manifest.head.json"}, (
+            "eine Datei ist unter ihrem alten Namen liegen geblieben -- "
+            "mit der alten Passphrase lesbar"
+        )
+
+    def test_eine_neue_rundenzahl_ebenso(self, tmp_path: Path) -> None:
+        """Auch sie geht in den Schlüssel ein, und der Wert kommt aus der
+        Konfiguration -- ein Tippfehler dort genügt."""
+        self._sparsamer_publisher(tmp_path, passphrase=PASSPHRASE).schreibe_baum()
+        vorher = self._namen(tmp_path)
+
+        self._sparsamer_publisher(
+            tmp_path, passphrase=PASSPHRASE, iterationen=MINDEST_ITERATIONEN + 1000
+        ).schreibe_baum()
+
+        assert self._namen(tmp_path) & vorher == {"manifest.head.json"}
+
+    def test_ohne_wechsel_wird_weiterhin_uebersprungen(self, tmp_path: Path) -> None:
+        """Die Wache darf den Nutzen nicht aufheben."""
+        self._sparsamer_publisher(tmp_path, passphrase=PASSPHRASE).schreibe_baum()
+
+        bericht = self._sparsamer_publisher(
+            tmp_path, passphrase=PASSPHRASE
+        ).schreibe_baum().schreiben
+
+        assert bericht.unveraendert == len(self.INHALT)
+        assert bericht.geschrieben == 0

@@ -35,13 +35,20 @@ gerechnet.
 
 ## Entscheidung
 
-### 1. Drei Pfadfamilien gelten als unveränderlich
+### 1. Drei Pfadfamilien gelten als unveränderlich — sobald ihr Lauf steht
 
 | Pfad | Inhalt | Warum unveränderlich |
 |---|---|---|
 | `data/reports/{id}.json` | das gespeicherte Berichtsdokument, unverändert | ADR 0039; abgeschlossene Analysen werden nie überschrieben (CLAUDE.md) |
 | `data/analysis-runs/{id}.json` | die Laufansicht | leitet sich allein aus den Zeilen dieses Laufs und **früherer** Läufe ab |
 | `data/analysis-runs/{id}/reports.json` | die Kurzliste des Laufs | die Berichte eines Laufs entstehen während dieses Laufs |
+
+**Nur für Läufe mit Endstatus** (`COMPLETED`, `PARTIALLY_COMPLETED`,
+`FAILED`). Ein Lauf im Status `SCREENING` schreibt noch; sein Zwischenstand
+bekommt keine Fassung und wird beim nächsten Mal neu gerechnet. Ohne diese
+Einschränkung könnte ein `cli publish` während eines laufenden Screenings den
+Zwischenstand einfrieren — das Dashboard zeigte den Lauf dann dauerhaft als
+laufend, mit halber Berichtsliste.
 
 Der Sperrstatus in der Laufansicht (ADR 0062) ist dabei der einzige Punkt,
 der überhaupt außerhalb des Laufs schaut — und er schaut ausschließlich
@@ -56,11 +63,20 @@ Zwischenspeicherung wäre dort Aufwand ohne Ertrag.
 ### 2. Der Exportzustand merkt sich, unter welcher Fassung eine Datei entstand
 
 `Dateizustand` bekommt neben `hash` und `ziel` ein Feld `fassung`. Übersprungen
-wird eine Datei genau dann, wenn **alle drei** Bedingungen gelten:
+wird eine Datei genau dann, wenn **alle vier** Bedingungen gelten:
 
 1. Der Pfad steht im bekannten Stand,
 2. seine Fassung ist die heutige,
-3. die Zieldatei liegt tatsächlich noch da.
+3. sein **Zielname** ist der heutige,
+4. die Zieldatei liegt tatsächlich noch da.
+
+Bedingung 3 ist nicht kosmetisch. Bei Verschlüsselung leitet sich der
+Dateiname aus dem Schlüssel ab — nach einem Wechsel der Passphrase oder der
+Rundenzahl heißt dieselbe Datei anders. Ohne diese Bedingung bliebe sie unter
+ihrem alten Namen liegen, **mit der alten Passphrase lesbar**, während die
+Oberfläche sie unter dem neuen Namen suchte, den nie jemand geschrieben hat.
+Eine Rotation findet meist statt, *weil* die alte Passphrase abhandengekommen
+ist; genau dann wäre das Liegenbleiben der Schaden.
 
 Die Prüfsumme für das Manifest kommt dann aus dem Zustand statt aus dem
 Inhalt. Sie ist dieselbe — das ist der ganze Punkt.
@@ -70,17 +86,24 @@ Der erste Export danach rechnet einmal alles neu und trägt die Fassung nach.
 
 ### 3. Die Fassung wird abgeleitet, nicht gepflegt
 
-`EXPORT_FASSUNG` ist die Prüfsumme über
+Die Fassung ist die Prüfsumme über
 
 - das JSON-Schema der beteiligten Antwortmodelle (`AnalysisRunDetailResponse`,
   die Kurzlisteneinträge),
 - `REPORT_SCHEMA_VERSION`,
+- die **Eingaben aus der Konfiguration**, die in den Inhalt eingehen:
+  `repeat_suppression.window_days` und die Börsenzeitzone,
 - und ein **von Hand gesetztes Salz** `_FASSUNG_SALZ`.
 
-Die ersten beiden ändern sich von selbst, sobald sich die *Form* einer
-exportierten Datei ändert — daran muss niemand denken. Das Salz deckt den
-Rest: eine geänderte *Rechnung* bei gleicher Form, etwa eine Korrektur an
-`_gesperrte`.
+Die ersten drei ändern sich von selbst, sobald sich Form oder Eingabe einer
+exportierten Datei ändert — daran muss niemand denken. Der dritte Punkt ist
+der, den man am leichtesten übersieht: Die Laufansicht trägt `suppressed` und
+`suppression_window_days` (ADR 0062). Wer `window_days` in der YAML ändert,
+ändert damit den Inhalt **aller** historischen Laufansichten, ohne dass sich
+ein Schema rührt.
+
+Das Salz deckt den Rest: eine geänderte *Rechnung* bei gleicher Form und
+gleicher Eingabe, etwa eine Korrektur an `_gesperrte`.
 
 ### 4. `publish --full` bleibt die Notbremse und umgeht alles
 
@@ -140,6 +163,10 @@ ist eine bewusst in Kauf genommene Lücke**, und `--full` ist ihr Gegenmittel.
 - **Die Ersparnis ist nicht gemessen, sondern hergeleitet.** Wieviel der
   42,7 Minuten auf die drei Pfadfamilien entfallen, sagt erst der erste Lauf
   mit der Zerlegung aus Doc 14. Dass es wächst, steht dagegen fest.
+- **Das Manifest zählt einen übersprungenen Bericht mit, ohne nachzusehen,
+  ob seine Zeile noch existiert.** Heute folgenlos — abgeschlossene Analysen
+  werden nicht gelöscht (CLAUDE.md) —, aber nicht mehr, sobald jemand
+  aufräumt.
 - Der Export trägt damit eine zweite Art von Inkrementalität. Die erste
   betrifft das Schreiben, die zweite das Rechnen; sie sind unabhängig, und
   beide hängen am selben Zustand.

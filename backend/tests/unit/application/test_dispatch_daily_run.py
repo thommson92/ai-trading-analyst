@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from time import sleep
 from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.application.bereitschaft import Bereitschaft
@@ -136,6 +137,7 @@ class Aufbau:
     backfills: list[int]
     analysen: list[int]
     bereitschaften: list[Bereitschaft | None]
+    abgebrochen: list[str]
 
 
 STANDARD = object()
@@ -153,6 +155,8 @@ def baue(
     analyse_fehler: Exception | None = None,
     verzahnt: bool = False,
     symbole: tuple[str, ...] = ("A", "B", "C", "D", "E"),
+    geliefert: bool = True,
+    langsam: float = 0.0,
 ) -> tuple[DispatchDailyRunUseCase, Aufbau]:
     aufbau = Aufbau(
         zustand=zustand or FakeZustand(),
@@ -160,13 +164,22 @@ def baue(
         backfills=[],
         analysen=[],
         bereitschaften=[],
+        abgebrochen=[],
     )
 
-    def backfill(melde: Callable[[str], None] | None = None) -> None:
+    def backfill(
+        melde: Callable[[str, bool], None] | None = None,
+        soll_abbrechen: Callable[[], bool] | None = None,
+    ) -> None:
         aufbau.backfills.append(1)
         for symbol in symbole:
+            if soll_abbrechen is not None and soll_abbrechen():
+                aufbau.abgebrochen.append(symbol)
+                return
+            if langsam:
+                sleep(langsam)
             if melde is not None:
-                melde(symbol)
+                melde(symbol, geliefert)
         if backfill_fehler is not None:
             raise backfill_fehler
 
@@ -671,3 +684,69 @@ class TestVerzahnterLauf:
 
         assert ergebnis.failed
         assert aufbau.backfills == [1], "der Backfill wurde nicht zu Ende gefuehrt"
+
+
+class TestFruehesDatengate:
+    """Es zählt Lieferungen, nicht Versuche -- und es spart wirklich Zeit."""
+
+    def test_lauter_fehlschlaege_zaehlen_nicht_als_ankunft(self) -> None:
+        """Bei nicht angemeldeter TWS scheitern alle Symbole. Sie werden
+        trotzdem freigegeben -- die Analyse soll nicht auf sie warten --,
+        aber geliefert hat keines. Ohne diese Unterscheidung ginge die
+        Prüfung "ist überhaupt etwas angekommen" durch, und der Lauf bekäme
+        statt der klaren Meldung eine irreführende über veraltete Daten."""
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=True, geliefert=False)
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert "kein einziges Symbol geliefert" in str(ergebnis.error)
+        assert aufbau.analysen == []
+
+    def test_der_backfill_wird_nach_einem_fruehen_abbruch_gestoppt(self) -> None:
+        """Sonst liefe er noch eine halbe Stunde weiter, und der Dispatcher
+        hielte seine Sperre so lange -- die nächsten beiden Starts endeten
+        mit "in Arbeit". Genau die Zeit, die das frühe Gate sparen soll."""
+        use_case, aufbau = baue(
+            jetzt=FRUEHESTENS,
+            verzahnt=True,
+            geliefert=False,
+            symbole=tuple(f"S{nummer:02d}" for nummer in range(50)),
+            langsam=0.002,
+        )
+
+        use_case.execute()
+
+        assert aufbau.abgebrochen, "der Backfill lief nach dem Abbruch weiter"
+
+    def test_ohne_abbruch_laeuft_er_vollstaendig_durch(self) -> None:
+        """Die Reissleine darf den Normalfall nicht beschneiden."""
+        use_case, aufbau = baue(jetzt=FRUEHESTENS, verzahnt=True)
+
+        use_case.execute()
+
+        assert aufbau.abgebrochen == []
+        assert aufbau.analysen == [1]
+
+
+class TestGescheiterterBackfillVorDerAnalyse:
+    """Ein gescheiterter Backfill darf keinen vollständigen Lauf hinterlassen.
+
+    Sonst entstünde bei einem Wiederholungsversuch mit toter TWS ein
+    zweiter Laufdatensatz für denselben Tag -- persistiert, gemeldet,
+    exportiert --, und *danach* gälte der Lauf als gescheitert und würde
+    erneut versucht.
+    """
+
+    def test_ein_frueh_gescheiterter_backfill_verhindert_die_analyse(self) -> None:
+        use_case, aufbau = baue(
+            jetzt=FRUEHESTENS,
+            verzahnt=True,
+            symbole=(),
+            backfill_fehler=MarketDataProviderError("TWS weg"),
+        )
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.failed
+        assert aufbau.analysen == [], "es ist ein vollstaendiger Lauf entstanden"

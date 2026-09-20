@@ -27,13 +27,25 @@ class Bereitschaft:
 
     def __init__(self) -> None:
         self._bedingung = threading.Condition()
-        self._bereit: set[str] = set()
+        self._freigegeben: set[str] = set()
+        self._geliefert: set[str] = set()
         self._beendet = False
 
-    def melde(self, symbol: str) -> None:
-        """Die Bars dieses Symbols liegen im Bestand."""
+    def melde(self, symbol: str, *, geliefert: bool = True) -> None:
+        """Der Backfill ist mit diesem Symbol durch.
+
+        **Freigeben und Liefern sind zweierlei.** Ein gescheiterter Abruf
+        gibt das Symbol frei -- die Analyse soll nicht weiter darauf warten,
+        es kommt nichts mehr --, aber er hat nichts geliefert. Ohne diese
+        Unterscheidung zaehlte das Datengate Versuche statt Lieferungen: Bei
+        nicht angemeldeter TWS scheitern alle 192 Symbole, alle 192 waeren
+        gemeldet, und die Pruefung "ist ueberhaupt etwas angekommen" ginge
+        durch.
+        """
         with self._bedingung:
-            self._bereit.add(symbol)
+            self._freigegeben.add(symbol)
+            if geliefert:
+                self._geliefert.add(symbol)
             self._bedingung.notify_all()
 
     def beende(self) -> None:
@@ -50,8 +62,8 @@ class Bereitschaft:
     def warte_auf(self, symbol: str) -> bool:
         """Wartet, bis das Symbol gemeldet ist oder nichts mehr kommt.
 
-        Liefert, ob das Symbol tatsaechlich gemeldet wurde. ``False`` heisst
-        nicht "Fehler", sondern "der Backfill hat es nicht mehr geschafft" --
+        Liefert, ob fuer das Symbol tatsaechlich Bars ankamen. ``False``
+        heisst nicht "Fehler", sondern "es kamen keine neuen Bars" --
         was die Analyse damit anfaengt, entscheidet sie selbst: Sie rechnet
         auf dem vorhandenen Bestand, und ob der aktuell genug ist, sagt die
         Pruefung der erwarteten Kerze.
@@ -63,8 +75,8 @@ class Bereitschaft:
         endet, auch wenn er scheitert.
         """
         with self._bedingung:
-            self._bedingung.wait_for(lambda: symbol in self._bereit or self._beendet)
-            return symbol in self._bereit
+            self._bedingung.wait_for(lambda: symbol in self._freigegeben or self._beendet)
+            return symbol in self._geliefert
 
     def warte_auf_ende(self) -> None:
         """Wartet, bis der Melder durch ist.
@@ -84,14 +96,23 @@ class Bereitschaft:
             self._bedingung.wait_for(lambda: self._beendet)
 
     def warte_auf_anzahl(self, mindestens: int) -> int:
-        """Wartet, bis so viele Symbole gemeldet sind -- oder nichts mehr kommt.
+        """Wartet auf so viele **bearbeitete** Symbole und zaehlt die
+        **gelieferten**.
 
-        Liefert, wieviele es geworden sind. Gebraucht fuer das Datengate
-        (ADR 0069, Punkt 3): Es fragt, ob die Daten der Zielkerze ueberhaupt
-        angekommen sind, und diese Frage laesst sich nach einer Handvoll
-        Symbole genauso beantworten wie nach allen -- nur rund vierunddreissig
-        Minuten frueher.
+        Die beiden Zahlen auseinanderzuhalten ist der ganze Sinn dieser
+        Methode. Die Frage des Datengates lautet, ob die Daten der
+        Zielkerze ueberhaupt angekommen sind (ADR 0069, Punkt 3) -- und sie
+        laesst sich nach einer Handvoll Symbole genauso beantworten wie nach
+        allen, nur rund vierunddreissig Minuten frueher.
+
+        **Gewartet wird deshalb auf Bearbeitung, nicht auf Lieferung.** Bei
+        nicht angemeldeter TWS liefert kein einziges Symbol; wer auf
+        Lieferungen wartete, wartete bis zum Ende des Backfills -- also
+        genau die halbe Stunde, die hier gespart werden soll. Gezaehlt wird
+        dann, was davon wirklich ankam: bei 192 Fehlschlaegen null.
         """
         with self._bedingung:
-            self._bedingung.wait_for(lambda: len(self._bereit) >= mindestens or self._beendet)
-            return len(self._bereit)
+            self._bedingung.wait_for(
+                lambda: len(self._freigegeben) >= mindestens or self._beendet
+            )
+            return len(self._geliefert)

@@ -3945,18 +3945,42 @@ def command_dispatch(args: argparse.Namespace) -> int:
         print(f"Konfiguration (Dashboard-Export): {error}", file=sys.stderr)
         return 2
 
-    def backfill(melde: Callable[[str], None] | None = None) -> None:
+    def backfill(
+        melde: Callable[[str, bool], None] | None = None,
+        soll_abbrechen: Callable[[], bool] | None = None,
+    ) -> None:
         def fortschritt(nummer: int, gesamt: int, ergebnis: SymbolBackfill) -> None:
             _print_backfill_progress(nummer, gesamt, ergebnis)
             if melde is not None:
                 # **Nach dem Ablegen, nicht davor** (ADR 0069): Die Analyse
                 # liest den Bestand, und sie darf erst lesen, wenn er steht.
                 # ``on_progress`` laeuft hinter dem Speichern.
-                melde(ergebnis.symbol)
+                #
+                # Ein gescheiterter Abruf gibt das Symbol trotzdem frei --
+                # die Analyse soll nicht weiter darauf warten --, zaehlt
+                # aber nicht als Lieferung.
+                melde(ergebnis.symbol, not ergebnis.failed)
 
-        bericht = BackfillHistoryUseCase(
-            bar_source, uow_factory, default_days=standardzeitraum
-        ).execute(watchlist, on_progress=fortschritt)
+        try:
+            bericht = BackfillHistoryUseCase(
+                bar_source, uow_factory, default_days=standardzeitraum
+            ).execute(watchlist, on_progress=fortschritt, soll_abbrechen=soll_abbrechen)
+        finally:
+            if melde is not None:
+                # **Die Verbindung gehoert dem Thread, der sie aufgebaut
+                # hat.** ``IbAsyncBarSource`` haelt dazu einen Event-Loop;
+                # wird sie spaeter aus einem anderen Thread benutzt, verwirft
+                # der Adapter sie und baut sie neu auf -- und der Abbau liefe
+                # dann ueber den Loop eines Threads, den es nicht mehr gibt.
+                # Der Socket bliebe offen, und der neue Aufbau traefe mit
+                # derselben Client-ID auf eine belegte Verbindung. Das faellt
+                # still aus: Die Optionsanalyse fienge den Fehler ab, und ein
+                # ganzer Abend haette keinen einzigen Put-Vorschlag.
+                #
+                # Deshalb raeumt der Backfill-Thread selbst auf, solange sein
+                # Loop noch laeuft. Phase 1b baut danach im Hauptthread eine
+                # frische Verbindung auf.
+                bar_source.close()
         if bericht.failures:
             # Einzelne Ausfaelle sind hingenommen -- faellt aber *alles* aus,
             # ist die TWS weg, und daraus darf kein Analyse-Lauf entstehen.
@@ -4037,6 +4061,21 @@ def command_dispatch(args: argparse.Namespace) -> int:
         with uow_factory() as uow:
             return uow.intraday_bars.latest_start_overall()
 
+    # **Verzahnung nur auf dem Bestand.** Bei 'source: live' holte die
+    # Analyse ihre Kerzen ueber dieselbe TWS-Verbindung wie der Backfill --
+    # und die ist an den Thread gebunden, der sie aufgebaut hat. Beide
+    # abwechselnd bedeutete einen Verbindungsabbau und -aufbau je Kerzenabruf
+    # (ADR 0069). Der ausgelieferte Standard ist 'stored'; wer umstellt, soll
+    # es erfahren statt es zu merken.
+    verzahnt = config.scheduler.verzahnter_backfill
+    if verzahnt and config.market_data.source != "stored":
+        _logger_cli.warning(
+            "market_data.source steht auf '%s' -- der Tageslauf laeuft deshalb "
+            "unverzahnt (erst holen, dann rechnen).",
+            config.market_data.source,
+        )
+        verzahnt = False
+
     use_case = DispatchDailyRunUseCase(
         calendar=IbkrTradingCalendar(bar_source, watchlist[0]),
         runs=runs,
@@ -4054,7 +4093,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         latest_stored_bar=latest_stored_bar,
         notifier=notifier,
         native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
-        verzahnt=config.scheduler.verzahnter_backfill,
+        verzahnt=verzahnt,
     )
 
     try:

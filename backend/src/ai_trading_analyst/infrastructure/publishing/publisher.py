@@ -219,7 +219,8 @@ class SnapshotPublisher:
                 if voll:
                     zustand.dateien.clear()
                 schreiber = self._schreiber(zustand)
-                geschrieben = schreiber.schreibe(self._snapshot(self._liegt_noch(zustand)), zustand)
+                bekannt = self._liegt_noch(zustand, schreiber)
+                geschrieben = schreiber.schreibe(self._snapshot(bekannt), zustand)
                 zustand.speichere(self._ziel.zustandsdatei)
             except KryptoKonfigurationError as fehler:
                 raise DashboardPublisherError(
@@ -270,7 +271,9 @@ class SnapshotPublisher:
                 f"({geschrieben.dateien} Dateien) liegt geschrieben auf dem Server."
             ) from fehler
 
-    def _liegt_noch(self, zustand: Exportzustand) -> Mapping[str, Dateizustand]:
+    def _liegt_noch(
+        self, zustand: Exportzustand, schreiber: Verzeichnisschreiber
+    ) -> Mapping[str, Dateizustand]:
         """Der bekannte Stand, beschraenkt auf das, was wirklich noch da ist.
 
         **Die Pruefung gehoert hierher und nicht zum Erzeuger** (ADR 0068):
@@ -279,11 +282,21 @@ class SnapshotPublisher:
         ihr Inhalt danach nirgends mehr. Der Zustand behauptet etwas ueber
         ein Verzeichnis, das er nicht selbst kontrolliert; genau deshalb
         wird hier nachgesehen.
+
+        **Und deshalb auch der Zielname.** Er leitet sich bei Verschluesselung
+        aus dem Schluessel ab. Nach einem Wechsel der Passphrase oder der
+        Rundenzahl heisst dieselbe Datei anders -- der alte Name gehoert dann
+        zu einem Chiffrat, das der neue Schluessel nicht oeffnet. Wuerde sie
+        uebersprungen, bliebe sie unter dem alten Namen liegen (und damit mit
+        der alten Passphrase lesbar), waehrend die Oberflaeche sie unter dem
+        neuen Namen suchte, den nie jemand geschrieben hat. Eine Rotation
+        findet meist statt, *weil* die alte Passphrase abhandengekommen ist.
         """
         return {
             pfad: stand
             for pfad, stand in zustand.dateien.items()
-            if (self._ziel.wurzel / stand.ziel).is_file()
+            if stand.ziel == schreiber.zielname(pfad)
+            and (self._ziel.wurzel / stand.ziel).is_file()
         }
 
     def _zustand(self) -> Exportzustand:

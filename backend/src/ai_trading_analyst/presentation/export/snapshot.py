@@ -40,6 +40,7 @@ from ai_trading_analyst.domain.analysis import (
     MarketDataProviderError,
     MarketDataUnavailableError,
     RepeatSuppressionParameters,
+    RunStatus,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -78,20 +79,40 @@ unveraenderlichen Pfadfamilien aendert, ohne dass sich ihre Form aendert
 (ADR 0068, Punkt 3).
 
 Der haeufigere Fall -- eine geaenderte Form -- faellt von selbst auf, weil
-``EXPORT_FASSUNG`` ueber die Schemata der Antwortmodelle gebildet wird. Eine
+die Fassung ueber die Schemata der Antwortmodelle gebildet wird. Eine
 geaenderte Rechnung bei gleicher Form tut das nicht: Wer etwa ``_gesperrte``
 korrigiert, erhoeht diesen Wert -- oder faehrt einmal ``publish --full``.
 """
 
 
-def _export_fassung() -> str:
+ENDSTATUS = frozenset(
+    {RunStatus.COMPLETED, RunStatus.PARTIALLY_COMPLETED, RunStatus.FAILED}
+)
+"""Laeufe, an deren Zeilen sich nichts mehr aendert (ADR 0068).
+
+Ein Lauf im Status ``SCREENING`` oder ``RUNNING`` schreibt noch. Wuerde sein
+Zwischenstand mit einer Fassung abgelegt, kaeme er nie wieder an die Reihe --
+das Dashboard zeigte ihn dauerhaft als laufend, mit halber Berichtsliste.
+Genau das kann ein ``cli publish`` waehrend eines Laufs ausloesen.
+"""
+
+
+def _export_fassung(
+    *, repeat_suppression: RepeatSuppressionParameters | None, market_timezone: str
+) -> str:
     """Die Kennung, unter der eine unveraenderliche Datei entstanden ist.
 
     Abgeleitet statt gepflegt: Eine Fassungsnummer, an die jemand denken
     muss, wird irgendwann vergessen, und der Fehler waere still -- das
     Dashboard zeigte fuer die Historie das alte Format und fuer heute das
-    neue. Das Schema der beteiligten Modelle zu hashen macht diesen Fall
-    selbsttragend.
+    neue.
+
+    **Nicht nur das Schema, auch die Eingaben aus der Konfiguration.** Die
+    Laufansicht traegt ``suppressed`` und ``suppression_window_days``, und
+    beide entstehen aus ``repeat_suppression`` und der Boersenzeitzone
+    (ADR 0062). Wer ``window_days`` in der YAML aendert, aendert damit den
+    Inhalt **aller** historischen Laufansichten -- ohne dass sich ein Schema
+    ruehrt und ohne dass jemand an ein Salz denkt.
     """
     schemata = json.dumps(
         [
@@ -99,15 +120,14 @@ def _export_fassung() -> str:
             ReportSummaryResponse.model_json_schema(),
             REPORT_SCHEMA_VERSION,
             _FASSUNG_SALZ,
+            None if repeat_suppression is None else repeat_suppression.window_days,
+            market_timezone,
         ],
         sort_keys=True,
         ensure_ascii=False,
         default=str,
     )
     return hashlib.sha256(schemata.encode("utf-8")).hexdigest()[:16]
-
-
-EXPORT_FASSUNG = _export_fassung()
 
 _SEITE = 200
 """Wie viele Laeufe je Abfrage geladen werden. Nur eine Speichergrenze."""
@@ -313,6 +333,10 @@ def iter_snapshot(
     konto = Zeitkonto()
     vorstand = bekannt if bekannt is not None else {}
     uebersprungen = 0
+    fassung = _export_fassung(
+        repeat_suppression=quellen.repeat_suppression,
+        market_timezone=quellen.market_timezone,
+    )
 
     def unveraendert(pfad: str) -> Exportdatei | None:
         """Die Datei, falls sie unter derselben Fassung schon existiert.
@@ -322,10 +346,10 @@ def iter_snapshot(
         Manifest bleibt vollstaendig, ohne dass die Datei entstehen muss.
         """
         eintrag = vorstand.get(pfad)
-        if eintrag is None or eintrag.fassung != EXPORT_FASSUNG:
+        if eintrag is None or eintrag.fassung != fassung:
             return None
         hashes[pfad] = eintrag.hash
-        return Exportdatei(pfad, None, EXPORT_FASSUNG)
+        return Exportdatei(pfad, None, fassung)
 
     def datei(pfad: str, inhalt: bytes, fassung: str | None = None) -> Exportdatei:
         """Merkt sich den Hash und liefert die Datei.
@@ -433,6 +457,10 @@ def iter_snapshot(
         )
         for lauf in laeufe:
             lauf_id = lauf.id
+            # Ein noch laufender Lauf schreibt seine Zeilen erst. Sein
+            # Zwischenstand bekommt deshalb keine Fassung und wird beim
+            # naechsten Mal neu gerechnet.
+            haltbar = fassung if lauf.status in ENDSTATUS else None
 
             # **Drei unveraenderliche Pfadfamilien** (ADR 0068). Sie
             # entstehen aus Zeilen, die ein abgeschlossener Lauf nicht mehr
@@ -441,7 +469,7 @@ def iter_snapshot(
             # auch dann gebraucht, wenn ihre *Datei* uebersprungen wird --
             # die Berichte darunter haengen an ihr.
             ansicht_pfad = f"data/analysis-runs/{lauf_id}.json"
-            schon_da = unveraendert(ansicht_pfad)
+            schon_da = unveraendert(ansicht_pfad) if haltbar is not None else None
             if schon_da is not None:
                 uebersprungen += 1
                 yield schon_da
@@ -454,23 +482,25 @@ def iter_snapshot(
                         else _modell(AnalysisRunDetailResponse.from_overview(detail))
                     )
                 if inhalt is not None:
-                    yield datei(ansicht_pfad, inhalt, EXPORT_FASSUNG)
+                    yield datei(ansicht_pfad, inhalt, haltbar)
 
             with konto.bei("lauf_kurzliste"):
                 kurzliste = views.reports_of_run(uow, lauf_id)
             kurzliste_pfad = f"data/analysis-runs/{lauf_id}/reports.json"
-            schon_da = unveraendert(kurzliste_pfad)
+            schon_da = unveraendert(kurzliste_pfad) if haltbar is not None else None
             if schon_da is not None:
                 uebersprungen += 1
                 yield schon_da
             else:
                 with konto.bei("lauf_kurzliste_json"):
                     kurzliste_json = _als_json(_modelle(kurzliste))
-                yield datei(kurzliste_pfad, kurzliste_json, EXPORT_FASSUNG)
+                yield datei(kurzliste_pfad, kurzliste_json, haltbar)
 
             for eintrag in kurzliste:
                 bericht_pfad = f"data/reports/{eintrag.report_id}.json"
-                schon_da = unveraendert(bericht_pfad)
+                schon_da = (
+                    unveraendert(bericht_pfad) if haltbar is not None else None
+                )
                 if schon_da is not None:
                     berichte_gesamt += 1
                     uebersprungen += 1
@@ -488,7 +518,7 @@ def iter_snapshot(
                 # Schreibweisen desselben Pfades laden zum Auseinanderlaufen
                 # ein -- und ein abweichender Pfad hiesse, dass der
                 # Uebersprung ins Leere greift.
-                yield datei(bericht_pfad, dokument, EXPORT_FASSUNG)
+                yield datei(bericht_pfad, dokument, haltbar)
 
         # Die zwei Uebersichten (ADR 0062): eine Datei fuer alle Aktien statt
         # zweihundert Einzeldateien je Listenansicht.

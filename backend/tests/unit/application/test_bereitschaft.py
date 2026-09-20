@@ -250,3 +250,54 @@ class TestAnzahlAbwarten:
             bereitschaft.melde(symbol)
 
         assert bereitschaft.warte_auf_anzahl(2) == 4
+
+
+class TestFreigebenUndLiefern:
+    """Zwei verschiedene Dinge, und die Unterscheidung ist der ganze Punkt.
+
+    Ein gescheiterter Abruf gibt sein Symbol frei -- die Analyse soll nicht
+    weiter darauf warten, es kommt nichts mehr --, hat aber nichts geliefert.
+    """
+
+    def test_ein_fehlschlag_gibt_frei_ohne_zu_liefern(self) -> None:
+        bereitschaft = Bereitschaft()
+        bereitschaft.melde("AAPL", geliefert=False)
+
+        assert bereitschaft.warte_auf("AAPL") is False, "es kamen keine Bars"
+
+    def test_ein_fehlschlag_laesst_den_wartenden_trotzdem_durch(self) -> None:
+        bereitschaft = Bereitschaft()
+        ergebnis: list[bool] = []
+
+        faden = im_hintergrund(lambda: ergebnis.append(bereitschaft.warte_auf("AAPL")))
+        bereitschaft.melde("AAPL", geliefert=False)
+        faden.join(FRIST)
+
+        assert not faden.is_alive(), "ein Fehlschlag haelt die Analyse auf"
+        assert ergebnis == [False]
+
+    def test_das_datengate_wartet_auf_bearbeitung_und_zaehlt_lieferung(self) -> None:
+        """**Der Fall, an dem das frühe Datengate hängt.** Bei nicht
+        angemeldeter TWS liefert kein einziges Symbol. Wer auf Lieferungen
+        wartete, wartete bis zum Ende des Backfills -- also genau die halbe
+        Stunde, die hier gespart werden soll."""
+        bereitschaft = Bereitschaft()
+        for nummer in range(5):
+            bereitschaft.melde(f"S{nummer}", geliefert=False)
+
+        assert bereitschaft.warte_auf_anzahl(5) == 0
+
+    def test_gemischt_wird_richtig_gezaehlt(self) -> None:
+        bereitschaft = Bereitschaft()
+        bereitschaft.melde("A", geliefert=True)
+        bereitschaft.melde("B", geliefert=False)
+        bereitschaft.melde("C", geliefert=True)
+
+        assert bereitschaft.warte_auf_anzahl(3) == 2
+
+    def test_die_voreinstellung_ist_geliefert(self) -> None:
+        """Der Normalfall braucht kein Argument."""
+        bereitschaft = Bereitschaft()
+        bereitschaft.melde("AAPL")
+
+        assert bereitschaft.warte_auf("AAPL") is True

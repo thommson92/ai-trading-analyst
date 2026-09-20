@@ -260,7 +260,7 @@ class Verzeichnisschreiber:
 
             klartext = eintrag.inhalt
             digest = hashlib.sha256(klartext).hexdigest()
-            ziel_name = self._zielname(pfad)
+            ziel_name = self.zielname(pfad)
             ziel = self._wurzel / ziel_name
             vorhandene.add(ziel)
             zustand.dateien[pfad] = Dateizustand(
@@ -296,7 +296,14 @@ class Verzeichnisschreiber:
         _logger.info("Datenbaum geschrieben: %s", bericht.als_text())
         return bericht
 
-    def _zielname(self, pfad: str) -> str:
+    def zielname(self, pfad: str) -> str:
+        """Unter welchem Namen dieser Pfad im Verzeichnis liegt.
+
+        Bei Verschluesselung haengt er am **Schluessel** -- und damit an der
+        Passphrase und der Rundenzahl. Der Publisher braucht ihn deshalb von
+        aussen: Ein bekannter Stand, dessen Zielname nicht mehr zum heutigen
+        Schluessel passt, darf nicht uebersprungen werden (ADR 0068).
+        """
         if self._verschluesselung is None:
             return pfad
         return f"data/{self._verschluesselung.dateiname(pfad)}"

@@ -63,6 +63,14 @@ abwechselnden Aufrufen also ein Verbindungsaufbau *je Abruf*.
 verzahnt, die Optionsanalyse läuft danach in einem eigenen Durchgang über die
 bis dahin gefundenen Kandidaten.
 
+**Der Backfill-Thread gibt die Verbindung selbst frei**, bevor er endet. Auch
+der *einmalige* Wechsel wäre sonst gefährlich: Der Adapter verwirft eine
+Verbindung, die ein anderer Thread aufgebaut hat, und der Abbau liefe über
+den Event-Loop eines Threads, den es nicht mehr gibt. Der Socket bliebe
+offen, und der neue Aufbau träfe mit derselben Client-ID auf eine belegte
+Verbindung. Das fiele **still** aus: Die Optionsanalyse fängt den Fehler ab,
+und ein ganzer Abend hätte keinen einzigen Put-Vorschlag.
+
 Die dritte gerichtete Kopplung aus CLAUDE.md bleibt unberührt: Die
 Optionsanalyse bekommt den Earnings-Termin weiterhin als optionale Eingabe
 gereicht und ermittelt keinen eigenen.
@@ -78,6 +86,19 @@ Sie prüft weiterhin den jüngsten Bar im **gesamten** Bestand, nicht den einer
 bestimmten Aktie: Ein einzelner ausgesetzter Titel darf den Lauf nicht
 verhindern. Je Aktie greift ohnehin weiterhin `_require_expected_candle`.
 
+**Gewartet wird auf bearbeitete Symbole, gezählt werden gelieferte.** Die
+beiden auseinanderzuhalten ist der Kern: Ein gescheiterter Abruf gibt sein
+Symbol frei — die Analyse soll nicht weiter darauf warten —, hat aber nichts
+geliefert. Wer auf Lieferungen wartete, wartete bei nicht angemeldeter TWS
+bis zum Ende des Backfills, also genau die halbe Stunde, die hier gespart
+werden soll. Und wer Bearbeitungen zählte, ließe 192 Fehlschläge als
+„angekommen" durchgehen.
+
+**Bricht das Gate ab, wird der Backfill abgebrochen.** Er prüft das zwischen
+zwei Symbolen. Ohne dieses Signal liefe er noch rund eine halbe Stunde
+weiter, und der Dispatcher hielte seine Sperre so lange — die nächsten beiden
+Starts endeten mit „in Arbeit", und gespart wäre nichts.
+
 ### 4. Ein Symbol, das der Backfill nie meldet, hält nichts auf
 
 Die Wartestelle kennt drei Ausgänge: das Symbol ist da, der Backfill ist
@@ -90,7 +111,19 @@ Fehlerisolation; ist er aktuell genug, ist sie ein reguläres Ergebnis.
 über die Vollständigkeit eines Laufs entschieden wird — das entscheidet
 `scheduler.minimum_completion_ratio`, und zwar am Ende und nicht mittendrin.
 
-### 5. Reihenfolge, Isolation und Persistenz bleiben unverändert
+### 5. Ein gescheiterter Backfill lässt keinen vollständigen Lauf entstehen
+
+Der Fehler des Backfill-Threads wird **vor** der Analyse geprüft, nicht erst
+danach. Sonst entstünde bei einem Wiederholungsversuch mit toter TWS ein
+zweiter Laufdatensatz für denselben Tag — persistiert, gemeldet, exportiert
+—, und *danach* gälte der Lauf als gescheitert und würde erneut versucht.
+
+Scheitert er erst *während* der Analyse, bleibt es beim bisherigen Verhalten:
+Die Analyse läuft zu Ende, und der Fehler kommt danach. Das ist die
+verbleibende Lücke, und sie ist schmal — der Hauptfall, gar keine Lieferung,
+fällt schon am Datengate.
+
+### 6. Reihenfolge, Isolation und Persistenz bleiben unverändert
 
 `outcomes` und `errors` kommen weiterhin in Watchlist-Reihenfolge, die
 Fehlerisolation bleibt je Aktie, und Phase 3 persistiert weiterhin seriell im
@@ -138,6 +171,12 @@ langsamer Backfill ist kein Befund über eine einzelne Aktie.
   (Bars holen und ablegen) und teilt mit dem Hauptthread nur die
   Datenbank — über getrennte Sitzungen, wie schon bisher. Aber es ist
   Nebenläufigkeit, und die war vorher an dieser Stelle nicht.
+- **Die Verzahnung gilt nur für `market_data.source: stored`.** Bei `live`
+  holte die Analyse ihre Kerzen über dieselbe TWS-Verbindung; beide
+  abwechselnd bedeutete einen Verbindungsabbau und -aufbau je Kerzenabruf.
+  Der Tageslauf schaltet die Verzahnung dann selbst ab und sagt es.
+- **Ein Abbruch mit Strg-C wartet bis zum Ende des laufenden Abrufs.** Das
+  Abbruchsignal wirkt zwischen zwei Symbolen, nicht mitten in einem.
 - **Ein Fehler im Backfill wird später sichtbar.** Bisher brach er den Lauf
   ab, bevor gerechnet wurde; jetzt läuft die Analyse auf dem vorhandenen
   Bestand weiter. Das Datengate aus Punkt 3 fängt den Hauptfall (gar keine
