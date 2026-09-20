@@ -429,6 +429,19 @@ scheduler:
   # beim Anbieter aber nicht zwingend im selben Augenblick vollstaendig.
   # 300 Sekunden ergeben einen fruehesten Start um 12:50.
   safety_buffer_seconds: 300
+  # Ob die Analyse schon rechnet, waehrend der Backfill noch holt
+  # (docs/adr/0069-backfill-und-analyse-verzahnt.md).
+  #
+  # Der Backfill wird dadurch nicht schneller -- er darf es nicht, IBKR
+  # begrenzt die Rate auf 60 Historienanfragen je zehn Minuten. Beschleunigt
+  # wird, was waehrenddessen stillsteht: Von seinen rund 35 Minuten sind bei
+  # 192 Symbolen und 11 Sekunden Abstand rund 34 reines Warten, und in dieser
+  # Zeit rechnet jetzt die Analyse (gemessen 2026-09-20: Backfill 35,2 min,
+  # Analyse 18,3 min).
+  #
+  # 'false' stellt die Reihenfolge von vorher wieder her: erst alles holen,
+  # dann alles rechnen. Der Weg zurueck, ohne Deployment.
+  verzahnter_backfill: true
   # Danach gilt der Lauf als ausgefallen und es geht eine Meldung raus.
   # Zwei Stunden ab 12:50 ergeben eine Frist um 14:50 New Yorker Zeit. Der
   # Wert muss innerhalb des Startfensters der Aufgabenplanung liegen, sonst
@@ -717,6 +730,17 @@ scoring:
 logging:
   level: INFO
   format: json
+  # Zusaetzlicher, rotierender Dateiausgang -- immer JSON, unabhaengig von
+  # 'format'. Leer heisst: nur stdout, also genau der Zustand ohne diese
+  # Einstellung.
+  #
+  # Der Tageslauf laeuft unter der Windows-Aufgabenplanung, und deren stdout
+  # ist fluechtig: Ohne Datei laesst sich nach einem Lauf nicht mehr sagen,
+  # wo seine Zeit geblieben ist. Fuer den Dauerbetrieb gehoert hier ein Pfad
+  # hinein (Doc 14, Abschnitt "Betriebszustand"), etwa var/logs/tageslauf.log.
+  file: null
+  max_bytes: 20971520
+  backups: 5
 
 # ---------------------------------------------------------------------------
 # GATE G1 -- fachlich freigegeben (docs/adr/0010-gate-g1-freigegeben.md).

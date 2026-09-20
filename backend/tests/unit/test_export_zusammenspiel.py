@@ -16,19 +16,22 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ai_trading_analyst.infrastructure.publishing import (
+    Dateizustand,
+    Exporteintrag,
     Exportziel,
     SnapshotPublisher,
     Verschluesselung,
     leite_schluessel_ab,
 )
 from ai_trading_analyst.infrastructure.publishing.crypto import MINDEST_ITERATIONEN
-from ai_trading_analyst.presentation.export import iter_snapshot
+from ai_trading_analyst.presentation.export import BekannteDatei, iter_snapshot
 from tests.unit.presentation.test_export_snapshot import lauf, quellen_mit
 
 PASSPHRASE = "sieben-zufaellige-woerter-aus-dem-passwortmanager-xyz"
@@ -37,9 +40,14 @@ PASSPHRASE = "sieben-zufaellige-woerter-aus-dem-passwortmanager-xyz"
 def veroeffentliche(tmp_path: Path, **kwargs: Any) -> SnapshotPublisher:
     quellen, _ = quellen_mit(("AAPL", "BRK B"), laeufe=(lauf(),))
 
-    def dateien() -> Any:
-        for datei in iter_snapshot(quellen):
-            yield datei.pfad, datei.inhalt
+    def dateien(bekannt: Mapping[str, Dateizustand]) -> Any:
+        """Dieselbe Naht wie im Composition Root (ADR 0068)."""
+        vorstand = {
+            pfad: BekannteDatei(hash=stand.hash, fassung=stand.fassung)
+            for pfad, stand in bekannt.items()
+        }
+        for datei in iter_snapshot(quellen, bekannt=vorstand):
+            yield Exporteintrag(pfad=datei.pfad, inhalt=datei.inhalt, fassung=datei.fassung)
 
     return SnapshotPublisher(
         snapshot=dateien,

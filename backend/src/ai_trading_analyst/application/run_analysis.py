@@ -16,6 +16,7 @@ from typing import Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -99,6 +100,7 @@ from ai_trading_analyst.domain.technical import (
 )
 from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.observability.secret_redaction import redact_registered
+from ai_trading_analyst.observability.timing import gemessen
 
 _logger = get_logger(__name__)
 
@@ -147,6 +149,13 @@ class _PreparedOutcome:
     Persistenz folgen erst danach, siehe ``RunAnalysisUseCase.execute``."""
 
     stock: Stock
+    series: CandleSeries
+    """Die Kerzenreihe, auf der alles steht.
+
+    Bleibt bis zum Ende von Phase 1b erhalten: Die Optionsanalyse braucht
+    Kurs und Datum der Entscheidungskerze, und sie laeuft erst hinter dem
+    Backfill (ADR 0069).
+    """
     result: ScreeningResult
     decision_index: int
     evaluated_at: datetime
@@ -236,8 +245,13 @@ class RunAnalysisUseCase:
         repeat_suppression: RepeatSuppressionParameters | None = None,
         dashboard_publisher: DashboardPublisher | None = None,
         dashboard_url: str | None = None,
+        bereitschaft: Bereitschaft | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
+        # **None heisst: der Backfill ist schon durch** (ADR 0069). So laeuft
+        # 'cli screen' unveraendert, und der verzahnte Tageslauf reicht die
+        # Wartestelle herein.
+        self._bereitschaft = bereitschaft
         self._earnings_provider = earnings_provider
         self._research_provider = research_provider
         self._technical_interpreter = technical_interpreter
@@ -375,20 +389,33 @@ class RunAnalysisUseCase:
         # Aktienreihenfolge -- fuer Aufrufer wie CLI/Frontend bleibt die
         # Reihenfolge von ``outcomes``/``errors`` unveraendert, unabhaengig
         # davon, welche Recherche zuerst fertig wurde.
-        prepared = [self._prepare_stock(stock) for stock in stocks]
-        self._run_agents_concurrently(prepared)
+        with gemessen(_logger, "phase_1_screening", aktien=len(stocks)) as messwerte:
+            prepared = [self._prepare_stock(stock) for stock in stocks]
+            messwerte["kandidaten"] = sum(
+                1
+                for item in prepared
+                if isinstance(item, _PreparedOutcome)
+                and item.result.status == ScreeningStatus.CANDIDATE
+            )
+
+        with gemessen(_logger, "phase_1b_optionen") as messwerte:
+            messwerte["kandidaten"] = self._evaluate_options_for_candidates(prepared)
+
+        with gemessen(_logger, "phase_2_agenten"):
+            self._run_agents_concurrently(prepared)
 
         outcomes: list[StockScreeningOutcome] = []
         errors: list[StockProcessingError] = []
 
-        for item in prepared:
-            if isinstance(item, _PreparedError):
-                errors.append(self._persist_error(run, item.stock, item.exc))
-                continue
-            try:
-                outcomes.append(self._persist_outcome(run, item))
-            except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
-                errors.append(self._persist_error(run, item.stock, exc))
+        with gemessen(_logger, "phase_3_persistenz", aktien=len(prepared)):
+            for item in prepared:
+                if isinstance(item, _PreparedError):
+                    errors.append(self._persist_error(run, item.stock, item.exc))
+                    continue
+                try:
+                    outcomes.append(self._persist_outcome(run, item))
+                except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
+                    errors.append(self._persist_error(run, item.stock, exc))
 
         run.candidates_found = sum(
             1 for outcome in outcomes if outcome.result.status == ScreeningStatus.CANDIDATE
@@ -406,8 +433,13 @@ class RunAnalysisUseCase:
             uow.commit()
 
         summary = AnalysisRunSummary(run=run, outcomes=tuple(outcomes), errors=tuple(errors))
-        self._notify(summary)
-        self._publish_dashboard()
+        # **Beide ausserhalb von ``completed_at``** und deshalb aus der
+        # Datenbank allein nicht voneinander zu trennen: Der Laufdatensatz
+        # gilt oben bereits als abgeschlossen (ADR 0024, ADR 0060).
+        with gemessen(_logger, "meldung"):
+            self._notify(summary)
+        with gemessen(_logger, "dashboard_export"):
+            self._publish_dashboard()
         return summary
 
     def _notify(self, summary: AnalysisRunSummary) -> None:
@@ -515,7 +547,14 @@ class RunAnalysisUseCase:
         (folgt nebenlaeufig in ``_run_agents_concurrently``) und ohne
         Persistenz (folgt sequentiell in ``_persist_outcome``)."""
         try:
-            series = self._market_data_provider.get_candle_series(stock)
+            if self._bereitschaft is not None:
+                # Der Backfill legt die Bars dieses Symbols gerade erst ab.
+                # Kommt es nicht mehr, wird trotzdem gerechnet -- auf dem
+                # Bestand, den es gibt. Ob der aktuell genug ist, entscheidet
+                # ``_require_expected_candle`` eine Zeile weiter.
+                self._bereitschaft.warte_auf(stock.symbol)
+            with gemessen(_logger, "kerzenserie", symbol=stock.symbol):
+                series = self._market_data_provider.get_candle_series(stock)
             decision_index = len(series) - 1
             self._require_expected_candle(series, decision_index)
             result = evaluate_candidate(series, decision_index, self._candidate_rule_params)
@@ -525,7 +564,6 @@ class RunAnalysisUseCase:
             fundamentals: FundamentalSnapshot | None = None
             analysts: AnalystRecommendations | None = None
             earnings: EarningsFilterResult | None = None
-            options: OptionsAnalysis | None = None
             backtest = BacktestComputation(results=(), episodes=())
             needs_research = False
             if result.status == ScreeningStatus.CANDIDATE:
@@ -555,22 +593,17 @@ class RunAnalysisUseCase:
                 earnings = self._evaluate_earnings(
                     stock, series.candles[decision_index].timestamp.date(), evaluated_at
                 )
-                # **Nach** dem Earnings-Filter, und nur deshalb: Ein
-                # Verfallstermin nach dem naechsten Berichtstermin wird
-                # gekennzeichnet (ADR 0048, dritte gerichtete Kopplung). Die
-                # Abhaengigkeit ist nicht blockierend -- ein unbekannter
-                # Termin laesst jeden anderen Wert vollstaendig.
-                options = self._evaluate_options(
-                    stock,
-                    price=series.candles[decision_index].close,
-                    as_of=series.candles[decision_index].timestamp.date(),
-                    technical=technical,
-                    earnings=earnings,
-                )
+                # **Die Optionsanalyse folgt erst danach** (ADR 0069):
+                # Sie ist der einzige Teil dieser Schleife, der die TWS
+                # anfasst, und sie benutzt dieselbe Verbindung wie der
+                # Backfill. Solange der laeuft, wuerde jeder Wechsel
+                # zwischen beiden Threads die Verbindung verwerfen und neu
+                # aufbauen.
                 needs_research = earnings.status == EarningsFilterStatus.EARNINGS_CLEAR
 
             return _PreparedOutcome(
                 stock=stock,
+                series=series,
                 result=result,
                 decision_index=decision_index,
                 evaluated_at=evaluated_at,
@@ -578,12 +611,58 @@ class RunAnalysisUseCase:
                 fundamentals=fundamentals,
                 analysts=analysts,
                 earnings=earnings,
-                options=options,
+                # Phase 1b traegt sie nach, hinter dem Backfill (ADR 0069).
+                options=None,
                 backtest=backtest,
                 needs_research=needs_research,
             )
         except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
             return _PreparedError(stock=stock, exc=exc)
+
+    def _evaluate_options_for_candidates(self, prepared: list[_PreparedItem]) -> int:
+        """Phase 1b: die Optionsanalyse aller Kandidaten, hinter dem Backfill.
+
+        **Erst wenn der Backfill die TWS-Verbindung freigegeben hat**
+        (ADR 0069, Punkt 2). Die Analyse kann vor ihm fertig sein -- sie
+        ueberspringt die Titel der Wiederholsperre, er fuehrt sie bewusst
+        weiter nach (ADR 0054).
+
+        Die Eingaben sind dieselben wie zuvor: der Kurs der letzten
+        abgeschlossenen Kerze, die deterministisch ermittelten Zonen und der
+        naechste Berichtstermin -- alle drei als optionale Eingabe, keine
+        davon hier ermittelt (CLAUDE.md, die drei gerichteten Kopplungen).
+        Nur der Zeitpunkt des Abrufs hat sich verschoben.
+        """
+        if self._bereitschaft is not None:
+            self._bereitschaft.warte_auf_ende()
+
+        anzahl = 0
+        for stelle, item in enumerate(prepared):
+            if not isinstance(item, _PreparedOutcome):
+                continue
+            if item.result.status != ScreeningStatus.CANDIDATE:
+                continue
+            anzahl += 1
+            kerze = item.series.candles[item.decision_index]
+            try:
+                item.options = self._evaluate_options(
+                    item.stock,
+                    price=kerze.close,
+                    as_of=kerze.timestamp.date(),
+                    technical=item.technical,
+                    earnings=item.earnings,
+                )
+            except Exception as exc:  # Fehlerisolation je Aktie (Doc 10)
+                # **Die Aktie wird zum Fehler, nicht nur zur Warnung.** Ein
+                # Ausfall des Anbieters ist bereits in ``_evaluate_options``
+                # gefangen und ergibt dort ein fehlendes Feld; was bis
+                # hierher durchkommt, ist ein Programmfehler und soll
+                # sichtbar werden. Genau so verhielt es sich, solange die
+                # Optionsanalyse noch in ``_prepare_stock`` stand -- die
+                # Verschiebung nach Phase 1b (ADR 0069) darf daran nichts
+                # aendern.
+                prepared[stelle] = _PreparedError(stock=item.stock, exc=exc)
+        return anzahl
 
     def _run_agents_concurrently(self, prepared: list[_PreparedItem]) -> None:
         """Phase 2: die langsamen Modellaufrufe, alle auf einmal.
@@ -832,14 +911,15 @@ class RunAnalysisUseCase:
         je Aktie durch, statt still zu verschwinden.
         """
         try:
-            return compute_backtest(
-                series,
-                stock_id=stock.id,
-                candidate_params=self._candidate_rule_params,
-                backtest_params=self._backtest_params,
-                signal_rule_version=SIGNAL_RULE_VERSION,
-                evaluated_at=evaluated_at,
-            )
+            with gemessen(_logger, "backtest", symbol=stock.symbol):
+                return compute_backtest(
+                    series,
+                    stock_id=stock.id,
+                    candidate_params=self._candidate_rule_params,
+                    backtest_params=self._backtest_params,
+                    signal_rule_version=SIGNAL_RULE_VERSION,
+                    evaluated_at=evaluated_at,
+                )
         except ValueError as error:
             _logger.warning(
                 "Keine historische Signalstatistik fuer %s: %s", stock.symbol, error
@@ -861,7 +941,8 @@ class RunAnalysisUseCase:
         bleibt leer.
         """
         try:
-            return self._fundamental_data_provider.fundamentals(stock, price=price)
+            with gemessen(_logger, "fundamentaldaten", symbol=stock.symbol):
+                return self._fundamental_data_provider.fundamentals(stock, price=price)
         except FundamentalDataProviderError as error:
             _logger.warning("Fundamentaldaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
@@ -894,15 +975,16 @@ class RunAnalysisUseCase:
         abhaengigen Felder leer.
         """
         try:
-            return self._options_data_provider.options(
-                stock,
-                price=price,
-                as_of=as_of,
-                zones=technical.zones if technical is not None else (),
-                next_earnings_date=(
-                    earnings.next_earnings_date if earnings is not None else None
-                ),
-            )
+            with gemessen(_logger, "optionsanalyse", symbol=stock.symbol):
+                return self._options_data_provider.options(
+                    stock,
+                    price=price,
+                    as_of=as_of,
+                    zones=technical.zones if technical is not None else (),
+                    next_earnings_date=(
+                        earnings.next_earnings_date if earnings is not None else None
+                    ),
+                )
         except OptionsDataProviderError as error:
             _logger.warning("Optionsdaten fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return None
@@ -924,7 +1006,8 @@ class RunAnalysisUseCase:
         Bericht soll sie unterscheiden koennen (ADR 0043).
         """
         try:
-            return self._analyst_recommendations_provider.recommendations(stock)
+            with gemessen(_logger, "analystenvoten", symbol=stock.symbol):
+                return self._analyst_recommendations_provider.recommendations(stock)
         except AnalystRecommendationsFormatError as error:
             # Der Anbieter war erreichbar, seine Antwort aber nicht lesbar.
             # Ein eigener Grund, weil das etwas anderes ueber die Datenlage
@@ -959,7 +1042,8 @@ class RunAnalysisUseCase:
         verschieben (ADR 0017).
         """
         try:
-            next_earnings = self._earnings_provider.next_earnings_date(stock)
+            with gemessen(_logger, "earnings_termin", symbol=stock.symbol):
+                next_earnings = self._earnings_provider.next_earnings_date(stock)
         except EarningsProviderError as error:
             _logger.warning("Earnings-Termin fuer %s nicht verfuegbar: %s", stock.symbol, error)
             return EarningsFilterResult(

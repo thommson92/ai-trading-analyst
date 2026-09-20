@@ -816,6 +816,17 @@ class SchedulerConfig(_Section):
     vom Dispatcher nicht verwendet -- bei ihm uebernimmt der 15-Minuten-Takt
     das Wiederholen.
     """
+    verzahnter_backfill: bool = True
+    """Ob die Analyse schon rechnet, waehrend der Backfill noch holt (ADR 0069).
+
+    Der Backfill wird dadurch nicht schneller -- er darf es nicht, IBKR
+    begrenzt die Rate. Beschleunigt wird, was waehrenddessen stillsteht: Von
+    seinen rund fuenfunddreissig Minuten sind rund vierunddreissig
+    ``time.sleep``.
+
+    ``false`` stellt die Reihenfolge von vorher wieder her: erst alles holen,
+    dann alles rechnen. Der Weg zurueck, ohne Deployment.
+    """
     max_catch_up_seconds: PositiveInt = 2 * 3600
     """Wie lange ein verpasster Lauf noch nachgeholt werden darf.
 
@@ -1107,6 +1118,15 @@ class LoggingConfig(_Section):
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     format: Literal["json", "console"] = "json"
+    file: str | None = None
+    """Zusaetzlicher, rotierender Dateiausgang -- immer JSON.
+
+    ``None`` heisst: nur ``stdout``, also genau der Zustand vor dieser
+    Einstellung. Der Pfad ist relativ zum Arbeitsverzeichnis; fehlende
+    Verzeichnisse werden angelegt.
+    """
+    max_bytes: PositiveInt = 20 * 1024 * 1024
+    backups: NonNegativeInt = 5
 
 
 class AppConfig(_Section):

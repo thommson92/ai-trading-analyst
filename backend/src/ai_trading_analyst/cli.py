@@ -50,6 +50,7 @@ from ai_trading_analyst.application.backfill_history import (
     BackfillHistoryUseCase,
     SymbolBackfill,
 )
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.application.deepen_history import (
     FENSTERGROESSE_HANDELSTAGE,
     DeepenHistoryUseCase,
@@ -3784,7 +3785,42 @@ def command_dispatch(args: argparse.Namespace) -> int:
         # daran nichts, und die Aufgabenplanung soll das unterscheiden koennen.
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
-    configure_logging(LoggingConfig(level="INFO", format="console"))
+    # **Konsole fuer den Menschen, Datei fuer die Auswertung.** Stufe und
+    # Format auf stdout bleiben bewusst fest: Wer den Lauf von Hand anstoesst,
+    # liest mit, und ein versehentliches DEBUG liesse die Rotationsdatei
+    # innerhalb weniger Laeufe durchrollen -- samt der Historie, fuer die sie
+    # gebaut ist. Aus der Konfiguration kommt allein der Dateiausgang; er
+    # traegt immer JSON und ist damit auswertbar, ohne die Konsole zu
+    # veraendern.
+    #
+    # Der Pfad ist relativ zur **Projektwurzel**, wie jeder andere Pfad
+    # derselben Datei. Gegen das Arbeitsverzeichnis aufgeloest landete er bei
+    # einer Aufgabenplanung ohne "Starten in" in C:\Windows\System32.
+    protokoll = config.logging.model_copy(
+        update={
+            "level": "INFO",
+            "format": "console",
+            "file": args.log_file if args.log_file is not None else config.logging.file,
+        }
+    )
+    if protokoll.file is not None:
+        protokoll = protokoll.model_copy(
+            update={"file": str(project_root(loaded.source_path) / protokoll.file)}
+        )
+    try:
+        configure_logging(protokoll)
+    except OSError as error:
+        # Dateisystem als Systemgrenze: ein nicht anlegbares Verzeichnis, eine
+        # volle oder schreibgeschuetzte Platte. Rueckgabewert 2 wie bei jedem
+        # anderen Konfigurationsfehler -- der naechste Start in 15 Minuten
+        # findet dieselbe Platte vor. Ohne diesen Zweig endete der Tageslauf
+        # mit einem Traceback, und zwar alle 15 Minuten erneut.
+        print(
+            f"Konfiguration: logging.file '{protokoll.file}' ist nicht "
+            f"beschreibbar: {error}",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.provider is not None:
         market_data = config.market_data.model_copy(update={"provider": args.provider})
@@ -3909,10 +3945,42 @@ def command_dispatch(args: argparse.Namespace) -> int:
         print(f"Konfiguration (Dashboard-Export): {error}", file=sys.stderr)
         return 2
 
-    def backfill() -> None:
-        bericht = BackfillHistoryUseCase(
-            bar_source, uow_factory, default_days=standardzeitraum
-        ).execute(watchlist, on_progress=_print_backfill_progress)
+    def backfill(
+        melde: Callable[[str, bool], None] | None = None,
+        soll_abbrechen: Callable[[], bool] | None = None,
+    ) -> None:
+        def fortschritt(nummer: int, gesamt: int, ergebnis: SymbolBackfill) -> None:
+            _print_backfill_progress(nummer, gesamt, ergebnis)
+            if melde is not None:
+                # **Nach dem Ablegen, nicht davor** (ADR 0069): Die Analyse
+                # liest den Bestand, und sie darf erst lesen, wenn er steht.
+                # ``on_progress`` laeuft hinter dem Speichern.
+                #
+                # Ein gescheiterter Abruf gibt das Symbol trotzdem frei --
+                # die Analyse soll nicht weiter darauf warten --, zaehlt
+                # aber nicht als Lieferung.
+                melde(ergebnis.symbol, not ergebnis.failed)
+
+        try:
+            bericht = BackfillHistoryUseCase(
+                bar_source, uow_factory, default_days=standardzeitraum
+            ).execute(watchlist, on_progress=fortschritt, soll_abbrechen=soll_abbrechen)
+        finally:
+            if melde is not None:
+                # **Die Verbindung gehoert dem Thread, der sie aufgebaut
+                # hat.** ``IbAsyncBarSource`` haelt dazu einen Event-Loop;
+                # wird sie spaeter aus einem anderen Thread benutzt, verwirft
+                # der Adapter sie und baut sie neu auf -- und der Abbau liefe
+                # dann ueber den Loop eines Threads, den es nicht mehr gibt.
+                # Der Socket bliebe offen, und der neue Aufbau traefe mit
+                # derselben Client-ID auf eine belegte Verbindung. Das faellt
+                # still aus: Die Optionsanalyse fienge den Fehler ab, und ein
+                # ganzer Abend haette keinen einzigen Put-Vorschlag.
+                #
+                # Deshalb raeumt der Backfill-Thread selbst auf, solange sein
+                # Loop noch laeuft. Phase 1b baut danach im Hauptthread eine
+                # frische Verbindung auf.
+                bar_source.close()
         if bericht.failures:
             # Einzelne Ausfaelle sind hingenommen -- faellt aber *alles* aus,
             # ist die TWS weg, und daraus darf kein Analyse-Lauf entstehen.
@@ -3927,7 +3995,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
                 len(bericht.results),
             )
 
-    def analyse(erwartete_kerze: datetime) -> None:
+    def analyse(erwartete_kerze: datetime, bereitschaft: Bereitschaft | None = None) -> None:
         provider = build_market_data_provider(
             config,
             indicators,
@@ -3971,6 +4039,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # (ADR 0060). Ausgeliefert ist er abgeschaltet und damit ``None``.
             dashboard_publisher=dashboard_publisher,
             dashboard_url=dashboard_url,
+            # Nur im verzahnten Tageslauf gesetzt (ADR 0069): Die Analyse
+            # wartet dann je Aktie, bis der Backfill deren Bars abgelegt hat.
+            bereitschaft=bereitschaft,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
@@ -3990,6 +4061,21 @@ def command_dispatch(args: argparse.Namespace) -> int:
         with uow_factory() as uow:
             return uow.intraday_bars.latest_start_overall()
 
+    # **Verzahnung nur auf dem Bestand.** Bei 'source: live' holte die
+    # Analyse ihre Kerzen ueber dieselbe TWS-Verbindung wie der Backfill --
+    # und die ist an den Thread gebunden, der sie aufgebaut hat. Beide
+    # abwechselnd bedeutete einen Verbindungsabbau und -aufbau je Kerzenabruf
+    # (ADR 0069). Der ausgelieferte Standard ist 'stored'; wer umstellt, soll
+    # es erfahren statt es zu merken.
+    verzahnt = config.scheduler.verzahnter_backfill
+    if verzahnt and config.market_data.source != "stored":
+        _logger_cli.warning(
+            "market_data.source steht auf '%s' -- der Tageslauf laeuft deshalb "
+            "unverzahnt (erst holen, dann rechnen).",
+            config.market_data.source,
+        )
+        verzahnt = False
+
     use_case = DispatchDailyRunUseCase(
         calendar=IbkrTradingCalendar(bar_source, watchlist[0]),
         runs=runs,
@@ -4007,6 +4093,7 @@ def command_dispatch(args: argparse.Namespace) -> int:
         latest_stored_bar=latest_stored_bar,
         notifier=notifier,
         native_bar_minutes=config.market_data.ibkr.native_bar_minutes,
+        verzahnt=verzahnt,
     )
 
     try:
@@ -4438,6 +4525,18 @@ def build_parser() -> argparse.ArgumentParser:
             "nur -- die Rueckfallstufe, wenn der Weg nach draussen klemmt. 'none' ist "
             "der Notausschalter: Er haelt den Tageslauf nicht an, sondern laesst nur "
             "den Snapshot aus."
+        ),
+    )
+    dispatch.add_argument(
+        "--log-file",
+        default=None,
+        help=(
+            "Uebersteuert logging.file nur fuer diesen Lauf: ein zusaetzlicher, "
+            "rotierender Dateiausgang mit den Laufzeiten, immer in JSON. Relativ "
+            "zum Projektwurzelverzeichnis. Kein Geheimnis, gehoert aber wie die "
+            "Anbieter-Schalter in die Argumente der Aufgabenplanung statt in "
+            "config/default.yaml -- sonst hinterlaesst er dort einen dauerhaften "
+            "lokalen Diff, den jedes 'git pull' vorfindet."
         ),
     )
     dispatch.set_defaults(handler=command_dispatch)

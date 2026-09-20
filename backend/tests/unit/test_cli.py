@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -39,7 +40,7 @@ from ai_trading_analyst.cli import (
 )
 from ai_trading_analyst.config import AppConfig, MissingSecretError, NotificationsConfig, Secrets
 from ai_trading_analyst.config.loader import LoadedConfig, load_config
-from ai_trading_analyst.config.settings import IndicatorConfig
+from ai_trading_analyst.config.settings import IndicatorConfig, LoggingConfig
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -105,6 +106,7 @@ from ai_trading_analyst.domain.technical import (
     ZoneStrength,
 )
 from ai_trading_analyst.infrastructure.ibkr.calendar import parse_liquid_hours
+from ai_trading_analyst.observability import configure_logging
 
 
 def _outcome(lauf_id: uuid.UUID, symbol: str) -> StockScreeningOutcome:
@@ -4001,3 +4003,171 @@ class TestOptionsBacktestKommando:
         # werden, und die Mitte ist die sparsamste Uebersetzung.
         assert params.target_delta == pytest.approx(0.30)
         assert params.volatility_uplift == pytest.approx(1.2)
+
+
+class TestProtokollzielDesTageslaufs:
+    """``dispatch`` nimmt den Dateiausgang aus der Konfiguration.
+
+    Der Grund, warum es ihn ueberhaupt gibt: Die Windows-Aufgabenplanung
+    startet den Lauf ohne Umleitung, und ihr ``stdout`` ist fluechtig. Nach
+    einem Lauf war bis hierher nicht mehr feststellbar, wo seine Zeit
+    geblieben ist.
+    """
+
+    @staticmethod
+    def _mitschnitt(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> list[LoggingConfig]:
+        gesehen: list[LoggingConfig] = []
+        monkeypatch.setattr(cli, "configure_logging", gesehen.append)
+        return gesehen
+
+    def test_die_datei_aus_der_konfiguration_wird_durchgereicht(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  file: var/logs/tageslauf.log\n",
+            encoding="utf-8",
+        )
+
+        # Rueckgabewert 2: 'fixture' ist fuer den Tageslauf unzulaessig. Die
+        # Protokolleinrichtung liegt davor und hat bereits stattgefunden.
+        assert main(["--config", str(config), "dispatch"]) == 2
+        # **Gegen die Projektwurzel aufgeloest**, wie jeder andere Pfad
+        # derselben Datei -- nicht gegen das Arbeitsverzeichnis. Sonst legte
+        # eine Aufgabenplanung ohne "Starten in" die Datei dort an, wo der
+        # Prozess zufaellig startet, und niemand faende sie wieder.
+        assert [s.file for s in gesehen] == [str(projekt / "var" / "logs" / "tageslauf.log")]
+
+    def test_die_konsole_bleibt_lesbar(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nicht die ganze Konfiguration wird uebernommen: Auf ``stdout``
+        bleibt es bei ``console``, damit ein Aufruf von Hand mitlesbar ist.
+        Maschinenlesbar wird es trotzdem -- die Datei traegt immer JSON."""
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.format for s in gesehen] == ["console"]
+
+    def test_die_stufe_bleibt_bei_info(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auch ``level`` kommt bewusst **nicht** aus der Konfiguration.
+
+        Auf DEBUG schreiben ``ib_async`` und ``httpx`` je Anfrage mehrere
+        Zeilen; die Rotationsdatei rollte innerhalb weniger Laeufe durch, und
+        die Historie, fuer die sie gebaut ist, waere weg.
+        """
+        gesehen = self._mitschnitt(monkeypatch)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  level: DEBUG\n",
+            encoding="utf-8",
+        )
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.level for s in gesehen] == ["INFO"]
+
+    def test_das_argument_uebersteuert_die_konfiguration(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Der Weg fuer die Aufgabenplanung.
+
+        Ein Eintrag in config/default.yaml hinterliesse auf dem Server einen
+        dauerhaften lokalen Diff, den jedes 'git pull' vorfindet -- dieselbe
+        Falle, die ADR 0031 fuer die EDGAR-Kontaktadresse geschlossen hat.
+        """
+        gesehen = self._mitschnitt(monkeypatch)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  file: aus-der-datei.log\n",
+            encoding="utf-8",
+        )
+
+        code = main(["--config", str(config), "dispatch", "--log-file", "var/argument.log"])
+
+        assert code == 2
+        assert [s.file for s in gesehen] == [str(projekt / "var" / "argument.log")]
+
+    def test_ohne_argument_und_ohne_eintrag_bleibt_es_bei_stdout(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.file for s in gesehen] == [None]
+
+    def test_die_datei_entsteht_wirklich(self, projekt: Path) -> None:
+        """Ohne Attrappe: der echte ``configure_logging``-Pfad.
+
+        Die drei Tests darueber ersetzen ihn durch einen Mitschnitt und
+        bewiesen deshalb nur, **was** uebergeben wird -- nicht, dass daraus
+        eine Datei wird.
+        """
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="fixture", directory="watchlists", source="live")
+            + "logging:\n  file: var/logs/tageslauf.log\n",
+            encoding="utf-8",
+        )
+
+        try:
+            assert main(["--config", str(config), "dispatch"]) == 2
+        finally:
+            configure_logging(LoggingConfig(format="json"))
+
+        assert (projekt / "var" / "logs" / "tageslauf.log").exists()
+
+    def test_ohne_eintrag_bleibt_es_beim_bisherigen_zustand(
+        self, projekt: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gesehen = self._mitschnitt(monkeypatch)
+        config = write_config(projekt, provider="fixture")
+
+        assert main(["--config", str(config), "dispatch"]) == 2
+        assert [s.file for s in gesehen] == [None]
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason=(
+            "Der unbeschreibbare Ordner entsteht hier ueber POSIX-Rechte; "
+            "unter Windows ist chmod wirkungslos und der Ordner bliebe "
+            "beschreibbar. Der Zweig selbst ist plattformneutral -- er faengt "
+            "OSError, und den wirft Windows genauso."
+        ),
+    )
+    def test_ein_unbeschreibbares_ziel_endet_sauber_statt_im_traceback(
+        self, projekt: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Rueckgabewert 2 heisst: Ein erneuter Start hilft nicht.
+
+        Genau das stimmt hier -- die naechste Ausfuehrung in 15 Minuten
+        findet dieselbe Platte vor. Ohne diesen Zweig endete der Tageslauf
+        mit einem Traceback, und die Aufgabenplanung wiederholte ihn
+        viermal je Stunde, ohne je zu rechnen.
+        """
+        gesperrt = projekt / "gesperrt"
+        gesperrt.mkdir()
+        gesperrt.chmod(0o500)
+        config = projekt / "config" / "default.yaml"
+        config.write_text(
+            CONFIG_TEMPLATE.format(provider="ibkr", directory="watchlists", source="live")
+            + f"logging:\n  file: {(gesperrt / 'lauf.log').as_posix()}\n",
+            encoding="utf-8",
+        )
+
+        try:
+            code = main(["--config", str(config), "dispatch"])
+        finally:
+            gesperrt.chmod(0o700)
+
+        assert code == 2
+        assert "logging.file" in capsys.readouterr().err

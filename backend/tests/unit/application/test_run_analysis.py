@@ -9,8 +9,11 @@ dem Ergebnis richtig umgeht.
 
 from __future__ import annotations
 
+import json
 import threading
+import time
 import uuid
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -19,8 +22,10 @@ from itertools import cycle
 import pytest
 
 from ai_trading_analyst.application import run_analysis
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
+from ai_trading_analyst.config import LoggingConfig
 from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.domain.analysis import (
     AnalysisRunSummary,
@@ -38,7 +43,7 @@ from ai_trading_analyst.domain.earnings import (
     NextEarningsDate,
 )
 from ai_trading_analyst.domain.fundamentals import FundamentalStatus
-from ai_trading_analyst.domain.options import OptionsStatus
+from ai_trading_analyst.domain.options import OptionsAnalysis, OptionsStatus
 from ai_trading_analyst.domain.report import REPORT_SCHEMA_VERSION
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import (
@@ -57,12 +62,14 @@ from ai_trading_analyst.domain.screening import (
     ScreeningStatus,
 )
 from ai_trading_analyst.domain.technical import (
+    PriceZone,
     TechnicalAnalysisParameters,
     TechnicalAssessment,
     TechnicalAssessmentStatus,
     TechnicalSnapshot,
     TechnicalStatus,
 )
+from ai_trading_analyst.observability import configure_logging
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeAnalystRecommendationsProvider,
@@ -136,6 +143,7 @@ def _build_use_case(
     notify_without_candidates: bool = False,
     repeat_suppression: RepeatSuppressionParameters | None = None,
     dashboard_publisher: DashboardPublisher | None = None,
+    bereitschaft: Bereitschaft | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -171,6 +179,7 @@ def _build_use_case(
         notify_without_candidates=notify_without_candidates,
         repeat_suppression=repeat_suppression,
         dashboard_publisher=dashboard_publisher,
+        bereitschaft=bereitschaft,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -2035,3 +2044,303 @@ class TestDreiAusgaengeDreiMeldungen:
             assert summary.run.status is RunStatus.COMPLETED
             assert summary.run.error_message is None
 
+
+
+class TestLaufzeitmessung:
+    """Der Lauf sagt selbst, wo seine Zeit geblieben ist.
+
+    Bis hierher war die einzige ableitbare Zahl ``completed_at`` minus
+    ``started_at`` -- ein Wert fuer alles zusammen. Welcher der drei
+    Abschnitte die Zeit verbraucht, stand nirgends.
+    """
+
+    def _zeilen(self, ausgabe: str) -> dict[str, dict[str, object]]:
+        zeilen = [json.loads(z) for z in ausgabe.splitlines() if z.strip().startswith("{")]
+        gemessene = [z for z in zeilen if "duration_ms" in z]
+        return {str(z["event"]): z for z in gemessene}
+
+    def test_jede_phase_meldet_ihre_dauer_genau_einmal(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+            },
+        )
+        use_case, *_ = _build_use_case(provider)
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        nach_ereignis = self._zeilen(capsys.readouterr().out)
+
+        for phase in ("phase_1_screening", "phase_2_agenten", "phase_3_persistenz"):
+            assert phase in nach_ereignis, f"{phase} fehlt"
+        assert nach_ereignis["phase_1_screening"]["aktien"] == 2
+        assert nach_ereignis["phase_1_screening"]["kandidaten"] == 1
+        assert nach_ereignis["phase_3_persistenz"]["aktien"] == 2
+
+    def test_die_kerzenserie_wird_je_aktie_gemessen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Der Verdacht, dem diese Messung gilt: Das Laden und Aggregieren
+        des Bestands laeuft fuer **jede** Aktie, nicht nur fuer Kandidaten."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+            },
+        )
+        use_case, *_ = _build_use_case(provider)
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        zeilen = [json.loads(z) for z in capsys.readouterr().out.splitlines() if z.strip()]
+        kerzen = [z for z in zeilen if z.get("event") == "kerzenserie"]
+
+        # ``symbol`` und nicht ``stock_symbol``: Letzteres gehoert dem
+        # Korrelationskontext und wuerde als ``extra_stock_symbol``
+        # umbenannt -- ein Feld, das niemand sucht.
+        assert {str(z["symbol"]) for z in kerzen} == {"AAA", "BBB"}
+
+    def test_meldung_und_export_werden_getrennt_gemessen(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Beide liegen **hinter** ``completed_at`` und sind aus der
+        Datenbank allein nicht voneinander zu trennen."""
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),),
+            series_by_symbol={"AAA": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=_MitschreibenderKanal(),
+            dashboard_publisher=_FakeDashboardPublisher(),
+        )
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+
+        use_case.execute()
+
+        nach_ereignis = self._zeilen(capsys.readouterr().out)
+
+        assert "meldung" in nach_ereignis
+        assert "dashboard_export" in nach_ereignis
+
+
+class TestVerzahnungAendertNichts:
+    """Die Verzahnung verlagert Arbeit, sie ändert sie nicht (ADR 0069).
+
+    Der Backfill wird nicht schneller -- er darf es nicht, IBKR begrenzt die
+    Rate. Beschleunigt wird, was währenddessen stillstand. Das Ergebnis muss
+    davon unberührt bleiben, und zwar ziffernweise.
+    """
+
+    @staticmethod
+    def _provider() -> FakeMarketDataProvider:
+        return FakeMarketDataProvider(
+            stocks=(make_stock("AAA"), make_stock("BBB"), make_stock("CCC")),
+            series_by_symbol={
+                "AAA": make_series(_SERIES_LENGTH, candidate=True),
+                "BBB": make_series(_SERIES_LENGTH, candidate=False),
+                "CCC": make_series(_SERIES_LENGTH, candidate=True),
+            },
+        )
+
+    @staticmethod
+    def _fertige_bereitschaft(*symbole: str) -> Bereitschaft:
+        """Ein Backfill, der schon durch ist -- der Normalfall am Ende."""
+        bereitschaft = Bereitschaft()
+        for symbol in symbole:
+            bereitschaft.melde(symbol)
+        bereitschaft.beende()
+        return bereitschaft
+
+    def test_dieselben_ergebnisse_mit_und_ohne_wartestelle(self) -> None:
+        ohne, *_ = _build_use_case(self._provider())
+        mit, *_ = _build_use_case(
+            self._provider(),
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        seriell = ohne.execute()
+        verzahnt = mit.execute()
+
+        assert [o.stock.symbol for o in seriell.outcomes] == [
+            o.stock.symbol for o in verzahnt.outcomes
+        ]
+        assert [o.result.status for o in seriell.outcomes] == [
+            o.result.status for o in verzahnt.outcomes
+        ]
+        assert seriell.run.candidates_found == verzahnt.run.candidates_found
+        assert not seriell.errors and not verzahnt.errors
+
+    def test_die_optionsanalyse_laeuft_weiterhin_fuer_jeden_kandidaten(self) -> None:
+        """Sie ist nur an eine andere Stelle gewandert (Phase 1b), nicht
+        entfallen -- und sie bekommt dieselben Eingaben."""
+        optionen = FakeOptionsDataProvider()
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            options_provider=optionen,
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        zusammenfassung = use_case.execute()
+
+        mit_optionen = [o.stock.symbol for o in zusammenfassung.outcomes if o.options is not None]
+        assert mit_optionen == ["AAA", "CCC"]
+
+    def test_die_reihenfolge_bleibt_die_der_watchlist(self) -> None:
+        """Zugesichert in ADR 0069, Punkt 5."""
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            bereitschaft=self._fertige_bereitschaft("AAA", "BBB", "CCC"),
+        )
+
+        zusammenfassung = use_case.execute()
+
+        assert [o.stock.symbol for o in zusammenfassung.outcomes] == ["AAA", "BBB", "CCC"]
+
+    def test_ein_nie_gemeldetes_symbol_haelt_den_lauf_nicht_auf(self) -> None:
+        """Der Backfill hat es nicht mehr geschafft. Gerechnet wird trotzdem
+        -- auf dem Bestand, den es gibt; ob der aktuell genug ist,
+        entscheidet die Prüfung der erwarteten Kerze."""
+        bereitschaft = Bereitschaft()
+        bereitschaft.melde("AAA")
+        bereitschaft.beende()  # BBB und CCC kommen nie
+        use_case, *_ = _build_use_case(self._provider(), bereitschaft=bereitschaft)
+
+        zusammenfassung = use_case.execute()
+
+        assert len(zusammenfassung.outcomes) == 3
+
+    def test_vor_der_optionsanalyse_wird_das_ende_abgewartet(self) -> None:
+        """Die entscheidende Reihenfolge (ADR 0069, Punkt 2): Die
+        Optionsanalyse benutzt dieselbe TWS-Verbindung wie der Backfill, und
+        die ist an den Thread gebunden, der sie aufgebaut hat."""
+
+        class MitschreibendeBereitschaft(Bereitschaft):
+            def __init__(self) -> None:
+                super().__init__()
+                self.abfolge: list[str] = []
+
+            def warte_auf_ende(self) -> None:
+                self.abfolge.append("ende-abgewartet")
+                super().warte_auf_ende()
+
+        bereitschaft = MitschreibendeBereitschaft()
+        for symbol in ("AAA", "BBB", "CCC"):
+            bereitschaft.melde(symbol)
+        bereitschaft.beende()
+
+        class MitschreibenderOptionsanbieter(FakeOptionsDataProvider):
+            def options(
+                self,
+                stock: Stock,
+                *,
+                price: float,
+                as_of: date,
+                zones: Sequence[PriceZone] = (),
+                next_earnings_date: date | None = None,
+            ) -> OptionsAnalysis:
+                bereitschaft.abfolge.append(f"optionen:{stock.symbol}")
+                return super().options(
+                    stock,
+                    price=price,
+                    as_of=as_of,
+                    zones=zones,
+                    next_earnings_date=next_earnings_date,
+                )
+
+        use_case, *_ = _build_use_case(
+            self._provider(),
+            options_provider=MitschreibenderOptionsanbieter(),
+            bereitschaft=bereitschaft,
+        )
+
+        use_case.execute()
+
+        assert bereitschaft.abfolge[0] == "ende-abgewartet"
+        assert bereitschaft.abfolge[1:] == ["optionen:AAA", "optionen:CCC"]
+
+
+class TestVerzahnungMitEchtemThread:
+    """Die Wartephase wirklich durchlaufen, nicht nur ihren Ausgang prüfen.
+
+    Die Tests darüber arbeiten mit einer Wartestelle, die schon fertig ist --
+    sie belegen das Ergebnis, aber nie, dass zwischen Melder und Wartendem
+    tatsächlich etwas passiert. Hier meldet ein Thread verzögert, während
+    die Analyse läuft.
+    """
+
+    FRIST = 20.0
+    """Sekunden, nach denen der Lauf als hängend gilt."""
+
+    @staticmethod
+    def _provider() -> FakeMarketDataProvider:
+        symbole = [f"S{nummer:02d}" for nummer in range(12)]
+        return FakeMarketDataProvider(
+            stocks=tuple(make_stock(symbol) for symbol in symbole),
+            series_by_symbol={
+                symbol: make_series(_SERIES_LENGTH, candidate=nummer % 4 == 0)
+                for nummer, symbol in enumerate(symbole)
+            },
+        )
+
+    def _lauf_mit_meldendem_thread(
+        self, verzoegerung: float, *, nur_die_ersten: int | None = None
+    ) -> AnalysisRunSummary:
+        provider = self._provider()
+        symbole = [stock.symbol for stock in provider.list_stocks()]
+        bereitschaft = Bereitschaft()
+        use_case, *_ = _build_use_case(provider, bereitschaft=bereitschaft)
+
+        def melde_nacheinander() -> None:
+            try:
+                for symbol in symbole[:nur_die_ersten]:
+                    time.sleep(verzoegerung)
+                    bereitschaft.melde(symbol)
+            finally:
+                bereitschaft.beende()
+
+        faden = threading.Thread(target=melde_nacheinander, daemon=True)
+        faden.start()
+        try:
+            return use_case.execute()
+        finally:
+            faden.join(self.FRIST)
+            assert not faden.is_alive(), "der meldende Thread haengt"
+
+    def test_der_lauf_kommt_durch_und_liefert_alles(self) -> None:
+        zusammenfassung = self._lauf_mit_meldendem_thread(verzoegerung=0.01)
+
+        assert len(zusammenfassung.outcomes) == 12
+        assert not zusammenfassung.errors
+        assert [o.stock.symbol for o in zusammenfassung.outcomes] == [
+            f"S{nummer:02d}" for nummer in range(12)
+        ]
+
+    def test_dasselbe_ergebnis_wie_ohne_wartestelle(self) -> None:
+        """**Der Test, auf den es fachlich ankommt.** Die Verzahnung
+        verlagert Arbeit, sie ändert sie nicht."""
+        ohne, *_ = _build_use_case(self._provider())
+
+        seriell = ohne.execute()
+        verzahnt = self._lauf_mit_meldendem_thread(verzoegerung=0.01)
+
+        assert [(o.stock.symbol, o.result.status) for o in seriell.outcomes] == [
+            (o.stock.symbol, o.result.status) for o in verzahnt.outcomes
+        ]
+        assert seriell.run.candidates_found == verzahnt.run.candidates_found
+
+    def test_ein_abbrechender_backfill_haelt_den_lauf_nicht_auf(self) -> None:
+        """Nach dem Abbruch kommen keine Meldungen mehr. Gerechnet wird
+        trotzdem -- auf dem Bestand, den es gibt."""
+        zusammenfassung = self._lauf_mit_meldendem_thread(
+            verzoegerung=0.01, nur_die_ersten=3
+        )
+
+        assert len(zusammenfassung.outcomes) == 12

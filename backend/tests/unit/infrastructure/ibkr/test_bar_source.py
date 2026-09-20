@@ -131,6 +131,46 @@ class TestPacing:
         quelle._wait_for_pacing()
         assert geschlafen == []
 
+    def test_die_wartezeit_wird_aufsummiert_statt_verworfen(self) -> None:
+        """Die Zahl, an der haengt, ob Beschleunigen ueberhaupt etwas bringt.
+
+        Bei rund 190 Symbolen und elf Sekunden Abstand ist der Backfill fast
+        vollstaendig Warten -- aber belegt war das nirgends, weil die
+        verschlafene Zeit bisher einfach verfiel.
+        """
+        uhr: list[float] = [100.0]
+        quelle = self._quelle(11.0, uhr, [])
+
+        quelle._wait_for_pacing()
+        quelle._wait_for_pacing()
+        quelle._wait_for_pacing()
+
+        assert quelle.anfragen == 3
+        assert quelle.verschlafene_sekunden == 22.0
+
+    def test_nur_tatsaechliches_warten_zaehlt(self) -> None:
+        """Ein Abruf, der laenger dauert als der Abstand, hat nichts
+        verschlafen -- er hat gearbeitet."""
+        uhr: list[float] = [100.0]
+        quelle = self._quelle(11.0, uhr, [])
+
+        quelle._wait_for_pacing()
+        uhr[0] += 30.0
+        quelle._wait_for_pacing()
+
+        assert quelle.anfragen == 2
+        assert quelle.verschlafene_sekunden == 0.0
+
+    def test_ohne_bremse_wird_nichts_verschlafen(self) -> None:
+        uhr: list[float] = [100.0]
+        quelle = self._quelle(0.0, uhr, [])
+
+        quelle._wait_for_pacing()
+        quelle._wait_for_pacing()
+
+        assert quelle.anfragen == 2
+        assert quelle.verschlafene_sekunden == 0.0
+
 
 class TestLaufenderBar:
     """Auf ``endDateTime=""`` antwortet IBKR bis zum Augenblick der Anfrage.

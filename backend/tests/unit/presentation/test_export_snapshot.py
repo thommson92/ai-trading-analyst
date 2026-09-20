@@ -21,6 +21,7 @@ from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     MarketDataProvider,
     MarketDataUnavailableError,
+    RepeatSuppressionParameters,
     RunStatus,
     UnitOfWork,
 )
@@ -36,10 +37,13 @@ from ai_trading_analyst.infrastructure.publishing import (
 from ai_trading_analyst.presentation.export import (
     MANIFEST_PFAD,
     SNAPSHOT_FORMAT,
+    BekannteDatei,
+    Exportdatei,
     Exportquellen,
     dateisicherer_name,
     iter_snapshot,
 )
+from ai_trading_analyst.presentation.export.snapshot import _export_fassung
 from tests.unit.application.conftest import (
     FakeAnalysisRunRepository,
     FakeBacktestResultRepository,
@@ -131,10 +135,20 @@ def quellen_mit(
 
 
 def baum(quellen: Exportquellen, **kwargs: object) -> dict[str, bytes]:
+    """Nur die tatsaechlich gebauten Dateien.
+
+    Ein Eintrag ohne Inhalt heisst "unveraendert" (ADR 0068) -- er gehoert
+    zum Baum, hat aber keine Bytes. Wer ihn sehen will, nimmt ``eintraege``.
+    """
     return {
         datei.pfad: datei.inhalt
         for datei in iter_snapshot(quellen, **kwargs)  # type: ignore[arg-type]
+        if datei.inhalt is not None
     }
+
+
+def eintraege(quellen: Exportquellen, **kwargs: object) -> list[Exportdatei]:
+    return list(iter_snapshot(quellen, **kwargs))  # type: ignore[arg-type]
 
 
 def lauf(status: RunStatus = RunStatus.COMPLETED) -> AnalysisRun:
@@ -396,3 +410,161 @@ class TestUebersichtenImExport:
         detail = json.loads(dateien[f"data/analysis-runs/{ein_lauf.id}.json"].decode("utf-8"))
         assert detail["suppressed"] == []
         assert detail["suppression_window_days"] is None
+
+
+class TestUnveraenderlicheLaeufe:
+    """Abgeschlossene Läufe werden nicht jeden Abend neu gerechnet (ADR 0068).
+
+    Der Export baute bisher **jeden je gelaufenen Lauf** und **je
+    historischem Bericht eine eigene Abfrage** -- ein Anteil, der mit jedem
+    Handelstag wächst, unabhängig davon, wieviel sich geändert hat.
+    """
+
+    UNVERAENDERLICH = ("data/analysis-runs/", "data/reports/")
+
+    def _bekannt_aus(self, quellen: Exportquellen) -> dict[str, BekannteDatei]:
+        """Der Stand, den ein vorangegangener Export hinterlassen hätte."""
+        stand: dict[str, BekannteDatei] = {}
+        for eintrag in eintraege(quellen):
+            if eintrag.inhalt is None:
+                continue
+            stand[eintrag.pfad] = BekannteDatei(
+                hash=hashlib.sha256(eintrag.inhalt).hexdigest(),
+                fassung=eintrag.fassung,
+            )
+        return stand
+
+    def _zweiter_export(self, quellen: Exportquellen) -> list[Exportdatei]:
+        """Der zweite Export -- und die Wache, dass ueberhaupt etwas
+        uebersprungen wurde.
+
+        Ohne sie waere jede Zusicherung darunter auch dann erfuellt, wenn der
+        Zwischenspeicher gar nicht griffe: Ein Baum ohne Uebersprung hat
+        dieselben Pfade und dasselbe Manifest wie einer ohne
+        Zwischenspeicher. Genau so ist dieser Block beim ersten Wurf gruen
+        gewesen, obwohl nichts funktionierte.
+        """
+        zweite = eintraege(quellen, bekannt=self._bekannt_aus(quellen))
+        assert [e for e in zweite if e.inhalt is None], (
+            "nichts uebersprungen -- der Zwischenspeicher greift nicht"
+        )
+        return zweite
+
+    def test_der_zweite_export_baut_die_laufdateien_nicht_erneut(self) -> None:
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+
+        uebersprungen = {e.pfad for e in self._zweiter_export(quellen) if e.inhalt is None}
+
+        assert all(pfad.startswith(self.UNVERAENDERLICH) for pfad in uebersprungen)
+
+    def test_charts_und_uebersichten_werden_immer_gebaut(self) -> None:
+        """Sie ändern sich täglich. Ein Übersprung wäre dort falsch."""
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+
+        gebaut = {e.pfad for e in self._zweiter_export(quellen) if e.inhalt is not None}
+        assert "data/stocks.json" in gebaut
+        assert "data/analysis-runs.json" in gebaut
+        assert any(pfad.endswith("/chart.json") for pfad in gebaut)
+
+    def test_das_manifest_ist_dasselbe_wie_ohne_zwischenspeicher(self) -> None:
+        """**Der Test, auf den es ankommt.**
+
+        Das Manifest nennt je Pfad die Prüfsumme des Klartexts, und der
+        Browser prüft sie nach dem Entschlüsseln. Käme sie beim Übersprung
+        aus einer anderen Quelle als beim Bauen, fiele der Unterschied erst
+        draußen auf -- als Datei, die sich entschlüsseln lässt und trotzdem
+        abgewiesen wird.
+        """
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+        kennung = uuid.uuid4()
+        zeit = datetime(2026, 9, 20, 21, 0, tzinfo=UTC)
+        bekannt = self._bekannt_aus(quellen)
+
+        self._zweiter_export(quellen)  # Wache: es wird wirklich uebersprungen
+        ohne = baum(quellen, export_id=kennung, jetzt=zeit)
+        mit = baum(quellen, export_id=kennung, jetzt=zeit, bekannt=bekannt)
+
+        assert json.loads(ohne[MANIFEST_PFAD]) == json.loads(mit[MANIFEST_PFAD])
+
+    def test_dieselben_pfade_wie_ohne_zwischenspeicher(self) -> None:
+        """Kein Pfad faellt weg -- sonst raeumte der Schreiber ihn als
+        verwaist weg, und draussen fehlte er."""
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+
+        ohne = [e.pfad for e in eintraege(quellen)]
+        mit = [e.pfad for e in self._zweiter_export(quellen)]
+
+        assert ohne == mit
+
+    def test_eine_andere_fassung_wird_neu_gerechnet(self) -> None:
+        """Ändert sich die Form einer exportierten Datei, ist der bekannte
+        Stand wertlos -- und das fällt von selbst auf, weil die Fassung über
+        die Schemata der Antwortmodelle gebildet wird."""
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+        veraltet = {
+            pfad: BekannteDatei(hash=eintrag.hash, fassung="aus-einer-anderen-zeit")
+            for pfad, eintrag in self._bekannt_aus(quellen).items()
+        }
+
+        zweite = eintraege(quellen, bekannt=veraltet)
+
+        assert not [e for e in zweite if e.inhalt is None]
+
+    def test_ein_unbekannter_pfad_wird_gerechnet(self) -> None:
+        """Der Fall nach einem verlorenen Zustand: alles neu, nur langsamer."""
+        quellen, _ = quellen_mit(laeufe=(lauf(),))
+
+        zweite = eintraege(quellen, bekannt={})
+
+        assert not [e for e in zweite if e.inhalt is None]
+
+    def test_die_fassung_haengt_am_schema_der_modelle(self) -> None:
+        """Sie ist abgeleitet und nicht gepflegt: Eine Nummer, an die jemand
+        denken muss, wird irgendwann vergessen -- und der Fehler wäre still."""
+        fassung = _export_fassung(repeat_suppression=None, market_timezone="America/New_York")
+
+        assert len(fassung) == 16
+        assert fassung == _export_fassung(
+            repeat_suppression=None, market_timezone="America/New_York"
+        )
+
+    def test_eine_andere_sperrfrist_ergibt_eine_andere_fassung(self) -> None:
+        """Die Laufansicht trägt ``suppressed`` und
+        ``suppression_window_days`` (ADR 0062). Wer ``window_days`` in der
+        YAML ändert, ändert den Inhalt **aller** historischen Laufansichten
+        -- ohne dass sich ein Schema rührt und ohne dass jemand an ein Salz
+        denkt. Genau der stille Fall, gegen den die abgeleitete Fassung
+        gebaut ist."""
+        sieben = RepeatSuppressionParameters(window_days=7)
+        vierzehn = RepeatSuppressionParameters(window_days=14)
+
+        assert _export_fassung(
+            repeat_suppression=sieben, market_timezone="America/New_York"
+        ) != _export_fassung(repeat_suppression=vierzehn, market_timezone="America/New_York")
+
+    def test_eine_andere_boersenzeitzone_ebenso(self) -> None:
+        """Sie geht in dieselbe Rechnung ein."""
+        assert _export_fassung(
+            repeat_suppression=None, market_timezone="America/New_York"
+        ) != _export_fassung(repeat_suppression=None, market_timezone="Europe/Berlin")
+
+    def test_ein_noch_laufender_lauf_wird_nicht_eingefroren(self) -> None:
+        """Ein ``cli publish`` während eines Screenings schriebe sonst den
+        Zwischenstand mit gültiger Fassung -- und er käme nie wieder an die
+        Reihe. Das Dashboard zeigte den Lauf dauerhaft als laufend, mit
+        halber Berichtsliste."""
+        quellen, _ = quellen_mit(laeufe=(lauf(status=RunStatus.SCREENING),))
+
+        erste = eintraege(quellen)
+        laufpfade = [e for e in erste if e.pfad.startswith("data/analysis-runs/")]
+
+        assert laufpfade, "der Testaufbau liefert keine Laufdateien"
+        assert all(e.fassung is None for e in laufpfade)
+
+    def test_ein_noch_laufender_lauf_wird_beim_zweiten_mal_neu_gerechnet(self) -> None:
+        quellen, _ = quellen_mit(laeufe=(lauf(status=RunStatus.SCREENING),))
+        bekannt = self._bekannt_aus(quellen)
+
+        zweite = eintraege(quellen, bekannt=bekannt)
+
+        assert not [e for e in zweite if e.inhalt is None]

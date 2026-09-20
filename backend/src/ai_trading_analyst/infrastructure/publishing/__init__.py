@@ -27,7 +27,13 @@ from .upload import (
     WranglerHochlader,
     wrangler_befehl,
 )
-from .writer import Dateizustand, Exportzustand, Schreibbericht, Verzeichnisschreiber
+from .writer import (
+    Dateizustand,
+    Exporteintrag,
+    Exportzustand,
+    Schreibbericht,
+    Verzeichnisschreiber,
+)
 
 __all__ = [
     "FORMAT_VERSION",
@@ -38,6 +44,7 @@ __all__ = [
     "Bauziel",
     "Dateizustand",
     "Exportbericht",
+    "Exporteintrag",
     "Exportschluessel",
     "Exportziel",
     "Exportzustand",

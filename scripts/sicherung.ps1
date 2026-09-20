@@ -30,6 +30,11 @@
 .PARAMETER Benutzer
     PostgreSQL-Rolle. Muss zur Zeile in der pgpass.conf passen.
 
+.PARAMETER PgBin
+    Verzeichnis mit `pg_dump.exe` und `pg_restore.exe`. Nur nötig, wenn die
+    PostgreSQL-Werkzeuge weder im Suchpfad noch unter
+    `C:\Program Files\PostgreSQL\<Fassung>\bin` liegen.
+
 .PARAMETER Aufbewahrungstage
     Wie lange Dumps liegen bleiben. Vierzehn Tage: lang genug, um einen erst
     spät bemerkten Fehler zu überleben, kurz genug, dass der Ordner nicht
@@ -43,15 +48,39 @@ param(
     [Parameter(Mandatory = $true)][string]$Ziel,
     [string]$Datenbank = 'ai_trading_analyst',
     [string]$Benutzer = 'ata',
+    [string]$PgBin,
     [int]$Aufbewahrungstage = 14
 )
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'postgres-werkzeuge.ps1')
+
 function Schreibe($Text) {
     $zeile = "{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Text
     Write-Output $zeile
     if ($script:Protokoll) { Add-Content -Path $script:Protokoll -Value $zeile }
+}
+
+function Abbruch($Text) {
+    # **Nicht Write-Error.** Bei $ErrorActionPreference = 'Stop' ist das ein
+    # abbrechender Fehler: Das Skript endet sofort mit Rueckgabewert 1, und
+    # das 'exit 2' dahinter laeuft nie. Bei einem Skript, dessen Kern sein
+    # Rueckgabewert ist, waere das die stille Variante des Fehlschlags.
+    [Console]::Error.WriteLine($Text)
+    exit 2
+}
+
+# **Vor dem Zielverzeichnis und vor dem Protokoll**: Fehlen die Werkzeuge,
+# ist das kein Fehler dieser Sicherung, sondern der Umgebung. Er soll
+# auffallen, bevor ein Protokoll beginnt, in dem dann nichts Brauchbares
+# steht.
+try {
+    $pgDump = Finde-PostgresWerkzeug -Name 'pg_dump' -PgBin $PgBin
+    $pgRestore = Finde-PostgresWerkzeug -Name 'pg_restore' -PgBin $PgBin
+}
+catch {
+    Abbruch $_.Exception.Message
 }
 
 try {
@@ -62,7 +91,7 @@ try {
     $datei = Join-Path $Ziel "$Datenbank-$stempel.dump"
 
     Schreibe "Sicherung von '$Datenbank' nach '$datei' beginnt."
-    pg_dump --format=custom --username=$Benutzer --dbname=$Datenbank --file=$datei
+    & $pgDump --format=custom --username=$Benutzer --dbname=$Datenbank --file=$datei
     if ($LASTEXITCODE -ne 0) {
         throw "pg_dump endete mit Rueckgabewert $LASTEXITCODE."
     }
@@ -75,7 +104,7 @@ try {
     if ($groesse -lt 1024) {
         throw "Die Sicherung ist nur $groesse Byte gross -- das kann kein vollstaendiger Dump sein."
     }
-    pg_restore --list $datei | Out-Null
+    & $pgRestore --list $datei | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Die Sicherung ist nicht lesbar (pg_restore --list, Rueckgabewert $LASTEXITCODE)."
     }

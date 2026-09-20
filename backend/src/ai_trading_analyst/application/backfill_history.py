@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Protocol, runtime_checkable
 
 from ai_trading_analyst.domain.analysis import (
     ContractSpec,
@@ -34,8 +35,24 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.screening import IntradayBar
 from ai_trading_analyst.observability.logging_setup import get_logger
+from ai_trading_analyst.observability.timing import gemessen
 
 _logger = get_logger(__name__)
+
+
+@runtime_checkable
+class Gedrosselt(Protocol):
+    """Eine Barquelle, die ihre eigene Wartezeit kennt.
+
+    **Nicht** Teil von ``HistoricalBarSource``: Die Drossel ist eine Eigenheit
+    des IBKR-Adapters (60 Historienanfragen je zehn Minuten), und der Bestand
+    aus PostgreSQL hat sie nicht. Sie in den Port zu heben zwaenge jeder
+    Quelle ein Feld auf, das nur eine von ihnen fuellen kann.
+    """
+
+    verschlafene_sekunden: float
+    anfragen: int
+
 
 UEBERLAPPUNG_TAGE = 1
 """Wieviel ueber den letzten bekannten Bar hinaus zurueckgefragt wird.
@@ -214,13 +231,57 @@ class BackfillHistoryUseCase:
         self,
         watchlist: Sequence[ContractSpec],
         on_progress: Callable[[int, int, SymbolBackfill], None] | None = None,
+        soll_abbrechen: Callable[[], bool] | None = None,
     ) -> BackfillReport:
+        """``soll_abbrechen`` wird **zwischen** zwei Symbolen gefragt.
+
+        Nicht waehrend eines Abrufs: Ein halb empfangenes Fenster
+        wegzuwerfen brachte nichts, und der Abstand zur naechsten Anfrage
+        muss ohnehin eingehalten werden.
+
+        Gebraucht vom verzahnten Tageslauf (ADR 0069): Bricht das Datengate
+        nach einer Minute ab, waere es sinnlos, die restlichen
+        vierunddreissig Minuten Bars zu holen, die niemand mehr rechnet --
+        und der naechste Start in fuenfzehn Minuten soll noch ins
+        Zeitfenster fallen.
+        """
         ergebnisse: list[SymbolBackfill] = []
-        for index, contract in enumerate(watchlist, start=1):
-            ergebnis = self._backfill_one(contract)
-            ergebnisse.append(ergebnis)
-            if on_progress is not None:
-                on_progress(index, len(watchlist), ergebnis)
+        quelle = self._bar_source
+        gedrosselt = quelle if isinstance(quelle, Gedrosselt) else None
+        # **Differenz, nicht Absolutwert.** Die Zaehler der Quelle laufen ueber
+        # deren Lebensdauer. Heute ruft der Tageslauf ``execute`` genau einmal
+        # je Prozess -- aber eine Wiederholung nach Teilausfall traegt sonst
+        # die Summe beider Laeufe, und der Betreiber liest eine Wartezeit, die
+        # es in diesem Lauf nie gab.
+        vorher = (
+            (gedrosselt.verschlafene_sekunden, gedrosselt.anfragen)
+            if gedrosselt is not None
+            else None
+        )
+        with gemessen(_logger, "backfill", symbole=len(watchlist)) as messwerte:
+            try:
+                for index, contract in enumerate(watchlist, start=1):
+                    if soll_abbrechen is not None and soll_abbrechen():
+                        _logger.info(
+                            "Backfill abgebrochen nach %d von %d Symbolen.",
+                            index - 1,
+                            len(watchlist),
+                        )
+                        break
+                    with gemessen(_logger, "backfill_symbol", symbol=contract.symbol):
+                        ergebnis = self._backfill_one(contract)
+                    ergebnisse.append(ergebnis)
+                    if on_progress is not None:
+                        on_progress(index, len(watchlist), ergebnis)
+            finally:
+                # **Auch beim Abbruch.** Gerade dann ist die Frage offen, ob
+                # der Lauf an der Drossel hing oder an der Leitung; stuende
+                # das hinter der Schleife, bliebe sie unbeantwortet.
+                if gedrosselt is not None and vorher is not None:
+                    messwerte["verschlafene_sekunden"] = round(
+                        gedrosselt.verschlafene_sekunden - vorher[0], 1
+                    )
+                    messwerte["anfragen"] = gedrosselt.anfragen - vorher[1]
         return BackfillReport(results=tuple(ergebnisse))
 
     def _backfill_one(self, contract: ContractSpec) -> SymbolBackfill:

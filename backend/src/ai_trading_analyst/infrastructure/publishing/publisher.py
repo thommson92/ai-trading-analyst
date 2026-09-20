@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -42,7 +42,13 @@ from .crypto import (
 )
 from .frontend_build import Baubericht
 from .upload import Hochladebericht, Hochlader
-from .writer import Exportzustand, Schreibbericht, Verzeichnisschreiber
+from .writer import (
+    Dateizustand,
+    Exporteintrag,
+    Exportzustand,
+    Schreibbericht,
+    Verzeichnisschreiber,
+)
 
 _logger = get_logger(__name__)
 
@@ -107,7 +113,7 @@ class SnapshotPublisher:
     def __init__(
         self,
         *,
-        snapshot: Callable[[], Iterable[tuple[str, bytes]]],
+        snapshot: Callable[[Mapping[str, Dateizustand]], Iterable[Exporteintrag]],
         ziel: Exportziel,
         hochlader: Hochlader | None = None,
     ) -> None:
@@ -213,7 +219,8 @@ class SnapshotPublisher:
                 if voll:
                     zustand.dateien.clear()
                 schreiber = self._schreiber(zustand)
-                geschrieben = schreiber.schreibe(self._snapshot(), zustand)
+                bekannt = self._liegt_noch(zustand, schreiber)
+                geschrieben = schreiber.schreibe(self._snapshot(bekannt), zustand)
                 zustand.speichere(self._ziel.zustandsdatei)
             except KryptoKonfigurationError as fehler:
                 raise DashboardPublisherError(
@@ -263,6 +270,34 @@ class SnapshotPublisher:
                 f"Der Upload ist unerwartet gescheitert: {fehler!r}. Der Datenbaum "
                 f"({geschrieben.dateien} Dateien) liegt geschrieben auf dem Server."
             ) from fehler
+
+    def _liegt_noch(
+        self, zustand: Exportzustand, schreiber: Verzeichnisschreiber
+    ) -> Mapping[str, Dateizustand]:
+        """Der bekannte Stand, beschraenkt auf das, was wirklich noch da ist.
+
+        **Die Pruefung gehoert hierher und nicht zum Erzeuger** (ADR 0068):
+        Der Erzeuger kennt das Verzeichnis nicht, und er darf eine Datei nur
+        dann ueberspringen, wenn sie tatsaechlich noch liegt -- sonst waere
+        ihr Inhalt danach nirgends mehr. Der Zustand behauptet etwas ueber
+        ein Verzeichnis, das er nicht selbst kontrolliert; genau deshalb
+        wird hier nachgesehen.
+
+        **Und deshalb auch der Zielname.** Er leitet sich bei Verschluesselung
+        aus dem Schluessel ab. Nach einem Wechsel der Passphrase oder der
+        Rundenzahl heisst dieselbe Datei anders -- der alte Name gehoert dann
+        zu einem Chiffrat, das der neue Schluessel nicht oeffnet. Wuerde sie
+        uebersprungen, bliebe sie unter dem alten Namen liegen (und damit mit
+        der alten Passphrase lesbar), waehrend die Oberflaeche sie unter dem
+        neuen Namen suchte, den nie jemand geschrieben hat. Eine Rotation
+        findet meist statt, *weil* die alte Passphrase abhandengekommen ist.
+        """
+        return {
+            pfad: stand
+            for pfad, stand in zustand.dateien.items()
+            if stand.ziel == schreiber.zielname(pfad)
+            and (self._ziel.wurzel / stand.ziel).is_file()
+        }
 
     def _zustand(self) -> Exportzustand:
         """Der letzte Stand -- oder ein frischer Baum.

@@ -1937,12 +1937,31 @@ automatischen Tageslauf, nur manuell gestartete.
 umgeschrieben, sobald er dort steht — bis dahin gibt es genau einen
 geplanten Vorgang, den Tageslauf.
 
-**Der Export nach draußen ist gebaut und beim Anbieter abgenommen**
+**Die Protokolldatei ist gebaut, aber noch nicht eingeschaltet**:
+`logging.file` steht ausgeliefert auf `null`, und damit gehen die
+Protokolle des Tageslaufs weiterhin nur nach `stdout` — unter der
+Aufgabenplanung also ins Leere. Wer wissen will, wo die Zeit eines Laufs
+bleibt, trägt dort einen Pfad ein (Abschnitt „Wo die Zeit eines Laufs
+bleibt"). Diese Zeile wird umgeschrieben, sobald er gesetzt ist.
+
+**Der Export nach draußen läuft seit dem 2026-09-18 im Tageslauf**
 (Stufen K und L, [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
-angenommen am 2026-09-17), **im Tageslauf aber noch nicht geschaltet**:
-`dashboard_export.target` steht ausgeliefert auf `none`, und die
-Aufgabenplanung führt `--dashboard-export` noch nicht. Diese Zeile wird
-umgeschrieben, sobald sie es tut (Stufe K, Schritt 5).
+angenommen am 2026-09-17). `dashboard_export.target` steht in der
+ausgelieferten Konfiguration weiterhin auf `none`; geschaltet ist er über
+`--dashboard-export` in den Argumenten der Aufgabenplanung.
+
+> **Er kostet mehr als die Einzelmessung erwarten ließ.** Am ersten
+> produktiven Tag dauerte der Abschnitt hinter `completed_at`
+> **42,7 Minuten** — gegenüber 784 Sekunden, die Stufe K Schritt 4 für das
+> bloße Schreiben gemessen hatte. Der Gesamtlauf stieg damit von rund 53
+> auf **103 Minuten**.
+>
+> Der Unterschied liegt nicht am Schreiben, sondern am Rechnen: Der Export
+> baut bei jedem Lauf **jeden je gelaufenen Analyse-Lauf** neu und holt **je
+> historischem Bericht eine eigene Abfrage**. Dieser Anteil wächst mit jedem
+> Handelstag, unabhängig davon, wieviel sich geändert hat. Siehe Abschnitt
+> „Wo die Zeit eines Laufs bleibt"; die Zerlegung dieses Abschnitts steht
+> noch aus.
 
 ## Nach jedem Serverneustart
 
@@ -1986,6 +2005,19 @@ Ausfallrisiko.
 |---|---|
 | `scripts\sicherung.ps1` | täglicher Dump, Lesbarkeitsprüfung, Aufräumen alter Stände |
 | `scripts\sicherung-probe.ps1` | Zählprobe: Wiederherstellung in eine Wegwerfdatenbank |
+| `scripts\postgres-werkzeuge.ps1` | findet `pg_dump`, `pg_restore` und `psql`; von beiden anderen eingebunden |
+
+> **Die PostgreSQL-Werkzeuge liegen auf diesem Server nicht im Suchpfad.**
+> Der Installer trägt sein `bin`-Verzeichnis nicht zwangsläufig ein; ein
+> blankes `psql` endet mit „wurde nicht als Name eines Cmdlet … erkannt".
+> Die Skripte suchen deshalb selbst: erst ein ausdrücklich genanntes
+> `-PgBin`, dann den Suchpfad, zuletzt
+> `C:\Program Files\PostgreSQL\<Fassung>\bin` in der neuesten Fassung.
+> Finden sie nichts, enden sie mit Rückgabewert 2 und sagen, was fehlt —
+> statt mitten in der Nacht an einem Tippfehler-artigen Fehler zu scheitern.
+>
+> Liegen die Werkzeuge woanders:
+> `powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel D:\backups\ata -PgBin "D:\pgsql\bin"`
 
 Erster Lauf von Hand, um zu sehen, dass er trägt:
 
@@ -2116,6 +2148,129 @@ wird beim nächsten Start in 15 Minuten erneut versucht.
 
 Die Frist liegt bewusst **innerhalb** des Startfensters; wer eines von beiden
 verschiebt, muss das andere mitziehen. Ein Test hält die Bedingung fest.
+
+## Wo die Zeit eines Laufs bleibt
+
+Ein Lauf dauerte am 2026-09-01 (`7c88d78c`, 192 Aktien, 36 Kandidaten) rund
+**57 Minuten, davon 35 für den Backfill**. Wo die übrigen 22 Minuten
+hingingen, war aus dem System heraus nicht zu beantworten — deshalb die
+beiden folgenden Wege.
+
+### Die grobe Zerlegung steht schon in der Datenbank
+
+Rückwirkend für **jeden** Tag seit dem 2026-09-01, ohne dass irgendetwas
+eingeschaltet sein müsste. Drei Zeitstempel teilen den Lauf in drei Teile:
+
+| Abschnitt | Berechnung |
+|---|---|
+| Backfill + Datengate | `analysis_runs.started_at − dispatcher_runs.last_attempt_at` |
+| Analyse (Phasen 1–3) | `analysis_runs.completed_at − analysis_runs.started_at` |
+| Meldung + Export | `dispatcher_runs.finished_at − analysis_runs.completed_at` |
+
+Meldung und Export liegen **hinter** `completed_at` — der Laufdatensatz gilt
+vorher schon als abgeschlossen. Nur deshalb lassen sie sich hier überhaupt
+abtrennen.
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+backend\.venv\Scripts\python.exe scripts\laufzeiten.py
+```
+
+Das Skript nimmt die Zugangsdaten aus derselben Quelle wie die Anwendung
+(`ATA_DATABASE_URL`, ersatzweise die `.env`). Auf der Kommandozeile steht
+damit kein Passwort, und es braucht **kein `psql` im Suchpfad** — das liegt
+auf dem Server nicht dort.
+
+Ausgegeben werden die letzten 30 Läufe (`--limit` ändert das) und darunter
+der Median je Abschnitt. **Die Streuung über mehrere Wochen ist
+aussagekräftiger als ein Einzelwert** — die TWS antwortet nicht jeden Tag
+gleich schnell. Gescheiterte Versuche bleiben draußen; ein Lauf ohne
+`completed_at` hat keine Analysedauer, und eine Null hineinzuschreiben
+behauptete eine Messung, die es nicht gibt.
+
+### Was der Lauf seit ADR 0069 anders macht
+
+Backfill und Analyse laufen **verzahnt**: Der Backfill holt im Hintergrund
+Symbol für Symbol, die Analyse rechnet jede Aktie, sobald deren Bars liegen.
+Der Backfill wird dadurch **nicht** schneller — er darf es nicht, IBKR
+begrenzt die Rate. Beschleunigt wird, was währenddessen stillstand: Von
+seinen rund 35 Minuten sind rund 34 reines Warten.
+
+Die Optionsanalyse läuft bewusst **hinter** dem Backfill (Phase 1b). Sie ist
+der einzige Teil der Aktienschleife, der die TWS anfasst, und sie benutzt
+dieselbe Verbindung; ein Wechsel zwischen beiden Threads würde sie verwerfen
+und neu aufbauen.
+
+`scheduler.verzahnter_backfill: false` stellt die alte Reihenfolge wieder her
+— erst alles holen, dann alles rechnen. Der Weg zurück, ohne Deployment.
+
+### Die feine Zerlegung braucht die Protokolldatei
+
+`logging.file` ist ausgeliefert leer; dann bleibt es bei `stdout`, und das ist
+unter der Aufgabenplanung flüchtig. Mit einem Pfad entsteht **zusätzlich**
+eine rotierende Datei. Auf der Konsole bleibt es beim lesbaren Format — die
+Datei trägt immer JSON, denn sie wird ausgewertet und nicht gelesen.
+
+**In die Argumente, nicht in die Konfigurationsdatei** — aus demselben
+Grund wie bei den Anbieterschaltern: Ein Eintrag in `config/default.yaml`
+wäre auf dem Server ein dauerhafter lokaler Diff, den jedes `git pull`
+vorfindet ([ADR 0031](adr/0031-merge-schutz-aktiv.md)).
+
+```powershell
+.venv\Scripts\python.exe -m ai_trading_analyst.cli dispatch --provider ibkr `
+    --log-file var/logs/tageslauf.log
+```
+
+Für den Dauerbetrieb gehört `--log-file var/logs/tageslauf.log` in die
+Argumentliste des Aufgabenplanungs-Eintrags. `logging.file` in der
+Konfiguration gibt es weiterhin — als Voreinstellung für eine eigene
+Konfigurationsdatei; das Argument übersteuert sie.
+
+Der Pfad ist **relativ zur Projektwurzel**, nicht zum Arbeitsverzeichnis.
+Eine Aufgabenplanung ohne „Starten in" legt die Datei damit trotzdem dort
+ab, wo man sie sucht. Fehlende Verzeichnisse entstehen; ist der Pfad nicht
+beschreibbar, endet der Lauf sofort mit Rückgabewert 2 und einer Meldung,
+statt es alle 15 Minuten erneut zu versuchen.
+
+`level` und `format` kommen für den Tageslauf bewusst **nicht** aus der
+Konfiguration: Auf der Konsole bleibt es bei `INFO` und der lesbaren Form.
+Ein versehentliches `DEBUG` ließe die Rotationsdatei innerhalb weniger Läufe
+durchrollen — samt der Historie, für die sie gebaut ist.
+
+Jede gemessene Zeile trägt `event`, `duration_ms` und `ausgang`. Gemessen
+werden: die drei Phasen des Laufs (`phase_1_screening`, `phase_2_agenten`,
+`phase_3_persistenz`), `meldung` und `dashboard_export` getrennt, je Aktie die
+`kerzenserie` (Bestand lesen, aggregieren, Indikatoren), je Kandidat
+`backtest`, `fundamentaldaten`, `analystenvoten`, `earnings_termin` und
+`optionsanalyse`, sowie `backfill` und `backfill_symbol`.
+
+**Die aufschlussreichste Zahl steht an `backfill`:** `verschlafene_sekunden`
+neben `duration_ms`. Sie trennt das Warten an der eigenen Drossel vom Warten
+an der Leitung — und damit „lässt sich beschleunigen" von „lässt sich nicht
+beschleunigen". Bei elf Sekunden Abstand und rund 190 Symbolen ist fast der
+gesamte Backfill Warten, und daran ändert kein Umbau etwas
+(`market_data.ibkr.minimum_request_interval_seconds`).
+
+Die Summe je Ereignis über einen Lauf:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+Get-Content var\logs\tageslauf.log |
+  ForEach-Object { $_ | ConvertFrom-Json } |
+  Where-Object { $_.duration_ms } |
+  Group-Object event |
+  ForEach-Object {
+      [pscustomobject]@{
+          Ereignis = $_.Name
+          Anzahl   = $_.Count
+          Sekunden = [math]::Round((($_.Group | Measure-Object duration_ms -Sum).Sum) / 1000, 1)
+      }
+  } | Sort-Object Sekunden -Descending | Format-Table
+```
+
+Die Datei enthält **keine Geheimnisse**: Geschwärzt wird am Formatter, nicht
+am Ausgang ([ADR 0044](adr/0044-geheimnisse-an-der-log-senke-schwaerzen.md)),
+und zwar für fremde Zeilen genauso wie für eigene. Zwei Tests halten das fest.
 
 ## Was der Dispatcher bewusst nicht tut
 

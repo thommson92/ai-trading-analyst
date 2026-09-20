@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -61,6 +62,21 @@ class TestJsonFormatter:
         payload = format_as_json(record)
 
         assert payload["event"] == "run_completed"
+
+    def test_duration_ms_stays_duration_ms(self) -> None:
+        """Der Modulkopf sagt 'duration_ms' zu -- und meint genau den Namen.
+
+        Das Feld stand faelschlich in der Reservierungsliste, obwohl der
+        Formatter es nie setzt. Es kam deshalb als 'extra_duration_ms'
+        heraus, und eine Auswertung, die dem Docstring glaubte, fand nichts.
+        """
+        record = make_record(message="fertig")
+        record.duration_ms = 1234.5
+
+        payload = format_as_json(record)
+
+        assert payload["duration_ms"] == 1234.5
+        assert "extra_duration_ms" not in payload
 
     def test_extra_field_cannot_overwrite_a_structural_field(self) -> None:
         """Ein 'extra' mit reserviertem Namen wird umbenannt statt zu ueberschreiben."""
@@ -160,6 +176,72 @@ class TestConfigureLogging:
         assert payload["correlation_id"] == "abc123"
         assert payload["stock_symbol"] == "NVDA"
         assert payload["event"] == "candidate_found"
+
+    def test_without_a_file_nothing_is_written(self, tmp_path: Path) -> None:
+        """Der ausgelieferte Zustand ist unveraendert: nur stdout."""
+        configure_logging(LoggingConfig(level="INFO", format="json"))
+        get_logger("ata.test").info("nur auf die Konsole")
+
+        assert list(tmp_path.iterdir()) == []
+        assert len(logging.getLogger().handlers) == 1
+
+    def test_the_file_carries_json_even_when_the_console_does_not(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Konsole fuer den Menschen, Datei fuer die Auswertung.
+
+        Genau diese Aufteilung faehrt der Tageslauf: 'console' auf stdout,
+        damit ein Aufruf von Hand lesbar bleibt, und trotzdem auswertbare
+        Zeilen in der Datei.
+        """
+        ziel = tmp_path / "unterordner" / "lauf.log"
+        configure_logging(LoggingConfig(level="INFO", format="console", file=str(ziel)))
+        try:
+            get_logger("ata.test").info("fertig", extra={"duration_ms": 42.0})
+        finally:
+            configure_logging(LoggingConfig(format="json"))
+
+        assert "fertig" in capsys.readouterr().out
+        payload = json.loads(ziel.read_text(encoding="utf-8").strip())
+        assert payload["message"] == "fertig"
+        assert payload["duration_ms"] == 42.0
+
+    def test_die_datei_rollt_und_bleibt_dabei_auswertbar(self, tmp_path: Path) -> None:
+        """Rotation ist kein Selbstzweck: Die Datei steht im Dauerbetrieb und
+        wuechse sonst unbegrenzt. Wichtig ist, dass der abgerollte Stand
+        weiterhin gueltiges JSON traegt -- sonst waere die Historie zwar da,
+        aber nicht auswertbar."""
+        ziel = tmp_path / "lauf.log"
+        configure_logging(
+            LoggingConfig(level="INFO", format="json", file=str(ziel), max_bytes=400, backups=2)
+        )
+        try:
+            for nummer in range(20):
+                get_logger("ata.test").info("Zeile %d", nummer, extra={"duration_ms": 1.0})
+        finally:
+            configure_logging(LoggingConfig(format="json"))
+
+        abgerollt = ziel.with_name("lauf.log.1")
+        assert abgerollt.exists(), "es wurde nie gerollt -- max_bytes wirkt nicht"
+        for zeile in abgerollt.read_text(encoding="utf-8").splitlines():
+            assert json.loads(zeile)["duration_ms"] == 1.0
+
+    def test_mehr_stuende_als_backups_bleiben_nicht_liegen(self, tmp_path: Path) -> None:
+        ziel = tmp_path / "lauf.log"
+        configure_logging(
+            LoggingConfig(level="INFO", format="json", file=str(ziel), max_bytes=400, backups=2)
+        )
+        try:
+            for nummer in range(80):
+                get_logger("ata.test").info("Zeile %d", nummer)
+        finally:
+            configure_logging(LoggingConfig(format="json"))
+
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "lauf.log",
+            "lauf.log.1",
+            "lauf.log.2",
+        ]
 
     def test_console_format_is_human_readable(self, capsys: pytest.CaptureFixture[str]) -> None:
         configure_logging(LoggingConfig(level="INFO", format="console"))

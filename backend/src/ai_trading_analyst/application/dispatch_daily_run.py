@@ -16,11 +16,13 @@ aus wie die heutige Analyse und waere es nicht.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from ai_trading_analyst.application.bereitschaft import Bereitschaft
 from ai_trading_analyst.domain.scheduling import (
     DispatchDecision,
     DispatcherRunRepository,
@@ -36,6 +38,15 @@ from ai_trading_analyst.domain.scheduling import (
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _logger = get_logger(__name__)
+
+_SYMBOLE_VOR_DEM_DATENGATE = 5
+"""Wieviele Symbole der Backfill liefern muss, bevor das Datengate prueft.
+
+Keine Konfiguration, sondern eine Abwaegung mit genau zwei Seiten: Zu frueh
+gefragt, und ein einzelner ausgesetzter Titel liesse den Lauf abbrechen; zu
+spaet, und der frueh gemeinte Abbruch kaeme nach einer halben Stunde. Fuenf
+Symbole kosten rund eine Minute.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,12 +70,15 @@ class DispatchDailyRunUseCase:
         calendar: TradingCalendar,
         runs: DispatcherRunRepository,
         parameters: SchedulerParameters,
-        backfill: Callable[[], None],
-        analyse: Callable[[datetime], None],
+        backfill: Callable[
+            [Callable[[str, bool], None] | None, Callable[[], bool] | None], None
+        ],
+        analyse: Callable[[datetime, Bereitschaft | None], None],
         latest_stored_bar: Callable[[], datetime | None],
         notifier: Notifier,
         native_bar_minutes: int,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        verzahnt: bool = False,
     ) -> None:
         self._calendar = calendar
         self._runs = runs
@@ -75,6 +89,7 @@ class DispatchDailyRunUseCase:
         self._notifier = notifier
         self._native_bar_minutes = native_bar_minutes
         self._now = now
+        self._verzahnt = verzahnt
 
     def execute(self) -> DispatchOutcome:
         if not self._runs.acquire_lock():
@@ -245,14 +260,18 @@ class DispatchDailyRunUseCase:
             geplant.candle_close.isoformat(),
             versuch,
         )
+        # Die Kerze traegt den Zeitstempel ihres Beginns, der Lauf kennt
+        # ihren Schluss -- dazwischen liegt genau eine Kerzenlaenge.
+        erwartete_kerze = geplant.candle_close - timedelta(
+            minutes=self._parameters.timeframe_minutes
+        )
         try:
-            self._backfill()
-            self._require_target_candle(geplant)
-            # Die Kerze traegt den Zeitstempel ihres Beginns, der Lauf kennt
-            # ihren Schluss -- dazwischen liegt genau eine Kerzenlaenge.
-            self._analyse(
-                geplant.candle_close - timedelta(minutes=self._parameters.timeframe_minutes)
-            )
+            if self._verzahnt:
+                self._verzahnter_lauf(geplant, erwartete_kerze)
+            else:
+                self._backfill(None, None)
+                self._require_target_candle(geplant)
+                self._analyse(erwartete_kerze, None)
         except Exception as error:  # Systemgrenze: TWS, Datenbank, Anbieter
             meldung = f"{type(error).__name__}: {error}"
             _logger.warning("Lauf gescheitert (Versuch %d): %s", versuch, meldung)
@@ -266,6 +285,86 @@ class DispatchDailyRunUseCase:
 
         self._runs.mark_succeeded(geplant.session_date, geplant.candle_close, self._now())
         return DispatchOutcome(decision=DispatchDecision.RUN, scheduled=geplant, attempt=versuch)
+
+    def _verzahnter_lauf(self, geplant: ScheduledRun, erwartete_kerze: datetime) -> None:
+        """Backfill im Hintergrund, Analyse davor her (ADR 0069).
+
+        Der Backfill bleibt unveraendert seriell mit seinem Abstand auf einer
+        Verbindung -- er wird nicht schneller. Beschleunigt wird, was
+        waehrenddessen stillstand: Rund vierunddreissig der fuenfunddreissig
+        Minuten sind ``time.sleep``, und in dieser Zeit rechnet jetzt die
+        Analyse.
+
+        **Der Fehler des Backfills wird weitergereicht.** Er ist heute der
+        Grund, aus dem ein Lauf als gescheitert gilt und in fuenfzehn Minuten
+        erneut versucht wird; daran aendert die Verzahnung nichts.
+        """
+        bereitschaft = Bereitschaft()
+        gescheitert: list[BaseException] = []
+        abbruch = threading.Event()
+
+        def hole_bars() -> None:
+            try:
+                self._backfill(
+                    lambda symbol, geliefert: bereitschaft.melde(symbol, geliefert=geliefert),
+                    abbruch.is_set,
+                )
+            except BaseException as fehler:
+                gescheitert.append(fehler)
+            finally:
+                # **Ohne diese Zeile haengt der Lauf.** Jeder Wartende kommt
+                # erst durch, wenn sein Symbol gemeldet ist oder feststeht,
+                # dass nichts mehr kommt.
+                bereitschaft.beende()
+
+        faden = threading.Thread(target=hole_bars, name="backfill", daemon=True)
+        faden.start()
+        try:
+            self._require_target_candle_frueh(geplant, bereitschaft)
+            # **Vor der Analyse, nicht erst danach.** Ist der Backfill zu
+            # diesem Zeitpunkt bereits gescheitert, darf kein vollstaendiger
+            # Lauf mehr entstehen: Er wuerde persistiert, gemeldet und
+            # exportiert -- und erst danach gaelte er als gescheitert und
+            # wuerde in fuenfzehn Minuten wiederholt, mitsamt einem zweiten
+            # Laufdatensatz fuer denselben Tag.
+            if gescheitert:
+                raise gescheitert[0]
+            self._analyse(erwartete_kerze, bereitschaft)
+        finally:
+            # **Erst abbrechen, dann warten.** Ohne das Signal liefe der
+            # Backfill nach einem frueh abgebrochenen Lauf noch rund eine
+            # halbe Stunde weiter -- und der Dispatcher hielte seine Sperre
+            # so lange, sodass die naechsten beiden Starts mit "in Arbeit"
+            # endeten. Genau die Zeit, die das fruehe Datengate sparen soll.
+            # Der Abbruch wirkt zwischen zwei Symbolen.
+            abbruch.set()
+            # Der Thread haelt die TWS-Verbindung und gibt sie selbst wieder
+            # frei; ein zweiter Lauf traefe sonst auf eine belegte Client-ID.
+            faden.join()
+        if gescheitert:
+            raise gescheitert[0]
+
+    def _require_target_candle_frueh(
+        self, geplant: ScheduledRun, bereitschaft: Bereitschaft
+    ) -> None:
+        """Dasselbe Datengate, nur frueher (ADR 0069, Punkt 3).
+
+        Die Frage lautet unveraendert: Sind die Daten der Zielkerze
+        ueberhaupt angekommen? Sie laesst sich nach einer Handvoll Symbole
+        genauso beantworten wie nach allen -- nur rund vierunddreissig
+        Minuten frueher, und das entscheidet darueber, ob der naechste Start
+        in fuenfzehn Minuten noch ins Zeitfenster faellt.
+        """
+        bereit = bereitschaft.warte_auf_anzahl(_SYMBOLE_VOR_DEM_DATENGATE)
+        if bereit == 0:
+            # Der Backfill hat kein einziges Symbol geschafft. Die Pruefung
+            # unten faende dann den Bestand von gestern und meldete eine
+            # ausgebliebene Lieferung -- richtig, aber irrefuehrend.
+            raise DataNotArrivedError(
+                "Der Backfill hat kein einziges Symbol geliefert -- die Kerze "
+                f"{geplant.candle_close.isoformat()} kann nicht gerechnet werden."
+            )
+        self._require_target_candle(geplant)
 
     def _require_target_candle(self, geplant: ScheduledRun) -> None:
         """Sind die Daten der Zielkerze angekommen?
