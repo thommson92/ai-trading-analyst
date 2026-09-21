@@ -60,7 +60,11 @@ fortgeschrieben — auch sie ist dann Beleg.
 |---|---|---|---|
 | 2026-08-23 | [Repository-Audit](2026-08-23-repository-audit.md) | `f61f316` (`dev`) | Vollständiger Ist-Soll-Abgleich über Code, Tests, alle 26 ADRs, Requirements und Dokumentation nach Abschluss des Technical Agent (PR #35) |
 | 2026-08-31 | [Repository-Audit 2](2026-08-31-repository-audit-2.md) | `1f65472` (`feature/optionsanalyse`) | Vollständige Neuuntersuchung nach Sprint 4/5 (Fundamentalanalyse, Report, Scoring, Optionsanalyse) samt verifizierender Reconciliation aller Befunde, Maßnahmen und Risiken aus dem Audit vom 2026-08-23 |
+| 2026-09-20 | [Repository-Audit 3](2026-09-20-repository-audit-3.md) | `3540adc` (`dev`) | Ganzheitliche Systemprüfung nach drei Wochen produktivem Betrieb: fachliche Korrektheit der gesamten Kette, stille Fehler, Backtest-Validität, Optionsselektion, Sicherheit, Reproduzierbarkeit und der Produktionsbetrieb auf dem Windows-Server |
 
-Erledigungsstand: [Nachverfolgung zum Audit 2](2026-08-31-nachverfolgung.md)
-(laufend). Die [Nachverfolgung zum Audit vom 2026-08-23](2026-08-23-nachverfolgung.md)
-ist mit dessen Ablösung eingefroren.
+Erledigungsstand: [Nachverfolgung zum Audit 3](2026-09-20-nachverfolgung.md)
+(laufend). Die Nachverfolgungen zu den Audits vom
+[2026-08-23](2026-08-23-nachverfolgung.md) und vom
+[2026-08-31](2026-08-31-nachverfolgung.md) sind mit deren Ablösung
+eingefroren; die daraus noch offenen Punkte führt die Nachverfolgung zu
+Audit 3 weiter.
