@@ -1495,7 +1495,8 @@ Persistiert werden:
 
 Geheimnisse liegen ausschließlich in Umgebungsvariablen mit Präfix `ATA_`
 ([ADR 0005](adr/0005-konfiguration-und-secrets.md)) und werden nicht
-mitgesichert. Ein Sicherungsverfahren ist noch nicht beschlossen — siehe §15.
+mitgesichert. Das Sicherungsverfahren steht in §15 und in Doc 14,
+Abschnitt „Sicherung".
 
 ### Neustartverhalten
 

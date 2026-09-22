@@ -657,6 +657,22 @@ Handelszeiten und endet an den meisten Starts nach wenigen Millisekunden.
 Protokoll voller Fehlschläge, in dem der echte nicht mehr auffiele. Die
 Aufgabenplanung meldet damit nur, was wirklich schiefging.
 
+> **Die 2 hat einen zweiten Absender: `argparse`.** Ein fehlerhafter
+> Argumentstring — ein Schalter ohne seinen Wert, ein Tippfehler im Namen —
+> endet ebenfalls mit 2, und zwar **bevor eine einzige Zeile dieses Programms
+> läuft**. In der Spalte „Letztes Ausführungsergebnis" ist das von einem
+> echten Konfigurationsfehler nicht zu unterscheiden, und die Begründung geht
+> nach `stderr`, das unter der Aufgabenplanung ins Leere läuft.
+>
+> Am 2026-09-22 stand `--log-file` ohne Pfad in den Argumenten. Ergebnis:
+> rund 17 Startversuche zwischen 11:30 und 15:30, keine Zeile in
+> `dispatcher_runs`, keine Meldung — ein verlorener Handelstag, lautlos.
+>
+> **Nach jeder Änderung an den Argumenten den vollständigen String einmal von
+> Hand ausführen** und `$LASTEXITCODE` ansehen. Eine 2 heißt dann: Er ist nie
+> bei diesem Programm angekommen. Von Hand steht die Begründung auf der
+> Konsole.
+
 **Abnahmekriterium:** Ein vollständiger Handelstag ohne manuellen Eingriff.
 
 ---
@@ -824,8 +840,13 @@ einem Fehler endet, bevor überhaupt etwas versucht wurde — dann fehlt
 ### In die Aufgabenplanung übernehmen
 
 ```
--m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --options-provider ibkr --technical-agent-provider anthropic --research-provider none --notification-channel telegram --telegram-chat-id <CHAT_ID>
+-m ai_trading_analyst.cli dispatch --provider ibkr --earnings-provider finnhub --fundamentals-provider edgar --ratings-provider finnhub --options-provider ibkr --technical-agent-provider anthropic --research-provider none --notification-channel telegram --telegram-chat-id <CHAT_ID> --dashboard-export cloudflare --log-file var/logs/tageslauf.log
 ```
+
+> **`--log-file` braucht seinen Pfad.** Der Schalter allein ist kein
+> Schalter — er erwartet ein Argument, und ohne dieses bricht `argparse` mit
+> Rückgabewert 2 ab, **bevor dieses Programm läuft**. Siehe den Kasten unter
+> „Rückgabewerte": Genau das hat am 2026-09-22 einen Handelstag gekostet.
 
 `--research-provider none` ist Absicht, kein vergessener Schalter: Die
 Recherche ist der einzige teure Modellaufruf und bleibt im Dauerbetrieb
@@ -1937,12 +1958,18 @@ automatischen Tageslauf, nur manuell gestartete.
 umgeschrieben, sobald er dort steht — bis dahin gibt es genau einen
 geplanten Vorgang, den Tageslauf.
 
-**Die Protokolldatei ist gebaut, aber noch nicht eingeschaltet**:
-`logging.file` steht ausgeliefert auf `null`, und damit gehen die
-Protokolle des Tageslaufs weiterhin nur nach `stdout` — unter der
-Aufgabenplanung also ins Leere. Wer wissen will, wo die Zeit eines Laufs
-bleibt, trägt dort einen Pfad ein (Abschnitt „Wo die Zeit eines Laufs
-bleibt"). Diese Zeile wird umgeschrieben, sobald er gesetzt ist.
+**Die Protokolldatei läuft seit dem 2026-09-22.** `logging.file` steht in
+der ausgelieferten Konfiguration weiterhin auf `null`; geschaltet ist sie
+über `--log-file var/logs/tageslauf.log` in den Argumenten der
+Aufgabenplanung — dasselbe Muster wie bei den Anbietern und beim Export, und
+aus demselben Grund: Ein Eintrag in der versionierten Datei hinterließe auf
+dem Server einen dauerhaften lokalen Diff, den jedes `git pull` vorfindet.
+
+Der Pfad wird gegen die **Projektwurzel** aufgelöst, nicht gegen das
+Arbeitsverzeichnis. Die Datei liegt also unter
+`C:\Users\Administrator\Documents\TradingViewAnalyzer\var\logs\`, auch wenn
+„Starten in" auf `backend` zeigt. `var/logs` legt der Lauf selbst an,
+die Rotation begrenzt den Platz auf 5 × 20 MiB.
 
 **Der Export nach draußen läuft seit dem 2026-09-18 im Tageslauf**
 (Stufen K und L, [ADR 0060](adr/0060-dashboard-ausserhalb-des-servers.md)
@@ -2045,13 +2072,26 @@ Zwei Eigenschaften des Skripts, die den Unterschied machen:
 | Feld | Wert |
 |---|---|
 | Name | `AI Trading Analyst — Sicherung` |
-| Trigger | Täglich, Beginn **22:00** (nach dem Dispatch-Fenster 17:30–21:30) |
+| Trigger | Täglich, Beginn **23:45** (siehe unten) |
 | Programm | `powershell.exe` |
 | Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel D:\backups\ata` |
 
 Anders als der Tageslauf braucht diese Aufgabe **keine** angemeldete Sitzung
 — sie spricht nur PostgreSQL an, nicht die TWS. „Unabhängig von der
 Benutzeranmeldung ausführen" ist hier richtig.
+
+> **Warum 23:45 und nicht 22:00.** Das Dispatch-Fenster endet um 21:30, aber
+> der Lauf selbst dauert seit dem Export-Umbau **103 Minuten** (siehe
+> Betriebszustand). Ein um 21:30 gestarteter Versuch arbeitet damit bis
+> gegen 23:15. Eine Sicherung um 22:00 träfe ihn mitten in der Arbeit.
+>
+> Gesichert wird **nach** dem Lauf, nicht davor. Der entscheidende Grund ist
+> die Unveränderlichkeit: Läufe schreiben anfügend, Migrationen laufen von
+> Hand — der Tageslauf **kann** den Vortagesstand nicht beschädigen, eine
+> Vorher-Sicherung schützte also vor nichts. Umgekehrt entsteht der einzige
+> unersetzliche Neubestand des Tages **im** Lauf: die rund 400
+> Optionsnotierungen, die es nie wieder gibt
+> ([ADR 0058](adr/0058-optionsvorschlaege-im-rueckblick.md)).
 
 Die Spalte **„Letztes Ausführungsergebnis"** im Aufgabenplaner ist das
 einzige Signal, das ohne Zutun sichtbar wird. Sie zeigt genau den
@@ -2080,6 +2120,98 @@ Eine Null erklärt nichts.
 
 **Abnahmekriterium:** ein automatisch entstandener Dump und eine
 durchgespielte Zählprobe.
+
+### Wiederherstellung
+
+Die Zählprobe beweist, dass ein Dump **lesbar** ist. Sie sagt nicht, wie man
+ihn zurückspielt — und das ist der Handgriff, der im Ernstfall zählt.
+Doc 10 §15 nennt „dokumentierter Wiederherstellungsprozess" als eine der fünf
+Mindestanforderungen.
+
+**Der Grundsatz ist derselbe wie im Sicherungsskript: erst das Neue
+aufbauen, dann das Alte wegräumen.** Die beschädigte Datenbank wird
+umbenannt und nicht gelöscht. Geht die Wiederherstellung schief, ist sie noch
+da; ein `DROP DATABASE` als erster Schritt nähme die letzte Rückfallebene.
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+. .\scripts\postgres-werkzeuge.ps1
+$psql      = Finde-PostgresWerkzeug -Name 'psql'
+$pgRestore = Finde-PostgresWerkzeug -Name 'pg_restore'
+$dump      = (Get-ChildItem D:\backups\ata\*.dump | Sort-Object LastWriteTime -Descending)[0].FullName
+$dump      # ansehen: ist das der Stand, den man will?
+```
+
+**1. Den Tageslauf anhalten.** Sonst schreibt der nächste 15-Minuten-Start in
+die halb hergestellte Datenbank.
+
+```powershell
+Disable-ScheduledTask -TaskName 'AI Trading Analyst - Dispatch'
+```
+
+**2. Verbindungen kappen und die alte Datenbank beiseitelegen.**
+
+```powershell
+& $psql --username=postgres --dbname=postgres --command @"
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+WHERE datname = 'ai_trading_analyst' AND pid <> pg_backend_pid();
+"@
+& $psql --username=postgres --dbname=postgres --command @"
+ALTER DATABASE ai_trading_analyst RENAME TO ai_trading_analyst_alt;
+"@
+```
+
+**3. Leere Zieldatenbank anlegen und zurückspielen.**
+
+```powershell
+& $psql --username=postgres --dbname=postgres --command "CREATE DATABASE ai_trading_analyst OWNER ata;"
+& $pgRestore --username=ata --dbname=ai_trading_analyst --no-owner --exit-on-error $dump
+echo $LASTEXITCODE
+```
+
+`--exit-on-error` ist wichtig: Ohne diesen Schalter arbeitet `pg_restore`
+über Fehler hinweg und endet mit 0 — man hätte dann eine unvollständige
+Datenbank und keinen Hinweis darauf.
+
+**4. Den Schemastand prüfen.** Der Dump trägt den Stand, den er zur
+Sicherungszeit hatte; der Code kann inzwischen weiter sein.
+
+```powershell
+cd backend
+.venv\Scripts\python.exe -m alembic current
+.venv\Scripts\python.exe -m alembic heads
+```
+
+Weichen sie ab, `alembic upgrade head` — das ist der reguläre Weg und in
+Stufe B beschrieben.
+
+**5. Gegenprobe, dann aufräumen.** Erst wenn die Zahlen stehen, darf die
+umbenannte Datenbank weg:
+
+```powershell
+& $psql --username=ata --dbname=ai_trading_analyst --command @"
+SELECT 'intraday_bars' AS tabelle, count(*) FROM intraday_bars
+UNION ALL SELECT 'analysis_runs',  count(*) FROM analysis_runs
+UNION ALL SELECT 'option_quotes',  count(*) FROM option_quotes
+UNION ALL SELECT 'stock_reports',  count(*) FROM stock_reports;
+"@
+```
+
+**6. Den Tageslauf wieder einschalten.**
+
+```powershell
+Enable-ScheduledTask -TaskName 'AI Trading Analyst - Dispatch'
+```
+
+> **Was ein Dump nicht enthält:** die `.env` mit den `ATA_*`-Geheimnissen
+> (sie liegt nicht in der Datenbank und gehört in den Passwortmanager — für
+> `ATA_DASHBOARD_EXPORT_PASSPHRASE` ist das zwingend, siehe Stufe L), die
+> `pgpass.conf`, und alles unter `var/`. Quellcode, Konfiguration,
+> Watchlisten und Skripte kommen aus Git.
+
+**Abnahmekriterium:** Die Wiederherstellung ist einmal in die
+Wegwerfdatenbank der Zählprobe durchgespielt worden — nicht in den
+Produktivbestand.
 
 ## Pflege
 

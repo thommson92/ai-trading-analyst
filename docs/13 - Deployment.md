@@ -123,7 +123,13 @@ mitgesichert.
 
 ## Backup
 
-**Ein Sicherungsverfahren ist noch nicht beschlossen.** Zu sichern sind
-Datenbank, Berichte und Konfiguration; wie und wohin, ist offen. ADR 0036
-hält das ausdrücklich als offenen Punkt fest, statt hier ein Verfahren zu
-behaupten, das niemand eingerichtet hat.
+**Das Verfahren steht in [Doc 14](14%20-%20Inbetriebnahme%20und%20Betrieb.md),
+Abschnitt „Sicherung".** Täglicher `pg_dump` über die Aufgabenplanung,
+vierzehn Tage rollierend, mit Lesbarkeitsprüfung (`pg_restore --list`),
+Zählprobe und Wiederherstellungsanleitung — `scripts/sicherung.ps1` und
+`scripts/sicherung-probe.ps1`.
+
+Dieser Abschnitt behauptete bis zum 2026-09-22, ein Verfahren sei „noch nicht
+beschlossen". Das stimmte seit dem 2026-09-01 nicht mehr und stand an der
+ungünstigsten Stelle: Wer nach einem Serverausfall die Wiederherstellung
+vorbereitet, liest zuerst dieses Dokument.
