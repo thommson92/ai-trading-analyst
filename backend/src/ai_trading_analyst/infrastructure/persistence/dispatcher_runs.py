@@ -112,23 +112,24 @@ class SqlAlchemyDispatcherRunRepository:
     def summary_on(self, session_date: date) -> DailyRunSummary:
         """Alle Zeilen dieses Handelstages zusammengefasst.
 
-        ``func.sum`` statt einer Schleife, und ``bool_or`` statt eines
-        Vergleichs: An einem Tag koennen mehrere Kerzen stehen, sobald auch
-        nach der zweiten gerechnet wird. Die Zusammenfassung muss dann
-        "irgendeiner ist durchgekommen" sagen und nicht "der letzte".
+        Aggregate statt einer Schleife, und ``bool_or`` statt eines
+        Vergleichs mit der letzten Zeile: An einem Tag koennen mehrere Kerzen
+        stehen, sobald auch nach der zweiten gerechnet wird. Die
+        Zusammenfassung muss dann "irgendeiner ist durchgekommen" sagen und
+        nicht "der letzte".
 
         Der Fehlertext kommt vom juengsten Versuch -- der aelteste waere die
-        Ursache von gestern.
+        Ursache von vorhin.
         """
         zeile = self._session.execute(
             select(
                 func.coalesce(func.sum(DispatcherRunOrm.attempts), 0),
                 func.coalesce(func.bool_or(DispatcherRunOrm.status == "succeeded"), False),
+                func.coalesce(func.bool_or(DispatcherRunOrm.status == "running"), False),
+                func.coalesce(func.bool_or(DispatcherRunOrm.alert_sent_at.is_not(None)), False),
+                func.min(DispatcherRunOrm.first_attempt_at),
             ).where(DispatcherRunOrm.session_date == session_date)
         ).one()
-        versuche = int(zeile[0])
-        if versuche == 0:
-            return DailyRunSummary(attempts=0, succeeded=False)
 
         letzter_fehler = self._session.execute(
             select(DispatcherRunOrm.last_error)
@@ -141,8 +142,11 @@ class SqlAlchemyDispatcherRunRepository:
         ).scalar_one_or_none()
 
         return DailyRunSummary(
-            attempts=versuche,
+            attempts=int(zeile[0]),
             succeeded=bool(zeile[1]),
+            running=bool(zeile[2]),
+            alerted=bool(zeile[3]),
+            first_attempt_at=zeile[4],
             last_error=letzter_fehler,
         )
 

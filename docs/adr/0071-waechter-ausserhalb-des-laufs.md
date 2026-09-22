@@ -51,11 +51,43 @@ nützlich macht.
 
 ### 2. Er liest den Bestand und die Sicherungsablage — sonst nichts
 
-Zwei Fragen: Gibt es für den heutigen Handelstag einen erledigten Lauf? Und
-wie alt ist die jüngste Sicherung?
-
 Kein TWS-Zugriff, keine Watchlist, kein Modellzugang, keine Marktdaten. Alles
 davon kann ausgefallen sein — und dann muss er gerade arbeiten.
+
+Aus dem Bestand beantwortet er vier Fragen, und sie ergeben vier verschiedene
+Befunde. Das ist der Kern: „Es lief nichts" ist keine Diagnose, sondern eine
+Sammelkategorie.
+
+| Lage | Befund |
+|---|---|
+| ein Lauf ist erledigt | still |
+| der Dispatcher hat für heute bereits gemeldet | **still** — siehe 6. |
+| ein Lauf steht seit weniger als drei Stunden auf `running` | still — er arbeitet |
+| ein Lauf steht seit **mehr** als drei Stunden auf `running` | **er hängt und hält die Sperre** |
+| Versuche vorhanden, keiner erledigt | der Lauf kam nicht durch, mit letztem Fehlertext |
+| **kein einziger Versuch** | die Aufgabenplanung hat nicht gestartet, oder der Start scheiterte vor dem Programm |
+
+Die letzten beiden führen bei der Fehlersuche an völlig verschiedene Orte —
+die eine zum Lauf, die andere zur Aufgabenplanung. Sie zusammenzufassen wäre
+der Unterschied zwischen einem Wächter und einer Lampe.
+
+Die Drei-Stunden-Grenze ist dieselbe wie das Zeitlimit der geplanten Aufgabe
+(Doc 14). Ein regulärer Lauf dauert rund 103 Minuten und darf bis gegen 23:15
+arbeiten; ohne diese Unterscheidung wäre der Wächter ein täglicher
+Fehlalarm. **Damit ist Fall 3 oben abgedeckt** — und zwar nur von ihm: Der
+Lauf selbst kann einen hängenden Lauf nicht melden, weil die Meldung
+innerhalb der Sperre läuft, die er hält.
+
+Die Sicherung prüft er unabhängig vom Handelstag und unabhängig vom Lauf.
+Gesichert wird täglich, auch am Wochenende — und der Dispatcher weiß von der
+Sicherung nichts.
+
+Eine Datei unter 1 KiB zählt dabei nicht als Sicherung. `sicherung.ps1`
+räumt bewusst erst nach einer *erfolgreichen* Sicherung auf und lässt eine
+abgebrochene Datei liegen; nach dem Alter allein gefragt, sähe genau diese
+Ruine wie eine frische Sicherung aus. Es ist eine Schranke, kein Beweis —
+ob ein Dump lesbar ist, weiß nur `pg_restore --list`, und das ist Sache der
+Zählprobe.
 
 ### 3. Er bekommt ein schmales, lesendes Protokoll
 
@@ -87,23 +119,47 @@ Sonst meldete ein Wächter, der aus Versehen mittags läuft, einen Lauf als
 ausgefallen, der noch gar nicht fällig ist. Geprüft wird über dieselbe
 `ScheduledRun.decide`-Logik, die der Dispatcher benutzt.
 
-### 6. Er meldet, er behebt nichts
+### 6. Er schweigt, worüber der Dispatcher schon geredet hat
+
+Hat der Dispatcher für diesen Handelstag bereits gemeldet
+(`alert_sent_at` gesetzt), sagt der Wächter zum Lauf nichts mehr. Der Nutzer
+weiß Bescheid; eine zweite Meldung derselben Sache wäre nur Lärm, und ein
+Wächter, den man wegen Lärm ignoriert, ist keiner.
+
+Das ist zugleich eine notwendige Korrektur: `mark_alert_sent` legt eine Zeile
+mit `attempts = 0` an, wenn die Frist ablief, **ohne** dass je ein Versuch
+stattfand. Ohne diese Regel meldete der Wächter „kein einziger Versuch" für
+einen Tag, an dem längst gemeldet wurde — und nennte dabei zwei Ursachen, die
+beide falsch wären.
+
+Die Sicherung ist davon ausgenommen. Von ihr weiß der Dispatcher nichts.
+
+### 7. Er meldet, er behebt nichts
 
 Kein Nachstarten, kein Freigeben der Sperre, kein Löschen. Ein Wächter, der
 eingreift, ist ein zweiter Dispatcher mit eigenen Fehlern — und der nächste
 Befund wäre, dass beide sich gegenseitig stören.
 
-### 7. Drei Rückgabewerte
+### 8. Drei Rückgabewerte
 
 | Wert | Bedeutung |
 |---|---|
 | 0 | nichts zu melden |
 | 1 | Befund gemeldet |
-| 2 | Befund vorhanden, **die Meldung ging nicht hinaus** |
+| 2 | Befund vorhanden, **die Meldung ging nicht hinaus** — oder der Wächter selbst ist abgebrochen |
 
 Der dritte Fall ist der schlechteste: Es gibt einen Befund, und niemand
 erfährt davon. Ohne eigenen Rückgabewert sähe er in der Aufgabenplanung
 genauso aus wie „alles in Ordnung".
+
+Deshalb gehört auch der **abgebrochene** Wächter hierher und nicht zur 1: Eine
+fehlende Tabelle nach einer Wiederherstellung ohne `alembic upgrade head`
+wäre sonst von „Befund gemeldet" nicht zu unterscheiden.
+
+Und deshalb meldet er, wenn die **Datenbank nicht erreichbar** ist, statt
+still mit 2 zu enden. Er weiß dann nichts über den Lauf — aber er weiß etwas
+Schlimmeres: Ohne PostgreSQL kann der Tageslauf weder arbeiten noch sich
+melden. Das ist genau die Fehlerklasse, für die es ihn gibt.
 
 ## Begründung
 
@@ -120,7 +176,10 @@ Dispatcher sie ohnehin abruft. Das wäre genauer, verlagert aber die
 Zuverlässigkeit des Wächters auf einen Bestand, den der überwachte Vorgang
 pflegt. Genau diese Abhängigkeit soll es nicht geben.
 
-**Zu 6.** Dieselbe Linie wie bei den Analysemodulen (CLAUDE.md): Ein Modul
+**Zu 6.** Ein Wächter, der Bekanntes wiederholt, wird ignoriert — und dann
+wird auch das Unbekannte ignoriert.
+
+**Zu 7.** Dieselbe Linie wie bei den Analysemodulen (CLAUDE.md): Ein Modul
 tut eine Sache. Melden und Eingreifen sind zwei.
 
 ## Konsequenzen
@@ -148,6 +207,10 @@ tut eine Sache. Melden und Eingreifen sind zwei.
 - **Der hängende Lauf wird gemeldet, nicht beendet.** Das Zeitlimit von drei
   Stunden am Tageslauf-Task ist die Gegenmaßnahme; sie steht in Doc 14 und
   ist keine Entscheidung dieses ADR.
+- **Ein Lauf, der zwischen drei Stunden und Mitternacht hängt, wird erst am
+  Folgetag auffällig** — der Wächter läuft um 23:15, ein um 21:30 gestarteter
+  Lauf hinge dann erst seit zwei Stunden. Die Lücke ist bewusst in Kauf
+  genommen: Ein zweiter Wächterlauf kostete mehr, als er hier einbringt.
 - **Eine zweite Stelle mit einer Uhrzeit.** Bisher war das Startfenster der
   Aufgabenplanung die einzige; jetzt kommt 23:15 dazu. Beide stehen in der
   Betriebsdokumentation und nicht im Code — die Regel aus ADR 0019 bleibt

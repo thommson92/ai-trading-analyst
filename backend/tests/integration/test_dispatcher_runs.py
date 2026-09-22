@@ -154,13 +154,47 @@ class TestTageszusammenfassung:
         assert repo.summary_on(HANDELSTAG).succeeded
 
     def test_der_fehlertext_kommt_vom_juengsten_versuch(self, repo: Repo) -> None:
-        spaeter = JETZT + timedelta(minutes=15)
+        """**Zwei Kerzen, nicht zweimal dieselbe.** Bei derselben Kerze
+        ueberschriebe der zweite Fehler den ersten in derselben Zeile, und die
+        Sortierung nach ``last_attempt_at`` bliebe ungeprueft."""
+        zweite_kerze = KERZE_ZU + timedelta(minutes=195)
+        spaeter = JETZT + timedelta(minutes=195)
         repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
-        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "von gestern")
-        repo.begin(HANDELSTAG, KERZE_ZU, spaeter)
-        repo.mark_failed(HANDELSTAG, KERZE_ZU, spaeter, "der aktuelle")
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "der aeltere")
+        repo.begin(HANDELSTAG, zweite_kerze, spaeter)
+        repo.mark_failed(HANDELSTAG, zweite_kerze, spaeter, "der juengere")
 
-        assert repo.summary_on(HANDELSTAG).last_error == "der aktuelle"
+        assert repo.summary_on(HANDELSTAG).last_error == "der juengere"
+
+    def test_ein_laufender_lauf_wird_als_solcher_ausgewiesen(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        lage = repo.summary_on(HANDELSTAG)
+        assert lage.running
+        assert lage.first_attempt_at is not None
+
+    def test_ein_beendeter_lauf_laeuft_nicht_mehr(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "TWS weg")
+        assert not repo.summary_on(HANDELSTAG).running
+
+    def test_eine_abgesetzte_meldung_ist_sichtbar(self, repo: Repo) -> None:
+        """Sonst meldete der Waechter dieselbe Sache ein zweites Mal."""
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "TWS weg")
+        assert not repo.summary_on(HANDELSTAG).alerted
+        repo.mark_alert_sent(HANDELSTAG, KERZE_ZU, JETZT)
+        assert repo.summary_on(HANDELSTAG).alerted
+
+    def test_eine_meldung_ohne_versuch_zaehlt_nicht_als_versuch(self, repo: Repo) -> None:
+        """``mark_alert_sent`` legt ohne vorherigen Versuch eine Zeile mit
+        ``attempts = 0`` an -- der Server war aus, oder der Start scheiterte
+        vor dem Programm. Genau der Fall vom 2026-09-22."""
+        repo.mark_alert_sent(HANDELSTAG, KERZE_ZU, JETZT)
+        lage = repo.summary_on(HANDELSTAG)
+        assert lage.attempts == 0
+        assert not lage.started
+        assert lage.alerted
+        assert lage.last_error is not None
 
     def test_ein_anderer_tag_zaehlt_nicht_mit(self, repo: Repo) -> None:
         repo.begin(HANDELSTAG, KERZE_ZU, JETZT)

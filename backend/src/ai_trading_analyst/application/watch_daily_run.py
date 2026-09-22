@@ -32,6 +32,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from ..domain.scheduling.models import (
+    DailyRunSummary,
     DispatchDecision,
     SchedulerParameters,
     assumed_session,
@@ -42,6 +43,14 @@ from ..domain.scheduling.ports import DailyRunLookup, Notifier, NotifierError
 _logger = logging.getLogger(__name__)
 
 MELDUNGSTITEL = "Waechter"
+
+LAUF_HOECHSTDAUER = timedelta(hours=3)
+"""Ab wann ein Lauf auf 'running' als haengend gilt.
+
+Dieselbe Grenze wie das Zeitlimit der geplanten Aufgabe (Doc 14): Was
+laenger laeuft, haette der Aufgabenplaner ohnehin abbrechen sollen. Ein
+regulaerer Lauf dauert rund 103 Minuten.
+"""
 
 SICHERUNG_HOECHSTALTER = timedelta(hours=26)
 """Ab wann eine Sicherung als ausgeblieben gilt.
@@ -81,6 +90,7 @@ class WatchDailyRunUseCase:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         latest_backup: Callable[[], datetime | None] | None = None,
         max_backup_age: timedelta = SICHERUNG_HOECHSTALTER,
+        max_run_duration: timedelta = LAUF_HOECHSTDAUER,
     ) -> None:
         self._runs = runs
         self._parameters = parameters
@@ -88,6 +98,7 @@ class WatchDailyRunUseCase:
         self._now = now
         self._latest_backup = latest_backup
         self._max_backup_age = max_backup_age
+        self._max_run_duration = max_run_duration
 
     def execute(self) -> WatchdogReport:
         jetzt = self._now().astimezone(ZoneInfo(self._parameters.timezone))
@@ -123,6 +134,16 @@ class WatchDailyRunUseCase:
         lage = self._runs.summary_on(boersentag)
         if lage.succeeded:
             return []
+
+        # **Der Dispatcher hat schon geredet.** Dann weiss der Nutzer Bescheid,
+        # und eine zweite Meldung derselben Sache waere nur Laerm -- der
+        # Waechter faengt, was *keiner* meldet, nicht was schon gemeldet ist.
+        if lage.alerted:
+            return []
+
+        if lage.running:
+            return self._haengender_lauf(lage, jetzt)
+
         if not lage.started:
             return [
                 f"Fuer {boersentag.isoformat()} gibt es keinen einzigen Versuch. "
@@ -136,6 +157,35 @@ class WatchDailyRunUseCase:
         return [
             f"Fuer {boersentag.isoformat()} gibt es {lage.attempts} Versuch(e), "
             f"aber keinen erledigten Lauf. Letzter Fehler: {fehler}"
+        ]
+
+    def _haengender_lauf(self, lage: DailyRunSummary, jetzt: datetime) -> list[str]:
+        """Laeuft er noch, oder haengt er?
+
+        Ein Lauf dauert seit dem Export-Umbau rund 103 Minuten und darf bis
+        gegen 23:15 arbeiten -- er ist um diese Zeit also voellig regulaer
+        unterwegs. Ihn dann zu melden waere ein taeglicher Fehlalarm.
+
+        Haengt er dagegen, haelt er den Advisory Lock, alle weiteren Starts
+        enden bei ``IN_PROGRESS``, und weil die Ueberfaelligkeitsmeldung des
+        Dispatchers **innerhalb** der Sperre laeuft, geht auch sie nie hinaus.
+        Das ist der dritte blinde Fleck aus AUDIT-003-014, und nur der
+        Waechter kann ihn sehen.
+
+        Die Grenze ist dieselbe wie das Zeitlimit der Aufgabe (Doc 14): Was
+        laenger laeuft, haette der Aufgabenplaner ohnehin abbrechen sollen.
+        """
+        if lage.first_attempt_at is None:  # pragma: no cover -- 'running' ohne Beginn
+            return []
+        dauer = jetzt - lage.first_attempt_at.astimezone(jetzt.tzinfo)
+        if dauer <= self._max_run_duration:
+            return []
+        stunden = dauer.total_seconds() / 3600
+        return [
+            f"Ein Lauf steht seit {stunden:.1f} Stunden auf 'running' und haelt "
+            "damit die Sperre. Weitere Starts enden bei IN_PROGRESS, und die "
+            "Ueberfaelligkeitsmeldung des Laufs kommt nicht hinaus -- sie laeuft "
+            "innerhalb der Sperre."
         ]
 
     def _pruefe_sicherung(self, jetzt: datetime) -> list[str]:

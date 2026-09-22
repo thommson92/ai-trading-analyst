@@ -2267,14 +2267,39 @@ Der Wert 1 ist hier kein Fehler des Wächters, sondern seine Arbeit. Der
 Wert 2 ist der schlechteste Fall: Es gibt einen Befund, und niemand erfährt
 davon.
 
-### Zwei Dinge, die er nicht tut
+### Was er unterscheidet
+
+„Es lief nichts" ist keine Diagnose. Er nennt deshalb, **welche** Stufe
+gerissen ist:
+
+| Was er vorfindet | Was das heißt |
+|---|---|
+| kein einziger Versuch | Die Aufgabenplanung hat nicht gestartet — oder der Start scheiterte vor dem Programm. Dann steht in „Letztes Ausführungsergebnis" eine **2**, und der Argumentstring ist der erste Verdacht. |
+| Versuche, aber keiner erledigt | Das Programm lief und kam nicht durch. Der letzte Fehlertext steht in der Meldung. |
+| ein Lauf steht seit über drei Stunden auf `running` | **Er hängt und hält die Sperre.** Alle weiteren Starts enden bei `IN_PROGRESS`, und die Überfälligkeitsmeldung des Laufs kommt nicht hinaus — sie läuft innerhalb der Sperre. Nur der Wächter sieht diesen Fall. |
+| die Datenbank ist nicht erreichbar | Der Tageslauf kann dann weder arbeiten noch sich melden. |
+
+Ein Lauf, der seit **weniger** als drei Stunden arbeitet, ist kein Befund:
+Ein regulärer Lauf dauert rund 103 Minuten.
+
+### Drei Dinge, die er nicht tut
 
 - **Er greift nicht ein.** Kein Nachstarten, kein Freigeben der Sperre. Ein
   Wächter, der eingreift, ist ein zweiter Dispatcher mit eigenen Fehlern.
+- **Er wiederholt nicht, was der Tageslauf schon gemeldet hat.** Ging für
+  heute bereits eine Ausfallmeldung hinaus, schweigt er zum Lauf. Ein
+  Wächter, den man wegen Lärm ignoriert, ist keiner. Die Sicherung prüft er
+  trotzdem — von der weiß der Tageslauf nichts.
 - **Er kennt den Börsenkalender nicht.** Der kommt von der TWS, und die kann
   ausgefallen sein. Er rechnet mit der Wochentagsnäherung — an einem
   Börsenfeiertag meldet er deshalb einen Ausfall, den es nicht gab. Die
   Meldung sagt das dazu. Die umgekehrte Verwechslung wäre schlimmer.
+
+> **Eine Datei unter 1 KiB gilt ihm nicht als Sicherung.** `sicherung.ps1`
+> räumt bewusst erst nach einer erfolgreichen Sicherung auf und lässt eine
+> abgebrochene Datei liegen. Nach dem Alter allein gefragt, sähe genau diese
+> Ruine wie eine frische Sicherung aus. Das ist eine Schranke, kein Beweis —
+> ob ein Dump lesbar ist, sagt nur die Zählprobe.
 
 **Abnahmekriterium:** Ein Lauf mit `--notification-channel dry_run` zeigt
 „nichts zu melden" an einem Tag mit erledigtem Lauf; ein Lauf mit

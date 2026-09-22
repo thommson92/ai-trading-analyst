@@ -65,11 +65,26 @@ class DailyRunSummary:
 
     attempts: int
     succeeded: bool
+    running: bool = False
+    """Eine Zeile steht auf ``running``. Entweder arbeitet der Lauf noch --
+    er darf bis gegen 23:15 dauern -- oder er haengt und haelt den Advisory
+    Lock. Wie lange schon, sagt ``first_attempt_at``."""
+    alerted: bool = False
+    """Der Dispatcher hat fuer diesen Tag bereits gemeldet. Dann weiss der
+    Nutzer Bescheid, und eine zweite Meldung waere nur Laerm."""
+    first_attempt_at: datetime | None = None
     last_error: str | None = None
 
     @property
     def started(self) -> bool:
-        """Hat ueberhaupt je ein Start dieses Tages das Programm erreicht?"""
+        """Hat ueberhaupt je ein Start dieses Tages das Programm erreicht?
+
+        ``attempts`` zaehlt die Versuche, die ``begin`` vermerkt hat. Eine
+        Zeile allein genuegt nicht: ``mark_alert_sent`` legt eine mit
+        ``attempts = 0`` an, wenn die Frist ablief, **ohne** dass je ein
+        Versuch stattfand -- der Server war aus, oder der Start scheiterte vor
+        dem Programm.
+        """
         return self.attempts > 0
 
 

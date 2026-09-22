@@ -72,6 +72,9 @@ from ai_trading_analyst.application.measure_history_depth import (
 )
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
+from ai_trading_analyst.application.watch_daily_run import (
+    MELDUNGSTITEL as WAECHTER_TITEL,
+)
 from ai_trading_analyst.application.watch_daily_run import WatchDailyRunUseCase
 from ai_trading_analyst.bootstrap import (
     app_version,
@@ -166,6 +169,8 @@ from ai_trading_analyst.domain.scheduling import (
     DashboardPublisherError,
     DashboardUploadError,
     DispatchDecision,
+    Notifier,
+    NotifierError,
     SchedulerParameters,
     TradingCalendarError,
     TradingSession,
@@ -4178,6 +4183,17 @@ def command_watchdog(args: argparse.Namespace) -> int:
 
     engine = _open_database()
     if engine is None:
+        # **Nicht einfach 2 zurueckgeben.** Faellt PostgreSQL aus, faellt der
+        # Tageslauf ebenfalls aus und kann sich nicht melden -- genau die
+        # Fehlerklasse, fuer die es den Waechter gibt. Er weiss dann zwar
+        # nichts ueber den Lauf, aber er weiss etwas Schlimmeres, und das
+        # gehoert hinaus. Der Melder steht schon.
+        _melde_ausfall(
+            notifier,
+            "Die Datenbank ist nicht erreichbar. Der Waechter kann den Lauf nicht "
+            "pruefen -- und der Tageslauf kann ohne sie weder arbeiten noch sich "
+            "melden.",
+        )
         return 2
     session_factory = build_session_factory(engine)
     runs = SqlAlchemyDispatcherRunRepository(session_factory(), engine)
@@ -4197,7 +4213,16 @@ def command_watchdog(args: argparse.Namespace) -> int:
         latest_backup=_sicherungsstand(args.backup_dir) if args.backup_dir else None,
         max_backup_age=timedelta(hours=args.max_backup_age_hours),
     )
-    bericht = use_case.execute()
+    try:
+        bericht = use_case.execute()
+    except Exception as error:  # Systemgrenze: Datenbank, Schema, Uhr
+        # Rueckgabewert 2 und nicht 1: Die 1 heisst "Befund gemeldet". Ein
+        # abgestuerzter Waechter saehe darin aus wie ein arbeitender -- etwa
+        # nach einer Wiederherstellung ohne 'alembic upgrade head', wenn die
+        # Tabelle fehlt.
+        print(f"Waechter abgebrochen: {redact_registered(str(error))}", file=sys.stderr)
+        _melde_ausfall(notifier, f"Der Waechter selbst ist abgebrochen: {error}")
+        return 2
 
     if not bericht.conspicuous:
         print("Waechter: nichts zu melden.")
@@ -4212,8 +4237,35 @@ def command_watchdog(args: argparse.Namespace) -> int:
     return 1
 
 
+def _melde_ausfall(notifier: Notifier, text: str) -> None:
+    """Eine Meldung, die ausserhalb des Anwendungsfalls entsteht.
+
+    Der Kanal bleibt Systemgrenze: Ist er nicht erreichbar, steht der Grund
+    wenigstens auf der Fehlerausgabe.
+    """
+    print(f"Waechter: {text}", file=sys.stderr)
+    try:
+        notifier.send(WAECHTER_TITEL, text)
+    except NotifierError as error:
+        print(f"Die Meldung ging NICHT hinaus: {error}", file=sys.stderr)
+
+
+MINDESTGROESSE_DUMP = 1024
+"""Unter dieser Groesse ist eine .dump-Datei keine Sicherung.
+
+Derselbe Wert wie in ``scripts/sicherung.ps1``: Ein abgebrochener
+Schreibvorgang hinterlaesst ebenfalls eine Datei, und das Skript laesst sie
+liegen -- es raeumt bewusst erst nach einer *erfolgreichen* Sicherung auf.
+Nach Alter allein gefragt, saehe genau diese Ruine wie eine frische
+Sicherung aus.
+
+Es ist eine Schranke, kein Beweis. Ob der Dump lesbar ist, weiss nur
+``pg_restore --list``, und das ist Sache der Zaehlprobe.
+"""
+
+
 def _sicherungsstand(verzeichnis: str) -> Callable[[], datetime | None]:
-    """Wann entstand die juengste Sicherung in diesem Verzeichnis?
+    """Wann entstand die juengste brauchbare Sicherung in diesem Verzeichnis?
 
     Als Closure und nicht als Wert: Der Anwendungsfall soll den Zeitpunkt
     selbst holen, damit seine Tests ohne Dateisystem auskommen -- und damit
@@ -4224,10 +4276,11 @@ def _sicherungsstand(verzeichnis: str) -> Callable[[], datetime | None]:
         pfad = Path(verzeichnis)
         if not pfad.is_dir():
             return None
-        dumps = sorted(pfad.glob("*.dump"), key=lambda d: d.stat().st_mtime, reverse=True)
-        if not dumps:
+        brauchbar = [d for d in pfad.glob("*.dump") if d.stat().st_size >= MINDESTGROESSE_DUMP]
+        if not brauchbar:
             return None
-        return datetime.fromtimestamp(dumps[0].stat().st_mtime, tz=UTC)
+        juengste = max(brauchbar, key=lambda d: d.stat().st_mtime)
+        return datetime.fromtimestamp(juengste.stat().st_mtime, tz=UTC)
 
     return stand
 

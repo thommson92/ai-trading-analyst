@@ -540,6 +540,105 @@ class TestArgumente:
         assert args.no_pacing is True
 
 
+class TestArgumentstringDerAufgabenplanung:
+    """Ein Schalter ohne seinen Wert hat am 2026-09-22 einen Handelstag
+    gekostet: ``argparse`` beendet Usage-Fehler mit Rueckgabewert 2, und zwar
+    bevor eine Zeile dieses Programms laeuft. In der Aufgabenplanung ist das
+    von einem Konfigurationsfehler nicht zu unterscheiden, und die Begruendung
+    geht nach ``stderr`` -- dort also ins Leere.
+    """
+
+    PRODUKTIV: ClassVar[list[str]] = [
+        "dispatch",
+        "--provider", "ibkr",
+        "--earnings-provider", "finnhub",
+        "--fundamentals-provider", "edgar",
+        "--ratings-provider", "finnhub",
+        "--options-provider", "ibkr",
+        "--technical-agent-provider", "anthropic",
+        "--research-provider", "none",
+        "--notification-channel", "telegram",
+        "--telegram-chat-id", "4711",
+        "--dashboard-export", "cloudflare",
+        "--log-file", "var/logs/tageslauf.log",
+    ]
+
+    def test_der_produktive_argumentstring_wird_angenommen(self) -> None:
+        """Genau der String aus Doc 14, Stufe H."""
+        args = build_parser().parse_args(self.PRODUKTIV)
+        assert args.log_file == "var/logs/tageslauf.log"
+        assert args.dashboard_export == "cloudflare"
+        assert args.research_provider == "none"
+
+    def test_log_file_ohne_pfad_bricht_ab(self) -> None:
+        """Der Fehler vom 2026-09-22, als Test festgehalten."""
+        with pytest.raises(SystemExit) as abbruch:
+            build_parser().parse_args(["dispatch", "--provider", "ibkr", "--log-file"])
+        assert abbruch.value.code == 2
+
+    def test_auch_der_waechter_verlangt_den_pfad(self) -> None:
+        with pytest.raises(SystemExit) as abbruch:
+            build_parser().parse_args(["watchdog", "--log-file"])
+        assert abbruch.value.code == 2
+
+
+class TestWatchdogKommando:
+    def test_die_vorgaben_stehen(self) -> None:
+        args = build_parser().parse_args(["watchdog"])
+        assert args.handler is cli.command_watchdog
+        assert args.backup_dir is None
+        assert args.max_backup_age_hours == 26
+
+    def test_der_argumentstring_aus_doc_14(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "watchdog",
+                "--notification-channel", "telegram",
+                "--telegram-chat-id", "4711",
+                "--backup-dir", "D:\\backups\\ata",
+                "--log-file", "var/logs/waechter.log",
+            ]
+        )
+        assert args.notification_channel == "telegram"
+        assert args.backup_dir == "D:\\backups\\ata"
+
+    def test_ein_leeres_verzeichnis_hat_keinen_stand(self, tmp_path: Path) -> None:
+        assert cli._sicherungsstand(str(tmp_path))() is None
+
+    def test_ein_fehlendes_verzeichnis_hat_keinen_stand(self, tmp_path: Path) -> None:
+        assert cli._sicherungsstand(str(tmp_path / "gibtsnicht"))() is None
+
+    def test_die_juengste_sicherung_zaehlt(self, tmp_path: Path) -> None:
+        alt = tmp_path / "ata-2026-09-20.dump"
+        neu = tmp_path / "ata-2026-09-21.dump"
+        for datei in (alt, neu):
+            datei.write_bytes(b"x" * 2048)
+        os.utime(alt, (1_000_000, 1_000_000))
+        os.utime(neu, (2_000_000, 2_000_000))
+        stand = cli._sicherungsstand(str(tmp_path))()
+        assert stand == datetime.fromtimestamp(2_000_000, tz=UTC)
+
+    def test_eine_abgebrochene_sicherung_zaehlt_nicht(self, tmp_path: Path) -> None:
+        """``sicherung.ps1`` laesst eine abgebrochene Datei liegen -- es raeumt
+        bewusst erst nach einer *erfolgreichen* Sicherung auf. Nach Alter
+        allein gefragt, saehe genau diese Ruine wie eine frische Sicherung
+        aus."""
+        ruine = tmp_path / "ata-2026-09-21.dump"
+        ruine.write_bytes(b"x" * 10)
+        assert cli._sicherungsstand(str(tmp_path))() is None
+
+    def test_eine_ruine_verdeckt_die_gute_sicherung_nicht(self, tmp_path: Path) -> None:
+        gut = tmp_path / "ata-2026-09-20.dump"
+        gut.write_bytes(b"x" * 2048)
+        os.utime(gut, (1_000_000, 1_000_000))
+        ruine = tmp_path / "ata-2026-09-21.dump"
+        ruine.write_bytes(b"x" * 10)
+        os.utime(ruine, (2_000_000, 2_000_000))
+        assert cli._sicherungsstand(str(tmp_path))() == datetime.fromtimestamp(
+            1_000_000, tz=UTC
+        )
+
+
 class TestTechnicalKommando:
     """Die Ausgabe ist der Zweck dieses Kommandos: An ihr werden die Zonen am
     echten Chart gegengeprueft (ADR 0025)."""

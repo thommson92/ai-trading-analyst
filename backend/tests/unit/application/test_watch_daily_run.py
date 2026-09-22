@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.application.watch_daily_run import (
+    LAUF_HOECHSTDAUER,
     SICHERUNG_HOECHSTALTER,
     WatchDailyRunUseCase,
 )
@@ -70,6 +71,7 @@ def waechter(
     sicherung: datetime | None = None,
     sicherung_geprueft: bool = False,
     max_alter: timedelta = SICHERUNG_HOECHSTALTER,
+    max_dauer: timedelta = LAUF_HOECHSTDAUER,
 ) -> tuple[WatchDailyRunUseCase, FakeMelder]:
     kanal = melder if melder is not None else FakeMelder()
     return (
@@ -80,6 +82,7 @@ def waechter(
             now=lambda: jetzt,
             latest_backup=(lambda: sicherung) if sicherung_geprueft else None,
             max_backup_age=max_alter,
+            max_run_duration=max_dauer,
         ),
         kanal,
     )
@@ -132,6 +135,69 @@ class TestDerLauf:
             jetzt=datetime.combine(SAMSTAG, time(23, 15), tzinfo=NEW_YORK),
         )
         assert not fall.execute().conspicuous
+
+
+class TestDerLaufendeLauf:
+    """Ein Lauf darf um 23:15 noch arbeiten -- er dauert rund 103 Minuten."""
+
+    def test_ein_frisch_laufender_lauf_wird_nicht_gemeldet(self) -> None:
+        fall, melder = waechter(
+            lage=DailyRunSummary(
+                attempts=1,
+                succeeded=False,
+                running=True,
+                first_attempt_at=NACH_FRISTABLAUF - timedelta(minutes=90),
+            )
+        )
+        assert not fall.execute().conspicuous
+        assert melder.meldungen == []
+
+    def test_ein_haengender_lauf_wird_gemeldet(self) -> None:
+        """Der dritte blinde Fleck: Er haelt die Sperre, und deshalb kommt die
+        Ueberfaelligkeitsmeldung des Dispatchers nicht hinaus."""
+        fall, _ = waechter(
+            lage=DailyRunSummary(
+                attempts=1,
+                succeeded=False,
+                running=True,
+                first_attempt_at=NACH_FRISTABLAUF - timedelta(hours=5),
+            )
+        )
+        bericht = fall.execute()
+        assert bericht.conspicuous
+        assert "5.0 Stunden" in bericht.findings[0]
+        assert "Sperre" in bericht.findings[0]
+
+    def test_die_grenze_ist_das_zeitlimit_der_aufgabe(self) -> None:
+        assert LAUF_HOECHSTDAUER == timedelta(hours=3)
+
+
+class TestBereitsGemeldet:
+    def test_was_der_dispatcher_schon_gemeldet_hat_bleibt_still(self) -> None:
+        """Sonst kaeme dieselbe Sache zweimal -- der Waechter faengt, was
+        *keiner* meldet."""
+        fall, melder = waechter(
+            lage=DailyRunSummary(attempts=3, succeeded=False, alerted=True, last_error="TWS weg")
+        )
+        assert not fall.execute().conspicuous
+        assert melder.meldungen == []
+
+    def test_eine_meldung_ohne_versuch_bleibt_ebenfalls_still(self) -> None:
+        """``mark_alert_sent`` legt ohne vorherigen Versuch eine Zeile mit
+        ``attempts = 0`` an. Ohne diese Pruefung meldete der Waechter 'kein
+        einziger Versuch' fuer einen Tag, an dem laengst gemeldet wurde."""
+        fall, _ = waechter(lage=DailyRunSummary(attempts=0, succeeded=False, alerted=True))
+        assert not fall.execute().conspicuous
+
+    def test_die_sicherung_wird_trotzdem_geprueft(self) -> None:
+        """Der Dispatcher meldet nur den Lauf. Von der Sicherung weiss er
+        nichts."""
+        fall, _ = waechter(
+            lage=DailyRunSummary(attempts=0, succeeded=False, alerted=True),
+            sicherung_geprueft=True,
+            sicherung=None,
+        )
+        assert fall.execute().conspicuous
 
 
 class TestDieSicherung:
