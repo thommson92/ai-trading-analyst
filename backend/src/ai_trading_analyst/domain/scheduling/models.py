@@ -49,6 +49,31 @@ class TradingSession:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyRunSummary:
+    """Was an einem Handelstag versucht wurde -- ohne den Kerzenzeitpunkt.
+
+    Der Waechter fragt von aussen und kennt ``candle_close`` nicht: Der haengt
+    am Boersenkalender, und der kommt von der TWS. Er fragt deshalb nach dem
+    **Handelstag** und bekommt zusammengefasst, was an ihm geschah.
+
+    Die Unterscheidung zwischen ``attempts == 0`` und ``attempts > 0`` ist der
+    Kern: Kein Versuch heisst, die Aufgabenplanung hat nicht gestartet oder
+    ist vor dem Programm gescheitert; Versuche ohne Erfolg heissen, das
+    Programm lief und kam nicht durch. Bei der Fehlersuche fuehren die beiden
+    an voellig verschiedene Orte.
+    """
+
+    attempts: int
+    succeeded: bool
+    last_error: str | None = None
+
+    @property
+    def started(self) -> bool:
+        """Hat ueberhaupt je ein Start dieses Tages das Programm erreicht?"""
+        return self.attempts > 0
+
+
+@dataclass(frozen=True, slots=True)
 class SchedulerParameters:
     """Die Stellschrauben des Dispatchers, alle aus der Konfiguration."""
 

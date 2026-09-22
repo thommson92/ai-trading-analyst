@@ -37,7 +37,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -72,6 +72,7 @@ from ai_trading_analyst.application.measure_history_depth import (
 )
 from ai_trading_analyst.application.run_analysis import RunAnalysisUseCase
 from ai_trading_analyst.application.run_backtest import BacktestUseCase, StockBacktest
+from ai_trading_analyst.application.watch_daily_run import WatchDailyRunUseCase
 from ai_trading_analyst.bootstrap import (
     app_version,
     build_agent_concurrency,
@@ -4126,6 +4127,111 @@ def _print_dispatch(ergebnis: DispatchOutcome) -> None:
     print(texte[ergebnis.decision])
 
 
+def command_watchdog(args: argparse.Namespace) -> int:
+    """Der Waechter (ADR 0071) -- eine eigene Aufgabe, kein Teil des Laufs.
+
+    Er beantwortet genau zwei Fragen aus dem Bestand: Gab es heute einen
+    erledigten Lauf, und wie alt ist die juengste Sicherung? Weder TWS noch
+    Watchlist noch Modellzugang -- er muss gerade dann arbeiten, wenn davon
+    etwas ausgefallen ist.
+    """
+    try:
+        loaded = load_config(args.config)
+        config = loaded.config
+    except ConfigError as error:
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
+
+    if args.notification_channel is not None or args.telegram_chat_id is not None:
+        aenderung: dict[str, object] = {}
+        if args.notification_channel is not None:
+            aenderung["channel"] = args.notification_channel
+        if args.telegram_chat_id is not None:
+            aenderung["telegram"] = config.notifications.telegram.model_copy(
+                update={"chat_id": args.telegram_chat_id}
+            )
+        config = config.model_copy(
+            update={"notifications": config.notifications.model_copy(update=aenderung)}
+        )
+
+    protokoll = config.logging.model_copy(
+        update={"file": args.log_file if args.log_file is not None else config.logging.file}
+    )
+    if protokoll.file is not None:
+        protokoll = protokoll.model_copy(
+            update={"file": str(project_root(loaded.source_path) / protokoll.file)}
+        )
+    try:
+        configure_logging(protokoll)
+    except OSError as error:
+        print(f"Protokolldatei nicht beschreibbar: {error}", file=sys.stderr)
+        return 2
+
+    secrets = Secrets()
+    try:
+        notifier = build_notifier(config.notifications, secrets)
+    except (ValueError, NotificationChannelNotConfiguredError, MissingSecretError) as error:
+        # Ein Waechter ohne Kanal ist kein Waechter. Anders als beim Tageslauf
+        # ist das hier kein Nebenweg, sondern der einzige Zweck.
+        print(f"Konfiguration: {error}", file=sys.stderr)
+        return 2
+
+    engine = _open_database()
+    if engine is None:
+        return 2
+    session_factory = build_session_factory(engine)
+    runs = SqlAlchemyDispatcherRunRepository(session_factory(), engine)
+
+    use_case = WatchDailyRunUseCase(
+        runs=runs,
+        parameters=SchedulerParameters(
+            timeframe_minutes=config.market.timeframe_minutes,
+            daily_candle_index=config.market.daily_candle_index,
+            safety_buffer_seconds=config.scheduler.safety_buffer_seconds,
+            max_catch_up_seconds=config.scheduler.max_catch_up_seconds,
+            timezone=config.market.timezone,
+            session_open=config.market.session_open_time(),
+            session_minutes=config.market.regular_session_minutes,
+        ),
+        notifier=notifier,
+        latest_backup=_sicherungsstand(args.backup_dir) if args.backup_dir else None,
+        max_backup_age=timedelta(hours=args.max_backup_age_hours),
+    )
+    bericht = use_case.execute()
+
+    if not bericht.conspicuous:
+        print("Waechter: nichts zu melden.")
+        return 0
+    for befund in bericht.findings:
+        print(f"Waechter: {befund}", file=sys.stderr)
+    if not bericht.notified:
+        # Getrennter Rueckgabewert: "gemeldet" ist ein Befund, "nicht
+        # zustellbar" ist zwei -- und der zweite faellt sonst niemandem auf.
+        print("Die Meldung ging NICHT hinaus.", file=sys.stderr)
+        return 2
+    return 1
+
+
+def _sicherungsstand(verzeichnis: str) -> Callable[[], datetime | None]:
+    """Wann entstand die juengste Sicherung in diesem Verzeichnis?
+
+    Als Closure und nicht als Wert: Der Anwendungsfall soll den Zeitpunkt
+    selbst holen, damit seine Tests ohne Dateisystem auskommen -- und damit
+    der Dateisystemzugriff hier bleibt, wo die Infrastruktur hingehoert.
+    """
+
+    def stand() -> datetime | None:
+        pfad = Path(verzeichnis)
+        if not pfad.is_dir():
+            return None
+        dumps = sorted(pfad.glob("*.dump"), key=lambda d: d.stat().st_mtime, reverse=True)
+        if not dumps:
+            return None
+        return datetime.fromtimestamp(dumps[0].stat().st_mtime, tz=UTC)
+
+    return stand
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai_trading_analyst.cli",
@@ -4540,6 +4646,57 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     dispatch.set_defaults(handler=command_dispatch)
+
+    # **Eine eigene Aufgabe, kein Teil des Laufs** (ADR 0071). Ein Waechter im
+    # ueberwachten Prozess schweigt genau dann, wenn dieser haengt.
+    watchdog = subparsers.add_parser(
+        "watchdog",
+        help=(
+            "Prueft aus dem Bestand, ob heute ein Lauf erledigt wurde und wie alt "
+            "die juengste Sicherung ist -- und meldet, was fehlt."
+        ),
+    )
+    watchdog.add_argument(
+        "--notification-channel",
+        choices=("dry_run", "telegram"),
+        default=None,
+        help="Uebersteuert notifications.channel. Ohne Kanal ist der Waechter zwecklos.",
+    )
+    watchdog.add_argument(
+        "--telegram-chat-id",
+        default=None,
+        help="Uebersteuert notifications.telegram.chat_id. Kein Geheimnis (ADR 0024).",
+    )
+    watchdog.add_argument(
+        "--backup-dir",
+        default=None,
+        help=(
+            "Verzeichnis mit den Dumps, etwa D:\\backups\\ata. Ohne diese Angabe "
+            "prueft der Waechter nur den Lauf."
+        ),
+    )
+    watchdog.add_argument(
+        "--max-backup-age-hours",
+        type=_positive_count,
+        default=26,
+        help=(
+            "Ab welchem Alter die juengste Sicherung als ausgeblieben gilt. "
+            "Sechsundzwanzig statt vierundzwanzig: Zwei taegliche Laeufe liegen "
+            "fast genau 24 Stunden auseinander, und eine um Minuten verschobene "
+            "Ausfuehrung soll keinen Ausfall melden."
+        ),
+    )
+    watchdog.add_argument(
+        "--log-file",
+        default=None,
+        help=(
+            "Wie bei 'dispatch': ein zusaetzlicher, rotierender Dateiausgang in JSON, "
+            "relativ zum Projektwurzelverzeichnis. **Der Schalter braucht diesen Pfad** "
+            "-- ohne ihn bricht der Aufruf mit Rueckgabewert 2 ab, bevor das Programm "
+            "laeuft."
+        ),
+    )
+    watchdog.set_defaults(handler=command_watchdog)
 
     backtest = subparsers.add_parser(
         "backtest",

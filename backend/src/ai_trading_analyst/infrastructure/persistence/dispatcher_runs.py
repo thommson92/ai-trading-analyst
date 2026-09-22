@@ -18,11 +18,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
+from ...domain.scheduling.models import DailyRunSummary
 from .orm import DispatcherRunOrm
 
 LOCK_KEY = 0x41544144  # "ATAD" -- eine feste, projektweit eindeutige Zahl
@@ -107,6 +108,43 @@ class SqlAlchemyDispatcherRunRepository:
 
     def is_done(self, session_date: date, candle_close: datetime) -> bool:
         return self._status(session_date, candle_close) == "succeeded"
+
+    def summary_on(self, session_date: date) -> DailyRunSummary:
+        """Alle Zeilen dieses Handelstages zusammengefasst.
+
+        ``func.sum`` statt einer Schleife, und ``bool_or`` statt eines
+        Vergleichs: An einem Tag koennen mehrere Kerzen stehen, sobald auch
+        nach der zweiten gerechnet wird. Die Zusammenfassung muss dann
+        "irgendeiner ist durchgekommen" sagen und nicht "der letzte".
+
+        Der Fehlertext kommt vom juengsten Versuch -- der aelteste waere die
+        Ursache von gestern.
+        """
+        zeile = self._session.execute(
+            select(
+                func.coalesce(func.sum(DispatcherRunOrm.attempts), 0),
+                func.coalesce(func.bool_or(DispatcherRunOrm.status == "succeeded"), False),
+            ).where(DispatcherRunOrm.session_date == session_date)
+        ).one()
+        versuche = int(zeile[0])
+        if versuche == 0:
+            return DailyRunSummary(attempts=0, succeeded=False)
+
+        letzter_fehler = self._session.execute(
+            select(DispatcherRunOrm.last_error)
+            .where(
+                DispatcherRunOrm.session_date == session_date,
+                DispatcherRunOrm.last_error.is_not(None),
+            )
+            .order_by(DispatcherRunOrm.last_attempt_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        return DailyRunSummary(
+            attempts=versuche,
+            succeeded=bool(zeile[1]),
+            last_error=letzter_fehler,
+        )
 
     def begin(self, session_date: date, candle_close: datetime, now: datetime) -> int:
         """Legt den Versuch an oder zaehlt ihn hoch, und liefert die Nummer.

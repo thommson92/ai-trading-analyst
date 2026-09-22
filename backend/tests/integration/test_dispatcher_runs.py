@@ -119,6 +119,54 @@ class TestZustand:
         assert not repo.is_done(HANDELSTAG, zweite_kerze)
 
 
+class TestTageszusammenfassung:
+    """Die Frage des Waechters: Was geschah an diesem Handelstag?
+
+    Sie kommt ohne ``candle_close`` aus -- der Waechter kennt ihn nicht, weil
+    er am Boersenkalender haengt und der von der TWS kommt.
+    """
+
+    def test_ein_tag_ohne_zeile_hat_keine_versuche(self, repo: Repo) -> None:
+        lage = repo.summary_on(HANDELSTAG)
+        assert lage.attempts == 0
+        assert not lage.succeeded
+        assert not lage.started
+
+    def test_versuche_werden_ueber_alle_kerzen_summiert(self, repo: Repo) -> None:
+        zweite_kerze = KERZE_ZU + timedelta(minutes=195)
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.begin(HANDELSTAG, zweite_kerze, JETZT)
+
+        lage = repo.summary_on(HANDELSTAG)
+        assert lage.attempts == 3
+        assert lage.started
+        assert not lage.succeeded
+
+    def test_ein_erfolg_an_irgendeiner_kerze_genuegt(self, repo: Repo) -> None:
+        """``bool_or`` und nicht "der letzte": Stehen mehrere Kerzen am Tag,
+        muss die Zusammenfassung "irgendeiner kam durch" sagen."""
+        zweite_kerze = KERZE_ZU + timedelta(minutes=195)
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_succeeded(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.begin(HANDELSTAG, zweite_kerze, JETZT)
+
+        assert repo.summary_on(HANDELSTAG).succeeded
+
+    def test_der_fehlertext_kommt_vom_juengsten_versuch(self, repo: Repo) -> None:
+        spaeter = JETZT + timedelta(minutes=15)
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "von gestern")
+        repo.begin(HANDELSTAG, KERZE_ZU, spaeter)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, spaeter, "der aktuelle")
+
+        assert repo.summary_on(HANDELSTAG).last_error == "der aktuelle"
+
+    def test_ein_anderer_tag_zaehlt_nicht_mit(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        assert repo.summary_on(HANDELSTAG - timedelta(days=1)).attempts == 0
+
+
 class TestMeldung:
     def test_ohne_vermerk_gilt_sie_als_nicht_abgesetzt(self, repo: Repo) -> None:
         assert not repo.alert_sent(HANDELSTAG, KERZE_ZU)

@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol
 
-from .models import TradingSession
+from .models import DailyRunSummary, TradingSession
 
 
 class TradingCalendarError(Exception):
@@ -82,6 +82,31 @@ class DispatcherRunRepository(Protocol):
     def mark_alert_sent(
         self, session_date: date, candle_close: datetime, now: datetime
     ) -> None: ...
+
+
+class DailyRunLookup(Protocol):
+    """Die eine Frage des Waechters -- lesend, und sonst nichts (ADR 0071).
+
+    **Bewusst nicht der volle ``DispatcherRunRepository``.** Der Waechter soll
+    den Advisory Lock nicht einmal anfassen koennen: Ein Waechter, der die
+    Sperre nimmt, blockiert den Lauf, den er ueberwacht. Was er nicht kann,
+    kann er auch nicht versehentlich tun.
+
+    ``SqlAlchemyDispatcherRunRepository`` erfuellt beide Protokolle; welches
+    ein Aufrufer verlangt, sagt, was er damit vorhat.
+    """
+
+    def summary_on(self, session_date: date) -> DailyRunSummary:
+        """Was an diesem Handelstag versucht wurde, ueber alle Kerzen hinweg.
+
+        Ohne ``candle_close``: Der Waechter kennt ihn nicht, denn er haengt am
+        Boersenkalender, und der kommt von der TWS -- die auszufallen pflegt.
+        Ein Waechter, der erst die TWS braucht, um zu pruefen, ob der Lauf
+        lief, waere genau dann stumm, wenn er reden soll.
+
+        Ohne Zeile fuer diesen Tag: ``attempts == 0``.
+        """
+        ...
 
 
 class NotifierError(Exception):
