@@ -1526,7 +1526,8 @@ existiert nicht.
 > Wiederherstellung (`scripts/sicherung.ps1`, `scripts/sicherung-probe.ps1`). **Eine der fünf
 > Mindestanforderungen bleibt bewusst offen:** Die Ablage liegt auf demselben
 > Laufwerk, schützt also gegen Fehlbedienung und kaputte Migration, nicht
-> gegen den Ausfall der Platte. Neu zu bewerten nach stabilem Betrieb. Das
+> gegen den Ausfall der Platte. Die Neubewertung liegt seit dem 2026-09-22
+> als [ADR 0070](adr/0070-sicherung-ausser-haus.md) vor (vorgeschlagen). Das
 > Zielbild unten bleibt unverändert stehen — es ist der Maßstab, an dem diese
 > Einschränkung eine Einschränkung ist.
 

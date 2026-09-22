@@ -104,6 +104,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0067](0067-jahresreihen-der-fundamentalkennzahlen.md) | Jahresreihen der Fundamentalkennzahlen im Bericht | Angenommen |
 | [0068](0068-export-rechnet-abgeschlossene-laeufe-nicht-neu.md) | Der Export rechnet abgeschlossene Läufe nicht jeden Tag neu | Vorgeschlagen |
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
+| [0070](0070-sicherung-ausser-haus.md) | Die Sicherung verlässt den Server — verschlüsselt, schreibend, versioniert | Vorgeschlagen |
 
 ## Offene Entscheidungen
 
@@ -240,3 +241,14 @@ ADR, sobald die nötigen Informationen vorliegen:
   Authentifizierung" aus ADR 0049 gilt jetzt als „der Server bleibt ohne
   Exposition; das Dashboard läuft zusätzlich außerhalb, hinter der
   Anmeldung des Anbieters". ADR 0049 wird nicht rückwirkend geändert.
+
+- **Sicherung außerhalb des primären Datenvolumes** (Doc 10 §15, vierte der
+  fünf Mindestanforderungen) — **vorgeschlagen.** Der Beschluss vom
+  2026-09-01 hatte die Frage ausdrücklich vertagt („Neu zu bewerten nach
+  stabilem Betrieb", Doc 14, Abschnitt „Sicherung"); das Audit vom
+  2026-09-20 führt den Zustand als AUDIT-003-006. Die Bedingung ist erfüllt,
+  und [ADR 0070](0070-sicherung-ausser-haus.md) beantwortet die Frage:
+  S3-kompatibler Objektspeicher, Schreibrecht ohne Löschrecht,
+  Verschlüsselung gegen einen öffentlichen Schlüssel, neunzig Tage. **Offen
+  bleibt die Wahl des Anbieters** — sie ist keine Architekturentscheidung und
+  gehört in die Umsetzung.

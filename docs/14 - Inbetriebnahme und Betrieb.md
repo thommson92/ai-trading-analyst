@@ -2005,9 +2005,14 @@ Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
 > **Bewusste Einschränkung** (Beschluss vom 2026-09-01): Die Ablage liegt
 > *nicht* außerhalb des primären Datenvolumes, wie Doc 10 §15 es als
 > Zielbild nennt. Sie schützt gegen Softwarefehler, Fehlbedienung und eine
-> kaputte Migration — **nicht** gegen den Ausfall der Platte selbst. Neu zu
-> bewerten nach stabilem Betrieb, zusammen mit der Expositionsfrage aus
-> [ADR 0049](adr/0049-dashboard-mvp-nur-lan.md).
+> kaputte Migration — **nicht** gegen den Ausfall der Platte selbst.
+>
+> **Die Neubewertung liegt vor.** Die Bedingung „nach stabilem Betrieb" ist
+> erfüllt; [ADR 0070](adr/0070-sicherung-ausser-haus.md) beantwortet die
+> Frage (Objektspeicher, Schreibrecht ohne Löschrecht, Verschlüsselung gegen
+> einen öffentlichen Schlüssel, neunzig Tage) und ist **vorgeschlagen**.
+> Solange es nicht angenommen und umgesetzt ist, gilt dieser Absatz
+> unverändert weiter.
 
 ### Das Passwort zuerst
 
