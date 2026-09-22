@@ -105,6 +105,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0068](0068-export-rechnet-abgeschlossene-laeufe-nicht-neu.md) | Der Export rechnet abgeschlossene Läufe nicht jeden Tag neu | Vorgeschlagen |
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
 | [0070](0070-sicherung-ausser-haus.md) | Die Sicherung verlässt den Server — verschlüsselt, schreibend, versioniert | Vorgeschlagen |
+| [0071](0071-waechter-ausserhalb-des-laufs.md) | Ein Wächter außerhalb des Laufs, den er überwacht | Vorgeschlagen |
 
 ## Offene Entscheidungen
 

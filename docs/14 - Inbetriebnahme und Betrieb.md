@@ -2218,6 +2218,68 @@ Enable-ScheduledTask -TaskName 'AI Trading Analyst - Dispatch'
 Wegwerfdatenbank der Zählprobe durchgespielt worden — nicht in den
 Produktivbestand.
 
+## Der Wächter
+
+Der Tageslauf meldet seinen eigenen Ausfall — solange er bis zu seiner
+Meldelogik kommt. Am 2026-09-22 kam er es nicht: `--log-file` stand ohne
+Pfad in den Argumenten, `argparse` beendete jeden der rund 17 Startversuche
+mit Rückgabewert 2, und weil nie eine Zeile in `dispatcher_runs` entstand,
+gab es auch nichts, was sich hätte melden können. Der Tag fiel lautlos aus.
+
+`cli watchdog` prüft von außen ([ADR 0071](adr/0071-waechter-ausserhalb-des-laufs.md)):
+Gab es heute einen erledigten Lauf, und wie alt ist die jüngste Sicherung?
+Er braucht weder TWS noch Watchlist noch Modellzugang — er muss gerade dann
+arbeiten, wenn davon etwas ausgefallen ist.
+
+### In die Aufgabenplanung
+
+| Feld | Wert |
+|---|---|
+| Name | `AI Trading Analyst — Waechter` |
+| Trigger | Täglich, Beginn **23:15** |
+| Programm | `C:\Users\Administrator\Documents\TradingViewAnalyzer\backend\.venv\Scripts\python.exe` |
+| Starten in | `C:\Users\Administrator\Documents\TradingViewAnalyzer\backend` |
+
+Argumente:
+
+```
+-m ai_trading_analyst.cli watchdog --notification-channel telegram --telegram-chat-id <CHAT_ID> --backup-dir D:\backups\ata --log-file var/logs/waechter.log
+```
+
+Wie die Sicherung braucht er **keine** angemeldete Sitzung. Zeitlimit
+15 Minuten; er ist in Sekunden fertig.
+
+**23:15 und nicht später:** Er fragt nach dem *heutigen* Handelstag in
+Börsenzeit. Nach Mitternacht wäre „heute" bereits der Folgetag, und er
+prüfte einen Lauf, der noch gar nicht fällig ist. Vor der Sicherung um 23:45
+zu laufen ist Absicht: Er meldet dann den Stand der **gestrigen** Sicherung,
+und ein Ausfall fällt einen Tag früher auf als bei umgekehrter Reihenfolge.
+
+### Was die Rückgabewerte sagen
+
+| Wert | Bedeutung |
+|---|---|
+| 0 | nichts zu melden |
+| 1 | Befund gemeldet — in Telegram steht, welcher |
+| 2 | **Befund vorhanden, die Meldung ging nicht hinaus** — oder Konfigurationsfehler |
+
+Der Wert 1 ist hier kein Fehler des Wächters, sondern seine Arbeit. Der
+Wert 2 ist der schlechteste Fall: Es gibt einen Befund, und niemand erfährt
+davon.
+
+### Zwei Dinge, die er nicht tut
+
+- **Er greift nicht ein.** Kein Nachstarten, kein Freigeben der Sperre. Ein
+  Wächter, der eingreift, ist ein zweiter Dispatcher mit eigenen Fehlern.
+- **Er kennt den Börsenkalender nicht.** Der kommt von der TWS, und die kann
+  ausgefallen sein. Er rechnet mit der Wochentagsnäherung — an einem
+  Börsenfeiertag meldet er deshalb einen Ausfall, den es nicht gab. Die
+  Meldung sagt das dazu. Die umgekehrte Verwechslung wäre schlimmer.
+
+**Abnahmekriterium:** Ein Lauf mit `--notification-channel dry_run` zeigt
+„nichts zu melden" an einem Tag mit erledigtem Lauf; ein Lauf mit
+`--backup-dir` auf ein leeres Verzeichnis meldet die fehlende Sicherung.
+
 ## Pflege
 
 Gemessene Zahlen altern genauso still wie geratene — nur mit besserem
