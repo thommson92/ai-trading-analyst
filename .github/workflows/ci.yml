@@ -129,6 +129,18 @@ jobs:
       - name: Watchlist einlesen
         run: python -m ai_trading_analyst.cli watchlist
 
+      # Dieselbe Art Fehler wie uvloop und colorama, nur in PowerShell: Am
+      # 2026-09-22 gab `Finde-PostgresWerkzeug` auf dem Server den Buchstaben
+      # 'C' statt eines Pfades zurueck, weil das Suchergebnis bei genau einer
+      # installierten Fassung keine Liste ist. Der Sicherungs-Task waere beim
+      # ersten Lauf daran gescheitert. macOS und Linux haben kein PowerShell
+      # -- das hier ist die einzige Stelle, an der so etwas auffallen kann.
+      #
+      # Ein Schritt und kein eigener Job: ADR 0031 nennt die fuenf Required
+      # Checks namentlich, ein sechster Jobname braeche die Sperre.
+      - name: PowerShell-Skripte pruefen
+        run: pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
+
   frontend:
     name: Frontend (lint, typecheck, build)
     runs-on: ubuntu-latest

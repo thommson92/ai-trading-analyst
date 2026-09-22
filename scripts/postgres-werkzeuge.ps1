@@ -30,7 +30,12 @@ function Finde-PostgresWerkzeug {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$Name,
-        [string]$PgBin
+        [string]$PgBin,
+        # Nur fuer die Pruefung in der CI: Der Standardinstallationspfad laesst
+        # sich auf einem Runner nicht nachstellen, ohne ihn anzulegen. Ein
+        # Parameter mit dem echten Wert als Vorgabe haelt den produktiven
+        # Aufruf unveraendert -- kein Anrufer setzt ihn.
+        [string]$Wurzel = 'C:\Program Files\PostgreSQL'
     )
 
     if ($PgBin) {
@@ -44,16 +49,33 @@ function Finde-PostgresWerkzeug {
 
     # Get-ChildItem statt eines festen Verzeichnisses: Die Fassungsnummer
     # steht im Pfad, und sie aendert sich mit jedem Hauptversionswechsel.
-    $kandidaten = Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin' -ErrorAction SilentlyContinue |
-        ForEach-Object { Join-Path $_.FullName "$Name.exe" } |
-        Where-Object { Test-Path $_ } |
-        Sort-Object { [int]($_ -replace '.*\\PostgreSQL\\(\d+)\\.*', '$1') } -Descending
+    #
+    # **Das @() ist der Kern dieser Zeilen, kein Zierat.** Liefert die Suche
+    # genau einen Treffer, gibt PowerShell ihn als blanke Zeichenkette zurueck
+    # und nicht als einelementiges Feld -- `$kandidaten[0]` griffe dann nicht
+    # das erste Element, sondern das erste *Zeichen*: das 'C' aus
+    # 'C:\Program Files\...'. Der Aufrufer bekaeme einen Buchstaben statt eines
+    # Pfades und scheiterte mit "Die Benennung C wurde nicht als Name eines
+    # Cmdlet ... erkannt" -- am 2026-09-22 auf dem Server genau so geschehen.
+    # Bei zwei installierten Fassungen faellt der Fehler nie auf.
+    $kandidaten = @(
+        Get-ChildItem (Join-Path $Wurzel "*\bin\$Name.exe") -ErrorAction SilentlyContinue |
+            Sort-Object {
+                # Die Fassung steht im Verzeichnis ueber 'bin' -- also am
+                # Objekt selbst und nicht in einem Muster ueber den ganzen
+                # Pfad. Ein Muster muesste die Wurzel kennen und braeche,
+                # sobald sie anders heisst.
+                $fassung = $_.Directory.Parent.Name
+                if ($fassung -match '^(\d+)') { [int]$Matches[1] } else { 0 }
+            } -Descending |
+            ForEach-Object { $_.FullName }
+    )
 
-    if ($kandidaten) { return $kandidaten[0] }
+    if ($kandidaten.Count -gt 0) { return $kandidaten[0] }
 
     throw (
         "'$Name' wurde weder im Suchpfad noch unter " +
-        "'C:\Program Files\PostgreSQL\<Fassung>\bin' gefunden. Entweder die " +
+        "'$Wurzel\<Fassung>\bin' gefunden. Entweder die " +
         "PostgreSQL-Clientwerkzeuge installieren oder das bin-Verzeichnis " +
         "ueber -PgBin angeben."
     )
