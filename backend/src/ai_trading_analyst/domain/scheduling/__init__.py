@@ -9,6 +9,7 @@ from .models import (
     scheduled_run_for,
 )
 from .ports import (
+    DashboardExportTimeoutError,
     DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
@@ -21,6 +22,7 @@ from .ports import (
 )
 
 __all__ = [
+    "DashboardExportTimeoutError",
     "DashboardPreviewUrlError",
     "DashboardPublisher",
     "DashboardPublisherError",

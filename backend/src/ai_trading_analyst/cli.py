@@ -4055,6 +4055,8 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Nimmt die gerechneten Kerzenserien auf, damit der Export sie
             # nicht ein zweites Mal ableitet (ADR 0072).
             kerzenvorrat=kerzenvorrat,
+            # Der Lauf wartet nicht unbegrenzt auf den Export (ADR 0073).
+            export_zeitgrenze=config.dashboard_export.step_timeout_seconds,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol

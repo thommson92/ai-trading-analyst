@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -69,6 +70,7 @@ from ai_trading_analyst.domain.report import (
 )
 from ai_trading_analyst.domain.research import ResearchReport, ResearchStatus
 from ai_trading_analyst.domain.scheduling import (
+    DashboardExportTimeoutError,
     DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
@@ -248,6 +250,7 @@ class RunAnalysisUseCase:
         dashboard_url: str | None = None,
         bereitschaft: Bereitschaft | None = None,
         kerzenvorrat: Kerzenvorrat | None = None,
+        export_zeitgrenze: float | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         # **None heisst: der Backfill ist schon durch** (ADR 0069). So laeuft
@@ -274,6 +277,10 @@ class RunAnalysisUseCase:
         self._market_timezone = market_timezone
         self._dashboard_publisher = dashboard_publisher
         self._kerzenvorrat = kerzenvorrat
+        self._export_zeitgrenze = export_zeitgrenze
+        """Wie lange auf den Exportschritt gewartet wird (ADR 0073).
+        ``None`` heisst: unbegrenzt, wie bisher.
+        """
         """Wohin die gerechneten Kerzenserien gehen, damit der Export sie
         nicht ein zweites Mal ableitet. ``None`` heisst: Er rechnet sie
         selbst, wie bisher.
@@ -511,7 +518,15 @@ class RunAnalysisUseCase:
         if self._dashboard_publisher is None:
             return
         try:
-            self._dashboard_publisher.publish()
+            self._sende_snapshot()
+        except DashboardExportTimeoutError as error:
+            _logger.error("Dashboard-Export nicht abgewartet: %s", error)
+            self._melde_exportfehler(
+                "Dashboard-Export dauert zu lange",
+                "Der Lauf ist abgeschlossen und gemeldet. Der Export lief noch, als seine "
+                "Zeitgrenze ablief; er wurde nicht abgewartet. Draussen steht bis auf "
+                "Weiteres der vorige Stand.",
+            )
         except DashboardPreviewUrlError as error:
             _logger.error("Dashboard gesendet, Vorschau-Adressen aktiv: %s", error)
             self._melde_exportfehler(
@@ -534,6 +549,65 @@ class RunAnalysisUseCase:
         except Exception:
             _logger.exception("Dashboard-Export abgebrochen")
             self._melde_exportfehler(*_EXPORT_NICHT_GESCHRIEBEN)
+
+    def _sende_snapshot(self) -> None:
+        """Der Exportschritt -- aber nicht laenger als seine Zeitgrenze (ADR 0073).
+
+        **Die Grenze sitzt an der Naht und nicht im Mechanismus.** Der Schritt
+        besteht aus mehreren Teilen -- den Datenbaum rechnen, ihn schreiben,
+        die Oberflaeche bauen, alles hochladen --, und Bau wie Upload haben
+        ihre eigenen Fristen. Was keine der beiden abdeckt, ist das Rechnen,
+        und genau dort ist es am 2026-09-23 stehen geblieben. Eine Grenze um
+        den ganzen Schritt deckt alle vier ab, ohne durch jeden einzelnen
+        hindurchgereicht zu werden.
+
+        **Der Faden wird abgehaengt, nicht abgebrochen**, und das ist hier
+        ungefaehrlich: Der Schreiber legt jede Datei erst vollstaendig
+        daneben und schiebt sie dann an ihren Platz (``os.replace``) -- ein
+        halb geschriebener Baum entsteht nicht. Die Zustandsdatei schreibt er
+        erst ganz am Ende, ein falscher Stand kann also nicht zurueckbleiben.
+        Die Sperrdatei des Exports verfaellt von selbst. Kommt der Faden doch
+        noch durch, ist das Ergebnis vollstaendig und richtig -- nur hat es
+        niemand mehr abgewartet.
+
+        **Warum ueberhaupt gewartet und nicht abgebrochen wird:** Der Lauf
+        ist an dieser Stelle fertig, sein Ergebnis steht in der Datenbank und
+        ist gemeldet. Was hier noch schiefgeht, darf ihn nicht nachtraeglich
+        scheitern lassen -- dieselbe Regel wie fuer die uebrigen drei
+        Ausgaenge. Der Unterschied ist nur, dass dieser hier den Lauf nicht
+        bloss scheitern lassen, sondern ihn *anhalten* koennte: Am
+        2026-09-23 blieb er auf ``running``, hielt seine Sperre, und weil die
+        Ueberfaelligkeitsmeldung innerhalb dieser Sperre laeuft, meldete sechs
+        Handelstage lang niemand etwas.
+        """
+        if self._dashboard_publisher is None:  # pragma: no cover -- oben geprueft
+            return
+        if self._export_zeitgrenze is None:
+            self._dashboard_publisher.publish()
+            return
+
+        veroeffentlicher = self._dashboard_publisher
+        gescheitert: list[BaseException] = []
+
+        def sende() -> None:
+            try:
+                veroeffentlicher.publish()
+            except BaseException as fehler:
+                gescheitert.append(fehler)
+
+        faden = threading.Thread(target=sende, name="dashboard-export", daemon=True)
+        faden.start()
+        faden.join(self._export_zeitgrenze)
+        if faden.is_alive():
+            raise DashboardExportTimeoutError(
+                f"Der Dashboard-Export laeuft seit {self._export_zeitgrenze:.0f} s "
+                "und wird nicht laenger abgewartet."
+            )
+        if gescheitert:
+            # Unveraendert weitergereicht: Die vier Ausgaenge oben
+            # unterscheiden nach Fehlerart, und ein eingepackter Fehler
+            # fiele in den falschen.
+            raise gescheitert[0]
 
     def _melde_exportfehler(self, betreff: str, text: str) -> None:
         """Der Hinweis auf einen Snapshot, der nicht ankam.
