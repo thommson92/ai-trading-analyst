@@ -17,6 +17,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ai_trading_analyst.application.bereitschaft import Bereitschaft
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     AnalysisRunSummary,
@@ -246,6 +247,7 @@ class RunAnalysisUseCase:
         dashboard_publisher: DashboardPublisher | None = None,
         dashboard_url: str | None = None,
         bereitschaft: Bereitschaft | None = None,
+        kerzenvorrat: Kerzenvorrat | None = None,
     ) -> None:
         self._market_data_provider = market_data_provider
         # **None heisst: der Backfill ist schon durch** (ADR 0069). So laeuft
@@ -271,6 +273,11 @@ class RunAnalysisUseCase:
         self._notify_without_candidates = notify_without_candidates
         self._market_timezone = market_timezone
         self._dashboard_publisher = dashboard_publisher
+        self._kerzenvorrat = kerzenvorrat
+        """Wohin die gerechneten Kerzenserien gehen, damit der Export sie
+        nicht ein zweites Mal ableitet. ``None`` heisst: Er rechnet sie
+        selbst, wie bisher.
+        """
         self._dashboard_url = dashboard_url
         self._repeat_suppression = repeat_suppression
         """``None`` heisst Sperre aus -- fuer manuelle Aufrufer und Tests,
@@ -397,6 +404,17 @@ class RunAnalysisUseCase:
                 if isinstance(item, _PreparedOutcome)
                 and item.result.status == ScreeningStatus.CANDIDATE
             )
+
+        # **Hier und nicht spaeter** (ADR 0072): Der Export zeichnet gleich
+        # je Aktie einen Chart und leitete dafuer dieselbe Serie ein zweites
+        # Mal ab -- aus denselben Bars, mit denselben Parametern, zum selben
+        # Ergebnis. Die Serien haelt der Lauf ohnehin bis zum Schluss, weil
+        # Phase 1b Kurs und Datum der Entscheidungskerze daraus nimmt; der
+        # Vorrat verweist auf dieselben Objekte und kostet keinen Speicher.
+        if self._kerzenvorrat is not None:
+            for item in prepared:
+                if isinstance(item, _PreparedOutcome):
+                    self._kerzenvorrat.lege_ab(item.stock.symbol, item.series)
 
         with gemessen(_logger, "phase_1b_optionen") as messwerte:
             messwerte["kandidaten"] = self._evaluate_options_for_candidates(prepared)

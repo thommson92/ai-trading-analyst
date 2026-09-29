@@ -9,20 +9,24 @@ nicht zu haben.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
 import pytest
 
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.domain.analysis import (
     AnalysisRun,
     MarketDataProvider,
     MarketDataUnavailableError,
     RepeatSuppressionParameters,
     RunStatus,
+    Stock,
     UnitOfWork,
 )
 from ai_trading_analyst.domain.backtesting import BacktestParameters
@@ -568,3 +572,90 @@ class TestUnveraenderlicheLaeufe:
         zweite = eintraege(quellen, bekannt=bekannt)
 
         assert not [e for e in zweite if e.inhalt is None]
+
+
+class _ZaehlenderZugang:
+    """Ein Chartzugang, der mitschreibt, wonach er gefragt wurde."""
+
+    def __init__(self, hinter: MarketDataProvider) -> None:
+        self._hinter = hinter
+        self.gefragt: list[str] = []
+
+    def list_stocks(self) -> Sequence[Stock]:
+        return self._hinter.list_stocks()
+
+    def get_candle_series(self, stock: object) -> object:
+        self.gefragt.append(stock.symbol)  # type: ignore[attr-defined]
+        return self._hinter.get_candle_series(stock)  # type: ignore[arg-type]
+
+
+def _gefuellter_vorrat(
+    quellen: Exportquellen, *, nur: frozenset[str] | None = None
+) -> Kerzenvorrat:
+    """Der Vorrat, wie ihn ein Lauf hinterlassen haette."""
+    zugang = quellen.chart_market_data()
+    vorrat = Kerzenvorrat()
+    for aktie in zugang.list_stocks():
+        if nur is None or aktie.symbol in nur:
+            vorrat.lege_ab(aktie.symbol, zugang.get_candle_series(aktie))
+    return vorrat
+
+
+def _mit_zaehler(quellen: Exportquellen) -> tuple[Exportquellen, _ZaehlenderZugang]:
+    zaehler = _ZaehlenderZugang(quellen.chart_market_data())
+    ersetzt = dataclasses.replace(
+        quellen, chart_market_data=lambda: cast(MarketDataProvider, zaehler)
+    )
+    return ersetzt, zaehler
+
+
+class TestKerzenvorrat:
+    """Der Export uebernimmt die Serien, die der Lauf schon hat (ADR 0072).
+
+    Der teuerste Posten des Exports ist das Ableiten der Kerzenserien --
+    gemessen am 2026-09-29 auf dem Server 655 von 771 Sekunden. Die Analyse
+    hat dieselben Serien eine halbe Stunde vorher schon abgeleitet.
+    """
+
+    def test_eine_uebernommene_serie_wird_nicht_noch_einmal_abgeleitet(self) -> None:
+        quellen, _ = quellen_mit(symbole=("AAPL", "MSFT"))
+        vorrat = _gefuellter_vorrat(quellen)
+        gezaehlt, zaehler = _mit_zaehler(quellen)
+
+        baum(dataclasses.replace(gezaehlt, kerzenvorrat=vorrat))
+
+        assert zaehler.gefragt == []
+
+    def test_der_baum_ist_derselbe_wie_ohne_vorrat(self) -> None:
+        """**Die Zusage, auf die es ankommt.** Eine Abkuerzung, die andere
+        Bytes ergaebe, waere keine Abkuerzung, sondern eine zweite Wahrheit.
+        """
+        ohne_quellen, _ = quellen_mit(symbole=("AAPL", "MSFT"))
+        ohne = baum(ohne_quellen)
+
+        mit_quellen, _ = quellen_mit(symbole=("AAPL", "MSFT"))
+        vorrat = _gefuellter_vorrat(mit_quellen)
+        mit = baum(dataclasses.replace(mit_quellen, kerzenvorrat=vorrat))
+
+        # Ohne das Manifest: Es traegt ``export_id`` und ``exported_at``, und
+        # die sind je Lauf neu -- mit Vorrat wie ohne. Die Pruefsummen darin
+        # stehen ohnehin fuer genau die Dateien, die hier verglichen werden.
+        assert {pfad: inhalt for pfad, inhalt in mit.items() if pfad != MANIFEST_PFAD} == {
+            pfad: inhalt for pfad, inhalt in ohne.items() if pfad != MANIFEST_PFAD
+        }
+        for symbol in ("AAPL", "MSFT"):
+            pfad = f"data/stocks/{dateisicherer_name(symbol)}/chart.json"
+            assert mit[pfad] == ohne[pfad]
+
+    def test_ein_fehltreffer_wird_weiter_gerechnet(self) -> None:
+        """Die Wiederholsperre laesst taeglich Titel aus (ADR 0054). Sie
+        brauchen trotzdem einen Chart -- und bekommen ihn."""
+        quellen, _ = quellen_mit(symbole=("AAPL", "MSFT"))
+        vorrat = _gefuellter_vorrat(quellen, nur=frozenset({"AAPL"}))
+        gezaehlt, zaehler = _mit_zaehler(quellen)
+
+        gebaut = baum(dataclasses.replace(gezaehlt, kerzenvorrat=vorrat))
+
+        assert zaehler.gefragt == ["MSFT"]
+        assert f"data/stocks/{dateisicherer_name('AAPL')}/chart.json" in gebaut
+        assert f"data/stocks/{dateisicherer_name('MSFT')}/chart.json" in gebaut

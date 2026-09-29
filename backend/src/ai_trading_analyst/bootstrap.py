@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.read_run_overview import ReadRunOverviewUseCase
 from ai_trading_analyst.application.run_analysis import AgentConcurrency
 from ai_trading_analyst.config.loader import load_config, load_secrets
@@ -738,12 +739,38 @@ def build_candidate_rule_params(
     )
 
 
+def _serien_sind_uebertragbar(config: AppConfig) -> bool:
+    """Darf der Export die Kerzenserien der Analyse uebernehmen (ADR 0072)?
+
+    **Nur wenn beide Seiten nachweislich dieselbe Quelle haben.** Die
+    Chartquelle liest ausdruecklich immer den Bestand und liest
+    ``market_data.provider`` bewusst nicht -- der Wert steht auf dem Server
+    auf ``fixture``, damit ``git pull`` keinen lokalen Diff vorfindet, und
+    wer ihn dort erbte, baute Charts aus erfundenen Kursen. Genau das ist
+    beim ersten Export auf dem Server passiert, und genau davor schuetzt
+    ``build_chart_market_data``.
+
+    Eine Uebernahme haette dieses Tor umgangen: Die Serien kaemen dann nicht
+    aus der Chartquelle, sondern aus der Analyse -- und die laeuft auf dem
+    Fixture-Anbieter, wenn er eingestellt ist. Die Pruefung steht deshalb
+    hier im Composition Root, wo die Konfiguration bekannt ist, und nicht im
+    Vorrat, der nichts von ihr wissen soll.
+
+    ``source: live`` ist aus demselben Grund ausgeschlossen: Die Analyse
+    holte ihre Kerzen dann direkt von der TWS, die Chartquelle nimmt sie aus
+    dem Bestand. Dass beide zum selben Ergebnis kommen, ist wahrscheinlich
+    und nicht zugesichert.
+    """
+    return config.market_data.provider == "ibkr" and config.market_data.source == "stored"
+
+
 def build_dashboard_publisher(
     config: AppConfig,
     secrets: Secrets,
     root: Path,
     *,
     uow_factory: Callable[[], UnitOfWork],
+    kerzenvorrat: Kerzenvorrat | None = None,
 ) -> SnapshotPublisher | None:
     """Der Exportschritt -- oder ``None``, wenn er abgeschaltet ist (ADR 0060).
 
@@ -806,6 +833,7 @@ def build_dashboard_publisher(
         backtest_parameters=build_backtest_params(config),
         candidate_rule_parameters=build_candidate_rule_params(indicators, config),
         chart_market_data=build_chart_market_data(config, indicators, root, uow_factory),
+        kerzenvorrat=kerzenvorrat if _serien_sind_uebertragbar(config) else None,
         repeat_suppression=build_repeat_suppression_params(config),
         market_timezone=config.market.timezone,
     )

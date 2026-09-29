@@ -23,6 +23,7 @@ import pytest
 
 from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.bereitschaft import Bereitschaft
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config import LoggingConfig
@@ -144,6 +145,7 @@ def _build_use_case(
     repeat_suppression: RepeatSuppressionParameters | None = None,
     dashboard_publisher: DashboardPublisher | None = None,
     bereitschaft: Bereitschaft | None = None,
+    kerzenvorrat: Kerzenvorrat | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -180,6 +182,7 @@ def _build_use_case(
         repeat_suppression=repeat_suppression,
         dashboard_publisher=dashboard_publisher,
         bereitschaft=bereitschaft,
+        kerzenvorrat=kerzenvorrat,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -2344,3 +2347,42 @@ class TestVerzahnungMitEchtemThread:
         )
 
         assert len(zusammenfassung.outcomes) == 12
+
+
+class TestKerzenvorratFuellen:
+    """Was die Analyse rechnet, bekommt der Export (ADR 0072)."""
+
+    def test_die_gerechneten_serien_landen_im_vorrat(self) -> None:
+        aktien = (make_stock("AAPL"), make_stock("MSFT"))
+        reihen = {aktie.symbol: make_series(300, candidate=False) for aktie in aktien}
+        provider = FakeMarketDataProvider(aktien, reihen)
+        vorrat = Kerzenvorrat()
+        use_case, *_ = _build_use_case(provider, kerzenvorrat=vorrat)
+
+        use_case.execute()
+
+        assert vorrat.hole("AAPL") is reihen["AAPL"]
+        assert vorrat.hole("MSFT") is reihen["MSFT"]
+
+    def test_eine_gescheiterte_aktie_kommt_nicht_hinein(self) -> None:
+        """Ohne Serie kein Eintrag -- der Export rechnet sie dann selbst,
+        statt einen Platzhalter zu zeichnen."""
+        aktien = (make_stock("AAPL"), make_stock("MSFT"))
+        reihen = {aktie.symbol: make_series(300, candidate=False) for aktie in aktien}
+        provider = FakeMarketDataProvider(aktien, reihen, error_symbols=frozenset({"MSFT"}))
+        vorrat = Kerzenvorrat()
+        use_case, *_ = _build_use_case(provider, kerzenvorrat=vorrat)
+
+        use_case.execute()
+
+        assert vorrat.hole("AAPL") is reihen["AAPL"]
+        assert vorrat.hole("MSFT") is None
+
+    def test_ohne_vorrat_laeuft_alles_wie_bisher(self) -> None:
+        aktien = (make_stock("AAPL"),)
+        reihen = {"AAPL": make_series(300, candidate=False)}
+        use_case, *_ = _build_use_case(FakeMarketDataProvider(aktien, reihen))
+
+        zusammenfassung = use_case.execute()
+
+        assert len(zusammenfassung.outcomes) == 1

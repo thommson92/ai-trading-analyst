@@ -62,6 +62,7 @@ from ai_trading_analyst.application.dispatch_daily_run import (
     DispatchDailyRunUseCase,
     DispatchOutcome,
 )
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.measure_history_depth import (
     FENSTERGROESSE_TAGE,
     HOECHSTZAHL_FENSTER,
@@ -3933,9 +3934,18 @@ def command_dispatch(args: argparse.Namespace) -> int:
     # fehlendes Verzeichnis soll auffallen, bevor der halbstuendige Backfill
     # anlaeuft -- und nicht erst, wenn der Lauf fertig ist und der Snapshot
     # nicht hinausgeht (dasselbe Muster wie beim Frueh-Abbruch der Anbieter).
+    # Die Naht zwischen Analyse und Export (ADR 0072): Was die Analyse an
+    # Kerzenserien rechnet, soll der Export nicht ein zweites Mal ableiten.
+    # Ob er darf, entscheidet ``build_dashboard_publisher`` anhand der
+    # Konfiguration -- hier wird nur das Gefaess gereicht.
+    kerzenvorrat = Kerzenvorrat()
     try:
         dashboard_publisher = build_dashboard_publisher(
-            config, secrets, project_root(loaded.source_path), uow_factory=uow_factory
+            config,
+            secrets,
+            project_root(loaded.source_path),
+            uow_factory=uow_factory,
+            kerzenvorrat=kerzenvorrat,
         )
         # Der Link in der Meldung (ADR 0065) -- hier und nicht im Lauf, damit
         # eine falsche Adresse vor dem Backfill auffaellt und nicht jeden
@@ -4042,6 +4052,9 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Nur im verzahnten Tageslauf gesetzt (ADR 0069): Die Analyse
             # wartet dann je Aktie, bis der Backfill deren Bars abgelegt hat.
             bereitschaft=bereitschaft,
+            # Nimmt die gerechneten Kerzenserien auf, damit der Export sie
+            # nicht ein zweites Mal ableitet (ADR 0072).
+            kerzenvorrat=kerzenvorrat,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol

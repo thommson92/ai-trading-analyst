@@ -23,6 +23,7 @@ import pytest
 
 from ai_trading_analyst import bootstrap
 from ai_trading_analyst.bootstrap import (
+    _serien_sind_uebertragbar,
     build_chart_market_data,
     build_dashboard_publisher,
     project_root,
@@ -666,3 +667,38 @@ class TestOberflaechenbau:
         assert code == 2
         assert reihenfolge == []
         assert "--full" in capsys.readouterr().err
+
+
+class TestSerienUebernahme:
+    """Wann der Export die Serien der Analyse uebernehmen darf (ADR 0072).
+
+    Die Chartquelle liest ausdruecklich **immer** den Bestand und liest
+    ``market_data.provider`` bewusst nicht -- auf dem Server steht dort
+    ``fixture``, damit ``git pull`` keinen lokalen Diff vorfindet. Eine
+    Uebernahme haette dieses Tor umgangen und erfundene Kurse in echte
+    Charts gelegt; genau das ist beim ersten Export auf dem Server schon
+    einmal passiert.
+    """
+
+    def _config(self, *, provider: str, source: str) -> AppConfig:
+        basis = load_config().config
+        return basis.model_copy(
+            update={
+                "market_data": basis.market_data.model_copy(
+                    update={"provider": provider, "source": source}
+                )
+            }
+        )
+
+    def test_bestand_und_ibkr_duerfen(self) -> None:
+        assert _serien_sind_uebertragbar(self._config(provider="ibkr", source="stored"))
+
+    def test_fixture_darf_nicht(self) -> None:
+        """Sonst staenden erfundene Kurse neben echten Analyseergebnissen."""
+        assert not _serien_sind_uebertragbar(self._config(provider="fixture", source="stored"))
+
+    def test_live_darf_nicht(self) -> None:
+        """Die Analyse holte ihre Kerzen dann von der TWS, die Chartquelle
+        aus dem Bestand. Dass beide dasselbe ergeben, ist wahrscheinlich und
+        nicht zugesichert."""
+        assert not _serien_sind_uebertragbar(self._config(provider="ibkr", source="live"))
