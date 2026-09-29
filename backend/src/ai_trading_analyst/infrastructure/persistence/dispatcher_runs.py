@@ -108,6 +108,9 @@ class SqlAlchemyDispatcherRunRepository:
     def is_done(self, session_date: date, candle_close: datetime) -> bool:
         return self._status(session_date, candle_close) == "succeeded"
 
+    def is_running(self, session_date: date, candle_close: datetime) -> bool:
+        return self._status(session_date, candle_close) == "running"
+
     def begin(self, session_date: date, candle_close: datetime, now: datetime) -> int:
         """Legt den Versuch an oder zaehlt ihn hoch, und liefert die Nummer.
 

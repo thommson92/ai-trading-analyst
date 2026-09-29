@@ -2149,6 +2149,35 @@ wird beim nächsten Start in 15 Minuten erneut versucht.
 Die Frist liegt bewusst **innerhalb** des Startfensters; wer eines von beiden
 verschiebt, muss das andere mitziehen. Ein Test hält die Bedingung fest.
 
+### Zwei Meldungen, zwei Handgriffe
+
+Seit [ADR 0074](adr/0074-der-alarm-liegt-nicht-in-der-sperre.md) unterscheidet
+die Meldung, ob der Lauf **nie angefangen** hat oder ob er **noch läuft**:
+
+| Betreff | Was passiert ist | Was zu tun ist |
+|---|---|---|
+| `… ausgefallen` | Kein Versuch kam durch | Die TWS ansehen — läuft sie, ist sie angemeldet? |
+| `… haengt` | Ein Lauf ist seit Stunden in Arbeit | Den Prozess ansehen |
+
+Beim zweiten Fall hilft der Blick auf die TWS nicht, deshalb steht er dort
+auch nicht mehr. Der Handgriff ist:
+
+```powershell
+Get-Process python -ErrorAction SilentlyContinue |
+  Select-Object Id, StartTime, @{n='CPU_s';e={[int]$_.CPU}}, Path
+```
+
+Läuft einer seit Stunden, `Stop-Process -Id <Id>`. Die Advisory-Lock-Sperre
+gibt PostgreSQL dann von selbst frei — sie hängt an der Verbindung, nicht an
+der Transaktion. Die Zeile in `dispatcher_runs` bleibt auf `running` stehen;
+das ist richtig so und hält den nächsten Handelstag nicht auf.
+
+**Warum es diese zweite Meldung überhaupt gibt:** Vom 2026-09-23 bis zum
+2026-09-28 hing der Lauf an vier Handelstagen im Dashboard-Export. Die
+Kandidaten kamen jeden Abend per Telegram an; dass der Lauf nie fertig wurde,
+sagte sechs Handelstage lang niemand. Die Überfälligkeitsmeldung lag hinter
+der Sperre, die der hängende Lauf hielt.
+
 ## Wo die Zeit eines Laufs bleibt
 
 Ein Lauf dauerte am 2026-09-01 (`7c88d78c`, 192 Aktien, 36 Kandidaten) rund

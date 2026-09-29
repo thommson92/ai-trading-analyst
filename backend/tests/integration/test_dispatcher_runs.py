@@ -185,3 +185,35 @@ class TestOffeneLaeufe:
         offen = list(repo.unresolved())
 
         assert offen == [(vortag, vortagskerze), (HANDELSTAG, KERZE_ZU)]
+
+
+class TestInArbeit:
+    """``is_running`` traegt genau eine Entscheidung: den Wortlaut der
+    Ueberfaelligkeitsmeldung (ADR 0074).
+
+    „Nicht gerechnet" schickt den Inhaber zur TWS, „haengt seit Stunden" zum
+    Prozess. Der falsche Hinweis ist schlimmer als keiner.
+    """
+
+    def test_ein_begonnener_lauf_ist_in_arbeit(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+
+        assert repo.is_running(HANDELSTAG, KERZE_ZU)
+
+    def test_ein_gescheiterter_lauf_nicht(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "Keine Verbindung zur TWS")
+
+        assert not repo.is_running(HANDELSTAG, KERZE_ZU)
+
+    def test_ein_gelungener_lauf_nicht(self, repo: Repo) -> None:
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_succeeded(HANDELSTAG, KERZE_ZU, JETZT)
+
+        assert not repo.is_running(HANDELSTAG, KERZE_ZU)
+
+    def test_ein_unbekannter_lauf_nicht(self, repo: Repo) -> None:
+        """Der Fall vom 2026-09-22: ``attempts = 0``, kein Versuch kam bis
+        zu unserem Code. Dann ist nichts in Arbeit, und die Meldung schickt
+        richtigerweise zur TWS."""
+        assert not repo.is_running(HANDELSTAG, KERZE_ZU)

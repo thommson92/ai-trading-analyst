@@ -61,6 +61,16 @@ class DispatcherRunRepository(Protocol):
 
     def is_done(self, session_date: date, candle_close: datetime) -> bool: ...
 
+    def is_running(self, session_date: date, candle_close: datetime) -> bool:
+        """Ob der Lauf als in Arbeit vermerkt ist.
+
+        Gebraucht allein fuer den **Wortlaut** der Ueberfaelligkeitsmeldung
+        (ADR 0074): "nicht gerechnet" und "rechnet seit Stunden" verlangen
+        verschiedene Handgriffe -- im ersten Fall gehoert die TWS angesehen,
+        im zweiten der Prozess.
+        """
+        ...
+
     def begin(self, session_date: date, candle_close: datetime, now: datetime) -> int:
         """Vermerkt den Versuch und liefert die laufende Nummer."""
         ...

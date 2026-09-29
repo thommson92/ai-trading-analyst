@@ -95,8 +95,20 @@ class DispatchDailyRunUseCase:
         if not self._runs.acquire_lock():
             # Der vorige Start arbeitet noch -- ein Backfill ueber die volle
             # Watchlist dauert laenger als der Abstand zwischen zwei Starts.
+            #
+            # **Gemeldet wird trotzdem** (ADR 0074). Vom 2026-09-23 bis zum
+            # 2026-09-28 hing ein Lauf im Dashboard-Export und hielt die
+            # Sperre ueber sein ganzes Zeitfenster. Jeder weitere Start endete
+            # hier -- und weil die Ueberfaelligkeitsmeldung dahinter lag, in
+            # ``_dispatch``, meldete sechs Handelstage lang niemand etwas.
+            #
+            # Ein haengender Lauf haengt dadurch nicht kuerzer. Aber er haengt
+            # nicht mehr unbemerkt, und das gilt fuer jeden Schritt, der keine
+            # eigene Frist hat: den Backfill, die Optionsanalyse, die Agenten,
+            # die Meldung selbst.
+            gemeldet = self._report_overdue(self._now())
             _logger.info("Ein Lauf ist bereits in Arbeit -- dieser Start endet ohne Aktion.")
-            return DispatchOutcome(decision=DispatchDecision.IN_PROGRESS)
+            return DispatchOutcome(decision=DispatchDecision.IN_PROGRESS, alerted=gemeldet)
         try:
             return self._dispatch()
         finally:
@@ -209,13 +221,27 @@ class DispatchDailyRunUseCase:
         Alternative erzeugte genau den stillen Ausfall, gegen den dieser Kanal
         gebaut ist, eine Ebene hoeher.
         """
-        try:
-            self._notifier.send(
-                f"Analyse-Lauf {session_date.isoformat()} ausgefallen",
+        # **Zwei Lagen, zwei Handgriffe** (ADR 0074): Ein Lauf, der nie
+        # angefangen hat, verlangt einen Blick auf die TWS. Ein Lauf, der seit
+        # Stunden in Arbeit ist, verlangt einen Blick auf den Prozess -- und
+        # der Hinweis auf die TWS wiese dort in die falsche Richtung.
+        if self._runs.is_running(session_date, candle_close):
+            betreff = f"Analyse-Lauf {session_date.isoformat()} haengt"
+            text = (
+                f"Die Kerze {candle_close.isoformat()} ist in Arbeit und bis "
+                f"{jetzt.isoformat()} nicht abgeschlossen; die Nachholfrist ist "
+                "abgelaufen. Der Lauf haelt seine Sperre, weitere Starts enden ohne "
+                "Aktion. Nachsehen, ob der Prozess noch lebt."
+            )
+        else:
+            betreff = f"Analyse-Lauf {session_date.isoformat()} ausgefallen"
+            text = (
                 f"Die Kerze {candle_close.isoformat()} wurde bis {jetzt.isoformat()} nicht "
                 "gerechnet; die Nachholfrist ist abgelaufen. Haeufigste Ursache: Die TWS "
-                "laeuft nicht oder ist nicht angemeldet.",
+                "laeuft nicht oder ist nicht angemeldet."
             )
+        try:
+            self._notifier.send(betreff, text)
         except NotifierError as error:
             _logger.error(
                 "Nachholfrist fuer %s abgelaufen, aber die Meldung ging nicht raus: %s "
