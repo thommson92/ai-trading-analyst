@@ -941,6 +941,10 @@ class DashboardExportConfig(_Section):
     """Mindestens 600.000 (ADR 0060, Punkt 6); der Browser prueft es erneut."""
 
     build_timeout_seconds: PositiveInt = 600
+    """Geduld fuer den Bau der Oberflaeche bei ``publish --full`` (ADR 0065).
+    Ein `next build` braucht auf dem Server unter einer Minute; zehn Minuten
+    lassen Luft und beenden trotzdem einen haengenden Aufruf."""
+
     step_timeout_seconds: PositiveInt = 1800
     """Wie lange der Tageslauf auf den gesamten Exportschritt wartet (ADR 0073).
 
@@ -960,9 +964,6 @@ class DashboardExportConfig(_Section):
     soll nicht regelmaessig greifen, sondern verhindern, dass ein einzelner
     Schritt einen ganzen Lauf verschluckt.
     """
-    """Geduld fuer den Bau der Oberflaeche bei ``publish --full`` (ADR 0065).
-    Ein `next build` braucht auf dem Server unter einer Minute; zehn Minuten
-    lassen Luft und beenden trotzdem einen haengenden Aufruf."""
 
 
 class SwingWeightsConfig(_Section):

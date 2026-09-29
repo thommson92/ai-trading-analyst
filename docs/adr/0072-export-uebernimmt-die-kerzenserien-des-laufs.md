@@ -55,6 +55,12 @@ Vier Festlegungen:
 4. **Er kostet keinen zusätzlichen Speicher.** Die Serien hält der Lauf
    ohnehin; der Vorrat verweist auf dieselben Objekte.
 
+Das Tor steht an **beiden** Enden — beim Füllen wie beim Lesen. Hinge die
+Eigenschaft allein am Leser, bekäme ein zweiter Leser — ein Chart-Endpunkt,
+ein künftiger Bericht — stillschweigend Fixture-Serien, ohne dass irgendwo
+etwas auffiele. Ein gefüllter Vorrat soll per Konstruktion ein übertragbarer
+sein.
+
 ### Warum Punkt 3 nicht verhandelbar ist
 
 `build_chart_market_data` liest **immer** den Bestand und liest
@@ -74,6 +80,20 @@ Fixture-Anbieter, wenn er eingestellt ist.
 Kerzen dann direkt von der TWS, die Chartquelle nimmt sie aus dem Bestand.
 Dass beide zum selben Ergebnis kommen, ist wahrscheinlich und nicht
 zugesichert — und „wahrscheinlich" ist hier zu wenig.
+
+### Wie die Gleichheit festgehalten wird
+
+Ein Test, der eine Serie in den Vorrat legt und nachher denselben Baum
+herausbekommt, beweist wenig: Er gibt dieselbe Quelle hinein, gegen die er
+vergleicht. Die Zusage lautet nicht „gleiche Serie hinein, gleiche Bytes
+hinaus", sondern **„die Serie der Analyse ist dieselbe wie die der
+Chartquelle"** — und die hängt an zwei getrennten Bauwegen,
+`build_market_data_provider` und `build_chart_market_data`.
+
+Festgehalten wird sie deshalb an ihren fünf Bestandteilen: Watchlist,
+Sitzungsparameter, Indikatorparameter, Bargröße und Bar-Quelle. Laufen die
+beiden Bauwege eines Tages auseinander, bricht dieser Test sofort — und
+nicht erst, wenn jemandem ein falscher Chart auffällt.
 
 ## Folgen
 

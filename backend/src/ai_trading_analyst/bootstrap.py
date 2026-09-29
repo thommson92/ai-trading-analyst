@@ -739,7 +739,7 @@ def build_candidate_rule_params(
     )
 
 
-def _serien_sind_uebertragbar(config: AppConfig) -> bool:
+def serien_sind_uebertragbar(config: AppConfig) -> bool:
     """Darf der Export die Kerzenserien der Analyse uebernehmen (ADR 0072)?
 
     **Nur wenn beide Seiten nachweislich dieselbe Quelle haben.** Die
@@ -833,7 +833,7 @@ def build_dashboard_publisher(
         backtest_parameters=build_backtest_params(config),
         candidate_rule_parameters=build_candidate_rule_params(indicators, config),
         chart_market_data=build_chart_market_data(config, indicators, root, uow_factory),
-        kerzenvorrat=kerzenvorrat if _serien_sind_uebertragbar(config) else None,
+        kerzenvorrat=kerzenvorrat if serien_sind_uebertragbar(config) else None,
         repeat_suppression=build_repeat_suppression_params(config),
         market_timezone=config.market.timezone,
     )

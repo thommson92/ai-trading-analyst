@@ -54,26 +54,55 @@ nicht gibt.
 
 ### Warum Abhängen hier ungefährlich ist
 
-Der Faden wird nicht abgebrochen, sondern nicht länger abgewartet. Drei
-Eigenschaften machen das gefahrlos:
+Der Faden wird nicht abgebrochen, sondern nicht länger abgewartet.
 
-1. Der Schreiber legt jede Datei vollständig daneben und schiebt sie dann an
-   ihren Platz (`os.replace`). Ein halb geschriebener Baum entsteht nicht.
-2. Die Zustandsdatei entsteht erst am Ende. Ein falscher bekannter Stand kann
-   nicht zurückbleiben.
-3. Die Sperrdatei des Exports verfällt von selbst.
+**Ein halb geschriebener Baum entsteht dabei sehr wohl** — jede *Datei* wird
+atomar an ihren Platz geschoben (`os.replace`), der *Baum* als Ganzes nicht.
+`snapshot.py` sagt das im eigenen Kommentar: Neue Dateien neben dem alten
+Manifest, und der Browser weist sie zurück. Ungefährlich ist es trotzdem, aber
+aus drei anderen Gründen:
 
-Kommt der Faden doch noch durch, ist sein Ergebnis vollständig und richtig —
-nur hat es niemand mehr abgewartet.
+1. **Der Upload kommt erst nach dem vollständigen Schreiben.** Draußen geht
+   also nichts kaputt; das halbe Ergebnis bleibt auf dem Server liegen.
+2. **Die Zielnamen sind pfadstabil**, und der Schreiber räumt Verwaistes am
+   Ende auf. Der nächste vollständige Export heilt den Baum.
+3. **Die Zustandsdatei entsteht erst am Ende.** Ein falscher bekannter Stand
+   kann nicht zurückbleiben.
+
+**Die Sperrdatei bleibt dagegen liegen**, und das ist ein echter
+Betriebsnachteil: Der Faden ist ein Daemon, beim Ende des Prozesses wird er
+hart beendet, und sein `finally` läuft nicht. Ein Export von Hand ist danach
+**bis zu einer Stunde gesperrt** (`SPERRE_VERFAELLT`) — ausgerechnet in dem
+Moment, in dem der Inhaber die Meldung liest und nachhelfen will. Die Meldung
+sagt das deshalb ausdrücklich. Automatisch entfernt wird die Sperre nicht: Der
+abgehängte Faden schreibt möglicherweise noch, und zwei gleichzeitige Exporte
+in dasselbe Verzeichnis wären der schlechtere Ausgang.
+
+Ob der Faden noch durchkommt, ist **nicht bekannt** — und meistens kommt er
+nicht durch, weil CPython Daemon-Fäden beim Herunterfahren beendet und
+`command_dispatch` binnen Sekunden zurückkehrt. Der Upload ist die Ausnahme:
+`wrangler` ist ein Kindprozess und überlebt das Ende des Python-Prozesses.
+Deshalb behauptet die Meldung nicht, draußen stehe der vorige Stand — sie
+sagt, dass es nicht bekannt ist.
 
 ### Was die Grenze nicht ist
 
 Kein Ersatz für das Beheben der Ursache. Sie greift regelmäßig nur, wenn
 etwas anderes falsch ist; mit den übernommenen Kerzenserien
 ([ADR 0072](0072-export-uebernimmt-die-kerzenserien-des-laufs.md)) sollte der
-Export weit darunter bleiben. Sie ist die Zusicherung, dass ein einzelner
-Schritt **nie wieder** einen ganzen Lauf anhalten und dabei die
-Überfälligkeitsmeldung mit einsperren kann.
+Export weit darunter bleiben.
+
+**Und sie sichert genau einen Schritt.** Innerhalb desselben Advisory Locks
+laufen weiterhin ohne Frist: der Backfill, die Optionsanalyse in Phase 1b,
+die Agenten in Phase 2 (`as_completed` ohne `timeout`) und die Meldung selbst.
+Hängt einer von ihnen, ist die Lage Zeile für Zeile die des 2026-09-23. Die
+Zusage dieses ADR lautet deshalb nur: **Der Exportschritt kann es nicht mehr.**
+
+Die verbleibende Lücke bleibt offen und gehört in einen eigenen Beschluss.
+Die strukturelle Antwort wäre eine Frist um den Lauf als Ganzes oder ein
+Wächter **außerhalb** der Sperre, der auch „gestartet und nicht
+zurückgekommen" sieht — der Wächter aus ADR 0071 sieht heute nur, dass gar
+nichts lief.
 
 Sie ersetzt auch den Wächter aus ADR 0071 nicht: Der meldet, wenn der Lauf
 gar nicht erst startet. Diese Grenze meldet, wenn er startet und nicht
@@ -84,7 +113,9 @@ zurückkommt. Zwei verschiedene Ausfälle.
 Der Lauf gilt als erledigt, auch wenn das Dashboard nicht aktualisiert wurde;
 der Inhaber erfährt es per Telegram als vierten Ausgang, mit eigenem Text —
 „Der Export lief noch, als seine Zeitgrenze ablief" sagt etwas anderes als
-„nicht geschrieben" und als „nicht gesendet".
+„nicht geschrieben" und als „nicht gesendet". Der Text nennt beides, was der
+Lauf wirklich weiß: dass der Ausgang unbekannt ist, und dass ein Export von
+Hand bis zu einer Stunde gesperrt bleibt.
 
 `step_timeout_seconds` auf einen sehr großen Wert zu setzen stellt das
 Verhalten von vorher her; im Code ist `None` dieselbe Rücknahme.

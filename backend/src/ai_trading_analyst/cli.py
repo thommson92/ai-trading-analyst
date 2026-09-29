@@ -97,6 +97,7 @@ from ai_trading_analyst.bootstrap import (
     build_technical_interpreter,
     build_watchlist,
     project_root,
+    serien_sind_uebertragbar,
 )
 from ai_trading_analyst.config.loader import ConfigError, LoadedConfig, load_config
 from ai_trading_analyst.config.settings import (
@@ -4054,7 +4055,14 @@ def command_dispatch(args: argparse.Namespace) -> int:
             bereitschaft=bereitschaft,
             # Nimmt die gerechneten Kerzenserien auf, damit der Export sie
             # nicht ein zweites Mal ableitet (ADR 0072).
-            kerzenvorrat=kerzenvorrat,
+            #
+            # **Dasselbe Tor wie beim Lesen, und das mit Absicht:** Ein
+            # gefuellter Vorrat soll per Konstruktion ein uebertragbarer
+            # sein. Haenge die Eigenschaft allein am Leser, bekaeme ein
+            # zweiter Leser -- ein Chart-Endpunkt, ein kuenftiger Bericht --
+            # stillschweigend Fixture-Serien, ohne dass irgendwo etwas
+            # auffiele.
+            kerzenvorrat=kerzenvorrat if serien_sind_uebertragbar(config) else None,
             # Der Lauf wartet nicht unbegrenzt auf den Export (ADR 0073).
             export_zeitgrenze=config.dashboard_export.step_timeout_seconds,
         ).execute()

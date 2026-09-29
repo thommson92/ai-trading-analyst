@@ -277,14 +277,12 @@ class RunAnalysisUseCase:
         self._market_timezone = market_timezone
         self._dashboard_publisher = dashboard_publisher
         self._kerzenvorrat = kerzenvorrat
+        """Wohin die gerechneten Kerzenserien gehen, damit der Export sie
+        nicht ein zweites Mal ableitet (ADR 0072). ``None`` heisst: Er
+        rechnet sie selbst, wie bisher."""
         self._export_zeitgrenze = export_zeitgrenze
         """Wie lange auf den Exportschritt gewartet wird (ADR 0073).
-        ``None`` heisst: unbegrenzt, wie bisher.
-        """
-        """Wohin die gerechneten Kerzenserien gehen, damit der Export sie
-        nicht ein zweites Mal ableitet. ``None`` heisst: Er rechnet sie
-        selbst, wie bisher.
-        """
+        ``None`` heisst: unbegrenzt, wie bisher."""
         self._dashboard_url = dashboard_url
         self._repeat_suppression = repeat_suppression
         """``None`` heisst Sperre aus -- fuer manuelle Aufrufer und Tests,
@@ -524,8 +522,11 @@ class RunAnalysisUseCase:
             self._melde_exportfehler(
                 "Dashboard-Export dauert zu lange",
                 "Der Lauf ist abgeschlossen und gemeldet. Der Export lief noch, als seine "
-                "Zeitgrenze ablief; er wurde nicht abgewartet. Draussen steht bis auf "
-                "Weiteres der vorige Stand.",
+                "Zeitgrenze ablief, und wurde nicht abgewartet. Ob er noch durchgekommen "
+                "ist, ist nicht bekannt -- das Dashboard zeigt entweder den neuen oder "
+                "den vorigen Stand. Ein Export von Hand ist bis zu einer Stunde lang "
+                "gesperrt; so lange braucht die liegengebliebene Sperrdatei, bis sie "
+                "verfaellt.",
             )
         except DashboardPreviewUrlError as error:
             _logger.error("Dashboard gesendet, Vorschau-Adressen aktiv: %s", error)
