@@ -106,6 +106,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
 | [0072](0072-export-uebernimmt-die-kerzenserien-des-laufs.md) | Der Export übernimmt die Kerzenserien des Laufs | Vorgeschlagen |
 | [0073](0073-kein-schritt-verschluckt-einen-lauf.md) | Kein einzelner Schritt verschluckt einen Lauf | Vorgeschlagen |
+| [0074](0074-der-alarm-liegt-nicht-in-der-sperre.md) | Der Alarm liegt nicht in der Sperre | Vorgeschlagen |
 
 ## Offene Entscheidungen
 
