@@ -106,7 +106,14 @@ class DispatchDailyRunUseCase:
             # nicht mehr unbemerkt, und das gilt fuer jeden Schritt, der keine
             # eigene Frist hat: den Backfill, die Optionsanalyse, die Agenten,
             # die Meldung selbst.
-            gemeldet = self._report_overdue(self._now())
+            jetzt = self._now()
+            gemeldet = self._report_overdue(jetzt, sperre_belegt=True)
+            # **Und der heutige Lauf, zu dem es noch gar keine Zeile gibt.**
+            # Bleibt der Prozess schon vor ``begin()`` stehen -- der einzige
+            # unbefristete Aufruf davor ist der Boersenkalender, und der kommt
+            # von der TWS --, dann findet ``unresolved()`` nichts, und ohne
+            # diese Zeile bliebe es genauso still wie vorher.
+            gemeldet = self._melde_heutigen_lauf_ohne_zeile(jetzt) or gemeldet
             _logger.info("Ein Lauf ist bereits in Arbeit -- dieser Start endet ohne Aktion.")
             return DispatchOutcome(decision=DispatchDecision.IN_PROGRESS, alerted=gemeldet)
         try:
@@ -122,7 +129,8 @@ class DispatchDailyRunUseCase:
         # Mitternacht UTC), waere es der falsche Tag -- und der Kalender
         # meldete faelschlich "kein Handelstag".
         boersentag = jetzt.astimezone(ZoneInfo(self._parameters.timezone)).date()
-        gemeldet = self._report_overdue(jetzt)
+        # Diesen Start hat die Sperre durchgelassen -- es haengt also nichts.
+        gemeldet = self._report_overdue(jetzt, sperre_belegt=False)
 
         if self._is_done_without_calendar(boersentag):
             # Vor dem Kalender, damit ein erledigter Lauf die TWS gar nicht
@@ -199,16 +207,54 @@ class DispatchDailyRunUseCase:
             return False
         return self._runs.is_done(geplant.session_date, geplant.candle_close)
 
-    def _alert_once(self, geplant: ScheduledRun, jetzt: datetime) -> bool:
+    def _alert_once(
+        self, geplant: ScheduledRun, jetzt: datetime, *, haengt: bool = False
+    ) -> bool:
         """Meldet einen ueberfaelligen Lauf, aber nur beim ersten Mal.
 
         Ohne den Vermerk meldete sich der Dispatcher alle 15 Minuten erneut.
         """
         if self._runs.alert_sent(geplant.session_date, geplant.candle_close):
             return False
-        return self._notify(geplant.session_date, geplant.candle_close, jetzt)
+        return self._notify(
+            geplant.session_date, geplant.candle_close, jetzt, haengt=haengt
+        )
 
-    def _notify(self, session_date: date, candle_close: datetime, jetzt: datetime) -> bool:
+    def _melde_heutigen_lauf_ohne_zeile(self, jetzt: datetime) -> bool:
+        """Der heutige Lauf, wenn es zu ihm noch keinen Datensatz gibt (ADR 0074).
+
+        **Die Luecke, die das Vorziehen der Meldung allein nicht schliesst.**
+        Der ganze Mechanismus haengt daran, dass ``unresolved()`` eine Zeile
+        findet -- und die entsteht erst in ``begin()``. Davor liegt genau ein
+        unbefristeter Aufruf nach draussen: der Boersenkalender, und der kommt
+        von der TWS. Bleibt sie in dem bekannten Zustand "Socket offen,
+        antwortet nicht", haelt der Prozess die Sperre, ohne dass je ein
+        Datensatz entstanden waere. Ohne diese Stelle bliebe genau das
+        wieder still.
+
+        Ohne Kalender beantwortbar, aus demselben Grund wie bei
+        ``_is_done_without_calendar``: Der Beginn der Sitzung steht fest, ein
+        verkuerzter Tag aendert nur ihr Ende.
+        """
+        boersentag = jetzt.astimezone(ZoneInfo(self._parameters.timezone)).date()
+        angenommen = assumed_session(boersentag, self._parameters)
+        if angenommen is None:
+            return False
+        geplant = scheduled_run_for(angenommen, self._parameters)
+        if geplant is None:  # pragma: no cover -- die uebliche Sitzung gibt sie her
+            return False
+        if jetzt <= geplant.deadline:
+            return False
+        return self._alert_once(geplant, jetzt, haengt=True)
+
+    def _notify(
+        self,
+        session_date: date,
+        candle_close: datetime,
+        jetzt: datetime,
+        *,
+        haengt: bool = False,
+    ) -> bool:
         """Stellt die Meldung zu. ``False``, wenn der Kanal nicht erreichbar war.
 
         Der Kanal ist eine Systemgrenze und darf den Lauf nicht anhalten
@@ -225,7 +271,14 @@ class DispatchDailyRunUseCase:
         # angefangen hat, verlangt einen Blick auf die TWS. Ein Lauf, der seit
         # Stunden in Arbeit ist, verlangt einen Blick auf den Prozess -- und
         # der Hinweis auf die TWS wiese dort in die falsche Richtung.
-        if self._runs.is_running(session_date, candle_close):
+        #
+        # **Woher ``haengt`` kommt, entscheidet ueber den Wahrheitsgehalt.**
+        # Aus der Statusspalte abgeleitet waere er falsch: Sie bleibt nach
+        # einem harten Prozessende fuer immer auf 'running' stehen, und der
+        # Text behauptete dann eine gehaltene Sperre, die niemand haelt.
+        # Massgeblich ist deshalb, ob dieser Start die Sperre bekommen hat --
+        # eine Tatsache ueber das Jetzt, nicht ueber die Vergangenheit.
+        if haengt:
             betreff = f"Analyse-Lauf {session_date.isoformat()} haengt"
             text = (
                 f"Die Kerze {candle_close.isoformat()} ist in Arbeit und bis "
@@ -257,7 +310,7 @@ class DispatchDailyRunUseCase:
         )
         return True
 
-    def _report_overdue(self, jetzt: datetime) -> bool:
+    def _report_overdue(self, jetzt: datetime, *, sperre_belegt: bool) -> bool:
         """Meldet Laeufe, deren Nachholfrist abgelaufen ist -- aus **allen**
         Tagen, nicht nur dem heutigen.
 
@@ -268,6 +321,7 @@ class DispatchDailyRunUseCase:
         waere am naechsten Morgen endgueltig vergessen.
         """
         gemeldet = False
+        boersentag = jetzt.astimezone(ZoneInfo(self._parameters.timezone)).date()
         for session_date, candle_close in self._runs.unresolved():
             frist = candle_close + timedelta(
                 seconds=self._parameters.safety_buffer_seconds
@@ -275,7 +329,20 @@ class DispatchDailyRunUseCase:
             )
             if jetzt <= frist:
                 continue
-            gemeldet = self._notify(session_date, candle_close, jetzt) or gemeldet
+            # **Haengt heisst: Es arbeitet noch etwas, und zwar an diesem
+            # Tag.** Beides muss stimmen. Die belegte Sperre allein genuegt
+            # nicht -- am 2026-09-28 waren vier Tage offen, und nur der
+            # heutige wurde gerade bearbeitet; die drei aelteren waren
+            # schlicht ausgefallen.
+            gemeldet = (
+                self._notify(
+                    session_date,
+                    candle_close,
+                    jetzt,
+                    haengt=sperre_belegt and session_date == boersentag,
+                )
+                or gemeldet
+            )
         return gemeldet
 
     def _run(self, geplant: ScheduledRun, jetzt: datetime) -> DispatchOutcome:

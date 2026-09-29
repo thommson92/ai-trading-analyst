@@ -5,6 +5,8 @@
 - Ergänzt: [ADR 0019](0019-trading-day-dispatcher.md),
   [ADR 0024](0024-benachrichtigungskanal-telegram.md) und
   [ADR 0073](0073-kein-schritt-verschluckt-einen-lauf.md)
+- Verwandt: ADR 0071 (Wächter außerhalb des Laufs) — liegt noch auf dem Zweig
+  `feature/betrieb-sicherung` und ist deshalb hier nicht verlinkt
 
 ## Kontext
 
@@ -36,12 +38,31 @@ Zeile dieselbe.
 
 Zwei Festlegungen dazu:
 
-1. **Die Meldung unterscheidet zwei Lagen.** „Nicht gerechnet" und „rechnet
-   seit Stunden" verlangen verschiedene Handgriffe: im ersten Fall gehört die
-   TWS angesehen, im zweiten der Prozess. Der Port bekommt dafür `is_running`;
-   der Wortlaut ist der einzige Zweck dieser Methode.
+1. **Auch der heutige Lauf wird gemeldet, wenn es zu ihm noch gar keine
+   Zeile gibt.** Der ganze Mechanismus hängt daran, dass `unresolved()` etwas
+   findet — und die Zeile entsteht erst in `begin()`. Davor liegt genau ein
+   unbefristeter Aufruf nach draußen: der Börsenkalender, und der kommt von
+   der TWS. Bleibt sie in dem bekannten Zustand „Socket offen, antwortet
+   nicht", hält der Prozess die Sperre, ohne dass je ein Datensatz entstanden
+   wäre. Der fällige Lauf lässt sich ohne Kalender bestimmen — dieselbe
+   Überlegung wie bei `_is_done_without_calendar`.
 
-2. **Eine Doppelmeldung wird in Kauf genommen.** Zwei Starts könnten denselben
+2. **Die Meldung unterscheidet zwei Lagen.** „Nicht gerechnet" und „hängt seit
+   Stunden" verlangen verschiedene Handgriffe: im ersten Fall gehört die TWS
+   angesehen, im zweiten der Prozess. Der falsche Hinweis ist schlimmer als
+   keiner.
+
+   **Woher diese Unterscheidung kommt, entscheidet über ihren
+   Wahrheitsgehalt.** Aus der Statusspalte abgeleitet wäre sie falsch: Wird
+   ein hängender Prozess von Hand beendet, bleibt seine Zeile für immer auf
+   `running`, und die Meldung behauptete noch Tage später eine gehaltene
+   Sperre, die niemand hält. Maßgeblich ist deshalb, ob **dieser** Start die
+   Sperre bekommen hat — eine Tatsache über das Jetzt, nicht über die
+   Vergangenheit. Und zusätzlich, ob es um den heutigen Tag geht: Am
+   2026-09-28 waren vier Tage offen, während nur der heutige bearbeitet
+   wurde.
+
+3. **Eine Doppelmeldung wird in Kauf genommen.** Zwei Starts könnten denselben
    überfälligen Lauf melden, bevor `alert_sent_at` steht. Eine zweite Sperre
    allein fürs Melden verhinderte das — und wäre eine zweite Stelle, an der
    etwas hängen kann. Eine Telegram-Nachricht doppelt zu bekommen ist deutlich
@@ -61,9 +82,10 @@ einen Abend kostet, und einem, der eine Woche kostet.
 
 ## Folgen
 
-Ein hängender Lauf meldet sich **fünfzehn Minuten nach Ablauf der
-Nachholfrist** statt gar nicht — also gegen 14:50 New Yorker Zeit, am selben
-Abend.
+Ein hängender Lauf meldet sich beim **ersten Start nach Ablauf der
+Nachholfrist** statt gar nicht. Die Frist liegt bei 14:50 New Yorker Zeit, die
+Aufgabenplanung startet zur vollen und zur Viertelstunde — die Meldung kommt
+also um **15:00**, am selben Abend, und danach bleiben noch 15:15 und 15:30.
 
 Neu ist, dass ein Lauf gemeldet werden kann, der noch läuft und später doch
 noch gelingt. Das ist gewollt: Er ist über seine Frist, und das ist eine
@@ -75,8 +97,9 @@ Meldung bekommt, sieht nach, ob er noch lebt, und beendet ihn von Hand. Eine
 Frist um den Lauf als Ganzes wäre ein eigener Beschluss — und ein deutlich
 größerer Eingriff, weil der Abbruch an jeder Systemgrenze sauber sein müsste.
 
-Der Wächter aus [ADR 0071](0071-waechter-ausserhalb-des-laufs.md) bleibt
-davon unberührt und wird nicht überflüssig: Er sieht, dass gar nichts lief —
-kein Prozess, kein Datensatz, keine Sperre. Diese Entscheidung sieht, dass
-etwas lief und nicht zurückkam. Zwei verschiedene Ausfälle, zwei verschiedene
-Wächter.
+Der Wächter aus ADR 0071 (noch nicht auf `dev`, er liegt auf dem Zweig
+`feature/betrieb-sicherung` — deshalb hier ohne Verweis) bleibt davon
+unberührt und wird nicht überflüssig: Er sieht, dass gar nichts lief — kein
+Prozess, kein Datensatz, keine Sperre, weil die Aufgabe selbst nicht startete.
+Diese Entscheidung sieht, dass etwas lief und nicht zurückkam. Zwei
+verschiedene Ausfälle, zwei verschiedene Wächter.

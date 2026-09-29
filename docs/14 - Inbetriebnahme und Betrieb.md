@@ -2172,6 +2172,17 @@ gibt PostgreSQL dann von selbst frei — sie hängt an der Verbindung, nicht an
 der Transaktion. Die Zeile in `dispatcher_runs` bleibt auf `running` stehen;
 das ist richtig so und hält den nächsten Handelstag nicht auf.
 
+Der Wortlaut der Meldung richtet sich **nicht** nach dieser Zeile, sondern
+danach, ob der meldende Start die Sperre bekommen hat. Nach dem
+`Stop-Process` heißt es deshalb wieder „ausgefallen" und nicht weiter
+„haengt" — sonst schickte die Meldung tagelang auf die Suche nach einem
+Prozess, den es nicht mehr gibt.
+
+Die Meldung kommt auch dann, wenn zu dem Lauf noch **gar keine Zeile**
+existiert. Das ist der Fall, in dem der Prozess schon im Börsenkalender
+hängenbleibt — der einzige unbefristete Aufruf vor dem ersten Datenbankeintrag,
+und er geht an die TWS.
+
 **Warum es diese zweite Meldung überhaupt gibt:** Vom 2026-09-23 bis zum
 2026-09-28 hing der Lauf an vier Handelstagen im Dashboard-Export. Die
 Kandidaten kamen jeden Abend per Telegram an; dass der Lauf nie fertig wurde,
