@@ -945,6 +945,26 @@ class DashboardExportConfig(_Section):
     Ein `next build` braucht auf dem Server unter einer Minute; zehn Minuten
     lassen Luft und beenden trotzdem einen haengenden Aufruf."""
 
+    step_timeout_seconds: PositiveInt = 1800
+    """Wie lange der Tageslauf auf den gesamten Exportschritt wartet (ADR 0073).
+
+    **Nicht die Grenze eines Werkzeugs, sondern die des Wartens.** Bau und
+    Upload haben ihre eigenen Fristen; diese hier gilt fuer den Schritt als
+    Ganzes und faengt genau den Fall, den keine der beiden faengt -- das
+    Rechnen des Datenbaums.
+
+    Am 2026-09-23 ist er eingetreten: Analyse und Meldung waren fertig, der
+    Export brauchte laenger als das Zeitfenster, der Lauf blieb auf
+    ``running``, hielt seine Sperre -- und weil die Ueberfaelligkeitsmeldung
+    innerhalb dieser Sperre laeuft, meldete sechs Handelstage lang niemand
+    etwas.
+
+    1800 s sind reichlich: Der Export allein gemessen braucht rund 771 s, mit
+    den uebernommenen Kerzenserien (ADR 0072) deutlich weniger. Die Grenze
+    soll nicht regelmaessig greifen, sondern verhindern, dass ein einzelner
+    Schritt einen ganzen Lauf verschluckt.
+    """
+
 
 class SwingWeightsConfig(_Section):
     """Gewichte der sechs Swing-Komponenten (ADR 0041).

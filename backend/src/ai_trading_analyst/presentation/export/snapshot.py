@@ -34,6 +34,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel
 
 from ai_trading_analyst import __version__ as anwendungsversion
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.read_run_overview import ReadRunOverviewUseCase
 from ai_trading_analyst.domain.analysis import (
     MarketDataProvider,
@@ -193,6 +194,12 @@ class Exportquellen:
     backtest_parameters: BacktestParameters
     candidate_rule_parameters: CandidateRuleParameters
     chart_market_data: Callable[[], MarketDataProvider]
+    kerzenvorrat: Kerzenvorrat | None = None
+    """Die Serien, die der Lauf schon gerechnet hat (ADR 0072).
+
+    Ohne sie leitet der Export jede Serie selbst ab -- so laeuft
+    ``cli publish`` allein, und so lief der Export bis hierher.
+    """
     repeat_suppression: RepeatSuppressionParameters | None = None
     """Fuer den rekonstruierten Sperrstatus je Lauf (ADR 0062). Ohne die
     Parameter bleibt die Liste leer -- als "nicht gerechnet", was das
@@ -324,6 +331,7 @@ def iter_snapshot(
 
     berichte_gesamt = 0
     charts_gesamt = 0
+    uebernommene_serien = 0
     fehlende_charts: list[str] = []
     hashes: dict[str, str] = {}
     # **Nicht ``gemessen`` um die Schleifen herum**: Diese Funktion ist ein
@@ -387,8 +395,24 @@ def iter_snapshot(
     # zweihundertmal erneut nachzuschlagen brauchte eine zweite Transaktion
     # fuer nichts.
     marktdaten = quellen.chart_market_data()
+    vorrat = quellen.kerzenvorrat
     for aktie in aktien:
         symbol = aktie.symbol
+        # **Erst der Vorrat, dann die Ableitung** (ADR 0072). Ein
+        # Fehltreffer ist der Normalfall und kein Ausnahmezustand: Die
+        # Wiederholsperre nimmt der Analyse taeglich ein paar Dutzend
+        # Titel ab, und die brauchen trotzdem einen Chart.
+        uebernommen = vorrat.hole(symbol) if vorrat is not None else None
+        if uebernommen is not None:
+            uebernommene_serien += 1
+            reihe = uebernommen
+            charts_gesamt += 1
+            with konto.bei("chart_aufbau"):
+                chart = _als_json(
+                    build_chart_payload(symbol, reihe, quellen.candidate_rule_parameters)
+                )
+            yield datei(f"data/stocks/{namen[symbol]}/chart.json", chart)
+            continue
         try:
             with konto.bei("chart_kerzenserie"):
                 reihe = marktdaten.get_candle_series(aktie)
@@ -566,6 +590,7 @@ def iter_snapshot(
         laeufe=len(laeufe),
         berichte=berichte_gesamt,
         uebersprungen=uebersprungen,
+        uebernommene_serien=uebernommene_serien,
     )
     yield Exportdatei(
         MANIFEST_PFAD,

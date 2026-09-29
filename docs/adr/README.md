@@ -104,6 +104,8 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0067](0067-jahresreihen-der-fundamentalkennzahlen.md) | Jahresreihen der Fundamentalkennzahlen im Bericht | Angenommen |
 | [0068](0068-export-rechnet-abgeschlossene-laeufe-nicht-neu.md) | Der Export rechnet abgeschlossene Läufe nicht jeden Tag neu | Vorgeschlagen |
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
+| [0072](0072-export-uebernimmt-die-kerzenserien-des-laufs.md) | Der Export übernimmt die Kerzenserien des Laufs | Vorgeschlagen |
+| [0073](0073-kein-schritt-verschluckt-einen-lauf.md) | Kein einzelner Schritt verschluckt einen Lauf | Vorgeschlagen |
 
 ## Offene Entscheidungen
 

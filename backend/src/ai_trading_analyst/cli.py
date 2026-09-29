@@ -62,6 +62,7 @@ from ai_trading_analyst.application.dispatch_daily_run import (
     DispatchDailyRunUseCase,
     DispatchOutcome,
 )
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.measure_history_depth import (
     FENSTERGROESSE_TAGE,
     HOECHSTZAHL_FENSTER,
@@ -96,6 +97,7 @@ from ai_trading_analyst.bootstrap import (
     build_technical_interpreter,
     build_watchlist,
     project_root,
+    serien_sind_uebertragbar,
 )
 from ai_trading_analyst.config.loader import ConfigError, LoadedConfig, load_config
 from ai_trading_analyst.config.settings import (
@@ -3933,9 +3935,18 @@ def command_dispatch(args: argparse.Namespace) -> int:
     # fehlendes Verzeichnis soll auffallen, bevor der halbstuendige Backfill
     # anlaeuft -- und nicht erst, wenn der Lauf fertig ist und der Snapshot
     # nicht hinausgeht (dasselbe Muster wie beim Frueh-Abbruch der Anbieter).
+    # Die Naht zwischen Analyse und Export (ADR 0072): Was die Analyse an
+    # Kerzenserien rechnet, soll der Export nicht ein zweites Mal ableiten.
+    # Ob er darf, entscheidet ``build_dashboard_publisher`` anhand der
+    # Konfiguration -- hier wird nur das Gefaess gereicht.
+    kerzenvorrat = Kerzenvorrat()
     try:
         dashboard_publisher = build_dashboard_publisher(
-            config, secrets, project_root(loaded.source_path), uow_factory=uow_factory
+            config,
+            secrets,
+            project_root(loaded.source_path),
+            uow_factory=uow_factory,
+            kerzenvorrat=kerzenvorrat,
         )
         # Der Link in der Meldung (ADR 0065) -- hier und nicht im Lauf, damit
         # eine falsche Adresse vor dem Backfill auffaellt und nicht jeden
@@ -4042,6 +4053,18 @@ def command_dispatch(args: argparse.Namespace) -> int:
             # Nur im verzahnten Tageslauf gesetzt (ADR 0069): Die Analyse
             # wartet dann je Aktie, bis der Backfill deren Bars abgelegt hat.
             bereitschaft=bereitschaft,
+            # Nimmt die gerechneten Kerzenserien auf, damit der Export sie
+            # nicht ein zweites Mal ableitet (ADR 0072).
+            #
+            # **Dasselbe Tor wie beim Lesen, und das mit Absicht:** Ein
+            # gefuellter Vorrat soll per Konstruktion ein uebertragbarer
+            # sein. Haenge die Eigenschaft allein am Leser, bekaeme ein
+            # zweiter Leser -- ein Chart-Endpunkt, ein kuenftiger Bericht --
+            # stillschweigend Fixture-Serien, ohne dass irgendwo etwas
+            # auffiele.
+            kerzenvorrat=kerzenvorrat if serien_sind_uebertragbar(config) else None,
+            # Der Lauf wartet nicht unbegrenzt auf den Export (ADR 0073).
+            export_zeitgrenze=config.dashboard_export.step_timeout_seconds,
         ).execute()
         kandidaten = [
             ergebnis.stock.symbol
