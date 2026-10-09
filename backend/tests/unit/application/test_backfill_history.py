@@ -502,6 +502,9 @@ class TestLaufzeitmessung:
             super().__init__(bars)
             self.verschlafene_sekunden = 0.0
             self.anfragen = 0
+            self.ruhesekunden = 0.0
+            """Die Ruhefenster um fremde Handelszeitpunkte (ADR 0078).
+            Hier immer null: Diese Attrappe hat keine."""
 
         def fetch_intraday_bars(
             self, contract: ContractSpec, days: int | None = None

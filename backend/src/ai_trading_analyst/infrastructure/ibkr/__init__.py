@@ -14,6 +14,7 @@ from .bar_source import (
 )
 from .market_data_provider import IbkrMarketDataProvider
 from .option_chain import IbkrOptionsProvider, OptionChainSource
+from .ruhezeiten import Ruhezeiten, Ruhezeitpunkt
 
 __all__ = [
     "SUPPORTED_BAR_MINUTES",
@@ -26,6 +27,8 @@ __all__ = [
     "IbkrOptionsProvider",
     "OptionChainSource",
     "OptionChainStructure",
+    "Ruhezeiten",
+    "Ruhezeitpunkt",
     "duration_in_days",
     "ibkr_bar_size",
     "ibkr_duration",

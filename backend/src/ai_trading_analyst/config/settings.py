@@ -159,6 +159,77 @@ class IndicatorConfig(_Section):
     warmup_candles: PositiveInt
 
 
+WOCHENTAGE: dict[str, int] = {
+    "Mo": 1, "Di": 2, "Mi": 3, "Do": 4, "Fr": 5, "Sa": 6, "So": 7,
+}
+"""Deutsche Kuerzel auf ISO-Wochentage. Die Konfiguration pflegt der Inhaber,
+und "Fr" liest sich dort besser als eine 5."""
+
+
+class RuhezeitpunktConfig(_Section):
+    """Ein geplanter Handelszeitpunkt der zweiten Anwendung (ADR 0078)."""
+
+    zeit: str
+    """In Boersenzeit, Form ``HH:MM``."""
+    wochentage: tuple[Literal["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"], ...]
+    """Mindestens einer. Eine leere Liste waere entweder ein Tippfehler oder
+    ein Zeitpunkt, der nichts tut -- beides soll beim Laden auffallen."""
+
+    @field_validator("zeit")
+    @classmethod
+    def _muss_eine_uhrzeit_sein(cls, value: str) -> str:
+        try:
+            _parse_time(value)
+        except ValueError as error:
+            raise ValueError(
+                f"ruhezeiten.zeitpunkte: 'zeit' muss die Form 'HH:MM' haben, ist aber '{value}'"
+            ) from error
+        return value
+
+    @field_validator("wochentage")
+    @classmethod
+    def _mindestens_ein_tag(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if not value:
+            raise ValueError(
+                "ruhezeiten.zeitpunkte: 'wochentage' braucht mindestens einen Tag"
+            )
+        return value
+
+    def als_zeit(self) -> time:
+        return _parse_time(self.zeit)
+
+    def als_isotage(self) -> frozenset[int]:
+        return frozenset(WOCHENTAGE[tag] for tag in self.wochentage)
+
+
+class RuhezeitenConfig(_Section):
+    """Fenster, in denen keine Anfrage an die TWS geht (ADR 0078).
+
+    Auf demselben Server handelt eine zweite Anwendung ueber dieselbe
+    TWS-Instanz; beide belegen Marktdatenleitungen des Kontos. Um ihre
+    Auftraege herum schweigt dieses Programm.
+
+    **Ausgeliefert leer** -- wer keine zweite Anwendung betreibt, soll keine
+    Wartezeit erben. Die Zeitpunkte haengen am Handelsplan des Inhabers und
+    nicht an einer technischen Eigenschaft; sie stehen deshalb in der
+    Konfiguration und nicht im Code.
+    """
+
+    radius_minuten: Annotated[int, Field(ge=0, le=30)] = 5
+    """Vor **und** nach dem Zeitpunkt. 0 schaltet die Sperre ab, ohne die
+    Zeitpunkte loeschen zu muessen -- der Weg zurueck.
+
+    **Nach oben begrenzt, weil diese Datei von Hand gepflegt wird.** Ein
+    ``50`` statt ``5`` liesse die drei Fenster zu einer Sperre von 11:35 bis
+    16:25 verschmelzen: Der Lauf begaenne mitten darin, screente nie und
+    meldete sich jeden Abend als ueberfaellig. Dreissig Minuten sind mehr,
+    als ein Auftrag je gebraucht hat, und wenig genug, dass ein Tippfehler
+    beim Laden auffaellt statt abends im Betrieb."""
+    zeitpunkte: tuple[RuhezeitpunktConfig, ...] = ()
+
+
 class IbkrConfig(_Section):
     """Zugang zur TWS-API (ADR 0014).
 
@@ -172,6 +243,12 @@ class IbkrConfig(_Section):
     """Muss sich von der Client-ID jeder anderen Anwendung an derselben
     TWS-Instanz unterscheiden (ADR 0013, Koexistenz mit der Trade Automation
     Toolbox: dort Client-ID 99)."""
+    ruhezeiten: RuhezeitenConfig = RuhezeitenConfig()
+    """Wann dieses Programm die TWS in Ruhe laesst (ADR 0078).
+
+    Eine eigene Client-ID verhindert, dass sich die beiden Anwendungen die
+    *Verbindung* streiten. Die Marktdatenleitungen gehoeren aber dem Konto,
+    nicht der Verbindung -- dagegen hilft nur Schweigen."""
     connect_timeout_seconds: PositiveInt = 15
     native_bar_minutes: PositiveInt = 15
     """Native Bar-Groesse, aus der die 195-Minuten-Kerzen gebildet werden."""
@@ -944,6 +1021,26 @@ class DashboardExportConfig(_Section):
     """Geduld fuer den Bau der Oberflaeche bei ``publish --full`` (ADR 0065).
     Ein `next build` braucht auf dem Server unter einer Minute; zehn Minuten
     lassen Luft und beenden trotzdem einen haengenden Aufruf."""
+
+    step_timeout_seconds: PositiveInt = 1800
+    """Wie lange der Tageslauf auf den gesamten Exportschritt wartet (ADR 0073).
+
+    **Nicht die Grenze eines Werkzeugs, sondern die des Wartens.** Bau und
+    Upload haben ihre eigenen Fristen; diese hier gilt fuer den Schritt als
+    Ganzes und faengt genau den Fall, den keine der beiden faengt -- das
+    Rechnen des Datenbaums.
+
+    Am 2026-09-23 ist er eingetreten: Analyse und Meldung waren fertig, der
+    Export brauchte laenger als das Zeitfenster, der Lauf blieb auf
+    ``running``, hielt seine Sperre -- und weil die Ueberfaelligkeitsmeldung
+    innerhalb dieser Sperre laeuft, meldete sechs Handelstage lang niemand
+    etwas.
+
+    1800 s sind reichlich: Der Export allein gemessen braucht rund 771 s, mit
+    den uebernommenen Kerzenserien (ADR 0072) deutlich weniger. Die Grenze
+    soll nicht regelmaessig greifen, sondern verhindern, dass ein einzelner
+    Schritt einen ganzen Lauf verschluckt.
+    """
 
 
 class SwingWeightsConfig(_Section):

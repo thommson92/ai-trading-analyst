@@ -166,11 +166,20 @@ class WatchDailyRunUseCase:
         gegen 23:15 arbeiten -- er ist um diese Zeit also voellig regulaer
         unterwegs. Ihn dann zu melden waere ein taeglicher Fehlalarm.
 
-        Haengt er dagegen, haelt er den Advisory Lock, alle weiteren Starts
-        enden bei ``IN_PROGRESS``, und weil die Ueberfaelligkeitsmeldung des
-        Dispatchers **innerhalb** der Sperre laeuft, geht auch sie nie hinaus.
-        Das ist der dritte blinde Fleck aus AUDIT-003-014, und nur der
-        Waechter kann ihn sehen.
+        Haengt er dagegen, haelt er den Advisory Lock und alle weiteren Starts
+        enden bei ``IN_PROGRESS``. Das war der dritte blinde Fleck aus
+        AUDIT-003-014: Die Ueberfaelligkeitsmeldung des Dispatchers lag
+        **innerhalb** der Sperre und ging deshalb nie hinaus.
+
+        **Seit ADR 0074 liegt sie davor.** Der Lauf meldet seinen eigenen
+        Haenger bei Fristablauf selbst -- und ``lage.alerted`` weiter oben
+        laesst den Waechter dann schweigen, ohne dass es hier eine Regel
+        braucht. Wer bis hierher kommt, hat also einen haengenden Lauf, zu dem
+        **niemand geredet hat**: Entweder ging die Meldung des Dispatchers
+        nicht hinaus -- eine gescheiterte Zustellung setzt bewusst keinen
+        Vermerk --, oder nach Fristablauf hat die Aufgabenplanung ihn nicht
+        mehr gestartet. Beides ist genau der Fall, fuer den es den Waechter
+        gibt.
 
         Die Grenze ist dieselbe wie das Zeitlimit der Aufgabe (Doc 14): Was
         laenger laeuft, haette der Aufgabenplaner ohnehin abbrechen sollen.
@@ -183,9 +192,9 @@ class WatchDailyRunUseCase:
         stunden = dauer.total_seconds() / 3600
         return [
             f"Ein Lauf steht seit {stunden:.1f} Stunden auf 'running' und haelt "
-            "damit die Sperre. Weitere Starts enden bei IN_PROGRESS, und die "
-            "Ueberfaelligkeitsmeldung des Laufs kommt nicht hinaus -- sie laeuft "
-            "innerhalb der Sperre."
+            "damit die Sperre. Weitere Starts enden bei IN_PROGRESS. Gemeldet "
+            "hat das niemand: Entweder ging die Meldung des Laufs nicht hinaus, "
+            "oder er wurde nach Fristablauf nicht mehr gestartet."
         ]
 
     def _pruefe_sicherung(self, jetzt: datetime) -> list[str]:

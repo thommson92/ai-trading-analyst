@@ -22,10 +22,13 @@ from pathlib import Path
 import pytest
 
 from ai_trading_analyst import bootstrap
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.bootstrap import (
     build_chart_market_data,
     build_dashboard_publisher,
+    build_market_data_provider,
     project_root,
+    serien_sind_uebertragbar,
 )
 from ai_trading_analyst.config.loader import load_config
 from ai_trading_analyst.config.settings import (
@@ -666,3 +669,156 @@ class TestOberflaechenbau:
         assert code == 2
         assert reihenfolge == []
         assert "--full" in capsys.readouterr().err
+
+
+class TestSerienUebernahme:
+    """Wann der Export die Serien der Analyse uebernehmen darf (ADR 0072).
+
+    Die Chartquelle liest ausdruecklich **immer** den Bestand und liest
+    ``market_data.provider`` bewusst nicht -- auf dem Server steht dort
+    ``fixture``, damit ``git pull`` keinen lokalen Diff vorfindet. Eine
+    Uebernahme haette dieses Tor umgangen und erfundene Kurse in echte
+    Charts gelegt; genau das ist beim ersten Export auf dem Server schon
+    einmal passiert.
+    """
+
+    def _config(self, *, provider: str, source: str) -> AppConfig:
+        basis = load_config().config
+        return basis.model_copy(
+            update={
+                "market_data": basis.market_data.model_copy(
+                    update={"provider": provider, "source": source}
+                )
+            }
+        )
+
+    def test_bestand_und_ibkr_duerfen(self) -> None:
+        assert serien_sind_uebertragbar(self._config(provider="ibkr", source="stored"))
+
+    def test_fixture_darf_nicht(self) -> None:
+        """Sonst staenden erfundene Kurse neben echten Analyseergebnissen."""
+        assert not serien_sind_uebertragbar(self._config(provider="fixture", source="stored"))
+
+    def test_live_darf_nicht(self) -> None:
+        """Die Analyse holte ihre Kerzen dann von der TWS, die Chartquelle
+        aus dem Bestand. Dass beide dasselbe ergeben, ist wahrscheinlich und
+        nicht zugesichert."""
+        assert not serien_sind_uebertragbar(self._config(provider="ibkr", source="live"))
+
+
+class TestBeideBauwegeErgebenDieselbeSerie:
+    """Die Voraussetzung, auf der ADR 0072 steht.
+
+    Der Export uebernimmt die Kerzenserien der Analyse. Das ist nur dann
+    keine zweite Wahrheit, wenn beide Seiten dieselbe Serie gebaut haetten.
+    Die Analyse baut ihren Anbieter ueber ``build_market_data_provider``,
+    der Export ueber ``build_chart_market_data`` -- zwei getrennte Wege, die
+    heute dasselbe ergeben und morgen auseinanderlaufen koennen.
+
+    **Ein Test ueber die gebaute Serie allein genuegt dafuer nicht.** Wer
+    dieselbe Quelle hineingibt, die er nachher vergleicht, beweist nur, dass
+    Gleiches gleich bleibt. Geprueft wird deshalb, woraus beide Anbieter
+    bestehen: Genau diese fuenf Bestandteile entscheiden, welche Kerzen
+    entstehen.
+    """
+
+    def _beide(self) -> tuple[IbkrMarketDataProvider, IbkrMarketDataProvider]:
+        geladen = load_config()
+        basis = geladen.config
+        config = basis.model_copy(
+            update={
+                "market_data": basis.market_data.model_copy(
+                    update={"provider": "ibkr", "source": "stored"}
+                )
+            }
+        )
+        wurzel = project_root(geladen.source_path)
+        indikatoren = config.require_indicators()
+        fabrik = uow_factory()
+
+        analyse = build_market_data_provider(
+            config, indikatoren, wurzel, uow_factory=fabrik
+        )
+        chart = build_chart_market_data(config, indikatoren, wurzel, fabrik)()
+        assert isinstance(analyse, IbkrMarketDataProvider)
+        assert isinstance(chart, IbkrMarketDataProvider)
+        return analyse, chart
+
+    def test_die_watchlist_ist_dieselbe(self) -> None:
+        analyse, chart = self._beide()
+        assert analyse._watchlist == chart._watchlist
+
+    def test_die_sitzungsparameter_sind_dieselben(self) -> None:
+        analyse, chart = self._beide()
+        assert analyse._session_parameters == chart._session_parameters
+
+    def test_die_indikatorparameter_sind_dieselben(self) -> None:
+        analyse, chart = self._beide()
+        assert analyse._indicator_parameters == chart._indicator_parameters
+
+    def test_die_bargroesse_ist_dieselbe(self) -> None:
+        analyse, chart = self._beide()
+        assert analyse._native_bar_minutes == chart._native_bar_minutes
+
+    def test_beide_lesen_den_bestand_und_nicht_die_tws(self) -> None:
+        """Sonst stuenden in den Charts Kurse aus einem zweiten Abruf --
+        und der faellt bei IBKRs wanderndem Ein-Jahres-Fenster anders aus."""
+        analyse, chart = self._beide()
+        assert isinstance(analyse._bar_source, StoredBarSource)
+        assert isinstance(chart._bar_source, StoredBarSource)
+
+
+class TestDasTorWirktInDerVerdrahtung:
+    """Nicht nur das Praedikat, sondern was daraus folgt (ADR 0072).
+
+    Ein Test, der nur ``serien_sind_uebertragbar`` prueft, bliebe gruen,
+    wenn die Verdrahtung ihn eines Tages nicht mehr fragte. Dieselbe
+    Ueberlegung wie bei der geerbten Konfiguration eine Klasse weiter oben:
+    Der Fehler sass nicht in der Funktion, sondern an der Aufrufstelle.
+    """
+
+    def _kerzenvorrat_der_quellen(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, provider: str
+    ) -> object:
+        gemerkt: dict[str, object] = {}
+        echte = bootstrap.Exportquellen  # type: ignore[attr-defined]
+
+        def merke(**felder: object) -> object:
+            gemerkt.update(felder)
+            return echte(**felder)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(bootstrap, "Exportquellen", merke)
+
+        geladen = load_config()
+        basis = geladen.config
+        config = basis.model_copy(
+            update={
+                "market_data": basis.market_data.model_copy(
+                    update={"provider": provider, "source": "stored"}
+                ),
+                "dashboard_export": DashboardExportConfig(
+                    target="directory", directory=str(tmp_path / "baum"), encrypt=False
+                ),
+            }
+        )
+        publisher = build_dashboard_publisher(
+            config,
+            Secrets(),
+            project_root(geladen.source_path),
+            uow_factory=uow_factory(),
+            kerzenvorrat=Kerzenvorrat(),
+        )
+        assert publisher is not None
+        return gemerkt["kerzenvorrat"]
+
+    def test_mit_ibkr_kommt_der_vorrat_an(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        assert self._kerzenvorrat_der_quellen(monkeypatch, tmp_path, "ibkr") is not None
+
+    def test_mit_fixture_bleibt_er_draussen(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Der Fall, der auf dem Server steht: ``provider: fixture`` in der
+        Datei, die produktive Quelle je Lauf ueber die Kommandozeile."""
+        assert self._kerzenvorrat_der_quellen(monkeypatch, tmp_path, "fixture") is None

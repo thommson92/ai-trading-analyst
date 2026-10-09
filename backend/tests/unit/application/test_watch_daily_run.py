@@ -153,8 +153,13 @@ class TestDerLaufendeLauf:
         assert melder.meldungen == []
 
     def test_ein_haengender_lauf_wird_gemeldet(self) -> None:
-        """Der dritte blinde Fleck: Er haelt die Sperre, und deshalb kommt die
-        Ueberfaelligkeitsmeldung des Dispatchers nicht hinaus."""
+        """Ein Haenger, zu dem niemand geredet hat.
+
+        Seit ADR 0074 meldet der Dispatcher den eigenen Haenger bei
+        Fristablauf. Bleibt ``alerted`` trotzdem leer, ging seine Meldung
+        nicht hinaus oder er wurde nicht mehr gestartet -- und das ist der
+        Fall, fuer den es den Waechter gibt.
+        """
         fall, _ = waechter(
             lage=DailyRunSummary(
                 attempts=1,
@@ -167,6 +172,26 @@ class TestDerLaufendeLauf:
         assert bericht.conspicuous
         assert "5.0 Stunden" in bericht.findings[0]
         assert "Sperre" in bericht.findings[0]
+
+    def test_ein_gemeldeter_haenger_bleibt_still(self) -> None:
+        """Die Ueberschneidung mit ADR 0074, und sie bleibt stumm.
+
+        Der Dispatcher meldet den Haenger inzwischen selbst. Ohne die
+        ``alerted``-Pruefung **vor** der ``running``-Pruefung kaeme dieselbe
+        Sache am Abend ein zweites Mal -- und ein Waechter, den man wegen
+        Laerm ignoriert, ist keiner.
+        """
+        fall, melder = waechter(
+            lage=DailyRunSummary(
+                attempts=1,
+                succeeded=False,
+                running=True,
+                alerted=True,
+                first_attempt_at=NACH_FRISTABLAUF - timedelta(hours=5),
+            )
+        )
+        assert not fall.execute().conspicuous
+        assert melder.meldungen == []
 
     def test_die_grenze_ist_das_zeitlimit_der_aufgabe(self) -> None:
         assert LAUF_HOECHSTDAUER == timedelta(hours=3)

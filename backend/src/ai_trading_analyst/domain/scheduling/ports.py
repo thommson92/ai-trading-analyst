@@ -166,6 +166,20 @@ class DashboardPreviewUrlError(DashboardPublisherError):
     """
 
 
+class DashboardExportTimeoutError(DashboardPublisherError):
+    """Der Export lief noch, als seine Zeitgrenze ablief (ADR 0073).
+
+    **Kein Fehler des Anbieters, sondern eine Entscheidung des Laufs:** Er
+    wartet nicht laenger. Der Export laeuft im Hintergrund weiter und kommt
+    moeglicherweise noch durch -- gewusst wird es nicht, und deshalb gilt
+    draussen bis auf Weiteres der vorige Stand.
+
+    Eine eigene Unterklasse, weil die Lage eine andere ist als beim
+    Schreibfehler: Dort steht fest, dass nichts entstanden ist. Hier steht
+    nur fest, dass es zu lange gedauert hat.
+    """
+
+
 class DashboardPublisher(Protocol):
     """Ausgang fuer den Snapshot, den das Dashboard ausserhalb des Servers
     anzeigt (ADR 0060).

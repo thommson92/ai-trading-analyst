@@ -113,11 +113,16 @@ class FakeZustand:
     ) -> None:
         self.fehler.append(error)
 
+    gemeldete: set[tuple[date, datetime]] = field(default_factory=set)
+    """Je Lauf, nicht global: Sonst verdeckte die erste Meldung jede weitere,
+    und ein Test mit einem alten und einem heutigen Lauf saehe nur eine."""
+
     def alert_sent(self, session_date: date, candle_close: datetime) -> bool:
-        return self.alarmiert
+        return (session_date, candle_close) in self.gemeldete
 
     def mark_alert_sent(self, session_date: date, candle_close: datetime, now: datetime) -> None:
         self.alarmiert = True
+        self.gemeldete.add((session_date, candle_close))
         if (session_date, candle_close) in self.offen:
             self.offen.remove((session_date, candle_close))
 
@@ -750,3 +755,153 @@ class TestGescheiterterBackfillVorDerAnalyse:
 
         assert ergebnis.failed
         assert aufbau.analysen == [], "es ist ein vollstaendiger Lauf entstanden"
+
+
+class TestAlarmAusserhalbDerSperre:
+    """Ein haengender Lauf darf den Alarm nicht mit einsperren (ADR 0074).
+
+    Vom 2026-09-23 bis zum 2026-09-28 hielt ein im Dashboard-Export
+    stehengebliebener Lauf den Advisory Lock ueber sein ganzes Zeitfenster.
+    Jeder weitere Start endete bei ``IN_PROGRESS`` -- und weil die
+    Ueberfaelligkeitsmeldung dahinter lag, meldete sechs Handelstage lang
+    niemand etwas. Die Kandidaten kamen per Telegram an; dass der Lauf nie
+    fertig wurde, sagte keiner.
+    """
+
+    SPAET = datetime(2026, 8, 14, 17, 30, tzinfo=NEW_YORK)
+    FRUEH = datetime(2026, 8, 14, 13, 15, tzinfo=NEW_YORK)
+    """Innerhalb des Startfensters, aber vor Ablauf der Nachholfrist."""
+
+    def _belegt(self, offen: bool = True) -> FakeZustand:
+        return FakeZustand(
+            lock_frei=False,
+            offen=[(HANDELSTAG, KERZE_ZU)] if offen else [],
+        )
+
+    def test_bei_belegter_sperre_wird_trotzdem_gemeldet(self) -> None:
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=self._belegt())
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.decision is DispatchDecision.IN_PROGRESS
+        assert ergebnis.alerted
+        assert len(aufbau.melder.meldungen) == 1
+
+    def test_vor_ablauf_der_frist_bleibt_es_still(self) -> None:
+        """**Die wahrscheinlichste Regression.** Die Meldung laeuft jetzt bei
+        jedem Start, also alle 15 Minuten den ganzen Abend -- und ein gesunder
+        Lauf haelt die Sperre bis zu anderthalb Stunden. Ohne die Fristpruefung
+        meldete sich der Dispatcher waehrend jedes normalen Laufs."""
+        use_case, aufbau = baue(jetzt=self.FRUEH, zustand=self._belegt())
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.decision is DispatchDecision.IN_PROGRESS
+        assert not ergebnis.alerted
+        assert aufbau.melder.meldungen == []
+
+    def test_gemeldet_wird_auch_hier_nur_einmal(self) -> None:
+        """Sonst meldete sich der Dispatcher alle 15 Minuten erneut -- auf dem
+        neuen Pfad genauso wie auf dem alten."""
+        zustand = self._belegt()
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=zustand)
+
+        use_case.execute()
+        use_case.execute()
+        use_case.execute()
+
+        assert len(aufbau.melder.meldungen) == 1
+
+    def test_ein_haengender_lauf_schickt_zum_prozess_und_nicht_zur_tws(self) -> None:
+        """Der falsche Hinweis ist schlimmer als keiner: Wer bei einem
+        haengenden Lauf die TWS ansieht, findet dort nichts."""
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=self._belegt())
+
+        use_case.execute()
+
+        betreff, text = aufbau.melder.meldungen[0]
+        assert "haengt" in betreff
+        assert "Prozess" in text
+        assert "TWS" not in text
+
+    def test_ein_ausgefallener_lauf_schickt_weiterhin_zur_tws(self) -> None:
+        """Der haeufigste Fall bleibt der haeufigste -- eine nicht
+        angemeldete TWS."""
+        use_case, aufbau = baue(jetzt=self.SPAET)
+
+        use_case.execute()
+
+        betreff, text = aufbau.melder.meldungen[0]
+        assert "ausgefallen" in betreff
+        assert "TWS" in text
+
+    def test_eine_freie_sperre_heisst_ausgefallen_und_nicht_haengt(self) -> None:
+        """**Der Grund, warum der Wortlaut an der Sperre haengt und nicht am
+        Status.** Wird ein haengender Prozess von Hand beendet, bleibt seine
+        Zeile fuer immer auf ``running`` -- aus ihr abgeleitet behauptete die
+        Meldung noch Tage spaeter eine gehaltene Sperre, die niemand haelt,
+        und schickte auf die Suche nach einem Prozess, den es nicht gibt.
+        """
+        zustand = FakeZustand(lock_frei=True, offen=[(HANDELSTAG, KERZE_ZU)])
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=zustand)
+
+        use_case.execute()
+
+        betreff, _ = aufbau.melder.meldungen[0]
+        assert "ausgefallen" in betreff
+
+    def test_ohne_datensatz_wird_der_heutige_lauf_trotzdem_gemeldet(self) -> None:
+        """**Die Luecke vor ``begin()``.** Bleibt der Prozess schon im
+        Boersenkalender stehen -- der einzige unbefristete Aufruf davor, und
+        er kommt von der TWS --, entsteht nie eine Zeile. ``unresolved()``
+        faende dann nichts, und es bliebe genauso still wie vorher.
+        """
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=self._belegt(offen=False))
+
+        ergebnis = use_case.execute()
+
+        assert ergebnis.alerted
+        betreff, text = aufbau.melder.meldungen[0]
+        assert "haengt" in betreff
+        assert "Prozess" in text
+
+    def test_ein_aelterer_ausfall_wird_neben_dem_haenger_gemeldet(self) -> None:
+        """**Beide Wege, und sie sagen Verschiedenes.** Am 2026-09-28 waren
+        vier Tage offen, waehrend der heutige Lauf gerade hing. Der heutige
+        haengt, die drei aelteren sind schlicht ausgefallen -- und wer bei
+        einem zwei Wochen alten Ausfall nach einem Prozess sucht, sucht
+        umsonst.
+        """
+        vortag = HANDELSTAG - timedelta(days=1)
+        vortagskerze = KERZE_ZU - timedelta(days=1)
+        zustand = FakeZustand(lock_frei=False, offen=[(vortag, vortagskerze)])
+
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=zustand)
+        use_case.execute()
+
+        nach_betreff = dict(aufbau.melder.meldungen)
+        assert len(nach_betreff) == 2
+        alt = next(b for b in nach_betreff if vortag.isoformat() in b)
+        heute = next(b for b in nach_betreff if HANDELSTAG.isoformat() in b)
+        assert "ausgefallen" in alt
+        assert "TWS" in nach_betreff[alt]
+        assert "haengt" in heute
+        assert "Prozess" in nach_betreff[heute]
+
+    def test_bei_belegter_sperre_wird_nichts_gerechnet(self) -> None:
+        """Die Meldung ist das Einzige, was hier passiert -- der laufende
+        Lauf gehoert nicht gestoert."""
+        use_case, aufbau = baue(jetzt=self.SPAET, zustand=self._belegt())
+
+        use_case.execute()
+
+        assert aufbau.backfills == []
+        assert aufbau.analysen == []
+
+    def test_die_sperre_wird_nicht_freigegeben_die_man_nie_bekam(self) -> None:
+        zustand = self._belegt()
+
+        use_case, _ = baue(jetzt=self.SPAET, zustand=zustand)
+        use_case.execute()
+
+        assert not zustand.lock_gehalten

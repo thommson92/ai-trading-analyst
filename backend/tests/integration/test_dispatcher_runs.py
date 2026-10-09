@@ -267,3 +267,4 @@ class TestOffeneLaeufe:
         offen = list(repo.unresolved())
 
         assert offen == [(vortag, vortagskerze), (HANDELSTAG, KERZE_ZU)]
+

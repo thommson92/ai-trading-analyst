@@ -7,6 +7,28 @@ Jede Architekturentscheidung wird hier als eigenes Dokument festgehalten
 
 Dateiname: `NNNN-kurzbeschreibung.md`, fortlaufend nummeriert.
 
+**Die naechste freie Nummer ist die hoechste vergebene plus eins -- und
+vergeben heisst: auf irgendeinem Zweig, nicht nur auf `dev`.** Am 2026-09-29
+sind so zwei Vergaben kollidiert: Ein Plan hatte 0070 bis 0073 fuer drei
+Zweige der Audit-3-Abarbeitung vorgesehen, waehrend parallel auf einem
+anderen Zweig 0072 bis 0074 entstanden. Wer eine Nummer vergibt, prueft
+deshalb alle Zweige:
+
+```bash
+git fetch origin
+for z in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do
+  git ls-tree --name-only "$z" docs/adr/
+done | sed 's|.*/||' | grep -oE '^[0-9]{4}' | sort -u | tail -3
+```
+
+Stand 2026-10-09: hoechste vergebene Nummer **0078**, reserviert bis **0077**,
+naechste freie **0079**. 0070 und 0071 kamen aus `feature/betrieb-sicherung`
+nach -- genau der Fall, den dieser Abschnitt beschreibt; 0075 bis 0077 stehen
+unten in der Tabelle als Reservierung.
+
+Reservierungen gehoeren in diese Tabelle, bevor der Zweig entsteht -- eine
+Nummer, die nur in einem Plan steht, sieht niemand.
+
 Aufbau:
 
 ```markdown
@@ -106,6 +128,13 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
 | [0070](0070-sicherung-ausser-haus.md) | Die Sicherung verlässt den Server — verschlüsselt, schreibend, versioniert | Vorgeschlagen |
 | [0071](0071-waechter-ausserhalb-des-laufs.md) | Ein Wächter außerhalb des Laufs, den er überwacht | Vorgeschlagen |
+| [0072](0072-export-uebernimmt-die-kerzenserien-des-laufs.md) | Der Export übernimmt die Kerzenserien des Laufs | Vorgeschlagen |
+| [0073](0073-kein-schritt-verschluckt-einen-lauf.md) | Kein einzelner Schritt verschluckt einen Lauf | Vorgeschlagen |
+| [0074](0074-der-alarm-liegt-nicht-in-der-sperre.md) | Der Alarm liegt nicht in der Sperre | Vorgeschlagen |
+| 0075 | Splitnachweis im Backfill (AUDIT-003-001) | *reserviert, noch nicht geschrieben* |
+| 0076 | Wirkungslose Kennzeichnungen: `EARNINGS_EXCLUDED` und Datenabdeckung (AUDIT-003-003, -004) | *reserviert* |
+| 0077 | Liquiditätsstufe `POOR` in Meldung und Attraktivität (AUDIT-003-005) | *reserviert* |
+| [0078](0078-ruhezeiten-um-die-handelszeitpunkte.md) | Ruhezeiten um die Handelszeitpunkte | Vorgeschlagen |
 
 ## Offene Entscheidungen
 

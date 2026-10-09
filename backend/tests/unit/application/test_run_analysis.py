@@ -23,6 +23,7 @@ import pytest
 
 from ai_trading_analyst.application import run_analysis
 from ai_trading_analyst.application.bereitschaft import Bereitschaft
+from ai_trading_analyst.application.kerzenvorrat import Kerzenvorrat
 from ai_trading_analyst.application.run_analysis import AgentConcurrency, RunAnalysisUseCase
 from ai_trading_analyst.bootstrap import build_scoring_params
 from ai_trading_analyst.config import LoggingConfig
@@ -144,6 +145,8 @@ def _build_use_case(
     repeat_suppression: RepeatSuppressionParameters | None = None,
     dashboard_publisher: DashboardPublisher | None = None,
     bereitschaft: Bereitschaft | None = None,
+    kerzenvorrat: Kerzenvorrat | None = None,
+    export_zeitgrenze: float | None = None,
 ) -> tuple[
     RunAnalysisUseCase,
     FakeStockRepository,
@@ -180,6 +183,8 @@ def _build_use_case(
         repeat_suppression=repeat_suppression,
         dashboard_publisher=dashboard_publisher,
         bereitschaft=bereitschaft,
+        kerzenvorrat=kerzenvorrat,
+        export_zeitgrenze=export_zeitgrenze,
     )
     return use_case, stocks_repo, runs_repo, results_repo, errors_repo
 
@@ -2344,3 +2349,144 @@ class TestVerzahnungMitEchtemThread:
         )
 
         assert len(zusammenfassung.outcomes) == 12
+
+
+class TestKerzenvorratFuellen:
+    """Was die Analyse rechnet, bekommt der Export (ADR 0072)."""
+
+    def test_die_gerechneten_serien_landen_im_vorrat(self) -> None:
+        aktien = (make_stock("AAPL"), make_stock("MSFT"))
+        reihen = {aktie.symbol: make_series(300, candidate=False) for aktie in aktien}
+        provider = FakeMarketDataProvider(aktien, reihen)
+        vorrat = Kerzenvorrat()
+        use_case, *_ = _build_use_case(provider, kerzenvorrat=vorrat)
+
+        use_case.execute()
+
+        assert vorrat.hole("AAPL") is reihen["AAPL"]
+        assert vorrat.hole("MSFT") is reihen["MSFT"]
+
+    def test_eine_gescheiterte_aktie_kommt_nicht_hinein(self) -> None:
+        """Ohne Serie kein Eintrag -- der Export rechnet sie dann selbst,
+        statt einen Platzhalter zu zeichnen."""
+        aktien = (make_stock("AAPL"), make_stock("MSFT"))
+        reihen = {aktie.symbol: make_series(300, candidate=False) for aktie in aktien}
+        provider = FakeMarketDataProvider(aktien, reihen, error_symbols=frozenset({"MSFT"}))
+        vorrat = Kerzenvorrat()
+        use_case, *_ = _build_use_case(provider, kerzenvorrat=vorrat)
+
+        use_case.execute()
+
+        assert vorrat.hole("AAPL") is reihen["AAPL"]
+        assert vorrat.hole("MSFT") is None
+
+    def test_ohne_vorrat_laeuft_alles_wie_bisher(self) -> None:
+        aktien = (make_stock("AAPL"),)
+        reihen = {"AAPL": make_series(300, candidate=False)}
+        use_case, *_ = _build_use_case(FakeMarketDataProvider(aktien, reihen))
+
+        zusammenfassung = use_case.execute()
+
+        assert len(zusammenfassung.outcomes) == 1
+
+
+class _HaengenderPublisher:
+    """Ein Export, der nicht zurueckkommt -- wie am 2026-09-23."""
+
+    def __init__(self) -> None:
+        self.angefangen = threading.Event()
+        self.freigeben = threading.Event()
+
+    def publish(self) -> None:
+        self.angefangen.set()
+        self.freigeben.wait(timeout=30)
+
+
+class TestExportZeitgrenze:
+    """Kein einzelner Schritt darf einen fertigen Lauf verschlucken (ADR 0073).
+
+    Am 2026-09-23 blieb der Lauf auf ``running``, hielt seine Sperre -- und
+    weil die Ueberfaelligkeitsmeldung innerhalb dieser Sperre laeuft, meldete
+    sechs Handelstage lang niemand etwas.
+    """
+
+    def _lauf(self, publisher: object, grenze: float | None) -> AnalysisRunSummary:
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),),
+            series_by_symbol={"AAA": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            dashboard_publisher=publisher,  # type: ignore[arg-type]
+            export_zeitgrenze=grenze,
+        )
+        return use_case.execute()
+
+    def test_der_lauf_gilt_trotz_ueberschrittener_grenze(self) -> None:
+        publisher = _HaengenderPublisher()
+        try:
+            begonnen = time.monotonic()
+            summary = self._lauf(publisher, 0.05)
+            gedauert = time.monotonic() - begonnen
+            assert publisher.angefangen.is_set()
+            # **Die eigentliche Zusage**: Der Lauf kehrt zurueck, waehrend der
+            # Export noch laeuft. Ohne diese Schranke bestuende der Test auch
+            # dann, wenn gar keine Grenze griffe -- der Export kaeme nach
+            # seinen dreissig Sekunden ja von selbst zurueck.
+            assert gedauert < 5.0
+            assert not publisher.freigeben.is_set()
+            assert summary.run.status is RunStatus.COMPLETED
+            assert summary.run.error_message is None
+        finally:
+            publisher.freigeben.set()
+
+    def test_die_ueberschreitung_wird_gemeldet(self) -> None:
+        """Stillschweigen waere der gefaehrlichere Ausgang -- dieselbe Regel
+        wie fuer die uebrigen drei Ausgaenge des Exports (ADR 0060, E4)."""
+        publisher = _HaengenderPublisher()
+        notifier = _MitschreibenderKanal()
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),),
+            series_by_symbol={"AAA": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=notifier,
+            dashboard_publisher=publisher,
+            export_zeitgrenze=0.05,
+        )
+        try:
+            use_case.execute()
+        finally:
+            publisher.freigeben.set()
+
+        betreffe = [betreff for betreff, _ in notifier.gesendet]
+        assert any("dauert zu lange" in betreff for betreff in betreffe)
+
+    def test_ohne_grenze_wird_unbegrenzt_gewartet(self) -> None:
+        """Der Weg zurueck, ohne Deployment: ``None`` ist das Verhalten von
+        vorher."""
+        publisher = _FakeDashboardPublisher()
+        summary = self._lauf(publisher, None)
+        assert publisher.aufrufe == 1
+        assert summary.run.status is RunStatus.COMPLETED
+
+    def test_ein_fehler_faellt_weiter_in_seinen_eigenen_ausgang(self) -> None:
+        """Die Grenze packt Fehler nicht ein -- sonst landete ein
+        Upload-Fehler in der falschen Meldung."""
+        publisher = _FakeDashboardPublisher(DashboardUploadError("kein Netz"))
+        notifier = _MitschreibenderKanal()
+        provider = FakeMarketDataProvider(
+            stocks=(make_stock("AAA"),),
+            series_by_symbol={"AAA": make_series(_SERIES_LENGTH, candidate=True)},
+        )
+        use_case, *_ = _build_use_case(
+            provider,
+            notifier=notifier,
+            dashboard_publisher=publisher,
+            export_zeitgrenze=30.0,
+        )
+        use_case.execute()
+
+        betreffe = [betreff for betreff, _ in notifier.gesendet]
+        assert any("nicht gesendet" in betreff for betreff in betreffe)

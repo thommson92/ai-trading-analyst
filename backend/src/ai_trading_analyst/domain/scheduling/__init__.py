@@ -11,6 +11,7 @@ from .models import (
 )
 from .ports import (
     DailyRunLookup,
+    DashboardExportTimeoutError,
     DashboardPreviewUrlError,
     DashboardPublisher,
     DashboardPublisherError,
@@ -25,6 +26,7 @@ from .ports import (
 __all__ = [
     "DailyRunLookup",
     "DailyRunSummary",
+    "DashboardExportTimeoutError",
     "DashboardPreviewUrlError",
     "DashboardPublisher",
     "DashboardPublisherError",

@@ -4,6 +4,9 @@
 - Datum: 2026-09-22
 - Ergänzt: [ADR 0019](0019-trading-day-dispatcher.md) und
   [ADR 0024](0024-benachrichtigungskanal-telegram.md)
+- Fall 3 unten teilweise abgelöst durch
+  [ADR 0074](0074-der-alarm-liegt-nicht-in-der-sperre.md) — siehe den
+  Nachtrag am Ende
 
 ## Kontext
 
@@ -23,7 +26,10 @@ das nicht tut (AUDIT-003-014):
    Einzelproben.
 3. **Hängender Lauf.** Er hält den Advisory Lock; alle weiteren Starts enden
    bei `IN_PROGRESS`, und weil `_report_overdue` **innerhalb** der Sperre
-   läuft, geht auch die Überfälligkeitsmeldung nie hinaus.
+   läuft, geht auch die Überfälligkeitsmeldung nie hinaus. (Dieser Satz
+   beschreibt den Stand vom 2026-09-22. [ADR 0074](0074-der-alarm-liegt-nicht-in-der-sperre.md)
+   hat die Meldung aus der Sperre geholt — der Nachtrag am Ende sagt, was
+   dem Wächter davon bleibt.)
 
 Am **2026-09-22** ist Fall 1 eingetreten, und zwar in einer Form, die das
 Audit nicht vorhergesehen hatte: Nicht ein Konfigurationsfehler, sondern ein
@@ -74,9 +80,8 @@ der Unterschied zwischen einem Wächter und einer Lampe.
 Die Drei-Stunden-Grenze ist dieselbe wie das Zeitlimit der geplanten Aufgabe
 (Doc 14). Ein regulärer Lauf dauert rund 103 Minuten und darf bis gegen 23:15
 arbeiten; ohne diese Unterscheidung wäre der Wächter ein täglicher
-Fehlalarm. **Damit ist Fall 3 oben abgedeckt** — und zwar nur von ihm: Der
-Lauf selbst kann einen hängenden Lauf nicht melden, weil die Meldung
-innerhalb der Sperre läuft, die er hält.
+Fehlalarm. **Damit ist Fall 3 oben abgedeckt** — zum Zeitpunkt dieses
+Beschlusses als einziger; siehe den Nachtrag am Ende.
 
 Die Sicherung prüft er unabhängig vom Handelstag und unabhängig vom Lauf.
 Gesichert wird täglich, auch am Wochenende — und der Dispatcher weiß von der
@@ -215,3 +220,33 @@ tut eine Sache. Melden und Eingreifen sind zwei.
   Aufgabenplanung die einzige; jetzt kommt 23:15 dazu. Beide stehen in der
   Betriebsdokumentation und nicht im Code — die Regel aus ADR 0019 bleibt
   gewahrt.
+
+## Nachtrag vom 2026-10-09: Fall 3 hat jetzt zwei Melder
+
+[ADR 0074](0074-der-alarm-liegt-nicht-in-der-sperre.md) hat
+`_report_overdue` **vor** die Advisory-Lock-Sperre gezogen. Damit meldet der
+Tageslauf seinen eigenen Hänger bei Fristablauf selbst — gegen 15:00
+Börsenzeit, also mehr als acht Stunden vor dem Wächter. Die Begründung oben,
+Fall 3 sei allein vom Wächter zu sehen, gilt in dieser Form nicht mehr.
+
+**Punkt 6 löst die Überschneidung, ohne dass es eine neue Regel braucht.**
+Der Dispatcher setzt bei seiner Meldung `alert_sent_at`; die
+`alerted`-Prüfung steht im Wächter **vor** der `running`-Prüfung, und damit
+schweigt er zu einem Hänger, über den schon geredet wurde. Ein Test hält das
+fest (`test_ein_gemeldeter_haenger_bleibt_still`).
+
+Was dem Wächter bei Fall 3 bleibt, ist schmaler und immer noch nötig:
+
+- Die Meldung des Dispatchers **ging nicht hinaus** — eine gescheiterte
+  Zustellung setzt bewusst keinen Vermerk, der Fall bleibt also offen.
+- Nach Fristablauf hat die Aufgabenplanung **gar nicht mehr gestartet**.
+  `_report_overdue` läuft nur, wenn ein Start stattfindet; ohne Start meldet
+  niemand.
+
+Die Fälle 1 und 2 — Rückgabewert 2 vor der Dispatcher-Logik, und überhaupt
+kein Start — sind von ADR 0074 unberührt. Dort bleibt der Wächter der
+einzige Melder, und das ist der Grund, aus dem er gebaut wurde.
+
+Der Wortlaut seiner Meldung sagt deshalb seit dem 2026-10-09 nicht mehr, die
+Meldung des Laufs liege in der Sperre, sondern dass niemand geredet hat und
+warum das zwei Ursachen haben kann.

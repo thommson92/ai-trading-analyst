@@ -69,10 +69,18 @@ jobs:
           python -m pip install --no-deps -e .
 
       - name: Ruff
-        run: python -m ruff check .
+        run: python -m ruff check . ../scripts
 
+      # ``../scripts`` liegt ausserhalb des Paketes und findet seine Importe
+      # deshalb nur ueber MYPYPATH. Bis hierher lief es durch keine Pruefung,
+      # und der erste Befund dort war ein echter.
       - name: Mypy (strict)
         run: python -m mypy src tests
+
+      - name: Mypy (strict) fuer die Skripte
+        run: python -m mypy ../scripts
+        env:
+          MYPYPATH: src
 
       - name: Pytest
         env:
