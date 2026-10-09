@@ -90,17 +90,19 @@ class Ruhezeiten:
                 ende = schluss
         return ende
 
-    def naechstes_fenster(self, jetzt: datetime) -> tuple[datetime, datetime] | None:
-        """Das naechste Fenster nach ``jetzt`` -- fuer das Protokoll.
+    def als_text(self) -> str:
+        """Die Fenster in einem Satz -- fuer die Zeile beim Aufbau.
 
-        Gesucht wird in den naechsten acht Tagen: Ein Zeitpunkt, der nur
-        freitags gilt, liegt sonst ausserhalb jedes kuerzeren Fensters.
+        **Der einzige Ort, an dem eine zu weite Sperre vor dem Lauf
+        auffaellt.** Die Zeitpunkte pflegt der Inhaber von Hand; ein ``50``
+        statt ``5`` beim Radius waere sonst erst daran zu merken, dass der
+        Abend ohne Screening endet.
         """
-        if not self.aktiv:
-            return None
-        lokal = jetzt.astimezone(ZoneInfo(self.zeitzone))
-        for versatz in range(8):
-            for beginn, schluss in self.fenster_am(lokal.date() + timedelta(days=versatz)):
-                if beginn > lokal:
-                    return (beginn, schluss)
-        return None  # pragma: no cover -- acht Tage decken jede Wochentagswahl ab
+        kuerzel = {1: "Mo", 2: "Di", 3: "Mi", 4: "Do", 5: "Fr", 6: "Sa", 7: "So"}
+        teile = [
+            f"{punkt.zeit.strftime('%H:%M')} "
+            f"{'/'.join(kuerzel[tag] for tag in sorted(punkt.wochentage))}"
+            for punkt in self.zeitpunkte
+        ]
+        minuten = int(self.radius.total_seconds() // 60)
+        return f"{', '.join(teile)} (je +/- {minuten} min, {self.zeitzone})"

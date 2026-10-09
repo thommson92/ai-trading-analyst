@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, text
@@ -50,6 +51,7 @@ LAEUFE = text(
     SELECT d.session_date,
            d.status,
            d.attempts,
+           d.first_attempt_at,
            d.last_attempt_at,
            d.finished_at,
            d.alert_sent_at,
@@ -63,13 +65,27 @@ LAEUFE = text(
              WHERE e.analysis_run_id = a.id
            )                   AS fehler
     FROM dispatcher_runs d
-    LEFT JOIN analysis_runs a
-      ON a.started_at BETWEEN d.last_attempt_at
-                          AND coalesce(d.finished_at, d.last_attempt_at + interval '6 hours')
+    LEFT JOIN LATERAL (
+      SELECT * FROM analysis_runs r
+      WHERE r.started_at >= d.first_attempt_at
+        AND r.started_at <  d.first_attempt_at + interval '12 hours'
+      ORDER BY r.started_at DESC
+      LIMIT 1
+    ) a ON true
     ORDER BY d.session_date DESC
     LIMIT :limit
     """
 )
+"""**Von ``first_attempt_at`` aus, nicht von ``last_attempt_at``.**
+
+``begin`` setzt bei einem zweiten Versuch ``last_attempt_at`` hoch, loescht
+``finished_at`` des ersten aber nicht. Nach "Versuch eins scheitert um 13:05,
+Versuch zwei beginnt um 13:15 und haengt" gilt deshalb
+``last_attempt_at > finished_at`` -- ein ``BETWEEN`` darueber waere ein leerer
+Bereich, der Lauf fiele aus dem Bericht, und ausgerechnet der Tag, an dem man
+hinsieht, waere stumm. Genommen wird der **juengste** Analyselauf des Tages:
+Bei mehreren Versuchen ist er der, der etwas gerechnet hat.
+"""
 
 OPTIONEN = text(
     """
@@ -79,9 +95,13 @@ OPTIONEN = text(
            count(*) FILTER (WHERE s.options_status = 'INSUFFICIENT_DATA')  AS kein_treffer,
            count(*) FILTER (WHERE s.options_status IS NULL)                AS leer
     FROM dispatcher_runs d
-    JOIN analysis_runs a
-      ON a.started_at BETWEEN d.last_attempt_at
-                          AND coalesce(d.finished_at, d.last_attempt_at + interval '6 hours')
+    JOIN LATERAL (
+      SELECT * FROM analysis_runs r
+      WHERE r.started_at >= d.first_attempt_at
+        AND r.started_at <  d.first_attempt_at + interval '12 hours'
+      ORDER BY r.started_at DESC
+      LIMIT 1
+    ) a ON true
     JOIN screening_results s
       ON s.analysis_run_id = a.id
     WHERE s.status = 'CANDIDATE'
@@ -98,7 +118,7 @@ GRUENDE = text(
     FROM screening_results s
     WHERE s.status = 'CANDIDATE'
       AND s.options_status IS DISTINCT FROM 'COMPLETED'
-      AND s.evaluated_at > now() - make_interval(days => :tage)
+      AND s.evaluated_at >= :seit
     GROUP BY grund
     ORDER BY anzahl DESC
     LIMIT 8
@@ -106,17 +126,22 @@ GRUENDE = text(
 )
 
 
-def _uhrzeit(wert: object, zone: ZoneInfo) -> str:
+def _uhrzeit(wert: datetime | None, zone: ZoneInfo) -> str:
     """Boersenzeit, weil der Lauf in Boersenzeit entschieden wird."""
     if wert is None:
         return "    -"
-    return wert.astimezone(zone).strftime("%H:%M")  # type: ignore[attr-defined]
+    return wert.astimezone(zone).strftime("%H:%M")
 
 
-def _dauer(beginn: object, ende: object) -> str:
+def _dauer(beginn: datetime | None, ende: datetime | None) -> str:
     if beginn is None or ende is None:
         return "     -"
-    sekunden = (ende - beginn).total_seconds()  # type: ignore[operator]
+    sekunden = (ende - beginn).total_seconds()
+    if sekunden < 0:
+        # Ein Ende vor dem Beginn ist kein Zeitraum. Es entsteht, wenn ein
+        # zweiter Versuch das ``finished_at`` des ersten vorfindet; eine
+        # negative Minutenzahl waere hier eine Falschaussage.
+        return "     -"
     return f"{sekunden / 60:6.1f}"
 
 
@@ -131,16 +156,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Konfiguration: {error}", file=sys.stderr)
         return 2
 
-    zone = ZoneInfo(load_config().config.market.timezone)
+    try:
+        zone = ZoneInfo(load_config().config.market.timezone)
+    except Exception as error:
+        # Ein rein lesendes Diagnoseskript soll nicht an einem Abschnitt
+        # scheitern, der es nicht betrifft. Gebraucht wird genau die Zeitzone.
+        print(f"Konfiguration nicht lesbar ({error}) -- Zeiten in UTC.", file=sys.stderr)
+        zone = ZoneInfo("UTC")
+
     engine = create_engine(url)
     with engine.connect() as verbindung:
         laeufe = verbindung.execute(LAEUFE, {"limit": args.limit}).all()
         optionen = verbindung.execute(OPTIONEN, {"limit": args.limit}).all()
-        gruende = verbindung.execute(GRUENDE, {"tage": args.limit * 2}).all()
-
-    if not laeufe:
-        print("Keine Zeile in dispatcher_runs -- es ist nie ein Versuch angekommen.")
-        return 1
+        if not laeufe:
+            print("Keine Zeile in dispatcher_runs -- es ist nie ein Versuch angekommen.")
+            return 1
+        # Dasselbe Fenster wie die Tabellen darueber, statt einer zweiten
+        # Bedeutung fuer ``--limit``: Die Gruende gehoeren zu den gezeigten Tagen.
+        seit = min(z.first_attempt_at for z in laeufe)
+        gruende = verbindung.execute(GRUENDE, {"seit": seit}).all()
 
     print(f"Lief er?  (Zeiten in {zone.key})")
     print(

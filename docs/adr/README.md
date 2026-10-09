@@ -126,11 +126,11 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | [0067](0067-jahresreihen-der-fundamentalkennzahlen.md) | Jahresreihen der Fundamentalkennzahlen im Bericht | Angenommen |
 | [0068](0068-export-rechnet-abgeschlossene-laeufe-nicht-neu.md) | Der Export rechnet abgeschlossene Läufe nicht jeden Tag neu | Vorgeschlagen |
 | [0069](0069-backfill-und-analyse-verzahnt.md) | Backfill und Analyse laufen verzahnt statt nacheinander | Vorgeschlagen |
+| 0070 | Sicherung außer Haus | *liegt auf `feature/betrieb-sicherung`* |
+| 0071 | Ein Wächter außerhalb des Laufs | *liegt auf `feature/betrieb-sicherung`* |
 | [0072](0072-export-uebernimmt-die-kerzenserien-des-laufs.md) | Der Export übernimmt die Kerzenserien des Laufs | Vorgeschlagen |
 | [0073](0073-kein-schritt-verschluckt-einen-lauf.md) | Kein einzelner Schritt verschluckt einen Lauf | Vorgeschlagen |
 | [0074](0074-der-alarm-liegt-nicht-in-der-sperre.md) | Der Alarm liegt nicht in der Sperre | Vorgeschlagen |
-| 0070 | Sicherung außer Haus | *liegt auf `feature/betrieb-sicherung`* |
-| 0071 | Ein Wächter außerhalb des Laufs | *liegt auf `feature/betrieb-sicherung`* |
 | 0075 | Splitnachweis im Backfill (AUDIT-003-001) | *reserviert, noch nicht geschrieben* |
 | 0076 | Wirkungslose Kennzeichnungen: `EARNINGS_EXCLUDED` und Datenabdeckung (AUDIT-003-003, -004) | *reserviert* |
 | 0077 | Liquiditätsstufe `POOR` in Meldung und Attraktivität (AUDIT-003-005) | *reserviert* |

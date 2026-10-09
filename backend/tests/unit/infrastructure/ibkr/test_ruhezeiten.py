@@ -7,11 +7,19 @@ stillschweigend etwas anderes heisst als gedacht.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+import threading
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 
+from ai_trading_analyst.bootstrap import build_ruhezeiten
+from ai_trading_analyst.config.loader import load_config
+from ai_trading_analyst.config.settings import (
+    RuhezeitenConfig,
+    RuhezeitpunktConfig,
+)
 from ai_trading_analyst.infrastructure.ibkr import (
     ContractSpec,
     IbAsyncBarSource,
@@ -158,25 +166,6 @@ class TestZeitzone:
         assert VALIDIERT.ende_der_sperre(in_utc) is not None
 
 
-class TestNaechstesFenster:
-    def test_am_donnerstag_vormittag_ist_es_dreizehn_uhr_zehn(self) -> None:
-        fenster = VALIDIERT.naechstes_fenster(_am(DONNERSTAG, 9, 30))
-        assert fenster is not None
-        assert fenster[0] == _am(DONNERSTAG, 13, 10)
-
-    def test_ein_nur_freitags_gueltiger_termin_wird_gefunden(self) -> None:
-        """Acht Tage Vorlauf, damit ein Wochentag, der nur einmal je Woche
-        gilt, nicht durchfaellt."""
-        nur_freitag = Ruhezeiten(
-            zeitpunkte=(Ruhezeitpunkt(zeit=time(14, 45), wochentage=NUR_FREITAG),),
-            radius=timedelta(minutes=5),
-            zeitzone="America/New_York",
-        )
-        fenster = nur_freitag.naechstes_fenster(_am(SAMSTAG, 10, 0))
-        assert fenster is not None
-        assert fenster[0].isoweekday() == 5
-
-
 class _Uhr:
     """Eine Uhr, die nur durch ``sleep`` weiterlaeuft.
 
@@ -285,3 +274,161 @@ class TestDieVerbindungWartet:
 
         assert uhr.jetzt >= _am(DONNERSTAG, 13, 20)
         assert quelle.ruhesekunden == 8 * 60
+
+    @pytest.mark.parametrize(
+        ("weg", "argumente"),
+        [
+            ("fetch_intraday_bars", (AAPL,)),
+            ("option_chain", (AAPL,)),
+            ("option_strikes", (AAPL, date(2026, 11, 20), "AAPL")),
+            ("liquid_hours", (AAPL,)),
+        ],
+    )
+    def test_auch_die_optionswege_warten(self, weg: str, argumente: tuple[object, ...]) -> None:
+        """**Nicht nur der Kerzenabruf.** ``reqTickers`` und die
+        Kettenabfragen belegen die Marktdatenleitungen des Kontos -- also
+        genau die Ressource, um die es in ADR 0078 geht. Sie gehen an der
+        Drossel vorbei, aber nicht an ``_connection``.
+        """
+        uhr = _Uhr(_am(DONNERSTAG, 13, 12))
+        quelle = self._quelle(uhr)
+
+        with pytest.raises(Exception):  # noqa: B017 -- der Port ist unbesetzt
+            getattr(quelle, weg)(*argumente)
+
+        assert uhr.jetzt >= _am(DONNERSTAG, 13, 20)
+        assert quelle.ruhesekunden == 8 * 60
+
+    def test_ein_abbruchsignal_beendet_die_wartezeit_vorzeitig(self) -> None:
+        """**Sonst kostet die Ruhezeit den Wiederholversuch, den ADR 0069
+        kauft.** Ohne dieses Signal liefe der Backfill-Thread nach einem frueh
+        abgebrochenen Lauf das Fenster zu Ende, waehrend der Hauptthread die
+        Dispatcher-Sperre haelt -- und der naechste Start in fuenfzehn Minuten
+        endete mit "in Arbeit".
+        """
+        uhr = _Uhr(_am(DONNERSTAG, 13, 12))
+        quelle = self._quelle(uhr)
+        abbruch = threading.Event()
+        abbruch.set()
+
+        with quelle.abbruchsignal(abbruch.is_set):
+            quelle._warte_auf_freies_fenster()
+
+        assert uhr.geschlafen == []
+        assert uhr.jetzt == _am(DONNERSTAG, 13, 12)
+
+    def test_das_signal_gilt_nur_im_block(self) -> None:
+        """Ein dauerhaft hinterlegtes Signal eines beendeten Laufs waere beim
+        naechsten schlimmer als keines."""
+        uhr = _Uhr(_am(DONNERSTAG, 13, 12))
+        quelle = self._quelle(uhr)
+
+        with quelle.abbruchsignal(lambda: True):
+            pass
+        quelle._warte_auf_freies_fenster()
+
+        assert uhr.jetzt == _am(DONNERSTAG, 13, 20)
+
+
+class TestDieKonfigurationWeistTippfehlerAb:
+    """**Die Stelle mit dem hoechsten Fehlerrisiko** (ADR 0078, Festlegung 1).
+
+    Diese Datei pflegt der Inhaber von Hand. Ein Tippfehler darf nicht still
+    zu einer taeglichen Sperre werden -- er muss den Start abbrechen, und zwar
+    mit einer Meldung, die den Schluessel nennt.
+    """
+
+    def test_der_validierte_stand_laedt(self) -> None:
+        punkte = (
+            RuhezeitpunktConfig(zeit="13:15", wochentage=("Mo", "Di", "Mi", "Do", "Fr")),
+            RuhezeitpunktConfig(zeit="14:45", wochentage=("Fr",)),
+        )
+        assert punkte[0].als_zeit() == time(13, 15)
+        assert punkte[0].als_isotage() == WOCHENTAGS
+        assert punkte[1].als_isotage() == NUR_FREITAG
+
+    @pytest.mark.parametrize("falsch", ["13.15", "1315", "13:15:00", "25:00", ""])
+    def test_eine_unguelige_uhrzeit_bricht_ab(self, falsch: str) -> None:
+        with pytest.raises(ValidationError):
+            RuhezeitpunktConfig(zeit=falsch, wochentage=("Fr",))
+
+    def test_ein_unbekannter_wochentag_bricht_ab(self) -> None:
+        """``Freitag`` statt ``Fr`` ist der naheliegende Fehler."""
+        with pytest.raises(ValidationError):
+            RuhezeitpunktConfig(zeit="13:15", wochentage=("Freitag",))
+
+    def test_eine_leere_tagesliste_bricht_ab(self) -> None:
+        """Entweder ein Tippfehler oder ein Zeitpunkt, der nichts tut --
+        beides soll beim Laden auffallen und nicht im Betrieb."""
+        with pytest.raises(ValidationError, match="mindestens einen Tag"):
+            RuhezeitpunktConfig(zeit="13:15", wochentage=())
+
+    def test_ein_vertippter_schluessel_bricht_ab(self) -> None:
+        """``extra='forbid'``: ``wochentag`` statt ``wochentage`` waere sonst
+        ein Zeitpunkt ohne Tage, der nie greift."""
+        with pytest.raises(ValidationError):
+            RuhezeitpunktConfig(zeit="13:15", wochentag=("Fr",))  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("radius", [-1, 31, 50])
+    def test_ein_unsinniger_radius_bricht_ab(self, radius: int) -> None:
+        """**Der teuerste Tippfehler.** ``50`` statt ``5`` liesse die drei
+        Fenster zu einer Sperre von 11:35 bis 16:25 verschmelzen: Der Lauf
+        begaenne mitten darin, screente nie und meldete sich jeden Abend als
+        ueberfaellig."""
+        with pytest.raises(ValidationError):
+            RuhezeitenConfig(radius_minuten=radius)
+
+    def test_dreissig_minuten_sind_noch_erlaubt(self) -> None:
+        assert RuhezeitenConfig(radius_minuten=30).radius_minuten == 30
+
+
+class TestDieAusgelieferteKonfiguration:
+    """Was in ``config/default.yaml`` steht, muss das sein, was wir meinen.
+
+    Ohne diesen Test liesse eine geaenderte Zeile dort alle anderen Tests
+    gruen -- sie bauen ihre Zeitpunkte von Hand nach.
+    """
+
+    def test_die_datei_ergibt_genau_den_validierten_stand(self) -> None:
+        gebaut = build_ruhezeiten(load_config().config)
+
+        assert gebaut is not None
+        assert gebaut.radius == VALIDIERT.radius
+        assert gebaut.zeitzone == VALIDIERT.zeitzone
+        assert set(gebaut.zeitpunkte) == set(VALIDIERT.zeitpunkte)
+
+    def test_die_fenster_liegen_hinter_der_durchgehenden_arbeitszeit(self) -> None:
+        """Zwischen 12:50 und 13:10 liegt die einzige Zeit, in der der
+        Backfill ununterbrochen arbeitet. Ein Fenster dort verlaengerte den
+        Lauf deutlich staerker als zehn Minuten (ADR 0078, Folgen)."""
+        gebaut = build_ruhezeiten(load_config().config)
+        assert gebaut is not None
+
+        for minute in range(50, 60):
+            assert gebaut.ende_der_sperre(_am(DONNERSTAG, 12, minute)) is None
+        for minute in range(0, 10):
+            assert gebaut.ende_der_sperre(_am(DONNERSTAG, 13, minute)) is None
+
+
+class TestDerWegZurueck:
+    def _config(self, **felder: object) -> object:
+        basis = load_config().config
+        ibkr = basis.market_data.ibkr.model_copy(
+            update={"ruhezeiten": RuhezeitenConfig(**felder)}
+        )
+        return basis.model_copy(
+            update={"market_data": basis.market_data.model_copy(update={"ibkr": ibkr})}
+        )
+
+    def test_ohne_zeitpunkte_entsteht_keine_sperre(self) -> None:
+        assert build_ruhezeiten(self._config(zeitpunkte=())) is None  # type: ignore[arg-type]
+
+    def test_radius_null_entsteht_keine_sperre(self) -> None:
+        """Der Weg zurueck ohne Deployment: Die Zeitpunkte bleiben stehen."""
+        gebaut = build_ruhezeiten(
+            self._config(  # type: ignore[arg-type]
+                radius_minuten=0,
+                zeitpunkte=(RuhezeitpunktConfig(zeit="13:15", wochentage=("Fr",)),),
+            )
+        )
+        assert gebaut is None

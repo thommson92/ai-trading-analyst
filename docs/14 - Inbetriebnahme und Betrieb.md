@@ -2223,14 +2223,32 @@ verlängert den Lauf deutlich stärker als eines danach.
 | Fenster | Wirkung auf den Lauf |
 |---|---|
 | 13:10–13:20 | trifft den Backfill, er endet gegen 13:35 statt 13:25 |
-| 14:10–14:20 | liegt hinter dem Lauf |
+| 14:10–14:20 | liegt hinter dem Lauf — **bis etwa 383 Symbole** |
 | Fr 14:40–14:50 | liegt hinter dem Lauf |
 
+Die zweite Zeile ist eine Aussage über heute. Ab rund 383 Symbolen erreicht
+der Backfill auch das Fenster um 14:10 und kostet weitere zehn Minuten; ab
+rund 546 erreicht er die Nachholfrist 14:50 von sich aus. Bei den heutigen
+192 liegt etwa der doppelte Bestand dazwischen.
+
+Der Radius ist auf **30 Minuten** begrenzt — nicht aus technischer Not,
+sondern weil ein `50` statt `5` die drei Fenster zu einer Sperre von 11:35 bis
+16:25 verschmelzen ließe: Der Lauf begänne mitten darin und screente nie.
+
 `radius_minuten: 0` schaltet die Sperre ab, ohne die Zeitpunkte zu löschen —
-der Weg zurück. Im Protokoll steht je Fenster eine Zeile `Ruhezeit bis …`, und
-die gewartete Zeit wird als `ruhesekunden` **getrennt** von der
-IBKR-Drossel gezählt: Die eine schützt uns vor IBKRs Rate, die andere eine
-fremde Anwendung vor uns.
+der Weg zurück.
+
+Im Protokoll stehen drei Spuren: beim Aufbau eine Zeile `Ruhezeiten: …` mit
+der geltenden Sperre, je getroffenem Fenster eine Zeile `Ruhezeit bis …`, und
+in der Backfill-Zeile das Feld **`ruhesekunden`** — getrennt von
+`verschlafene_sekunden`. Die eine Zahl schützt uns vor IBKRs Rate, die andere
+eine fremde Anwendung vor uns; zusammengezählt ließe sich hinterher nicht
+sagen, welche der beiden einen Abend verlängert hat.
+
+Ein abgebrochener Lauf wartet die Ruhezeit **nicht** zu Ende: Sonst hielte der
+Dispatcher seine Sperre bis zum Fensterende, und der nächste Start in fünfzehn
+Minuten endete mit „in Arbeit" — genau die Zeit, die das frühe Datengate
+sparen soll.
 
 ## Hat er getan, was er soll?
 

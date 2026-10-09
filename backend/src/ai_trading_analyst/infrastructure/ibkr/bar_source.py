@@ -36,8 +36,8 @@ import math
 import threading
 import time
 import warnings
-from collections.abc import Callable, Iterable, Sequence
-from contextlib import suppress
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -410,6 +410,9 @@ class IbAsyncBarSource:
         self._ruhezeiten = ruhezeiten
         """Fenster, in denen keine Anfrage hinausgeht (ADR 0078). ``None``
         heisst: keine, wie bisher."""
+        self._soll_abbrechen: Callable[[], bool] | None = None
+        """Gesetzt fuer die Dauer eines abbrechbaren Backfills, siehe
+        ``abbruchsignal``."""
         self.ruhesekunden = 0.0
         """Summe der Zeit, die in Ruhefenstern gewartet wurde.
 
@@ -572,8 +575,17 @@ class IbAsyncBarSource:
                 # Unterdrueckt, weil dieser Schritt nichts beschaffen soll:
                 # Ein Fehler beim Zuruecksetzen darf keine gelungene
                 # Notierung verwerfen und keinen echten Fehler verdecken.
+                #
+                # **Ueber ``self._ib`` und nicht ueber ``_connection``**
+                # (ADR 0078): Dort wartet seit den Ruhezeiten unter Umstaenden
+                # ein Fenster, und ``suppress`` hilft dagegen nicht -- die
+                # Wartestelle wirft nicht, sie schlaeft. Zehn Minuten unter
+                # dem Lock fuer einen Schritt, der nichts beschaffen soll,
+                # waeren nicht in diesem Geist. Ist die Verbindung ohnehin
+                # weg, gibt es auch keinen Modus zurueckzusetzen.
                 with suppress(Exception):
-                    self._connection().reqMarketDataType(_LIVE_MARKTDATEN)
+                    if self._ib is not None:
+                        self._ib.reqMarketDataType(_LIVE_MARKTDATEN)
         gueltig = tuple(ticker for ticker in tickers if ticker.contract is not None)
         if self._on_option_tickers is not None:
             # Vor der Uebersetzung und ausserhalb des Locks: Der Beobachter
@@ -829,14 +841,20 @@ class IbAsyncBarSource:
         der zweiten Anwendung teilen. ``_connection`` ist der einzige
         Durchgang, durch den **jede** Anfrage muss.
 
-        Gewartet wird in kurzen Schritten und nicht in einem Stueck: Ein
-        ``sleep`` ueber zehn Minuten liesse sich nicht unterbrechen, und der
-        Lauf soll auf ein Strg-C noch reagieren.
+        **Gewartet wird in kurzen Schritten, damit ein Abbruch durchkommt.**
+        Ohne Zwischenpunkte liefe der Backfill-Thread nach einem frueh
+        abgebrochenen Lauf das ganze Fenster zu Ende, waehrend der Hauptthread
+        in ``faden.join()`` haengt und die Dispatcher-Sperre haelt -- und der
+        naechste Start in fuenfzehn Minuten endete mit "in Arbeit". Genau die
+        Zeit, die das fruehe Datengate sparen soll (ADR 0069).
         """
         if self._ruhezeiten is None:
             return
         gemeldet = False
         while True:
+            if self._soll_abbrechen is not None and self._soll_abbrechen():
+                _logger.info("Ruhezeit abgebrochen -- der Lauf wird beendet.")
+                return
             ende = self._ruhezeiten.ende_der_sperre(self._now())
             if ende is None:
                 return
@@ -852,6 +870,21 @@ class IbAsyncBarSource:
             schritt = min(verbleibend, 5.0)
             self._sleep(schritt)
             self.ruhesekunden += schritt
+
+    @contextmanager
+    def abbruchsignal(self, soll_abbrechen: Callable[[], bool] | None) -> Iterator[None]:
+        """Laesst eine laufende Ruhezeit vorzeitig enden (ADR 0078).
+
+        Nur fuer die Dauer des Blocks gesetzt und danach wieder entfernt: Ein
+        dauerhaft hinterlegtes Signal eines beendeten Laufs waere beim
+        naechsten schlimmer als keines.
+        """
+        vorher = self._soll_abbrechen
+        self._soll_abbrechen = soll_abbrechen
+        try:
+            yield
+        finally:
+            self._soll_abbrechen = vorher
 
     def _connection(self) -> Any:
         self._warte_auf_freies_fenster()

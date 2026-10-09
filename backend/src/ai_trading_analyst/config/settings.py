@@ -217,9 +217,16 @@ class RuhezeitenConfig(_Section):
     Konfiguration und nicht im Code.
     """
 
-    radius_minuten: NonNegativeInt = 5
+    radius_minuten: Annotated[int, Field(ge=0, le=30)] = 5
     """Vor **und** nach dem Zeitpunkt. 0 schaltet die Sperre ab, ohne die
-    Zeitpunkte loeschen zu muessen -- der Weg zurueck."""
+    Zeitpunkte loeschen zu muessen -- der Weg zurueck.
+
+    **Nach oben begrenzt, weil diese Datei von Hand gepflegt wird.** Ein
+    ``50`` statt ``5`` liesse die drei Fenster zu einer Sperre von 11:35 bis
+    16:25 verschmelzen: Der Lauf begaenne mitten darin, screente nie und
+    meldete sich jeden Abend als ueberfaellig. Dreissig Minuten sind mehr,
+    als ein Auftrag je gebraucht hat, und wenig genug, dass ein Tippfehler
+    beim Laden auffaellt statt abends im Betrieb."""
     zeitpunkte: tuple[RuhezeitpunktConfig, ...] = ()
 
 

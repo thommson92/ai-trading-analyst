@@ -137,6 +137,7 @@ from ai_trading_analyst.infrastructure.watchlists import (
     WatchlistError,
     load_watchlist_directory,
 )
+from ai_trading_analyst.observability.logging_setup import get_logger
 from ai_trading_analyst.presentation.api.app import create_app
 from ai_trading_analyst.presentation.export import (
     BekannteDatei,
@@ -149,6 +150,8 @@ def project_root(config_path: Path) -> Path:
     """Das Verzeichnis ueber ``config/`` -- Bezugspunkt fuer relative Pfade."""
     return config_path.resolve().parent.parent
 
+
+_logger = get_logger(__name__)
 
 def build_ruhezeiten(config: AppConfig) -> Ruhezeiten | None:
     """Die Fenster, in denen keine Anfrage an die TWS geht (ADR 0078).
@@ -163,7 +166,7 @@ def build_ruhezeiten(config: AppConfig) -> Ruhezeiten | None:
     einstellungen = config.market_data.ibkr.ruhezeiten
     if not einstellungen.zeitpunkte or einstellungen.radius_minuten == 0:
         return None
-    return Ruhezeiten(
+    ruhezeiten = Ruhezeiten(
         zeitpunkte=tuple(
             Ruhezeitpunkt(zeit=punkt.als_zeit(), wochentage=punkt.als_isotage())
             for punkt in einstellungen.zeitpunkte
@@ -171,6 +174,11 @@ def build_ruhezeiten(config: AppConfig) -> Ruhezeiten | None:
         radius=timedelta(minutes=einstellungen.radius_minuten),
         zeitzone=config.market.timezone,
     )
+    # **Die einzige Stelle, an der eine zu weite Sperre vor dem Lauf
+    # auffaellt.** Die Zeitpunkte pflegt der Inhaber von Hand; diese Zeile
+    # steht im Protokoll, bevor der Backfill anlaeuft.
+    _logger.info("Ruhezeiten: %s", ruhezeiten.als_text())
+    return ruhezeiten
 
 
 def build_ibkr_bar_source(

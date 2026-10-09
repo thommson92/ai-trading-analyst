@@ -15,13 +15,25 @@ Die Marktdatenleitungen gehören aber dem **Konto** und nicht der Verbindung.
 Gegen eine geteilte Kontoressource hilft keine Client-ID — dagegen hilft nur
 Schweigen.
 
-Der Anlass ist eine Beobachtung des Inhabers: In manchen Telegram-Meldungen
-fehlen die Optionsdaten. Das ist ein Verdacht und kein Nachweis — es gibt
-einen zweiten Kandidaten, den TWS-Verbindungswechsel aus
-[ADR 0069](0069-backfill-und-analyse-verzahnt.md), und
-`scripts/betriebsbericht.py` trennt die beiden Lagen inzwischen. Diese
-Entscheidung steht trotzdem für sich: Sie ist billige Versicherung gegen eine
-Störung, deren Kosten der Inhaber kennt und deren Nutzen er abschätzen kann.
+Der Anlass war eine Beobachtung des Inhabers: In manchen Telegram-Meldungen
+fehlen die Optionsdaten.
+
+**Dieser Anlass ist inzwischen widerlegt.** Die Messung über zwanzig
+Handelstage (2026-09-09 bis 2026-10-08) zeigt in der Spalte „ohne
+Optionsstatus" **null** — an jedem einzelnen Tag. Die Optionsanalyse ist nie
+ausgefallen, weder durch eine Überschneidung noch durch den
+Verbindungswechsel aus [ADR 0069](0069-backfill-und-analyse-verzahnt.md).
+Was fehlt, ist `INSUFFICIENT_DATA`: Die Kette kam an, es qualifizierte sich
+kein Put. Das ist eine Aussage über den Markt oder über einen Filter und hat
+mit der TWS nichts zu tun.
+
+Diese Entscheidung bleibt trotzdem stehen, und zwar mit geänderter
+Begründung: **nicht als Behebung eines gemessenen Fehlers, sondern als
+Versicherung.** Die Marktdatenleitungen sind nachweislich eine geteilte
+Kontoressource; dass bisher nichts ausgefallen ist, heißt nicht, dass nichts
+ausfallen kann. Die Kosten kennt der Inhaber (zehn Minuten), den Nutzen kann
+er abschätzen, und er hat die Zeitpunkte am 2026-10-09 ausdrücklich validiert
+und für verbindlich erklärt.
 
 ## Entscheidung
 
@@ -46,6 +58,15 @@ TWS. Fünf Festlegungen:
    holen; ein ausgelassenes wäre ein Loch in der Kursreihe, und das wäre
    teurer als zehn Minuten Wartezeit.
 
+   **Die Wartezeit lässt sich aber abbrechen**, und das ist keine Zugabe. Der
+   verzahnte Lauf ([ADR 0069](0069-backfill-und-analyse-verzahnt.md)) beendet
+   den Backfill-Thread über ein Signal und wartet in `faden.join()` auf ihn,
+   während er die Dispatcher-Sperre hält. Ohne Abbruchhaken liefe der Thread
+   nach einem früh abgebrochenen Lauf das ganze Fenster zu Ende, und der
+   nächste Start in fünfzehn Minuten endete mit „in Arbeit" — genau die Zeit,
+   die das frühe Datengate sparen soll. Die Warteschleife fragt das Signal
+   deshalb zwischen ihren Fünf-Sekunden-Schritten ab.
+
 4. **Die Sperre sitzt in `_connection()`**, dem einzigen Durchgang, durch den
    jede Anfrage muss — und ausdrücklich **nicht** in `_wait_for_pacing()`.
    Die Drossel sitzt allein vor `reqHistoricalData`; die Kettenabfragen und
@@ -62,8 +83,20 @@ TWS. Fünf Festlegungen:
 
 Von den drei Fenstern trifft **nur 13:10–13:20 den Backfill**. Er hat ab 12:50
 zwanzig freie Minuten, pausiert zehn und ist dann nach weiteren fünfzehn
-fertig: **Ende gegen 13:35 statt 13:25.** Das zweite Fenster um 14:10 und das
-freitägliche um 14:40 liegen hinter dem Lauf.
+fertig: **Ende gegen 13:35 statt 13:25.**
+
+Dass das zweite Fenster um 14:10 und das freitägliche um 14:40 hinter dem Lauf
+liegen, ist eine Aussage über **heute** und keine dauerhafte. Die Schwellen,
+weil die Watchliste wachsen soll:
+
+| Ab … Symbolen | passiert |
+|---|---|
+| 110 | das Fenster 13:10 wird erreicht (heute: 192, also längst) |
+| ~383 | das Fenster 14:10 wird erreicht und kostet weitere zehn Minuten |
+| ~546 | der Backfill erreicht die Nachholfrist 14:50 von sich aus |
+
+Bei den heutigen 192 Symbolen liegt zwischen uns und der zweiten Schwelle
+etwa der doppelte Bestand.
 
 Der Ort eines Zeitpunkts entscheidet über seinen Preis, und das ist die eine
 Zahl, die man beim Pflegen kennen muss: **Zwischen 12:50 und 13:10 liegt die
@@ -78,16 +111,30 @@ der Lauf gegen 15:20 — und ein Lauf, der um 15:00 noch arbeitet, gilt seit
 hätte **jeden Abend** eine Meldung ausgelöst. Der Inhaber hat die Zeitpunkte
 daraufhin nachgeprüft und auf ±5 Minuten festgelegt.
 
-**Ausgeliefert ist die Sperre leer.** Wer keine zweite Anwendung an derselben
-TWS betreibt, erbt keine Wartezeit. `radius_minuten: 0` schaltet sie ab, ohne
-die Zeitpunkte löschen zu müssen — der Weg zurück ohne Deployment.
+**Im Code ist die Sperre leer voreingestellt**, in `config/default.yaml`
+stehen aber die Zeitpunkte des Inhabers. Wer dieses Repository klont und
+`provider: ibkr` einschaltet, erbt damit einen fremden Handelsplan — das ist
+in Kauf genommen, weil die Datei ohnehin der Ort ist, an dem der Betrieb
+dieses einen Servers beschrieben wird (wie die Watchlist-Dateien und die
+Zeitzone). `radius_minuten: 0` schaltet die Sperre ab, ohne die Zeitpunkte
+löschen zu müssen — der Weg zurück ohne Deployment.
+
+Der Radius ist nach oben auf 30 Minuten begrenzt. Nicht aus technischer Not,
+sondern weil diese Datei von Hand gepflegt wird: Ein `50` statt `5` ließe die
+drei Fenster zu einer Sperre von 11:35 bis 16:25 verschmelzen, der Lauf
+begänne mitten darin, screente nie und meldete sich jeden Abend als
+überfällig. Beim Aufbau steht die geltende Sperre als Zeile im Protokoll —
+der einzige Ort, an dem ein solcher Fehler **vor** dem Lauf auffällt.
 
 ## Was diese Entscheidung nicht ist
 
-**Kein Nachweis.** Ob die fehlenden Optionsdaten von dieser Überschneidung
-kommen, ist nicht belegt. Die Historienrate zählt IBKR je Client-ID; dort
-konkurriert nichts. Wo die beiden Anwendungen sich nachweislich teilen, sind
-die Marktdatenleitungen. Bleibt der Befund nach dieser Änderung bestehen, ist
-der Verbindungswechsel aus ADR 0069 der nächste Verdächtige — und dann sagt
-die Spalte `LEER` im Betriebsbericht, ob es alle Kandidaten eines Abends
-trifft (Verbindung) oder einzelne (Überschneidung).
+**Keine Behebung des beobachteten Befundes.** Dass in Meldungen
+Optionsdaten fehlen, hat eine andere Ursache — siehe Kontext. Diese
+Entscheidung verhindert eine Störung, die eintreten *könnte*, und keine, die
+eingetreten *ist*.
+
+**Und kein Ersatz für die offene Frage.** Warum sich seit Ende September
+deutlich weniger Puts qualifizieren — am 2026-10-06 nur einer von zwanzig
+Kandidaten, davor fast alle —, ist unbeantwortet. `options_reason` nennt den
+Grund im Wortlaut, und der entscheidet, ob es der Markt ist oder ein
+Parameter. Das gehört in einen eigenen Beschluss und nicht hierher.
