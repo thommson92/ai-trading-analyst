@@ -111,33 +111,42 @@ function Starte-Skript {
         [Environment]::SetEnvironmentVariable($name, $Umgebung[$name])
     }
     try {
-        $argumente = @('-NoProfile', '-File', $Skript) + $Weitere
-
-        # **Die Fehlerausgabe geht in eine Datei, nicht in den Erfolgsstrom.**
-        # Windows PowerShell 5.1 macht aus jeder stderr-Zeile eines nativen
-        # Befehls bei ``2>&1`` und ``$ErrorActionPreference = 'Stop'`` einen
-        # abbrechenden ``NativeCommandError`` -- und genau das ist hier der
-        # Normalfall: Jede Leitplanke *soll* nach stderr schreiben. Unter
-        # pwsh 7 faellt das nicht auf, auf dem Server mit 5.1 sofort.
+        # **``Start-Process`` und nicht ``& exe ... 2> datei``.** Der
+        # Operatorweg geht durch die Stromverarbeitung von PowerShell, und
+        # die verhaelt sich in zwei Punkten gegen uns:
         #
-        # Die Umstellung auf 'Continue' kommt dazu, weil sie nichts kostet
-        # und die Huelle des Aufrufers nicht feststeht.
+        # 1. Windows PowerShell 5.1 macht aus stderr eines nativen Befehls
+        #    einen ``NativeCommandError`` -- bei ``$ErrorActionPreference =
+        #    'Stop'`` einen abbrechenden. Hier ist stderr aber der
+        #    Normalfall: Jede Leitplanke *soll* dorthin schreiben.
+        # 2. Was ankommt, ist dann nicht der rohe Text, sondern der
+        #    **gerenderte** Fehlerdatensatz -- mit Zeilenumbruechen bei rund
+        #    120 Zeichen. Ein Suchtext, der auf so einen Umbruch faellt,
+        #    wird nicht gefunden, und einer daneben zufaellig schon. Genau
+        #    das ist am 2026-10-09 passiert.
+        #
+        # ``Start-Process -RedirectStandardError`` umgeht beides: Die
+        # Umleitung geschieht auf Prozessebene, PowerShell sieht den Strom
+        # nie. Der Rueckgabewert kommt aus ``ExitCode`` statt aus
+        # ``$LASTEXITCODE``.
         $fehlerdatei = Join-Path $spielwiese "stderr-$([guid]::NewGuid()).txt"
-        $vorher = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $verworfen = & (Get-Process -Id $PID).Path @argumente 2> $fehlerdatei
-            $code = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $vorher
-        }
-        $null = $verworfen
+        $ausgabedatei = Join-Path $spielwiese "stdout-$([guid]::NewGuid()).txt"
+
+        # Jedes Argument in Anfuehrungszeichen: ``-ArgumentList`` baut eine
+        # Kommandozeile, und ein Pfad mit Leerzeichen zerfiele darin.
+        $argumente = @('-NoProfile', '-File', $Skript) + $Weitere |
+            ForEach-Object { '"{0}"' -f $_ }
+
+        $lauf = Start-Process -FilePath (Get-Process -Id $PID).Path `
+            -ArgumentList $argumente -Wait -PassThru -NoNewWindow `
+            -RedirectStandardError $fehlerdatei `
+            -RedirectStandardOutput $ausgabedatei
+
         $text = if (Test-Path $fehlerdatei) { Get-Content $fehlerdatei -Raw } else { '' }
-        Remove-Item $fehlerdatei -Force -ErrorAction SilentlyContinue
+        Remove-Item $fehlerdatei, $ausgabedatei -Force -ErrorAction SilentlyContinue
 
         return [pscustomobject]@{
-            Code = $code
+            Code = $lauf.ExitCode
             Text = [string]$text
         }
     }
