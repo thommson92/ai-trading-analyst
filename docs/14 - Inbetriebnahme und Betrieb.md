@@ -2189,6 +2189,38 @@ Kandidaten kamen jeden Abend per Telegram an; dass der Lauf nie fertig wurde,
 sagte sechs Handelstage lang niemand. Die Überfälligkeitsmeldung lag hinter
 der Sperre, die der hängende Lauf hielt.
 
+## Hat er getan, was er soll?
+
+Nach einigen Wochen ohne Hinsehen beantwortet das ein Aufruf — rein lesend,
+ohne Protokolldatei, auch rückblickend:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+backend\.venv\Scripts\python.exe scripts\betriebsbericht.py
+backend\.venv\Scripts\python.exe scripts\betriebsbericht.py --limit 30
+```
+
+Zwei Teile, weil es zwei Fragen sind.
+
+**Lief er?** Je Handelstag Ausgang, Zahl der Versuche, Beginn und Ende in
+Börsenzeit, Dauer und die Zahl isolierter Fehler. **Ein fehlender Tag ist das
+lauteste Signal, das dieser Bericht kennt** — dann ist nicht einmal ein
+Versuch bis zum Dispatcher gekommen, und das sieht man nur am Loch in der
+Reihe.
+
+**Kam heraus, was herauskommen soll?** Je Tag, wie viele Kandidaten einen
+Optionsvorschlag bekamen. Die beiden Spalten daneben bedeuten
+**Verschiedenes**, und sie zu verwechseln führt die Fehlersuche in die
+falsche Richtung:
+
+| Spalte | Bedeutung | Einzuordnen als |
+|---|---|---|
+| `kein Treffer` | `INSUFFICIENT_DATA` — die Kette kam an, es blieb kein Vorschlag übrig: kein Verfallstermin im Zielfenster, kein Strike im Band, keine beidseitige Notierung | Aussage über den Markt |
+| `LEER` | Kein Status — die Optionsanalyse hat dieses Symbol nie zu Ende gebracht. Ein Ausfall der Quelle verlässt den Weg als Fehler, den der Lauf je Aktie isoliert | **Ausfall** |
+
+Darunter stehen die häufigsten Gründe im Wortlaut. „In manchen Meldungen
+fehlen die Optionsdaten" lässt beide Lagen offen; diese Tabelle trennt sie.
+
 ## Wo die Zeit eines Laufs bleibt
 
 Ein Lauf dauerte am 2026-09-01 (`7c88d78c`, 192 Aktien, 36 Kandidaten) rund
