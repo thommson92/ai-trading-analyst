@@ -21,7 +21,7 @@ for z in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do
 done | sed 's|.*/||' | grep -oE '^[0-9]{4}' | sort -u | tail -3
 ```
 
-Stand 2026-10-09: hoechste vergebene Nummer **0074**, reserviert bis **0078**,
+Stand 2026-10-09: hoechste vergebene Nummer **0078**, reserviert bis **0077**,
 naechste freie **0079**. 0070 und 0071 liegen noch auf
 `feature/betrieb-sicherung` und sind damit vergeben, auch wenn `dev` sie
 nicht kennt; 0075 bis 0078 stehen unten in der Tabelle als Reservierung.
@@ -134,7 +134,7 @@ entsteht ein neues ADR, das das alte ausdruecklich abloest.
 | 0075 | Splitnachweis im Backfill (AUDIT-003-001) | *reserviert, noch nicht geschrieben* |
 | 0076 | Wirkungslose Kennzeichnungen: `EARNINGS_EXCLUDED` und Datenabdeckung (AUDIT-003-003, -004) | *reserviert* |
 | 0077 | Liquiditätsstufe `POOR` in Meldung und Attraktivität (AUDIT-003-005) | *reserviert* |
-| 0078 | Sperrzeiten um die Handelszeitpunkte | *reserviert* |
+| [0078](0078-ruhezeiten-um-die-handelszeitpunkte.md) | Ruhezeiten um die Handelszeitpunkte | Vorgeschlagen |
 
 ## Offene Entscheidungen
 

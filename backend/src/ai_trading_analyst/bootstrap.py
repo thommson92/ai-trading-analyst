@@ -11,6 +11,7 @@ gleichzeitig referenziert werden (Doc 10, Paragraph 9).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import timedelta
 from functools import cache, partial
 from importlib import metadata
 from pathlib import Path
@@ -110,6 +111,8 @@ from ai_trading_analyst.infrastructure.ibkr import (
     IbkrMarketDataProvider,
     IbkrOptionsProvider,
     OptionChainSource,
+    Ruhezeiten,
+    Ruhezeitpunkt,
 )
 from ai_trading_analyst.infrastructure.persistence.session import (
     build_engine,
@@ -147,6 +150,29 @@ def project_root(config_path: Path) -> Path:
     return config_path.resolve().parent.parent
 
 
+def build_ruhezeiten(config: AppConfig) -> Ruhezeiten | None:
+    """Die Fenster, in denen keine Anfrage an die TWS geht (ADR 0078).
+
+    ``None``, solange keine Zeitpunkte konfiguriert sind -- wer keine zweite
+    Anwendung an derselben TWS betreibt, soll keine Wartezeit erben.
+
+    Die Zeitzone ist die des Marktes und nicht die des Servers: Der Inhaber
+    pflegt seine Handelszeitpunkte in Boersenzeit, und die Sommerzeit der
+    beiden Kontinente faellt an verschiedenen Tagen (Doc 14).
+    """
+    einstellungen = config.market_data.ibkr.ruhezeiten
+    if not einstellungen.zeitpunkte or einstellungen.radius_minuten == 0:
+        return None
+    return Ruhezeiten(
+        zeitpunkte=tuple(
+            Ruhezeitpunkt(zeit=punkt.als_zeit(), wochentage=punkt.als_isotage())
+            for punkt in einstellungen.zeitpunkte
+        ),
+        radius=timedelta(minutes=einstellungen.radius_minuten),
+        zeitzone=config.market.timezone,
+    )
+
+
 def build_ibkr_bar_source(
     config: AppConfig,
     on_option_tickers: Callable[[Sequence[Any]], None] | None = None,
@@ -169,6 +195,7 @@ def build_ibkr_bar_source(
         duration=ibkr.history_duration,
         minimum_request_interval_seconds=ibkr.minimum_request_interval_seconds,
         on_option_tickers=on_option_tickers,
+        ruhezeiten=build_ruhezeiten(config),
     )
 
 

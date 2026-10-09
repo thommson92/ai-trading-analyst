@@ -48,6 +48,7 @@ from ai_trading_analyst.domain.analysis import (
 )
 from ai_trading_analyst.domain.options import OptionQuote
 from ai_trading_analyst.domain.screening import IntradayBar
+from ai_trading_analyst.infrastructure.ibkr.ruhezeiten import Ruhezeiten
 from ai_trading_analyst.observability.logging_setup import get_logger
 
 _LIVE_MARKTDATEN = 1
@@ -373,6 +374,7 @@ class IbAsyncBarSource:
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         on_option_tickers: Callable[[Sequence[Any]], None] | None = None,
+        ruhezeiten: Ruhezeiten | None = None,
     ) -> None:
         self._on_option_tickers = on_option_tickers
         """Beobachter der **unuebersetzten** Optionsnotierungen, aufgerufen
@@ -405,6 +407,16 @@ class IbAsyncBarSource:
         """
         self.anfragen = 0
         """Zahl der gedrosselten Historienanfragen."""
+        self._ruhezeiten = ruhezeiten
+        """Fenster, in denen keine Anfrage hinausgeht (ADR 0078). ``None``
+        heisst: keine, wie bisher."""
+        self.ruhesekunden = 0.0
+        """Summe der Zeit, die in Ruhefenstern gewartet wurde.
+
+        Getrennt von ``verschlafene_sekunden``: Die Drossel schuetzt uns vor
+        IBKRs Rate, die Ruhezeit schuetzt eine andere Anwendung vor uns. Wer
+        die beiden zusammenzaehlte, koennte hinterher nicht sagen, welche der
+        zwei Ursachen einen Lauf verlaengert hat."""
 
     def fetch_intraday_bars(
         self, contract: ContractSpec, days: int | None = None
@@ -807,7 +819,42 @@ class IbAsyncBarSource:
                 self.verschlafene_sekunden += wait
         self._last_request_at = self._monotonic()
 
+    def _warte_auf_freies_fenster(self) -> None:
+        """Haelt an, solange ein Ruhefenster laeuft (ADR 0078).
+
+        **Hier und nicht in der Drossel.** ``_wait_for_pacing`` sitzt
+        ausschliesslich vor ``reqHistoricalData``; die Kettenabfragen und
+        ``reqTickers`` gehen daran vorbei -- und ausgerechnet ``reqTickers``
+        belegt die Marktdatenleitungen, also die Ressource, die wir uns mit
+        der zweiten Anwendung teilen. ``_connection`` ist der einzige
+        Durchgang, durch den **jede** Anfrage muss.
+
+        Gewartet wird in kurzen Schritten und nicht in einem Stueck: Ein
+        ``sleep`` ueber zehn Minuten liesse sich nicht unterbrechen, und der
+        Lauf soll auf ein Strg-C noch reagieren.
+        """
+        if self._ruhezeiten is None:
+            return
+        gemeldet = False
+        while True:
+            ende = self._ruhezeiten.ende_der_sperre(self._now())
+            if ende is None:
+                return
+            verbleibend = (ende - self._now()).total_seconds()
+            if verbleibend <= 0:
+                return
+            if not gemeldet:
+                _logger.info(
+                    "Ruhezeit bis %s -- es geht keine Anfrage an die TWS (ADR 0078).",
+                    ende.isoformat(),
+                )
+                gemeldet = True
+            schritt = min(verbleibend, 5.0)
+            self._sleep(schritt)
+            self.ruhesekunden += schritt
+
     def _connection(self) -> Any:
+        self._warte_auf_freies_fenster()
         if self._ib is not None:
             if self._owner_thread == threading.get_ident() and self._ib.isConnected():
                 return self._ib

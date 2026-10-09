@@ -159,6 +159,70 @@ class IndicatorConfig(_Section):
     warmup_candles: PositiveInt
 
 
+WOCHENTAGE: dict[str, int] = {
+    "Mo": 1, "Di": 2, "Mi": 3, "Do": 4, "Fr": 5, "Sa": 6, "So": 7,
+}
+"""Deutsche Kuerzel auf ISO-Wochentage. Die Konfiguration pflegt der Inhaber,
+und "Fr" liest sich dort besser als eine 5."""
+
+
+class RuhezeitpunktConfig(_Section):
+    """Ein geplanter Handelszeitpunkt der zweiten Anwendung (ADR 0078)."""
+
+    zeit: str
+    """In Boersenzeit, Form ``HH:MM``."""
+    wochentage: tuple[Literal["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"], ...]
+    """Mindestens einer. Eine leere Liste waere entweder ein Tippfehler oder
+    ein Zeitpunkt, der nichts tut -- beides soll beim Laden auffallen."""
+
+    @field_validator("zeit")
+    @classmethod
+    def _muss_eine_uhrzeit_sein(cls, value: str) -> str:
+        try:
+            _parse_time(value)
+        except ValueError as error:
+            raise ValueError(
+                f"ruhezeiten.zeitpunkte: 'zeit' muss die Form 'HH:MM' haben, ist aber '{value}'"
+            ) from error
+        return value
+
+    @field_validator("wochentage")
+    @classmethod
+    def _mindestens_ein_tag(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if not value:
+            raise ValueError(
+                "ruhezeiten.zeitpunkte: 'wochentage' braucht mindestens einen Tag"
+            )
+        return value
+
+    def als_zeit(self) -> time:
+        return _parse_time(self.zeit)
+
+    def als_isotage(self) -> frozenset[int]:
+        return frozenset(WOCHENTAGE[tag] for tag in self.wochentage)
+
+
+class RuhezeitenConfig(_Section):
+    """Fenster, in denen keine Anfrage an die TWS geht (ADR 0078).
+
+    Auf demselben Server handelt eine zweite Anwendung ueber dieselbe
+    TWS-Instanz; beide belegen Marktdatenleitungen des Kontos. Um ihre
+    Auftraege herum schweigt dieses Programm.
+
+    **Ausgeliefert leer** -- wer keine zweite Anwendung betreibt, soll keine
+    Wartezeit erben. Die Zeitpunkte haengen am Handelsplan des Inhabers und
+    nicht an einer technischen Eigenschaft; sie stehen deshalb in der
+    Konfiguration und nicht im Code.
+    """
+
+    radius_minuten: NonNegativeInt = 5
+    """Vor **und** nach dem Zeitpunkt. 0 schaltet die Sperre ab, ohne die
+    Zeitpunkte loeschen zu muessen -- der Weg zurueck."""
+    zeitpunkte: tuple[RuhezeitpunktConfig, ...] = ()
+
+
 class IbkrConfig(_Section):
     """Zugang zur TWS-API (ADR 0014).
 
@@ -172,6 +236,12 @@ class IbkrConfig(_Section):
     """Muss sich von der Client-ID jeder anderen Anwendung an derselben
     TWS-Instanz unterscheiden (ADR 0013, Koexistenz mit der Trade Automation
     Toolbox: dort Client-ID 99)."""
+    ruhezeiten: RuhezeitenConfig = RuhezeitenConfig()
+    """Wann dieses Programm die TWS in Ruhe laesst (ADR 0078).
+
+    Eine eigene Client-ID verhindert, dass sich die beiden Anwendungen die
+    *Verbindung* streiten. Die Marktdatenleitungen gehoeren aber dem Konto,
+    nicht der Verbindung -- dagegen hilft nur Schweigen."""
     connect_timeout_seconds: PositiveInt = 15
     native_bar_minutes: PositiveInt = 15
     """Native Bar-Groesse, aus der die 195-Minuten-Kerzen gebildet werden."""

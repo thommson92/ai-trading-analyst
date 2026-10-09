@@ -2189,6 +2189,49 @@ Kandidaten kamen jeden Abend per Telegram an; dass der Lauf nie fertig wurde,
 sagte sechs Handelstage lang niemand. Die Überfälligkeitsmeldung lag hinter
 der Sperre, die der hängende Lauf hielt.
 
+## Ruhezeiten um die eigenen Handelszeitpunkte
+
+Auf dem Server handelt eine zweite Anwendung über dieselbe TWS-Instanz. Die
+eigene Client-ID (17 hier, 99 dort) verhindert, dass sich die beiden die
+*Verbindung* streiten — die Marktdatenleitungen gehören aber dem **Konto**.
+Dagegen hilft nur Schweigen ([ADR 0078](adr/0078-ruhezeiten-um-die-handelszeitpunkte.md)).
+
+**Das hier pflegst du selbst**, in `config/default.yaml` unter
+`market_data.ibkr.ruhezeiten` — Uhrzeiten in Börsenzeit, Wochentage als
+`Mo Di Mi Do Fr Sa So`:
+
+```yaml
+    ruhezeiten:
+      radius_minuten: 5
+      zeitpunkte:
+        - zeit: "13:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:45"
+          wochentage: [Fr]
+```
+
+Ein Tippfehler bricht den Start mit einer Meldung ab, statt still zu einer
+täglichen Sperre zu werden: `"13.15"` nennt das Format, ein unbekannter Tag
+nennt die erlaubten, eine leere Tagesliste wird abgewiesen.
+
+**Die eine Zahl, die man beim Pflegen kennen muss:** Zwischen 12:50 und 13:10
+liegt die einzige durchgehende Arbeitszeit des Backfills. Ein Fenster dort
+verlängert den Lauf deutlich stärker als eines danach.
+
+| Fenster | Wirkung auf den Lauf |
+|---|---|
+| 13:10–13:20 | trifft den Backfill, er endet gegen 13:35 statt 13:25 |
+| 14:10–14:20 | liegt hinter dem Lauf |
+| Fr 14:40–14:50 | liegt hinter dem Lauf |
+
+`radius_minuten: 0` schaltet die Sperre ab, ohne die Zeitpunkte zu löschen —
+der Weg zurück. Im Protokoll steht je Fenster eine Zeile `Ruhezeit bis …`, und
+die gewartete Zeit wird als `ruhesekunden` **getrennt** von der
+IBKR-Drossel gezählt: Die eine schützt uns vor IBKRs Rate, die andere eine
+fremde Anwendung vor uns.
+
 ## Hat er getan, was er soll?
 
 Nach einigen Wochen ohne Hinsehen beantwortet das ein Aufruf — rein lesend,
