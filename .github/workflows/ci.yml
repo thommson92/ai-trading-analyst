@@ -152,11 +152,24 @@ jobs:
       # Schritt hiessen: Ein Fehlschlag der ersten Pruefung verschwindet,
       # sobald die zweite durchlaeuft -- und die erste huetet genau die
       # Regression, die am 2026-09-22 einen Handelstag gekostet hat.
-      - name: PowerShell-Werkzeugsuche pruefen
+      - name: PowerShell-Werkzeugsuche pruefen (pwsh 7)
         run: pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
 
-      - name: PowerShell-Sicherung pruefen
+      - name: PowerShell-Sicherung pruefen (pwsh 7)
         run: pwsh -NoProfile -File ../scripts/pruefe-sicherung.ps1
+
+      # **Und dasselbe unter Windows PowerShell 5.1.** Die Aufgabenplanung
+      # ruft ``powershell.exe`` auf, nicht ``pwsh`` -- 5.1 ist also die
+      # Umgebung, auf die es ankommt, und sie verhaelt sich an genau den
+      # Stellen anders, die hier geprueft werden: Eine stderr-Zeile eines
+      # nativen Befehls wird dort bei ``2>&1`` zum abbrechenden Fehler.
+      # Am 2026-10-09 ist die Sicherungspruefung auf dem Server daran
+      # gescheitert, waehrend sie in der CI gruen war.
+      - name: PowerShell-Werkzeugsuche pruefen (Windows PowerShell 5.1)
+        run: powershell.exe -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
+
+      - name: PowerShell-Sicherung pruefen (Windows PowerShell 5.1)
+        run: powershell.exe -NoProfile -File ../scripts/pruefe-sicherung.ps1
 
   frontend:
     name: Frontend (lint, typecheck, build)

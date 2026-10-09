@@ -31,7 +31,7 @@
     `C:\Program Files\PostgreSQL\<Fassung>\bin` liegen.
 
 .EXAMPLE
-    powershell.exe -NoProfile -File C:\...\scripts\sicherung-probe.ps1 -Quelle D:\backups\ata
+    powershell.exe -NoProfile -File C:\...\scripts\sicherung-probe.ps1 -Quelle C:\ata-backups
 #>
 [CmdletBinding()]
 param(
@@ -69,6 +69,20 @@ $Produktivdatenbank = 'ai_trading_analyst'
 
 if ($Probedatenbank -eq $Produktivdatenbank) {
     Abbruch 'Die Probedatenbank darf nicht die Produktivdatenbank sein.'
+}
+
+# **Die Ablage zuerst, mit eigener Meldung.** Fehlt sie, warf ``Join-Path``
+# unten einen rohen ``DriveNotFoundException`` samt Aufrufstapel und endete
+# mit Rueckgabewert 1 -- am 2026-10-09 auf dem Server genau so geschehen, weil
+# die Doc-14-Beispiele ein Laufwerk 'D:' nannten, das es nicht gibt. Bei einem
+# Skript, dessen Kern sein Rueckgabewert ist, ist das die stille Variante des
+# Fehlschlags: Die 1 geht in der Menge gewoehnlicher Fehler unter.
+if (-not $Datei -and -not (Test-Path -LiteralPath $Quelle)) {
+    Abbruch (
+        "Die Ablage '$Quelle' gibt es nicht. Stimmt der Pfad hinter -Quelle, " +
+        "und ist das Laufwerk vorhanden? 'Get-PSDrive -PSProvider FileSystem' " +
+        "zeigt, was es gibt."
+    )
 }
 
 $dump = if ($Datei) {

@@ -2015,6 +2015,42 @@ Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
 > „Die Sicherung außer Haus"; **bis der dortige Task läuft, gilt dieser
 > Absatz unverändert weiter.**
 
+### Die Ablage zuerst festlegen
+
+`C:\ata-backups`. Ein Laufwerk `D:` gibt es auf diesem Server **nicht** —
+die früheren Beispiele in diesem Dokument nannten `D:\backups\ata`, und das
+war nie ausführbar. Aufgefallen ist es am **2026-10-09**, beim ersten
+Handlauf überhaupt: Das Skript endete korrekt mit Rückgabewert 2 und „Ein
+Laufwerk mit dem Namen D ist nicht vorhanden."
+
+> **Das ist derselbe Befund wie AUDIT-003-002, nur eine Ebene tiefer.** Dort
+> war das Verfahren beschrieben und der Task nie eingetragen; hier war der
+> Pfad beschrieben und nie angelegt. Eine Anleitung, die niemand einmal
+> ausgeführt hat, ist eine Vermutung.
+
+Vor einer Änderung des Pfades erst nachsehen, was es gibt:
+
+```powershell
+Get-PSDrive -PSProvider FileSystem |
+  Select-Object Name, @{n='Frei_GB';e={[int]($_.Free/1GB)}}
+```
+
+**Warum `C:` vertretbar ist, obwohl dort auch PostgreSQL liegt:** Die lokale
+Sicherung deckt den Fall „gestern ging etwas kaputt" — da zählt
+Geschwindigkeit. Gegen den Verlust der Platte wirkt sie ohnehin nicht, und
+das sagt der Kasten unten auch. Diesen Fall deckt seit
+[ADR 0070](adr/0070-sicherung-ausser-haus.md) die Auslagerung. Ein zweites
+Laufwerk wäre für den schnellen Wiederanlauf besser und bleibt die bessere
+Wahl, sobald eines da ist.
+
+Platzbedarf: vierzehn Tage × einige hundert Megabyte, also **rund 5 GB**.
+Läuft `C:` voll, nimmt das den Tageslauf mit.
+
+**Der Pfad steht an drei Stellen und muss überall gleich sein:** im
+Sicherungs-Task (`-Ziel`), in der Zählprobe (`-Quelle`) und beim Wächter
+(`--backup-dir`). Weicht die dritte ab, meldet der Wächter jede Nacht eine
+fehlende Sicherung, die es gibt.
+
 ### Das Passwort zuerst
 
 `%APPDATA%\postgresql\pgpass.conf` anlegen, eine Zeile:
@@ -2054,13 +2090,13 @@ Ausfallrisiko.
 > statt mitten in der Nacht an einem Tippfehler-artigen Fehler zu scheitern.
 >
 > Liegen die Werkzeuge woanders:
-> `powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel D:\backups\ata -PgBin "D:\pgsql\bin"`
+> `powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel C:\ata-backups -PgBin "D:\pgsql\bin"`
 
 Erster Lauf von Hand, um zu sehen, dass er trägt:
 
 ```powershell
 cd C:\Users\Administrator\Documents\TradingViewAnalyzer
-powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel D:\backups\ata
+powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel C:\ata-backups
 echo $LASTEXITCODE
 ```
 
@@ -2084,7 +2120,7 @@ Zwei Eigenschaften des Skripts, die den Unterschied machen:
 | Name | `AI Trading Analyst — Sicherung` |
 | Trigger | Täglich, Beginn **23:45** (siehe unten) |
 | Programm | `powershell.exe` |
-| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel D:\backups\ata` |
+| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel C:\ata-backups` |
 
 Anders als der Tageslauf braucht diese Aufgabe **keine** angemeldete Sitzung
 — sie spricht nur PostgreSQL an, nicht die TWS. „Unabhängig von der
@@ -2113,7 +2149,7 @@ als 0.
 Einmal bei der Einrichtung, danach bei jedem Pflegetermin:
 
 ```powershell
-powershell.exe -NoProfile -File scripts\sicherung-probe.ps1 -Quelle D:\backups\ata
+powershell.exe -NoProfile -File scripts\sicherung-probe.ps1 -Quelle C:\ata-backups
 ```
 
 Das Skript stellt den jüngsten Dump in die Wegwerfdatenbank
@@ -2299,7 +2335,7 @@ Server.
 | Feld | Wert |
 |---|---|
 | Name | `AI Trading Analyst — Sicherung` (derselbe Task) |
-| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel D:\backups\ata -ExternesZiel s3://ata-sicherung/ -AgeEmpfaenger age1…` |
+| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel C:\ata-backups -ExternesZiel s3://ata-sicherung/ -AgeEmpfaenger age1…` |
 
 Liegen `age.exe` oder `aws.exe` nicht im Suchpfad des Dienstkontos — und der
 ist **nicht** der der angemeldeten Sitzung —, kommen `-AgePfad` und
@@ -2311,7 +2347,7 @@ Erster Lauf von Hand:
 ```powershell
 cd C:\Users\Administrator\Documents\TradingViewAnalyzer
 powershell.exe -NoProfile -File scripts\sicherung.ps1 `
-    -Ziel D:\backups\ata `
+    -Ziel C:\ata-backups `
     -ExternesZiel s3://ata-sicherung/ `
     -AgeEmpfaenger age1…
 echo $LASTEXITCODE
@@ -2371,7 +2407,7 @@ cd C:\Users\Administrator\Documents\TradingViewAnalyzer
 . .\scripts\postgres-werkzeuge.ps1
 $psql      = Finde-PostgresWerkzeug -Name 'psql'
 $pgRestore = Finde-PostgresWerkzeug -Name 'pg_restore'
-$dump      = (Get-ChildItem D:\backups\ata\*.dump | Sort-Object LastWriteTime -Descending)[0].FullName
+$dump      = (Get-ChildItem C:\ata-backups\*.dump | Sort-Object LastWriteTime -Descending)[0].FullName
 $dump      # ansehen: ist das der Stand, den man will?
 ```
 
@@ -2487,7 +2523,7 @@ arbeiten, wenn davon etwas ausgefallen ist.
 Argumente:
 
 ```
--m ai_trading_analyst.cli watchdog --notification-channel telegram --telegram-chat-id <CHAT_ID> --backup-dir D:\backups\ata --log-file var/logs/waechter.log
+-m ai_trading_analyst.cli watchdog --notification-channel telegram --telegram-chat-id <CHAT_ID> --backup-dir C:\ata-backups --log-file var/logs/waechter.log
 ```
 
 Wie die Sicherung braucht er **keine** angemeldete Sitzung. Zeitlimit

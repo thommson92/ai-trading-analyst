@@ -69,11 +69,11 @@
     Sitzung, und das fällt erst nachts auf.
 
 .EXAMPLE
-    powershell.exe -NoProfile -File C:\...\scripts\sicherung.ps1 -Ziel D:\backups\ata
+    powershell.exe -NoProfile -File C:\...\scripts\sicherung.ps1 -Ziel C:\ata-backups
 
 .EXAMPLE
     powershell.exe -NoProfile -File C:\...\scripts\sicherung.ps1 `
-        -Ziel D:\backups\ata `
+        -Ziel C:\ata-backups `
         -ExternesZiel s3://ata-sicherung/ `
         -AgeEmpfaenger age1qqqqq...
 #>

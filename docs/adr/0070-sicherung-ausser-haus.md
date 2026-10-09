@@ -35,8 +35,14 @@ Eine Sicherung auf demselben Rechner schützt gegen Softwarefehler,
 Fehlbedienung und eine kaputte Migration. Sie schützt **nicht** gegen den
 Ausfall der Platte, den Verlust des Rechners und — der eigentliche Punkt —
 nicht gegen einen Verschlüsselungstrojaner: Der verschlüsselt, was das
-Benutzerkonto beschreiben darf, und das schließt `D:\backups\ata` ein. Der
-Zustand danach ist derselbe wie ganz ohne Sicherung.
+Benutzerkonto beschreiben darf, und das schließt die Sicherungsablage ein.
+Der Zustand danach ist derselbe wie ganz ohne Sicherung.
+
+> Die Ablage hieß hier ursprünglich `D:\backups\ata`. Ein solches Laufwerk
+> gibt es auf dem Server nicht; sie liegt seit dem 2026-10-09 unter
+> `C:\ata-backups` (Doc 14). Für dieses ADR ändert das nichts — maßgeblich
+> ist, was das Benutzerkonto beschreiben darf, nicht welcher Buchstabe
+> davorsteht.
 
 ## Entscheidung
 

@@ -18,6 +18,14 @@
     fehlender Schluessel soll auffallen, bevor eine halbe Gigabyte
     geschrieben wurde, nicht danach -- und nicht jeden Tag neu.
 
+    **Laeuft unter Windows PowerShell 5.1 und unter pwsh 7.** Das ist keine
+    Nebensache: Die Aufgabenplanung ruft ``powershell.exe`` auf, also 5.1 --
+    eine Pruefung, die nur unter pwsh 7 durchlaeuft, prueft die falsche
+    Umgebung.
+
+.EXAMPLE
+    powershell.exe -NoProfile -File scripts\pruefe-sicherung.ps1
+
 .EXAMPLE
     pwsh -NoProfile -File scripts\pruefe-sicherung.ps1
 #>
@@ -77,7 +85,7 @@ New-Item -ItemType Directory -Force -Path $stubBin | Out-Null
 
 # Nur die Existenz wird geprueft, nicht die Ausfuehrbarkeit -- die Leitplanken
 # greifen alle, bevor irgendetwas davon aufgerufen wird.
-foreach ($name in @('pg_dump.exe', 'pg_restore.exe')) {
+foreach ($name in @('pg_dump.exe', 'pg_restore.exe', 'psql.exe')) {
     New-Item -ItemType File -Force -Path (Join-Path $stubBin $name) | Out-Null
 }
 $ageStub = Join-Path $spielwiese 'age.cmd'
@@ -90,6 +98,12 @@ $ablage = Join-Path $spielwiese 'ablage'
 
 function Starte-Sicherung {
     param([string[]]$Weitere, [hashtable]$Umgebung = @{})
+    return Starte-Skript -Skript $skript -Weitere (
+        @('-Ziel', $ablage, '-PgBin', $stubBin) + $Weitere) -Umgebung $Umgebung
+}
+
+function Starte-Skript {
+    param([string]$Skript, [string[]]$Weitere, [hashtable]$Umgebung = @{})
 
     $gemerkt = @{}
     foreach ($name in $Umgebung.Keys) {
@@ -97,14 +111,34 @@ function Starte-Sicherung {
         [Environment]::SetEnvironmentVariable($name, $Umgebung[$name])
     }
     try {
-        $argumente = @(
-            '-NoProfile', '-File', $skript,
-            '-Ziel', $ablage, '-PgBin', $stubBin
-        ) + $Weitere
-        $ausgabe = & (Get-Process -Id $PID).Path @argumente 2>&1
+        $argumente = @('-NoProfile', '-File', $Skript) + $Weitere
+
+        # **Die Fehlerausgabe geht in eine Datei, nicht in den Erfolgsstrom.**
+        # Windows PowerShell 5.1 macht aus jeder stderr-Zeile eines nativen
+        # Befehls bei ``2>&1`` und ``$ErrorActionPreference = 'Stop'`` einen
+        # abbrechenden ``NativeCommandError`` -- und genau das ist hier der
+        # Normalfall: Jede Leitplanke *soll* nach stderr schreiben. Unter
+        # pwsh 7 faellt das nicht auf, auf dem Server mit 5.1 sofort.
+        #
+        # Die Umstellung auf 'Continue' kommt dazu, weil sie nichts kostet
+        # und die Huelle des Aufrufers nicht feststeht.
+        $fehlerdatei = Join-Path $spielwiese "stderr-$([guid]::NewGuid()).txt"
+        $vorher = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $verworfen = & (Get-Process -Id $PID).Path @argumente 2> $fehlerdatei
+            $code = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $vorher
+        }
+        $null = $verworfen
+        $text = if (Test-Path $fehlerdatei) { Get-Content $fehlerdatei -Raw } else { '' }
+        Remove-Item $fehlerdatei -Force -ErrorAction SilentlyContinue
+
         return [pscustomobject]@{
-            Code = $LASTEXITCODE
-            Text = ($ausgabe | Out-String)
+            Code = $code
+            Text = [string]$text
         }
     }
     finally {
@@ -156,6 +190,13 @@ try {
             '-AgeEmpfaenger', 'age1pruefung',
             '-AgePfad', (Join-Path $spielwiese 'gibtesnicht.cmd'),
             '-AwsPfad', $awsStub))
+
+    # Nicht die Auslagerung, aber dieselbe Art Fehlschlag: Am 2026-10-09 warf
+    # die Zaehlprobe bei fehlender Ablage einen rohen DriveNotFoundException
+    # und endete mit 1 statt mit 2. Die 1 geht in der Aufgabenplanung unter.
+    Pruefe-Leitplanke "eine fehlende Ablage bricht die Zaehlprobe mit 2 ab" 'gibt es nicht' (
+        Starte-Skript -Skript (Join-Path $PSScriptRoot 'sicherung-probe.ps1') -Weitere @(
+            '-Quelle', (Join-Path $spielwiese 'gibtesnicht'), '-PgBin', $stubBin))
 
     Pruefe-Leitplanke "fehlende AWS-Zugangsdaten brechen ab" 'AWS_ACCESS_KEY_ID' (
         Starte-Sicherung -Umgebung $leer -Weitere @(
