@@ -3973,9 +3973,15 @@ def command_dispatch(args: argparse.Namespace) -> int:
                 melde(ergebnis.symbol, not ergebnis.failed)
 
         try:
-            bericht = BackfillHistoryUseCase(
-                bar_source, uow_factory, default_days=standardzeitraum
-            ).execute(watchlist, on_progress=fortschritt, soll_abbrechen=soll_abbrechen)
+            # **Auch die Ruhezeit muss abbrechen koennen** (ADR 0078): Ohne
+            # dieses Signal liefe der Backfill-Thread nach einem frueh
+            # abgebrochenen Lauf das Fenster zu Ende, waehrend der Hauptthread
+            # die Dispatcher-Sperre haelt -- genau die Zeit, die das fruehe
+            # Datengate sparen soll (ADR 0069).
+            with bar_source.abbruchsignal(soll_abbrechen):
+                bericht = BackfillHistoryUseCase(
+                    bar_source, uow_factory, default_days=standardzeitraum
+                ).execute(watchlist, on_progress=fortschritt, soll_abbrechen=soll_abbrechen)
         finally:
             if melde is not None:
                 # **Die Verbindung gehoert dem Thread, der sie aufgebaut

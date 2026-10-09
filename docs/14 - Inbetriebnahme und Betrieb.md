@@ -2189,6 +2189,99 @@ Kandidaten kamen jeden Abend per Telegram an; dass der Lauf nie fertig wurde,
 sagte sechs Handelstage lang niemand. Die Überfälligkeitsmeldung lag hinter
 der Sperre, die der hängende Lauf hielt.
 
+## Ruhezeiten um die eigenen Handelszeitpunkte
+
+Auf dem Server handelt eine zweite Anwendung über dieselbe TWS-Instanz. Die
+eigene Client-ID (17 hier, 99 dort) verhindert, dass sich die beiden die
+*Verbindung* streiten — die Marktdatenleitungen gehören aber dem **Konto**.
+Dagegen hilft nur Schweigen ([ADR 0078](adr/0078-ruhezeiten-um-die-handelszeitpunkte.md)).
+
+**Das hier pflegst du selbst**, in `config/default.yaml` unter
+`market_data.ibkr.ruhezeiten` — Uhrzeiten in Börsenzeit, Wochentage als
+`Mo Di Mi Do Fr Sa So`:
+
+```yaml
+    ruhezeiten:
+      radius_minuten: 5
+      zeitpunkte:
+        - zeit: "13:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:45"
+          wochentage: [Fr]
+```
+
+Ein Tippfehler bricht den Start mit einer Meldung ab, statt still zu einer
+täglichen Sperre zu werden: `"13.15"` nennt das Format, ein unbekannter Tag
+nennt die erlaubten, eine leere Tagesliste wird abgewiesen.
+
+**Die eine Zahl, die man beim Pflegen kennen muss:** Zwischen 12:50 und 13:10
+liegt die einzige durchgehende Arbeitszeit des Backfills. Ein Fenster dort
+verlängert den Lauf deutlich stärker als eines danach.
+
+| Fenster | Wirkung auf den Lauf |
+|---|---|
+| 13:10–13:20 | trifft den Backfill, er endet gegen 13:35 statt 13:25 |
+| 14:10–14:20 | liegt hinter dem Lauf — **bis etwa 383 Symbole** |
+| Fr 14:40–14:50 | liegt hinter dem Lauf |
+
+Die zweite Zeile ist eine Aussage über heute. Ab rund 383 Symbolen erreicht
+der Backfill auch das Fenster um 14:10 und kostet weitere zehn Minuten; ab
+rund 546 erreicht er die Nachholfrist 14:50 von sich aus. Bei den heutigen
+192 liegt etwa der doppelte Bestand dazwischen.
+
+Der Radius ist auf **30 Minuten** begrenzt — nicht aus technischer Not,
+sondern weil ein `50` statt `5` die drei Fenster zu einer Sperre von 11:35 bis
+16:25 verschmelzen ließe: Der Lauf begänne mitten darin und screente nie.
+
+`radius_minuten: 0` schaltet die Sperre ab, ohne die Zeitpunkte zu löschen —
+der Weg zurück.
+
+Im Protokoll stehen drei Spuren: beim Aufbau eine Zeile `Ruhezeiten: …` mit
+der geltenden Sperre, je getroffenem Fenster eine Zeile `Ruhezeit bis …`, und
+in der Backfill-Zeile das Feld **`ruhesekunden`** — getrennt von
+`verschlafene_sekunden`. Die eine Zahl schützt uns vor IBKRs Rate, die andere
+eine fremde Anwendung vor uns; zusammengezählt ließe sich hinterher nicht
+sagen, welche der beiden einen Abend verlängert hat.
+
+Ein abgebrochener Lauf wartet die Ruhezeit **nicht** zu Ende: Sonst hielte der
+Dispatcher seine Sperre bis zum Fensterende, und der nächste Start in fünfzehn
+Minuten endete mit „in Arbeit" — genau die Zeit, die das frühe Datengate
+sparen soll.
+
+## Hat er getan, was er soll?
+
+Nach einigen Wochen ohne Hinsehen beantwortet das ein Aufruf — rein lesend,
+ohne Protokolldatei, auch rückblickend:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+backend\.venv\Scripts\python.exe scripts\betriebsbericht.py
+backend\.venv\Scripts\python.exe scripts\betriebsbericht.py --limit 30
+```
+
+Zwei Teile, weil es zwei Fragen sind.
+
+**Lief er?** Je Handelstag Ausgang, Zahl der Versuche, Beginn und Ende in
+Börsenzeit, Dauer und die Zahl isolierter Fehler. **Ein fehlender Tag ist das
+lauteste Signal, das dieser Bericht kennt** — dann ist nicht einmal ein
+Versuch bis zum Dispatcher gekommen, und das sieht man nur am Loch in der
+Reihe.
+
+**Kam heraus, was herauskommen soll?** Je Tag, wie viele Kandidaten einen
+Optionsvorschlag bekamen. Die beiden Spalten daneben bedeuten
+**Verschiedenes**, und sie zu verwechseln führt die Fehlersuche in die
+falsche Richtung:
+
+| Spalte | Bedeutung | Einzuordnen als |
+|---|---|---|
+| `kein Treffer` | `INSUFFICIENT_DATA` — die Kette kam an, es blieb kein Vorschlag übrig: kein Verfallstermin im Zielfenster, kein Strike im Band, keine beidseitige Notierung | Aussage über den Markt |
+| `LEER` | Kein Status — die Optionsanalyse hat dieses Symbol nie zu Ende gebracht. Ein Ausfall der Quelle verlässt den Weg als Fehler, den der Lauf je Aktie isoliert | **Ausfall** |
+
+Darunter stehen die häufigsten Gründe im Wortlaut. „In manchen Meldungen
+fehlen die Optionsdaten" lässt beide Lagen offen; diese Tabelle trennt sie.
+
 ## Wo die Zeit eines Laufs bleibt
 
 Ein Lauf dauerte am 2026-09-01 (`7c88d78c`, 192 Aktien, 36 Kandidaten) rund

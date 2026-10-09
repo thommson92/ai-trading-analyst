@@ -52,6 +52,15 @@ class Gedrosselt(Protocol):
 
     verschlafene_sekunden: float
     anfragen: int
+    ruhesekunden: float
+    """Wartezeit aus den Ruhefenstern um fremde Handelszeitpunkte (ADR 0078).
+
+    **Getrennt von ``verschlafene_sekunden``, und das ist der Zweck.** Die
+    Drossel schuetzt uns vor IBKRs Rate, die Ruhezeit schuetzt eine andere
+    Anwendung vor uns. Zusammengezaehlt liesse sich hinterher nicht sagen,
+    welche der beiden Ursachen einen Lauf verlaengert hat -- und genau diese
+    Frage stellt sich, wenn ein Abend ueber sein Zeitfenster hinauslaeuft.
+    """
 
 
 UEBERLAPPUNG_TAGE = 1
@@ -254,7 +263,7 @@ class BackfillHistoryUseCase:
         # die Summe beider Laeufe, und der Betreiber liest eine Wartezeit, die
         # es in diesem Lauf nie gab.
         vorher = (
-            (gedrosselt.verschlafene_sekunden, gedrosselt.anfragen)
+            (gedrosselt.verschlafene_sekunden, gedrosselt.anfragen, gedrosselt.ruhesekunden)
             if gedrosselt is not None
             else None
         )
@@ -282,6 +291,9 @@ class BackfillHistoryUseCase:
                         gedrosselt.verschlafene_sekunden - vorher[0], 1
                     )
                     messwerte["anfragen"] = gedrosselt.anfragen - vorher[1]
+                    messwerte["ruhesekunden"] = round(
+                        gedrosselt.ruhesekunden - vorher[2], 1
+                    )
         return BackfillReport(results=tuple(ergebnisse))
 
     def _backfill_one(self, contract: ContractSpec) -> SymbolBackfill:

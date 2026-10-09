@@ -50,6 +50,40 @@ market_data:
     # Muss sich von der Client-ID jeder anderen Anwendung an derselben
     # TWS-Instanz unterscheiden (Trade Automation Toolbox: 99).
     client_id: 17
+    # Wann dieses Programm die TWS in Ruhe lässt
+    # (docs/adr/0078-ruhezeiten-um-die-handelszeitpunkte.md).
+    #
+    # Auf demselben Server handelt eine zweite Anwendung über dieselbe
+    # TWS-Instanz. Die eigene Client-ID oben verhindert, dass sich die beiden
+    # die *Verbindung* streiten — die Marktdatenleitungen gehören aber dem
+    # Konto und nicht der Verbindung. Dagegen hilft nur Schweigen.
+    #
+    # **Das hier pflegt der Inhaber.** Die Zeitpunkte hängen an seinem
+    # Handelsplan, nicht an einer technischen Eigenschaft. Uhrzeiten in
+    # Börsenzeit (market.timezone), Wochentage als Mo Di Mi Do Fr Sa So.
+    # Ein Tippfehler bricht den Start mit einer Meldung ab, statt still zu
+    # einer täglichen Sperre zu werden.
+    #
+    # Stand 2026-10-09, vom Inhaber validiert: jeden Wochentag 13:15 und
+    # 14:15, zusätzlich freitags 14:45 — jeweils fünf Minuten davor und
+    # danach.
+    #
+    # 'radius_minuten: 0' schaltet die Sperre ab, ohne die Zeitpunkte zu
+    # löschen. Der Weg zurück.
+    #
+    # Kosten: Von den drei Fenstern trifft nur 13:10–13:20 den Backfill; er
+    # endet dann gegen 13:35 statt 13:25. Wer einen Zeitpunkt in die Minuten
+    # nach 12:50 legt, verlängert den Lauf deutlich stärker — dort liegt die
+    # einzige durchgehende Arbeitszeit.
+    ruhezeiten:
+      radius_minuten: 5
+      zeitpunkte:
+        - zeit: "13:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:15"
+          wochentage: [Mo, Di, Mi, Do, Fr]
+        - zeit: "14:45"
+          wochentage: [Fr]
     connect_timeout_seconds: 15
     # 195 Minuten teilen sich ohne Rest durch 15 -- eine Kerze besteht damit
     # aus genau 13 nativen Bars.

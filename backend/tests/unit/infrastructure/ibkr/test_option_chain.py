@@ -130,6 +130,11 @@ class FakeIb:
 def quelle(ib: FakeIb) -> IbAsyncBarSource:
     gebaut = IbAsyncBarSource(UNBESETZTER_PORT, native_bar_minutes=15, duration="1 Y")
     gebaut._connection = lambda: ib  # type: ignore[method-assign]
+    # **Auch direkt gesetzt.** Das Zuruecksetzen des Marktdatenmodus greift
+    # seit ADR 0078 auf ``self._ib`` zu und nicht mehr auf ``_connection``:
+    # Dort wartete sonst unter Umstaenden ein Ruhefenster, zehn Minuten lang,
+    # fuer einen Schritt, der ausdruecklich nichts beschaffen soll.
+    gebaut._ib = ib
     gebaut._qualified = lambda ib, contract: FakeKontrakt(0.0)  # type: ignore[method-assign]
     return gebaut
 
