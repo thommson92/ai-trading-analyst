@@ -91,6 +91,7 @@ class WatchDailyRunUseCase:
         latest_backup: Callable[[], datetime | None] | None = None,
         max_backup_age: timedelta = SICHERUNG_HOECHSTALTER,
         max_run_duration: timedelta = LAUF_HOECHSTDAUER,
+        haengende_auslagerung: Callable[[], datetime | None] | None = None,
     ) -> None:
         self._runs = runs
         self._parameters = parameters
@@ -98,11 +99,19 @@ class WatchDailyRunUseCase:
         self._now = now
         self._latest_backup = latest_backup
         self._max_backup_age = max_backup_age
+        self._haengende_auslagerung = haengende_auslagerung
         self._max_run_duration = max_run_duration
 
     def execute(self) -> WatchdogReport:
         jetzt = self._now().astimezone(ZoneInfo(self._parameters.timezone))
-        befunde = [*self._pruefe_lauf(jetzt), *self._pruefe_sicherung(jetzt)]
+        # Drei unabhaengige Fragen, drei unabhaengige Befunde. Eine alte
+        # Sicherung und ein klemmender Upload koennen gleichzeitig vorliegen,
+        # und dann gehoeren beide hinaus.
+        befunde = [
+            *self._pruefe_lauf(jetzt),
+            *self._pruefe_sicherung(jetzt),
+            *self._pruefe_auslagerung(jetzt),
+        ]
         if not befunde:
             return WatchdogReport()
         return WatchdogReport(findings=tuple(befunde), notified=self._melde(befunde, jetzt))
@@ -184,9 +193,9 @@ class WatchDailyRunUseCase:
         Die Grenze ist dieselbe wie das Zeitlimit der Aufgabe (Doc 14): Was
         laenger laeuft, haette der Aufgabenplaner ohnehin abbrechen sollen.
         """
-        if lage.first_attempt_at is None:  # pragma: no cover -- 'running' ohne Beginn
+        if lage.running_since is None:  # pragma: no cover -- 'running' ohne Beginn
             return []
-        dauer = jetzt - lage.first_attempt_at.astimezone(jetzt.tzinfo)
+        dauer = jetzt - lage.running_since.astimezone(jetzt.tzinfo)
         if dauer <= self._max_run_duration:
             return []
         stunden = dauer.total_seconds() / 3600
@@ -217,6 +226,39 @@ class WatchDailyRunUseCase:
                 f"(Grenze {int(self._max_backup_age.total_seconds() // 3600)})."
             ]
         return []
+
+    def _pruefe_auslagerung(self, jetzt: datetime) -> list[str]:
+        """Kam die Sicherung auch ausser Haus?
+
+        **Eine frische lokale Sicherung sagt darueber nichts.** Scheitert der
+        Upload, liegt der Dump trotzdem brauchbar da, und die Pruefung
+        darueber waere zufrieden -- waehrend ausser Haus nie etwas ankam. Das
+        ist dasselbe Muster wie AUDIT-003-002, nur ein Glied weiter.
+
+        Gefragt wird nach der liegengebliebenen ``.age``-Datei.
+        ``sicherung.ps1`` loescht sie nach einem gelungenen Upload sofort und
+        laesst sie nach einem gescheiterten absichtlich liegen -- ihr
+        Vorhandensein ist damit die Aussage, nicht ihr Alter.
+
+        Die Toleranz ist dieselbe wie bei der Sicherung selbst: Der Waechter
+        laeuft um 23:15, der Sicherungs-Task um 23:45. Eine Ruine von heute
+        Abend gehoert also noch nicht gemeldet -- sie kann gar nicht von
+        heute sein.
+        """
+        if self._haengende_auslagerung is None:
+            return []
+        ruine = self._haengende_auslagerung()
+        if ruine is None:
+            return []
+        alter = jetzt - ruine.astimezone(jetzt.tzinfo)
+        if alter <= self._max_backup_age:
+            return []
+        stunden = int(alter.total_seconds() // 3600)
+        return [
+            f"Eine verschluesselte Sicherung liegt seit {stunden} Stunden "
+            "unversandt in der Ablage. Lokal ist gesichert, ausser Haus "
+            "nicht -- der Upload scheitert seit mindestens so lange."
+        ]
 
     def _melde(self, befunde: list[str], jetzt: datetime) -> bool:
         """Stellt die Meldung zu. ``False``, wenn der Kanal nicht erreichbar war.

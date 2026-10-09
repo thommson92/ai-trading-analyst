@@ -4219,9 +4219,15 @@ def command_watchdog(args: argparse.Namespace) -> int:
         # gehoert hinaus. Der Melder steht schon.
         _melde_ausfall(
             notifier,
-            "Die Datenbank ist nicht erreichbar. Der Waechter kann den Lauf nicht "
-            "pruefen -- und der Tageslauf kann ohne sie weder arbeiten noch sich "
-            "melden.",
+            # Nicht "nicht erreichbar": ``_open_database`` gibt ``None`` auch
+            # bei fehlender und bei unlesbarer Adresse zurueck. Die drei
+            # fuehren an verschiedene Orte, und eine Meldung, die sich fuer
+            # einen entscheidet, schickt in zwei Faellen von drei in die
+            # falsche Richtung. Der Grund steht auf der Konsole des Waechters.
+            "Die Datenbank ist nicht nutzbar -- die Adresse fehlt, ist "
+            "unlesbar, oder der Server antwortet nicht. Der Waechter kann den "
+            "Lauf nicht pruefen, und der Tageslauf kann ohne sie weder "
+            "arbeiten noch sich melden.",
         )
         return 2
     session_factory = build_session_factory(engine)
@@ -4241,6 +4247,9 @@ def command_watchdog(args: argparse.Namespace) -> int:
         notifier=notifier,
         latest_backup=_sicherungsstand(args.backup_dir) if args.backup_dir else None,
         max_backup_age=timedelta(hours=args.max_backup_age_hours),
+        haengende_auslagerung=(
+            _haengende_auslagerung(args.backup_dir) if args.backup_dir else None
+        ),
     )
     try:
         bericht = use_case.execute()
@@ -4249,8 +4258,12 @@ def command_watchdog(args: argparse.Namespace) -> int:
         # abgestuerzter Waechter saehe darin aus wie ein arbeitender -- etwa
         # nach einer Wiederherstellung ohne 'alembic upgrade head', wenn die
         # Tabelle fehlt.
-        print(f"Waechter abgebrochen: {redact_registered(str(error))}", file=sys.stderr)
-        _melde_ausfall(notifier, f"Der Waechter selbst ist abgebrochen: {error}")
+        # **Beide Wege geschwaerzt, nicht nur die Konsole.** Der Text, der
+        # den Rechner verlaesst, ist der kritischere der beiden -- eine
+        # Verbindungsadresse in einer Ausnahme traegt das Passwort mit.
+        gemeldet = redact_registered(str(error))
+        print(f"Waechter abgebrochen: {gemeldet}", file=sys.stderr)
+        _melde_ausfall(notifier, f"Der Waechter selbst ist abgebrochen: {gemeldet}")
         return 2
 
     if not bericht.conspicuous:
@@ -4310,6 +4323,37 @@ def _sicherungsstand(verzeichnis: str) -> Callable[[], datetime | None]:
             return None
         juengste = max(brauchbar, key=lambda d: d.stat().st_mtime)
         return datetime.fromtimestamp(juengste.stat().st_mtime, tz=UTC)
+
+    return stand
+
+
+def _haengende_auslagerung(verzeichnis: str) -> Callable[[], datetime | None]:
+    """Liegt eine verschluesselte Sicherung herum, die nicht hinausgekommen ist?
+
+    ``sicherung.ps1`` laesst die ``.age``-Datei **absichtlich** liegen, wenn
+    der Upload scheitert -- sie laesst sich dann von Hand hochladen, ohne den
+    Dump erneut zu verschluesseln. Genau das macht sie zum Zeugen: Nach einem
+    gelungenen Upload loescht das Skript sie sofort.
+
+    Ohne diese Pruefung waere die Auslagerung der zweite stille Ausfall
+    dieses Betriebs. Der lokale Dump liegt dann frisch und brauchbar da, der
+    Waechter melde "nichts zu melden" -- und ausser Haus waere nie etwas
+    angekommen. Dasselbe Muster wie bei AUDIT-003-002: Das Verfahren war
+    beschrieben, und niemand sah, dass es nicht lief.
+
+    Zurueckgegeben wird der Zeitpunkt der **aeltesten** Ruine. Bei mehreren
+    ist die aelteste die Aussage: Sie sagt, seit wann es klemmt.
+    """
+
+    def stand() -> datetime | None:
+        pfad = Path(verzeichnis)
+        if not pfad.is_dir():
+            return None
+        ruinen = list(pfad.glob("*.dump.age"))
+        if not ruinen:
+            return None
+        aelteste = min(ruinen, key=lambda d: d.stat().st_mtime)
+        return datetime.fromtimestamp(aelteste.stat().st_mtime, tz=UTC)
 
     return stand
 

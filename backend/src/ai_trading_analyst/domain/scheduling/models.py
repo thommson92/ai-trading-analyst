@@ -68,11 +68,18 @@ class DailyRunSummary:
     running: bool = False
     """Eine Zeile steht auf ``running``. Entweder arbeitet der Lauf noch --
     er darf bis gegen 23:15 dauern -- oder er haengt und haelt den Advisory
-    Lock. Wie lange schon, sagt ``first_attempt_at``."""
+    Lock. Wie lange schon, sagt ``running_since``."""
     alerted: bool = False
     """Der Dispatcher hat fuer diesen Tag bereits gemeldet. Dann weiss der
     Nutzer Bescheid, und eine zweite Meldung waere nur Laerm."""
-    first_attempt_at: datetime | None = None
+    running_since: datetime | None = None
+    """Wann der Versuch begann, der auf ``running`` steht.
+
+    **Nicht der erste Versuch des Tages.** Scheitert der Start um 19:00 und
+    arbeitet der um 21:30 noch, waere die Spanne seit dem ersten Versuch
+    zweimal falsch: Sie waere zu lang, und sie gehoerte zu einer anderen
+    Zeile. Ein regulaerer Lauf dauert rund 103 Minuten -- der Unterschied
+    reicht aus, um aus "arbeitet noch" ein "haengt" zu machen."""
     last_error: str | None = None
 
     @property

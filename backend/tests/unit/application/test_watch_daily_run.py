@@ -72,6 +72,8 @@ def waechter(
     sicherung_geprueft: bool = False,
     max_alter: timedelta = SICHERUNG_HOECHSTALTER,
     max_dauer: timedelta = LAUF_HOECHSTDAUER,
+    ruine: datetime | None = None,
+    auslagerung_geprueft: bool = False,
 ) -> tuple[WatchDailyRunUseCase, FakeMelder]:
     kanal = melder if melder is not None else FakeMelder()
     return (
@@ -83,6 +85,7 @@ def waechter(
             latest_backup=(lambda: sicherung) if sicherung_geprueft else None,
             max_backup_age=max_alter,
             max_run_duration=max_dauer,
+            haengende_auslagerung=(lambda: ruine) if auslagerung_geprueft else None,
         ),
         kanal,
     )
@@ -146,7 +149,7 @@ class TestDerLaufendeLauf:
                 attempts=1,
                 succeeded=False,
                 running=True,
-                first_attempt_at=NACH_FRISTABLAUF - timedelta(minutes=90),
+                running_since=NACH_FRISTABLAUF - timedelta(minutes=90),
             )
         )
         assert not fall.execute().conspicuous
@@ -165,7 +168,7 @@ class TestDerLaufendeLauf:
                 attempts=1,
                 succeeded=False,
                 running=True,
-                first_attempt_at=NACH_FRISTABLAUF - timedelta(hours=5),
+                running_since=NACH_FRISTABLAUF - timedelta(hours=5),
             )
         )
         bericht = fall.execute()
@@ -187,7 +190,7 @@ class TestDerLaufendeLauf:
                 succeeded=False,
                 running=True,
                 alerted=True,
-                first_attempt_at=NACH_FRISTABLAUF - timedelta(hours=5),
+                running_since=NACH_FRISTABLAUF - timedelta(hours=5),
             )
         )
         assert not fall.execute().conspicuous
@@ -303,3 +306,58 @@ class TestDieMeldung:
         )
         fall.execute()
         assert zustand.gefragt == [HANDELSTAG]
+
+
+class TestDieAuslagerung:
+    """Eine frische lokale Sicherung sagt nichts darueber, ob sie ausser Haus
+    ankam. ``sicherung.ps1`` laesst die verschluesselte Datei nach einem
+    gescheiterten Upload absichtlich liegen -- sie ist der Zeuge."""
+
+    def test_ohne_ablage_wird_nichts_geprueft(self) -> None:
+        fall, _ = waechter(ruine=NACH_FRISTABLAUF - timedelta(days=5))
+        assert not fall.execute().conspicuous
+
+    def test_keine_ruine_ergibt_keinen_befund(self) -> None:
+        fall, _ = waechter(auslagerung_geprueft=True, ruine=None)
+        assert not fall.execute().conspicuous
+
+    def test_eine_frische_ruine_bleibt_still(self) -> None:
+        """Der Waechter laeuft um 23:15, die Sicherung um 23:45. Eine Datei von
+        heute Abend kann es gar nicht geben -- aber eine von vor zwei Stunden
+        waere ein Lauf, der gerade arbeitet."""
+        fall, _ = waechter(
+            auslagerung_geprueft=True, ruine=NACH_FRISTABLAUF - timedelta(hours=2)
+        )
+        assert not fall.execute().conspicuous
+
+    def test_eine_alte_ruine_wird_gemeldet(self) -> None:
+        """**Der stille Ausfall, den es sonst zweimal gaebe.** Lokal liegt ein
+        brauchbarer Dump, die Sicherungspruefung ist zufrieden -- und ausser
+        Haus ist seit Tagen nichts angekommen."""
+        fall, melder = waechter(
+            auslagerung_geprueft=True,
+            sicherung_geprueft=True,
+            sicherung=NACH_FRISTABLAUF - timedelta(hours=1),
+            ruine=NACH_FRISTABLAUF - timedelta(days=3),
+        )
+        bericht = fall.execute()
+        assert bericht.conspicuous
+        assert "unversandt" in bericht.findings[0]
+        assert "72 Stunden" in bericht.findings[0]
+        assert len(melder.meldungen) == 1
+
+    def test_beide_befunde_kommen_zusammen_heraus(self) -> None:
+        """Eine alte Sicherung **und** ein klemmender Upload sind zwei Dinge.
+        Haenge die Auslagerungspruefung am Erfolg der Sicherungspruefung, waere
+        der zweite Befund genau dann unsichtbar, wenn es am schlechtesten
+        steht."""
+        fall, _ = waechter(
+            auslagerung_geprueft=True,
+            sicherung_geprueft=True,
+            sicherung=NACH_FRISTABLAUF - timedelta(days=4),
+            ruine=NACH_FRISTABLAUF - timedelta(days=3),
+        )
+        befunde = fall.execute().findings
+        assert len(befunde) == 2
+        assert any("Stunden alt" in b for b in befunde)
+        assert any("unversandt" in b for b in befunde)

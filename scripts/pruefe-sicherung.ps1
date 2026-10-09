@@ -64,6 +64,11 @@ foreach ($schlecht in @('d:\backups', 's3://', 'ata-sicherung')) {
 # --- Die Leitplanken ------------------------------------------------------
 # Sie laufen in einem eigenen Prozess, weil der Rueckgabewert die Aussage ist
 # und `exit` die aufrufende Sitzung beenden wuerde.
+#
+# **Geprueft wird der Text, nicht nur der Rueckgabewert.** Jede Leitplanke
+# endet mit 2, und fuenf Faelle, die alle nur auf die 2 sehen, bestaetigen
+# sich gegenseitig: Griffe versehentlich immer die erste, waeren alle fuenf
+# gruen. Die Meldung sagt, welche es war.
 Write-Output "`nLeitplanken vor dem Dump:"
 
 $spielwiese = Join-Path ([System.IO.Path]::GetTempPath()) "ata-sicherungspruefung-$([guid]::NewGuid())"
@@ -81,7 +86,7 @@ Set-Content -Path $ageStub -Value '@echo off' -Encoding ASCII
 Set-Content -Path $awsStub -Value '@echo off' -Encoding ASCII
 
 $skript = Join-Path $PSScriptRoot 'sicherung.ps1'
-$ziel = Join-Path $spielwiese 'ablage'
+$ablage = Join-Path $spielwiese 'ablage'
 
 function Starte-Sicherung {
     param([string[]]$Weitere, [hashtable]$Umgebung = @{})
@@ -94,10 +99,13 @@ function Starte-Sicherung {
     try {
         $argumente = @(
             '-NoProfile', '-File', $skript,
-            '-Ziel', $ziel, '-PgBin', $stubBin
+            '-Ziel', $ablage, '-PgBin', $stubBin
         ) + $Weitere
-        & (Get-Process -Id $PID).Path @argumente 2>&1 | Out-Null
-        return $LASTEXITCODE
+        $ausgabe = & (Get-Process -Id $PID).Path @argumente 2>&1
+        return [pscustomobject]@{
+            Code = $LASTEXITCODE
+            Text = ($ausgabe | Out-String)
+        }
     }
     finally {
         foreach ($name in $Umgebung.Keys) {
@@ -106,33 +114,50 @@ function Starte-Sicherung {
     }
 }
 
+function Pruefe-Leitplanke($Bezeichnung, $Erkennung, $Ergebnis) {
+    if ($Ergebnis.Code -ne 2) {
+        Write-Output "  FEHLT $Bezeichnung"
+        Write-Output "        erwarteter Rueckgabewert: 2, erhalten: '$($Ergebnis.Code)'"
+        $script:Fehlschlaege++
+        return
+    }
+    if ($Ergebnis.Text -notmatch $Erkennung) {
+        Write-Output "  FEHLT $Bezeichnung"
+        Write-Output "        die Meldung nennt nicht '$Erkennung':"
+        Write-Output "        $($Ergebnis.Text.Trim())"
+        $script:Fehlschlaege++
+        return
+    }
+    Write-Output "  ok    $Bezeichnung"
+}
+
 $leer = @{ AWS_ACCESS_KEY_ID = $null; AWS_SECRET_ACCESS_KEY = $null }
 $gesetzt = @{ AWS_ACCESS_KEY_ID = 'AKIAPRUEFUNG'; AWS_SECRET_ACCESS_KEY = 'geheim' }
 
 try {
-    Pruefe "-ExternesZiel ohne -AgeEmpfaenger bricht ab" 2 (
+    Pruefe-Leitplanke "-ExternesZiel ohne -AgeEmpfaenger bricht ab" '-AgeEmpfaenger' (
         Starte-Sicherung -Weitere @('-ExternesZiel', 's3://ata-sicherung/') -Umgebung $gesetzt)
 
     # Der wichtigste Fall: Ein privater Schluessel an dieser Stelle hiesse,
     # dass er auf dem Server liegt -- genau der Zustand, gegen den Punkt 3
     # des ADR 0070 gebaut ist.
-    Pruefe "ein privater age-Schluessel wird abgewiesen" 2 (
+    Pruefe-Leitplanke "ein privater age-Schluessel wird abgewiesen" 'oeffentlichen Schluessel' (
         Starte-Sicherung -Umgebung $gesetzt -Weitere @(
             '-ExternesZiel', 's3://ata-sicherung/',
             '-AgeEmpfaenger', 'AGE-SECRET-KEY-1QQQQQ'))
 
-    Pruefe "ein Dateipfad als -ExternesZiel wird abgewiesen" 2 (
+    Pruefe-Leitplanke "ein Dateipfad als -ExternesZiel wird abgewiesen" 'S3-URI' (
         Starte-Sicherung -Umgebung $gesetzt -Weitere @(
             '-ExternesZiel', 'd:\backups', '-AgeEmpfaenger', 'age1pruefung'))
 
-    Pruefe "ein nicht gefundenes age bricht ab" 2 (
+    Pruefe-Leitplanke "ein nicht gefundenes age bricht ab" 'gibtesnicht' (
         Starte-Sicherung -Umgebung $gesetzt -Weitere @(
             '-ExternesZiel', 's3://ata-sicherung/',
             '-AgeEmpfaenger', 'age1pruefung',
             '-AgePfad', (Join-Path $spielwiese 'gibtesnicht.cmd'),
             '-AwsPfad', $awsStub))
 
-    Pruefe "fehlende AWS-Zugangsdaten brechen ab" 2 (
+    Pruefe-Leitplanke "fehlende AWS-Zugangsdaten brechen ab" 'AWS_ACCESS_KEY_ID' (
         Starte-Sicherung -Umgebung $leer -Weitere @(
             '-ExternesZiel', 's3://ata-sicherung/',
             '-AgeEmpfaenger', 'age1pruefung',

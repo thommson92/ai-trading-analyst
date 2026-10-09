@@ -279,6 +279,7 @@ ADR, sobald die nötigen Informationen vorliegen:
   2026-09-20 führt den Zustand als AUDIT-003-006. Die Bedingung ist erfüllt,
   und [ADR 0070](0070-sicherung-ausser-haus.md) beantwortet die Frage:
   S3-kompatibler Objektspeicher, Schreibrecht ohne Löschrecht,
-  Verschlüsselung gegen einen öffentlichen Schlüssel, neunzig Tage. **Offen
-  bleibt die Wahl des Anbieters** — sie ist keine Architekturentscheidung und
-  gehört in die Umsetzung.
+  Verschlüsselung gegen einen öffentlichen Schlüssel, neunzig Tage. Der
+  Anbieter — keine Architekturentscheidung, deshalb in der Umsetzung — ist
+  seit dem **2026-10-09 AWS S3** (Nachtrag im ADR); die Einrichtung steht in
+  Doc 14 unter „Die Sicherung außer Haus".

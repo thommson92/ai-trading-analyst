@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, datetime
 
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
@@ -120,6 +120,12 @@ class SqlAlchemyDispatcherRunRepository:
 
         Der Fehlertext kommt vom juengsten Versuch -- der aelteste waere die
         Ursache von vorhin.
+
+        ``running_since`` kommt aus der Zeile, die **auf ``running`` steht**,
+        und nimmt deren ``last_attempt_at``. Ein ``min()`` ueber den ganzen Tag
+        waere der Beginn des ersten Versuchs -- auch wenn der scheiterte und
+        ein spaeterer noch arbeitet. Die Spanne gehoerte dann zu einer anderen
+        Zeile als der Zustand, aus dem sie gelesen wird.
         """
         zeile = self._session.execute(
             select(
@@ -127,7 +133,12 @@ class SqlAlchemyDispatcherRunRepository:
                 func.coalesce(func.bool_or(DispatcherRunOrm.status == "succeeded"), False),
                 func.coalesce(func.bool_or(DispatcherRunOrm.status == "running"), False),
                 func.coalesce(func.bool_or(DispatcherRunOrm.alert_sent_at.is_not(None)), False),
-                func.min(DispatcherRunOrm.first_attempt_at),
+                func.max(
+                    case(
+                        (DispatcherRunOrm.status == "running", DispatcherRunOrm.last_attempt_at),
+                        else_=None,
+                    )
+                ),
             ).where(DispatcherRunOrm.session_date == session_date)
         ).one()
 
@@ -146,7 +157,7 @@ class SqlAlchemyDispatcherRunRepository:
             succeeded=bool(zeile[1]),
             running=bool(zeile[2]),
             alerted=bool(zeile[3]),
-            first_attempt_at=zeile[4],
+            running_since=zeile[4],
             last_error=letzter_fehler,
         )
 

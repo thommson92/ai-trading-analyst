@@ -170,7 +170,28 @@ class TestTageszusammenfassung:
         repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
         lage = repo.summary_on(HANDELSTAG)
         assert lage.running
-        assert lage.first_attempt_at is not None
+        assert lage.running_since is not None
+
+    def test_die_spanne_gehoert_zum_laufenden_versuch(self, repo: Repo) -> None:
+        """**Nicht der erste Versuch des Tages.**
+
+        Der Waechter rechnet aus dieser Spanne, ob ein Lauf haengt. Ueber den
+        ganzen Tag gemittelt waere sie zu lang und gehoerte zur falschen
+        Zeile: Ein um 19:00 gescheiterter Versuch und ein um 21:30 noch
+        arbeitender ergaeben gemeinsam "haengt seit vier Stunden", obwohl der
+        arbeitende seit knapp zwei laeuft. Bei rund 103 Minuten regulaerer
+        Dauer entscheidet genau dieser Unterschied.
+        """
+        zweite_kerze = KERZE_ZU + timedelta(minutes=195)
+        spaeter = JETZT + timedelta(minutes=195)
+        repo.begin(HANDELSTAG, KERZE_ZU, JETZT)
+        repo.mark_failed(HANDELSTAG, KERZE_ZU, JETZT, "TWS weg")
+        repo.begin(HANDELSTAG, zweite_kerze, spaeter)
+
+        lage = repo.summary_on(HANDELSTAG)
+        assert lage.running
+        assert lage.running_since is not None
+        assert lage.running_since.astimezone(UTC) == spaeter.astimezone(UTC)
 
     def test_ein_beendeter_lauf_laeuft_nicht_mehr(self, repo: Repo) -> None:
         repo.begin(HANDELSTAG, KERZE_ZU, JETZT)

@@ -2198,18 +2198,36 @@ Die Aufbewahrungsfrist steht damit **am Eimer** und nicht im Skript. Das ist
 der Punkt: Eine Frist im Skript kann der ändern, der das Skript ändern kann.
 
 Gelöscht wird durch eine Lebenszyklusregel, nicht durch den Server — der hat
-dieses Recht ja gerade nicht. Sie läuft bei **100** Tagen und nicht bei 90:
-Object Lock verweigert die Löschung, solange die Aufbewahrung greift, und
-eine Regel, die auf den Tag genau mit ihr zusammenfällt, scheitert bei jedem
-Lauf einmal, bevor sie greift.
+dieses Recht ja gerade nicht.
+
+**Hier liegt eine Falle, und sie kostet die doppelte Aufbewahrung.** Object
+Lock verlangt Versionierung, der Eimer ist also versioniert. In einem
+versionierten Eimer löscht `Expiration.Days` **nichts**: Es setzt eine
+Löschmarkierung und macht die Fassung damit nur „nicht mehr aktuell". Die
+Bytes räumt erst `NoncurrentVersionExpiration` weg — und deren Uhr beginnt
+genau dann. Zweimal 100 Tage heißen also 200 Tage Speicher und 200 Tage
+Rechnung.
+
+Deshalb zwei Regeln. Die erste setzt bei 100 Tagen die Markierung und räumt
+die Fassung einen Tag später weg; die zweite beseitigt die Markierung, die
+sonst für immer stehen bliebe. Beides muss getrennt stehen:
+`ExpiredObjectDeleteMarker` und `Expiration.Days` dürfen sich keine Regel
+teilen.
 
 ```bash
 aws s3api put-bucket-lifecycle-configuration --bucket ata-sicherung \
-    --lifecycle-configuration '{"Rules":[{"ID":"neunzig-tage",
-      "Status":"Enabled","Filter":{"Prefix":""},
-      "Expiration":{"Days":100},
-      "NoncurrentVersionExpiration":{"NoncurrentDays":100}}]}'
+    --lifecycle-configuration '{"Rules":[
+      {"ID":"neunzig-tage","Status":"Enabled","Filter":{"Prefix":""},
+       "Expiration":{"Days":100},
+       "NoncurrentVersionExpiration":{"NoncurrentDays":1}},
+      {"ID":"marken-aufraeumen","Status":"Enabled","Filter":{"Prefix":""},
+       "Expiration":{"ExpiredObjectDeleteMarker":true}}]}'
 ```
+
+**Die 100 statt 90** sind der Abstand zur Aufbewahrungsfrist: Die
+Löschmarkierung selbst wäre von Object Lock nie aufgehalten worden, das
+Wegräumen der Fassung dagegen schon. Zehn Tage Luft sind billiger als eine
+Regel, die Fehler erzeugt, die niemand liest.
 
 > **GOVERNANCE und nicht COMPLIANCE.** `COMPLIANCE` kann niemand aufheben,
 > auch nicht das Root-Konto. Gegen die Bedrohung, um die es hier geht, wirkt
@@ -2253,9 +2271,16 @@ versehentlich hinzugefügtes:
 Punkt 2 wieder aushebeln könnte — der Server darf die Aufbewahrung seiner
 eigenen Sicherung nicht verkürzen.
 
-> Deshalb lädt das Skript mit `aws s3api put-object` hoch und nicht mit
-> `aws s3 cp`: Der bequeme Befehl fragt das Ziel vorher ab und bräuchte
-> Leserechte, die dieser Zugang bewusst nicht hat.
+> Das Skript lädt mit `aws s3api put-object` hoch und nicht mit `aws s3 cp`.
+> Der Grund ist **nicht**, dass `s3 cp` Leserechte bräuchte — das tut es
+> entgegen einer naheliegenden Annahme nicht. Der Grund ist Eindeutigkeit:
+> genau eine Anfrage, kein Transfermanager, bei einem Fehlschlag genau eine
+> Ursache.
+>
+> Der Preis sind **5 GiB als Obergrenze** eines einzelnen PutObject. Der Dump
+> liegt heute bei einigen hundert Megabyte. Wird es eng, ist
+> `s3api create-multipart-upload` der Weg — damit die Fehlermeldung
+> `EntityTooLarge` um zwei Uhr nachts einordenbar ist.
 
 Die Zugangsdaten gehören in die Umgebung des Dienstkontos, **nicht** in die
 Task-Argumente — dasselbe Argument wie beim Datenbankpasswort:
@@ -2429,10 +2454,26 @@ Pfad in den Argumenten, `argparse` beendete jeden der rund 17 Startversuche
 mit Rückgabewert 2, und weil nie eine Zeile in `dispatcher_runs` entstand,
 gab es auch nichts, was sich hätte melden können. Der Tag fiel lautlos aus.
 
-`cli watchdog` prüft von außen ([ADR 0071](adr/0071-waechter-ausserhalb-des-laufs.md)):
-Gab es heute einen erledigten Lauf, und wie alt ist die jüngste Sicherung?
+`cli watchdog` prüft von außen ([ADR 0071](adr/0071-waechter-ausserhalb-des-laufs.md))
+drei voneinander unabhängige Fragen:
+
+1. Gab es heute einen erledigten Lauf?
+2. Wie alt ist die jüngste Sicherung?
+3. **Liegt eine verschlüsselte Sicherung unversandt in der Ablage?**
+
 Er braucht weder TWS noch Watchlist noch Modellzugang — er muss gerade dann
 arbeiten, wenn davon etwas ausgefallen ist.
+
+> **Zur dritten Frage.** Eine frische lokale Sicherung sagt nichts darüber,
+> ob sie außer Haus ankam: Scheitert der Upload, liegt der Dump trotzdem
+> brauchbar da, und die zweite Frage wäre zufrieden. `sicherung.ps1` lässt
+> die `.age`-Datei nach einem gescheiterten Upload **absichtlich** liegen und
+> löscht sie nach einem gelungenen sofort — ihr Vorhandensein ist damit die
+> Aussage. Ohne diese Frage wäre die Auslagerung der nächste stille Ausfall
+> dieses Betriebs, und zwar genau der, den AUDIT-003-002 schon einmal
+> hervorgebracht hat.
+>
+> Sie braucht kein neues Argument: Dasselbe `--backup-dir` wie Frage 2.
 
 ### In die Aufgabenplanung
 
@@ -2491,8 +2532,13 @@ Ein regulärer Lauf dauert rund 103 Minuten.
 reden inzwischen beide — der Dispatcher gegen 15:00 („… haengt", oben in
 diesem Dokument), der Wächter um 23:15. Doppelt kommt es trotzdem nicht: Der
 Dispatcher vermerkt seine Meldung, und der Wächter sagt zu allem nichts, was
-schon gemeldet ist. Hörst du den Wächter zu einem Hänger, ist das die
-Information, dass die erste Meldung **nicht** angekommen ist.
+schon gemeldet ist. Hörst du den Wächter zu einem Hänger, ist die erste
+Meldung also **nicht** angekommen.
+
+Umgekehrt gilt das nicht: Der Vermerk hängt am **Handelstag**, nicht an der
+Ursache. Eine Meldung „ausgefallen" zu einem früheren Fehlversuch desselben
+Tages hält den Wächter abends ebenfalls still. Die Gegenprobe ist die Spalte
+„Letztes Ausführungsergebnis" im Aufgabenplaner.
 
 - **Er greift nicht ein.** Kein Nachstarten, kein Freigeben der Sperre. Ein
   Wächter, der eingreift, ist ein zweiter Dispatcher mit eigenen Fehlern.

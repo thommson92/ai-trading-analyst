@@ -161,7 +161,9 @@ echten Abhängigkeiten gehört in einen Vorgang.
   Pflege — Tokenablauf gehört auf die Liste des Pflegetermins.
 - **Laufende Kosten**, wenn auch geringe: Ein Dump dieser Datenbank liegt
   derzeit im niedrigen dreistelligen Megabytebereich, neunzig Tage davon im
-  einstelligen Gigabytebereich.
+  mittleren zweistelligen Gigabytebereich. (Die ursprüngliche Schätzung
+  „einstellig" war zu niedrig — sie hatte den täglichen Zuwachs über die
+  Frist nicht aufsummiert.)
 - **Der Anbieter ist nicht entschieden.** Punkt 1 nennt die Kriterien und
   eine naheliegende Wahl, trifft sie aber nicht. Das gehört in die Umsetzung,
   zusammen mit der Frage, ob der bestehende Cloudflare-Zugang dafür verwendet
@@ -229,11 +231,16 @@ Punkt 4 nennt 90 Tage extern. Gelöscht wird durch eine Lifecycle-Regel am
 Bucket, nicht durch das Skript — der Server hat dieses Recht ja gerade
 nicht.
 
-Die Regel läuft bei **100 Tagen**, nicht bei 90. Object Lock verweigert die
-Löschung, solange die Aufbewahrung greift, und eine Regel, die auf den Tag
-genau mit ihr zusammenfällt, scheitert bei jedem Lauf einmal, bevor sie
-greift. Zehn Tage Abstand sind billiger als eine Regel, die
-Fehlermeldungen erzeugt, die niemand liest.
+Sie läuft bei **100 Tagen**, nicht bei 90 — zehn Tage Abstand zur
+Aufbewahrungsfrist sind billiger als eine Regel, die Fehler erzeugt, die
+niemand liest.
+
+**Zwei Regeln, nicht eine.** Object Lock verlangt Versionierung, und in
+einem versionierten Eimer löscht `Expiration.Days` nichts: Es setzt eine
+Löschmarkierung. Die Bytes räumt erst `NoncurrentVersionExpiration` weg,
+deren Uhr genau dann beginnt. Zweimal dieselbe Zahl hieße also die doppelte
+Aufbewahrung und die doppelte Rechnung. Die Form steht in Doc 14; der Punkt
+gehört hierher, weil er die Frist aus Punkt 4 betrifft.
 
 ### Zwei neue Werkzeuge auf dem Server
 

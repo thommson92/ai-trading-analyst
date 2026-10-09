@@ -214,21 +214,35 @@ try {
             throw "Die verschluesselte Datei ist nur $verschluesselteGroesse Byte gross."
         }
 
-        # ``s3api put-object`` und nicht ``s3 cp``: Der hohe Befehl fragt das
-        # Ziel vorher ab und braucht dafuer Leserechte. Die hat dieser Zugang
-        # bewusst nicht (ADR 0070, Punkt 2) -- ein einzelnes PutObject ist
-        # genau das Recht, das er traegt.
-        $ziel = ConvertTo-S3Ziel -Uri $ExternesZiel -Dateiname (Split-Path $verschluesselt -Leaf)
+        # ``s3api put-object`` und nicht ``s3 cp``: **ein** PutObject, ohne
+        # Transfermanager und ohne mehrteiligen Upload -- also genau die
+        # Anfrage, die dieser Zugang tragen darf, und bei einem Fehlschlag
+        # auch genau eine Ursache. (``s3 cp`` braeuchte entgegen einer
+        # naheliegenden Annahme *keine* Leserechte; der Grund hier ist die
+        # Eindeutigkeit, nicht das Recht.)
+        #
+        # Preis dieser Wahl: **5 GiB sind die Obergrenze** eines einzelnen
+        # PutObject. Der Dump liegt bei einigen hundert Megabyte und waechst
+        # mit jedem Handelstag; wird es eng, ist ``s3api create-multipart-upload``
+        # der Weg und nicht ``s3 cp``.
+        # **Nicht ``$ziel``.** PowerShell-Variablennamen sind unabhaengig von
+        # der Gross-/Kleinschreibung: ``$ziel`` *ist* der Parameter ``$Ziel``,
+        # und dessen ``[string]``-Typbindung ueberlebt jede Zuweisung. Das
+        # Objekt wuerde also stillschweigend zu seiner Textform zerquetscht --
+        # ``$ziel.Eimer`` waere leer, und das Aufraeumen weiter unten suchte
+        # danach in einem Verzeichnis namens '@{Eimer=...; Schluessel=...}'.
+        # Ohne Set-StrictMode meldet das nichts.
+        $s3Ziel = ConvertTo-S3Ziel -Uri $ExternesZiel -Dateiname (Split-Path $verschluesselt -Leaf)
 
         $argumente = @(
             's3api', 'put-object',
-            '--bucket', $ziel.Eimer,
-            '--key', $ziel.Schluessel,
+            '--bucket', $s3Ziel.Eimer,
+            '--key', $s3Ziel.Schluessel,
             '--body', $verschluesselt
         )
         if ($EndpunktUrl) { $argumente += @('--endpoint-url', $EndpunktUrl) }
 
-        Schreibe ("Hochladen nach 's3://{0}/{1}' ({2:N1} MB)." -f $ziel.Eimer, $ziel.Schluessel, ($verschluesselteGroesse / 1MB))
+        Schreibe ("Hochladen nach 's3://{0}/{1}' ({2:N1} MB)." -f $s3Ziel.Eimer, $s3Ziel.Schluessel, ($verschluesselteGroesse / 1MB))
         & $AwsPfad @argumente | Out-Null
         if ($LASTEXITCODE -ne 0) {
             # Die verschluesselte Datei bleibt absichtlich liegen: Sie laesst

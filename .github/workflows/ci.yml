@@ -146,10 +146,17 @@ jobs:
       #
       # Ein Schritt und kein eigener Job: ADR 0031 nennt die fuenf Required
       # Checks namentlich, ein sechster Jobname braeche die Sperre.
-      - name: PowerShell-Skripte pruefen
-        run: |
-          pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
-          pwsh -NoProfile -File ../scripts/pruefe-sicherung.ps1
+      # **Zwei Schritte und nicht zwei Zeilen.** Die pwsh-Hülle von GitHub gibt
+      # nur den Rueckgabewert des *letzten* Befehls weiter, und ein nativer
+      # Aufruf bricht unter 'Stop' nicht von selbst ab. Zwei Zeilen in einem
+      # Schritt hiessen: Ein Fehlschlag der ersten Pruefung verschwindet,
+      # sobald die zweite durchlaeuft -- und die erste huetet genau die
+      # Regression, die am 2026-09-22 einen Handelstag gekostet hat.
+      - name: PowerShell-Werkzeugsuche pruefen
+        run: pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
+
+      - name: PowerShell-Sicherung pruefen
+        run: pwsh -NoProfile -File ../scripts/pruefe-sicherung.ps1
 
   frontend:
     name: Frontend (lint, typecheck, build)
