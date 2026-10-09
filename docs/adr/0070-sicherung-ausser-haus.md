@@ -2,6 +2,7 @@
 
 - Status: Vorgeschlagen
 - Datum: 2026-09-22
+- Anbieter entschieden am 2026-10-09 — siehe den Nachtrag am Ende
 - Löst ab: die Klausel „Neu zu bewerten nach stabilem Betrieb" in
   [Doc 10 §15](../10%20-%20System%20Architecture.md) und in
   [Doc 14](../14%20-%20Inbetriebnahme%20und%20Betrieb.md), Abschnitt „Sicherung"
@@ -172,3 +173,81 @@ echten Abhängigkeiten gehört in einen Vorgang.
   entschlüsseln lässt, gehört einmal je Pflegetermin geprüft — sonst
   entsteht genau die Art Vertrauen, die dieses Projekt an anderer Stelle
   schon einmal enttäuscht hat.
+
+## Nachtrag vom 2026-10-09: der Anbieter ist AWS S3
+
+Punkt 1 hat die Wahl offen gelassen und drei gleichwertige Anbieter genannt.
+Der Inhaber hat **AWS S3** gewählt, weil dort bereits ein Konto besteht.
+
+Damit löst sich die Frage aus den Konsequenzen („ob der bestehende
+Cloudflare-Zugang verwendet oder ein getrennter angelegt wird") von selbst:
+Der Zugang ist schon durch den Anbieterwechsel getrennt. Der
+Dashboard-Token von [ADR 0060](0060-dashboard-ausserhalb-des-servers.md)
+bekommt keine Rechte an den Sicherungen, und der Sicherungsschlüssel keine am
+Worker.
+
+### Was aus Punkt 2 konkret wird
+
+Punkt 2 verlangt „schreiben, nicht löschen". Bei AWS S3 sind das drei
+Einstellungen, die zusammen wirken müssen — eine allein genügt nicht:
+
+| Einstellung | Wirkung |
+|---|---|
+| Versionierung am Bucket | Voraussetzung für alles Weitere; ohne sie gibt es kein Object Lock |
+| Object Lock, Vorgabe **90 Tage** | Ein hochgeladenes Objekt ist bis dahin unveränderlich — auch für den, der es hochgeladen hat |
+| IAM-Richtlinie: nur `s3:PutObject` | Der Server kann anlegen. Nicht lesen, nicht löschen, nicht die Aufbewahrung verkürzen |
+
+Die Aufbewahrungsfrist aus Punkt 4 steht damit **am Bucket** und nicht im
+Skript. Das ist der Unterschied, auf den es ankommt: Eine Frist im Skript
+kann der ändern, der das Skript ändern kann.
+
+### Object Lock im Modus GOVERNANCE, nicht COMPLIANCE
+
+S3 kennt zwei Modi. `COMPLIANCE` kann **niemand** aufheben, auch nicht das
+Root-Konto. `GOVERNANCE` kann aufheben, wer das Recht
+`s3:BypassGovernanceRetention` besitzt.
+
+Gewählt wird `GOVERNANCE`, und zwar nicht aus Bequemlichkeit, sondern weil
+es gegen die Bedrohung aus Punkt 2 **genauso** wirkt: Der Angreifer hat die
+Zugangsdaten des Servers, und die tragen dieses Recht nicht. Er findet einen
+Zugang vor, mit dem sich nur anlegen lässt — unabhängig vom Modus.
+
+Was `COMPLIANCE` zusätzlich abdeckt, ist der Fall, dass das
+AWS-Administrationskonto selbst übernommen wird. Was es kostet, ist die
+Unumkehrbarkeit jeder Fehlkonfiguration: Ein versehentlich hochgeladenes
+Objekt ist neunzig Tage lang unlöschbar und wird neunzig Tage lang bezahlt.
+Bei einem Verfahren, das gerade erst eingerichtet wird, ist die
+Fehlkonfiguration der wahrscheinlichere Fall.
+
+**Das ist eine Abwägung, keine Rechnung** — wer das Administrationskonto für
+den gefährdeteren Punkt hält, nimmt `COMPLIANCE` und muss am Bucket nichts
+weiter ändern als diesen einen Wert.
+
+### Die Lebenszyklusregel löscht, nicht der Server
+
+Punkt 4 nennt 90 Tage extern. Gelöscht wird durch eine Lifecycle-Regel am
+Bucket, nicht durch das Skript — der Server hat dieses Recht ja gerade
+nicht.
+
+Die Regel läuft bei **100 Tagen**, nicht bei 90. Object Lock verweigert die
+Löschung, solange die Aufbewahrung greift, und eine Regel, die auf den Tag
+genau mit ihr zusammenfällt, scheitert bei jedem Lauf einmal, bevor sie
+greift. Zehn Tage Abstand sind billiger als eine Regel, die
+Fehlermeldungen erzeugt, die niemand liest.
+
+### Zwei neue Werkzeuge auf dem Server
+
+`age` für Punkt 3 und die **AWS CLI v2** für den Upload. Beide als
+Parameter des Skripts hinterlegbar, nach dem Vorbild von `-PgBin` — damit
+hängt das Verfahren nicht am Suchpfad eines Dienstkontos.
+
+Die AWS CLI spricht S3 über `--endpoint-url` auch mit anderen Anbietern. Die
+Wahl aus diesem Nachtrag ist damit umkehrbar, ohne das Skript anzufassen;
+Punkt 1 bleibt der Beschluss, dieser Nachtrag nur seine Ausführung.
+
+### Was offen bleibt
+
+Die Zählprobe der **externen** Kopie, aus den Konsequenzen oben. Sie bekommt
+mit `scripts/sicherung-extern-probe.ps1` ein eigenes Skript und einen Platz
+im Pflegetermin (Doc 14). Sie läuft **nicht** täglich: Sie braucht den
+privaten Schlüssel, und der soll nicht auf dem Server liegen.

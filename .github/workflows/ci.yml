@@ -147,7 +147,9 @@ jobs:
       # Ein Schritt und kein eigener Job: ADR 0031 nennt die fuenf Required
       # Checks namentlich, ein sechster Jobname braeche die Sperre.
       - name: PowerShell-Skripte pruefen
-        run: pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
+        run: |
+          pwsh -NoProfile -File ../scripts/pruefe-postgres-werkzeuge.ps1
+          pwsh -NoProfile -File ../scripts/pruefe-sicherung.ps1
 
   frontend:
     name: Frontend (lint, typecheck, build)

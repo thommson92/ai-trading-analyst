@@ -2010,9 +2010,10 @@ Aufgabenplanung, in einen eigenen Ordner auf demselben Laufwerk.**
 > **Die Neubewertung liegt vor.** Die Bedingung „nach stabilem Betrieb" ist
 > erfüllt; [ADR 0070](adr/0070-sicherung-ausser-haus.md) beantwortet die
 > Frage (Objektspeicher, Schreibrecht ohne Löschrecht, Verschlüsselung gegen
-> einen öffentlichen Schlüssel, neunzig Tage) und ist **vorgeschlagen**.
-> Solange es nicht angenommen und umgesetzt ist, gilt dieser Absatz
-> unverändert weiter.
+> einen öffentlichen Schlüssel, neunzig Tage). Der Anbieter ist seit dem
+> 2026-10-09 entschieden: **AWS S3**. Die Umsetzung steht unten unter
+> „Die Sicherung außer Haus"; **bis der dortige Task läuft, gilt dieser
+> Absatz unverändert weiter.**
 
 ### Das Passwort zuerst
 
@@ -2037,7 +2038,11 @@ Ausfallrisiko.
 |---|---|
 | `scripts\sicherung.ps1` | täglicher Dump, Lesbarkeitsprüfung, Aufräumen alter Stände |
 | `scripts\sicherung-probe.ps1` | Zählprobe: Wiederherstellung in eine Wegwerfdatenbank |
-| `scripts\postgres-werkzeuge.ps1` | findet `pg_dump`, `pg_restore` und `psql`; von beiden anderen eingebunden |
+| `scripts\sicherung-extern-probe.ps1` | Zählprobe der **externen** Kopie; läuft nicht auf dem Server |
+| `scripts\postgres-werkzeuge.ps1` | findet `pg_dump`, `pg_restore` und `psql`; von den anderen eingebunden |
+| `scripts\s3-ziel.ps1` | zerlegt eine S3-URI in Eimer und Objektschlüssel |
+| `scripts\pruefe-postgres-werkzeuge.ps1` | prüft die Werkzeugsuche und die Syntax **aller** Skripte hier |
+| `scripts\pruefe-sicherung.ps1` | prüft die Leitplanken der Auslagerung |
 
 > **Die PostgreSQL-Werkzeuge liegen auf diesem Server nicht im Suchpfad.**
 > Der Installer trägt sein `bin`-Verzeichnis nicht zwangsläufig ein; ein
@@ -2125,6 +2130,204 @@ Eine Null erklärt nichts.
 
 **Abnahmekriterium:** ein automatisch entstandener Dump und eine
 durchgespielte Zählprobe.
+
+### Die Sicherung außer Haus
+
+Umsetzung von [ADR 0070](adr/0070-sicherung-ausser-haus.md). Die lokale
+Sicherung oben bleibt unverändert — die Auslagerung ist ein **zusätzliches
+Glied derselben Kette**, kein zweiter Task:
+
+**Dump → Lesbarkeitsprüfung → Verschlüsseln → Hochladen → Aufräumen.**
+
+Hochgeladen wird nur, was `pg_restore --list` schon als lesbar bestätigt hat.
+Eine abgebrochene Datei außer Haus zu tragen wäre schlimmer als keine: Sie
+sähe dort wie eine Sicherung aus.
+
+#### 1. Der Schlüssel, bevor irgendetwas hochgeht
+
+[`age`](https://github.com/FiloSottile/age/releases) herunterladen
+(`age-windows-amd64.zip`), entpacken, Verzeichnis notieren. Dann **einmal**
+ein Schlüsselpaar erzeugen — am besten auf dem Arbeitsrechner, nicht auf dem
+Server:
+
+```powershell
+age-keygen -o ata-age.key
+```
+
+Die Datei enthält beides:
+
+```
+# public key: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+AGE-SECRET-KEY-1GFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPYYSJZGFPQ4EGAEA
+```
+
+| Teil | Wohin |
+|---|---|
+| `age1…` (öffentlich) | in die Task-Argumente auf dem Server |
+| `AGE-SECRET-KEY-1…` (privat) | **nur** in den Passwortmanager und auf die Notfallkarte aus Stufe L |
+
+> **Geht der private Schlüssel verloren, sind alle externen Sicherungen
+> wertlos.** Es gibt keine Hintertür — das ist der Zweck des Verfahrens. Er
+> gehört neben `ATA_DASHBOARD_EXPORT_PASSPHRASE`.
+>
+> Umgekehrt ist es kein Fehler, dass auf dem Server **nur** der öffentliche
+> Teil liegt: Wer ihn dort findet, kann verschlüsseln und nichts lesen. Das
+> Skript weist einen privaten Schlüssel an dieser Stelle deshalb ab.
+
+#### 2. Der Eimer bei AWS
+
+Drei Einstellungen, die nur zusammen wirken — eine allein genügt nicht.
+Object Lock muss **bei der Anlage** eingeschaltet werden:
+
+```bash
+aws s3api create-bucket --bucket ata-sicherung \
+    --region eu-central-1 \
+    --create-bucket-configuration LocationConstraint=eu-central-1 \
+    --object-lock-enabled-for-bucket
+
+aws s3api put-object-lock-configuration --bucket ata-sicherung \
+    --object-lock-configuration \
+    'ObjectLockEnabled=Enabled,Rule={DefaultRetention={Mode=GOVERNANCE,Days=90}}'
+
+aws s3api put-public-access-block --bucket ata-sicherung \
+    --public-access-block-configuration \
+    'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
+```
+
+Die Aufbewahrungsfrist steht damit **am Eimer** und nicht im Skript. Das ist
+der Punkt: Eine Frist im Skript kann der ändern, der das Skript ändern kann.
+
+Gelöscht wird durch eine Lebenszyklusregel, nicht durch den Server — der hat
+dieses Recht ja gerade nicht. Sie läuft bei **100** Tagen und nicht bei 90:
+Object Lock verweigert die Löschung, solange die Aufbewahrung greift, und
+eine Regel, die auf den Tag genau mit ihr zusammenfällt, scheitert bei jedem
+Lauf einmal, bevor sie greift.
+
+```bash
+aws s3api put-bucket-lifecycle-configuration --bucket ata-sicherung \
+    --lifecycle-configuration '{"Rules":[{"ID":"neunzig-tage",
+      "Status":"Enabled","Filter":{"Prefix":""},
+      "Expiration":{"Days":100},
+      "NoncurrentVersionExpiration":{"NoncurrentDays":100}}]}'
+```
+
+> **GOVERNANCE und nicht COMPLIANCE.** `COMPLIANCE` kann niemand aufheben,
+> auch nicht das Root-Konto. Gegen die Bedrohung, um die es hier geht, wirkt
+> `GOVERNANCE` genauso: Der Angreifer hat die Zugangsdaten des Servers, und
+> die tragen `s3:BypassGovernanceRetention` nicht. Was `COMPLIANCE`
+> zusätzlich abdeckt, ist die Übernahme des AWS-Kontos selbst; was es kostet,
+> ist die Unumkehrbarkeit jeder Fehlkonfiguration — ein versehentlich
+> hochgeladenes Objekt ist neunzig Tage unlöschbar und wird neunzig Tage
+> bezahlt. Die Begründung steht im Nachtrag zu ADR 0070.
+
+#### 3. Der Zugang, der nur schreiben darf
+
+Ein eigener IAM-Benutzer, **nicht** der eigene Administrationszugang. Die
+Richtlinie nennt genau ein erlaubtes Recht und verbietet die gefährlichen
+ausdrücklich — ein `Deny` wiegt bei AWS jedes `Allow` auf, auch ein später
+versehentlich hinzugefügtes:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "NurAnlegen",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::ata-sicherung/*" },
+    { "Sid": "NichtsAnderes",
+      "Effect": "Deny",
+      "Action": [
+        "s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion",
+        "s3:PutObjectRetention", "s3:PutObjectLegalHold",
+        "s3:BypassGovernanceRetention", "s3:PutBucketPolicy",
+        "s3:PutLifecycleConfiguration", "s3:PutObjectLockConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ata-sicherung", "arn:aws:s3:::ata-sicherung/*" ] }
+  ]
+}
+```
+
+`s3:PutObjectRetention` steht mit im `Deny`, weil es sonst die Frist aus
+Punkt 2 wieder aushebeln könnte — der Server darf die Aufbewahrung seiner
+eigenen Sicherung nicht verkürzen.
+
+> Deshalb lädt das Skript mit `aws s3api put-object` hoch und nicht mit
+> `aws s3 cp`: Der bequeme Befehl fragt das Ziel vorher ab und bräuchte
+> Leserechte, die dieser Zugang bewusst nicht hat.
+
+Die Zugangsdaten gehören in die Umgebung des Dienstkontos, **nicht** in die
+Task-Argumente — dasselbe Argument wie beim Datenbankpasswort:
+
+```powershell
+[Environment]::SetEnvironmentVariable('AWS_ACCESS_KEY_ID', 'AKIA…', 'Machine')
+[Environment]::SetEnvironmentVariable('AWS_SECRET_ACCESS_KEY', '…', 'Machine')
+[Environment]::SetEnvironmentVariable('AWS_DEFAULT_REGION', 'eu-central-1', 'Machine')
+```
+
+Dazu die [AWS CLI v2](https://awscli.amazonaws.com/AWSCLIV2.msi) auf dem
+Server.
+
+#### 4. Der Task bekommt zwei Argumente mehr
+
+| Feld | Wert |
+|---|---|
+| Name | `AI Trading Analyst — Sicherung` (derselbe Task) |
+| Argumente | `-NoProfile -File C:\Users\Administrator\Documents\TradingViewAnalyzer\scripts\sicherung.ps1 -Ziel D:\backups\ata -ExternesZiel s3://ata-sicherung/ -AgeEmpfaenger age1…` |
+
+Liegen `age.exe` oder `aws.exe` nicht im Suchpfad des Dienstkontos — und der
+ist **nicht** der der angemeldeten Sitzung —, kommen `-AgePfad` und
+`-AwsPfad` mit vollem Pfad dazu. Genau wie `-PgBin` oben, und aus demselben
+Grund.
+
+Erster Lauf von Hand:
+
+```powershell
+cd C:\Users\Administrator\Documents\TradingViewAnalyzer
+powershell.exe -NoProfile -File scripts\sicherung.ps1 `
+    -Ziel D:\backups\ata `
+    -ExternesZiel s3://ata-sicherung/ `
+    -AgeEmpfaenger age1…
+echo $LASTEXITCODE
+```
+
+Erwartet: `0` und vier zusätzliche Zeilen im Protokoll — Verschlüsselung,
+Hochladen mit Größe, „Auslagerung erfolgreich", dann das Aufräumen.
+
+**Rückgabewert 2 nach dem Dump heißt: lokal gesichert, aber nur hier.** Das
+Aufräumen unterbleibt dann, und die verschlüsselte Datei bleibt liegen — sie
+lässt sich von Hand hochladen, ohne den Dump erneut zu verschlüsseln. Der
+Zustand „gesichert, aber nur hier" ist genau der, den ADR 0070 beendet, und
+er soll deshalb sichtbar sein.
+
+#### 5. Die Zählprobe der externen Kopie
+
+Die tägliche Probe oben prüft die **lokale** Kopie. Ob die hochgeladene
+Datei wieder herunterkommt und sich entschlüsseln lässt, prüft sie nicht —
+und darauf kommt es an, wenn der Server verloren ist.
+
+**Nicht auf dem Server**, sondern auf dem Arbeitsrechner: Das Skript braucht
+den privaten Schlüssel und einen Zugang mit Leserecht. Beides hat auf dem
+Server nichts zu suchen, und der Zugang von Punkt 3 kann diese Prüfung gar
+nicht ausführen.
+
+```powershell
+pwsh -NoProfile -File scripts\sicherung-extern-probe.ps1 `
+    -Quelle s3://ata-sicherung/ `
+    -SchluesselDatei C:\Users\thomas\ata-age.key
+```
+
+Es holt das neueste Objekt, entschlüsselt es, lässt `pg_restore --list`
+darüber laufen und räumt danach auf — **auch nach einem Abbruch**, denn was
+dort liegt, ist ein entschlüsselter Produktivbestand.
+
+**Einmal bei der Einrichtung, danach bei jedem Pflegetermin.** Ohne sie
+entsteht genau die Art Vertrauen, die dieses Projekt schon einmal enttäuscht
+hat: Das Verfahren war beschrieben und nie eingerichtet (AUDIT-003-002).
+
+**Abnahmekriterium:** ein automatisch entstandener Dump, ein Objekt im Eimer
+und eine durchgespielte externe Zählprobe.
 
 ### Wiederherstellung
 
@@ -2360,8 +2563,17 @@ Gewissen. Deshalb ein fester Turnus: **quartalsweise, nächster Termin
    *`sharp` und `nanoid` standen hier ebenfalls; beide sind am 2026-09-01
    ohne Bruch gehoben worden (`npm audit fix`).*
 
-Dazu die **Restore-Probe** aus dem Sicherungsabschnitt. Änderungen laufen
-wie immer über Branch und Pull Request, nie lokal auf dem Server (Stufe G).
+Dazu zwei Punkte aus dem Sicherungsabschnitt:
+
+5. **Die Restore-Probe** der lokalen Kopie (`sicherung-probe.ps1`).
+6. **Die Zählprobe der externen Kopie** (`sicherung-extern-probe.ps1`) — sie
+   braucht den privaten age-Schlüssel und läuft deshalb nur hier, nicht
+   täglich auf dem Server. Ohne sie ist die Auslagerung eine Vermutung.
+   Dabei gleich den **Ablauf des IAM-Zugangs** ansehen: ein stillschweigend
+   abgelaufener Token sähe in der Aufgabenplanung wie ein Netzfehler aus.
+
+Änderungen laufen wie immer über Branch und Pull Request, nie lokal auf dem
+Server (Stufe G).
 
 ## Wenn ein Tageslauf ausbleibt
 
