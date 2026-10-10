@@ -49,6 +49,7 @@ function Pruefe($Bezeichnung, $Erwartet, $Erhalten) {
 }
 
 . (Join-Path $PSScriptRoot 's3-ziel.ps1')
+. (Join-Path $PSScriptRoot 'datenbank-zugang.ps1')
 
 Write-Output "Zerlegung der S3-URI:"
 
@@ -67,6 +68,71 @@ foreach ($schlecht in @('d:\backups', 's3://', 'ata-sicherung')) {
     $geworfen = $false
     try { ConvertTo-S3Ziel -Uri $schlecht -Dateiname 'x' | Out-Null } catch { $geworfen = $true }
     Pruefe "'$schlecht' wird abgewiesen" $true $geworfen
+}
+
+# --- Der Datenbankzugang --------------------------------------------------
+# Reine Zeichenarbeit, und sie entscheidet, welche Datenbank gesichert wird.
+# Am 2026-10-10 sicherte das Skript einen fest verdrahteten Namen, den es auf
+# dem Server nicht gibt -- diese Funktion ist die Korrektur, und sie gehoert
+# geprueft und nicht behauptet.
+Write-Output "`nDatenbankzugang aus ATA_DATABASE_URL:"
+
+$gemerkteUrl = $env:ATA_DATABASE_URL
+$zugangsWurzel = Join-Path ([System.IO.Path]::GetTempPath()) "ata-zugang-$([guid]::NewGuid())"
+New-Item -ItemType Directory -Force -Path $zugangsWurzel | Out-Null
+
+try {
+    $env:ATA_DATABASE_URL = 'postgresql+psycopg://ata:geheim@localhost:5432/ata'
+    $z = Lies-DatenbankZugang -Wurzel $zugangsWurzel
+    Pruefe "der Datenbankname kommt aus der URL" 'ata' $z.Datenbank
+    Pruefe "die Rolle kommt aus der URL" 'ata' $z.Benutzer
+    Pruefe "das Passwort kommt aus der URL" 'geheim' $z.Passwort
+    Pruefe "der Rechner kommt aus der URL" 'localhost' $z.Rechner
+    Pruefe "der Port kommt aus der URL" 5432 $z.Port
+
+    # Das Treiberkuerzel ist eine SQLAlchemy-Eigenheit. Ohne es wegzuschneiden
+    # bleibt UserInfo leer, und die Rolle waere still falsch.
+    $env:ATA_DATABASE_URL = 'postgresql://ata:geheim@db.example:6543/anders'
+    $z = Lies-DatenbankZugang -Wurzel $zugangsWurzel
+    Pruefe "auch ohne Treiberkuerzel" 'anders' $z.Datenbank
+    Pruefe "abweichender Port" 6543 $z.Port
+
+    # Ein Passwort mit Sonderzeichen steht in der URL prozentkodiert.
+    $env:ATA_DATABASE_URL = 'postgresql+psycopg://ata:a%40b%3Ac@localhost/ata'
+    $z = Lies-DatenbankZugang -Wurzel $zugangsWurzel
+    Pruefe "prozentkodiertes Passwort wird entschluesselt" 'a@b:c' $z.Passwort
+    Pruefe "fehlender Port wird zu 5432" 5432 $z.Port
+
+    # Die .env wird gelesen, wenn die Umgebung nichts sagt -- mit
+    # Anfuehrungszeichen und einem Kommentar davor, wie es in .env-Dateien
+    # ueblich ist.
+    $env:ATA_DATABASE_URL = $null
+    Set-Content -Path (Join-Path $zugangsWurzel '.env') -Encoding ASCII -Value @(
+        '# Kommentar',
+        'ATA_TELEGRAM_TOKEN=egal',
+        'ATA_DATABASE_URL="postgresql+psycopg://ata:ausDerDatei@localhost:5432/ausDerDatei"'
+    )
+    $z = Lies-DatenbankZugang -Wurzel $zugangsWurzel
+    Pruefe "die .env wird gelesen" 'ausDerDatei' $z.Datenbank
+    Pruefe "Anfuehrungszeichen gehoeren nicht zum Wert" 'ausDerDatei' $z.Passwort
+
+    # Und die Umgebung gewinnt gegen die Datei -- sie ist die spezifischere
+    # Angabe, etwa in der Umgebung eines Dienstkontos.
+    $env:ATA_DATABASE_URL = 'postgresql+psycopg://ata:x@localhost:5432/ausDerUmgebung'
+    $z = Lies-DatenbankZugang -Wurzel $zugangsWurzel
+    Pruefe "die Umgebung gewinnt gegen die .env" 'ausDerUmgebung' $z.Datenbank
+
+    # Nichts gesetzt: Abbruch mit Begruendung. **Kein Ersatzwert** -- ein
+    # geratener Datenbankname ist schlimmer als keiner.
+    $env:ATA_DATABASE_URL = $null
+    Remove-Item (Join-Path $zugangsWurzel '.env') -Force
+    $geworfen = $false
+    try { Lies-DatenbankZugang -Wurzel $zugangsWurzel | Out-Null } catch { $geworfen = $true }
+    Pruefe "ohne ATA_DATABASE_URL wird abgebrochen" $true $geworfen
+}
+finally {
+    $env:ATA_DATABASE_URL = $gemerkteUrl
+    Remove-Item $zugangsWurzel -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # --- Die Leitplanken ------------------------------------------------------
@@ -174,8 +240,21 @@ function Pruefe-Leitplanke($Bezeichnung, $Erkennung, $Ergebnis) {
     Write-Output "  ok    $Bezeichnung"
 }
 
-$leer = @{ AWS_ACCESS_KEY_ID = $null; AWS_SECRET_ACCESS_KEY = $null }
-$gesetzt = @{ AWS_ACCESS_KEY_ID = 'AKIAPRUEFUNG'; AWS_SECRET_ACCESS_KEY = 'geheim' }
+# **Die Umgebung ist vollstaendig, ausser dem, was gerade geprueft wird.**
+# ``sicherung.ps1`` liest den Zugang aus ATA_DATABASE_URL, bevor es die
+# Auslagerung prueft -- ohne diese Zeile braechen alle Leitplanken schon
+# dort ab, und zwar mit der falschen Meldung.
+$PRUEFURL = 'postgresql+psycopg://ata:x@localhost:5432/ata'
+$leer = @{
+    AWS_ACCESS_KEY_ID     = $null
+    AWS_SECRET_ACCESS_KEY = $null
+    ATA_DATABASE_URL      = $PRUEFURL
+}
+$gesetzt = @{
+    AWS_ACCESS_KEY_ID     = 'AKIAPRUEFUNG'
+    AWS_SECRET_ACCESS_KEY = 'geheim'
+    ATA_DATABASE_URL      = $PRUEFURL
+}
 
 try {
     Pruefe-Leitplanke "-ExternesZiel ohne -AgeEmpfaenger bricht ab" '-AgeEmpfaenger' (
@@ -204,7 +283,8 @@ try {
     # die Zaehlprobe bei fehlender Ablage einen rohen DriveNotFoundException
     # und endete mit 1 statt mit 2. Die 1 geht in der Aufgabenplanung unter.
     Pruefe-Leitplanke "eine fehlende Ablage bricht die Zaehlprobe mit 2 ab" 'gibt es nicht' (
-        Starte-Skript -Skript (Join-Path $PSScriptRoot 'sicherung-probe.ps1') -Weitere @(
+        Starte-Skript -Umgebung $gesetzt -Skript (
+            Join-Path $PSScriptRoot 'sicherung-probe.ps1') -Weitere @(
             '-Quelle', (Join-Path $spielwiese 'gibtesnicht'), '-PgBin', $stubBin))
 
     Pruefe-Leitplanke "fehlende AWS-Zugangsdaten brechen ab" 'AWS_ACCESS_KEY_ID' (

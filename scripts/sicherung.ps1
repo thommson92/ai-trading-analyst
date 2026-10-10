@@ -16,19 +16,31 @@
     dann werden alte Stände gelöscht. Umgekehrt räumte ein fehlgeschlagener
     Lauf die letzten funktionierenden Sicherungen weg.
 
-    Das Passwort steht **nicht** hier und nicht in den Task-Argumenten,
-    sondern in `%APPDATA%\postgresql\pgpass.conf` (eine Zeile:
-    `localhost:5432:*:ata:<passwort>`). Task-Argumente sind im Aufgabenplaner
-    für jeden lesbar, der den Rechner sieht.
+    **Zugang und Passwort kommen aus `ATA_DATABASE_URL`** — derselben Quelle,
+    aus der auch die Anwendung sie nimmt (`datenbank-zugang.ps1`). Damit kann
+    der Datenbankname nicht von der Anwendung abdriften; ein fest
+    verdrahteter Name hat am 2026-10-10 genau das getan.
+
+    Das Passwort steht **nicht** in den Task-Argumenten — die sind im
+    Aufgabenplaner für jeden lesbar, der den Rechner sieht — sondern geht
+    über `PGPASSWORD` in der Prozessumgebung an `pg_dump`. Eine
+    `pgpass.conf` ist damit nicht mehr nötig; liegt eine, greift sie
+    weiterhin, wenn die URL kein Passwort trägt.
+
+    **Nie interaktiv.** Alle Aufrufe tragen `--no-password`: In der
+    Aufgabenplanung gibt es keine Konsole, und eine Eingabeaufforderung
+    hieße dort, dass der Vorgang bis zum Zeitlimit hängt statt mit einer
+    Meldung zu scheitern.
 
 .PARAMETER Ziel
     Verzeichnis für die Dumps. Wird angelegt, wenn es fehlt.
 
 .PARAMETER Datenbank
-    Name der zu sichernden Datenbank.
-
 .PARAMETER Benutzer
-    PostgreSQL-Rolle. Muss zur Zeile in der pgpass.conf passen.
+    Überschreiben, was in `ATA_DATABASE_URL` steht. Ohne Angabe gilt die
+    URL — das ist der Normalfall. **Wird eines von beiden gesetzt, wird das
+    Passwort aus der URL nicht verwendet**, weil es dann zu einem anderen
+    Zugang gehören kann; dann braucht es eine `pgpass.conf`.
 
 .PARAMETER PgBin
     Verzeichnis mit `pg_dump.exe` und `pg_restore.exe`. Nur nötig, wenn die
@@ -80,8 +92,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Ziel,
-    [string]$Datenbank = 'ai_trading_analyst',
-    [string]$Benutzer = 'ata',
+    [string]$Datenbank,
+    [string]$Benutzer,
     [string]$PgBin,
     [int]$Aufbewahrungstage = 14,
     [string]$ExternesZiel,
@@ -95,6 +107,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'postgres-werkzeuge.ps1')
 . (Join-Path $PSScriptRoot 's3-ziel.ps1')
+. (Join-Path $PSScriptRoot 'datenbank-zugang.ps1')
 
 function Schreibe($Text) {
     $zeile = "{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Text
@@ -122,6 +135,24 @@ try {
 catch {
     Abbruch $_.Exception.Message
 }
+
+# **Der Zugang aus derselben Quelle wie die Anwendung.** Vor dem Dump, aus
+# demselben Grund wie die Werkzeugsuche darueber: Eine fehlende
+# ATA_DATABASE_URL ist ein Fehler der Umgebung und soll auffallen, bevor ein
+# Protokoll beginnt, in dem dann nichts Brauchbares steht.
+try {
+    $zugang = Lies-DatenbankZugang
+}
+catch {
+    Abbruch $_.Exception.Message
+}
+
+# Ein ausdruecklich genannter Benutzer oder Datenbankname kann zu einem
+# anderen Zugang gehoeren als das Passwort in der URL. Dann bleibt das
+# Passwort aussen vor, und es gilt wieder die pgpass.conf.
+$ueberschrieben = [bool]$Datenbank -or [bool]$Benutzer
+if (-not $Datenbank) { $Datenbank = $zugang.Datenbank }
+if (-not $Benutzer) { $Benutzer = $zugang.Benutzer }
 
 # **Auch die Auslagerung wird hier geprueft, nicht erst in ihrem Schritt.**
 # Ein fehlender age-Empfaenger oder ein nicht gefundenes aws.exe sind Fehler
@@ -174,10 +205,32 @@ try {
     $stempel = Get-Date -Format 'yyyy-MM-dd'
     $datei = Join-Path $Ziel "$Datenbank-$stempel.dump"
 
-    Schreibe "Sicherung von '$Datenbank' nach '$datei' beginnt."
-    & $pgDump --format=custom --username=$Benutzer --dbname=$Datenbank --file=$datei
-    if ($LASTEXITCODE -ne 0) {
-        throw "pg_dump endete mit Rueckgabewert $LASTEXITCODE."
+    Schreibe (
+        "Sicherung von '$Datenbank' auf $($zugang.Rechner):$($zugang.Port) " +
+        "als '$Benutzer' nach '$datei' beginnt. Zugang aus $($zugang.Quelle)."
+    )
+
+    # PGPASSWORD in der Prozessumgebung und nicht als Parameter: Eine
+    # Kommandozeile ist auf dem Rechner lesbar, diese Variable nicht.
+    if (-not $ueberschrieben -and $zugang.Passwort) {
+        $env:PGPASSWORD = $zugang.Passwort
+    }
+    try {
+        & $pgDump --format=custom --no-password `
+            --host=$($zugang.Rechner) --port=$($zugang.Port) `
+            --username=$Benutzer --dbname=$Datenbank --file=$datei
+        $dumpWert = $LASTEXITCODE
+    }
+    finally {
+        Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    }
+    if ($dumpWert -ne 0) {
+        throw (
+            "pg_dump endete mit Rueckgabewert $dumpWert. Bei 'existiert nicht' " +
+            "stimmt ATA_DATABASE_URL nicht zur Anlage; bei 'no password " +
+            "supplied' traegt die URL kein Passwort und es gibt keine " +
+            "pgpass.conf."
+        )
     }
 
     # Eine vorhandene Datei ist noch keine brauchbare Sicherung: Ein
@@ -189,7 +242,7 @@ try {
         throw "Die Sicherung ist nur $groesse Byte gross -- das kann kein vollstaendiger Dump sein."
     }
     & $pgRestore --list $datei | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -ne 0) {  # pg_restore --list liest nur die Datei
         throw "Die Sicherung ist nicht lesbar (pg_restore --list, Rueckgabewert $LASTEXITCODE)."
     }
     Schreibe ("Sicherung erfolgreich, {0:N1} MB." -f ($groesse / 1MB))
