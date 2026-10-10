@@ -61,7 +61,17 @@ Datenbank und Rolle anlegen, falls noch nicht vorhanden:
 ```powershell
 psql -U postgres -c "CREATE ROLE ata WITH LOGIN PASSWORD '<passwort>';"
 psql -U postgres -c "CREATE DATABASE ai_trading_analyst OWNER ata;"
+psql -U postgres -c "ALTER ROLE ata CREATEDB;"
 ```
+
+> **Der Datenbankname ist ein Beispiel, kein Festwert.** Maßgeblich ist, was
+> in `ATA_DATABASE_URL` steht — die Anwendung und seit dem 2026-10-10 auch
+> die Sicherungsskripte lesen ihn von dort. Wer hier einen anderen Namen
+> wählt, trägt ihn in die `.env` ein und muss nirgends sonst etwas ändern.
+> Auf diesem Server heißt die Datenbank **nicht** `ai_trading_analyst`; ein
+> Vorgabewert in `sicherung.ps1` hat deshalb einmal eine Sicherung gekostet.
+>
+> `CREATEDB` braucht nur die Zählprobe, für ihre Wegwerfdatenbank.
 
 Die `.env` gehört ins **Projektwurzelverzeichnis**, nicht nach `backend`. Sie
 wird von dort gelesen, unabhängig davon, aus welchem Verzeichnis ein Kommando
@@ -2051,24 +2061,58 @@ Sicherungs-Task (`-Ziel`), in der Zählprobe (`-Quelle`) und beim Wächter
 (`--backup-dir`). Weicht die dritte ab, meldet der Wächter jede Nacht eine
 fehlende Sicherung, die es gibt.
 
-### Das Passwort zuerst
+### Zugang und Passwort: aus `ATA_DATABASE_URL`
 
-`%APPDATA%\postgresql\pgpass.conf` anlegen, eine Zeile:
+**Nichts anzulegen.** Die Skripte lesen Rechner, Port, Rolle, Datenbankname
+und Passwort aus derselben Quelle wie die Anwendung — erst die
+Umgebungsvariable `ATA_DATABASE_URL`, sonst die `.env` im
+Projektwurzelverzeichnis (`scripts\datenbank-zugang.ps1`). Das Passwort geht
+über `PGPASSWORD` in der Prozessumgebung weiter, nie über eine
+Kommandozeile und nie in die Task-Argumente — die sind im Aufgabenplaner für
+jeden lesbar, der den Rechner sieht.
 
+> **Warum nicht ein Vorgabewert im Skript.** Bis zum 2026-10-10 stand dort
+> `ai_trading_analyst` als Standard. Diese Datenbank gibt es auf dem Server
+> nicht, und der erste Handlauf endete mit *„Datenbank »ai_trading_analyst«
+> existiert nicht"*. Ein fest verdrahteter Name ist eine Behauptung über eine
+> Umgebung, die das Skript nicht kennt; der Zugang der Anwendung ist dagegen
+> per Definition richtig — läuft der Tageslauf, stimmt er.
+>
+> Es gibt deshalb **keinen Ersatzwert**: Fehlt `ATA_DATABASE_URL`, bricht das
+> Skript mit Rückgabewert 2 ab. Ein geratener Datenbankname ist schlimmer als
+> keiner, weil er wie eine Sicherung aussieht.
+
+Eine `pgpass.conf` ist nicht mehr nötig. Liegt eine, greift sie weiterhin,
+wenn die URL kein Passwort trägt oder `-Datenbank`/`-Benutzer` ausdrücklich
+überschrieben werden.
+
+**Kein Aufruf fragt interaktiv.** Alle tragen `--no-password`: In der
+Aufgabenplanung gibt es keine Konsole, und eine Eingabeaufforderung hieße
+dort, dass der Vorgang bis zum Zeitlimit **hängt** statt mit einer Meldung
+zu scheitern.
+
+### Ein Recht für die Zählprobe
+
+Die Zählprobe legt eine Wegwerfdatenbank an. Dafür braucht die Rolle das
+Recht `CREATEDB` — ohne es endet sie mit *„keine Berechtigung, um Datenbank
+zu erzeugen"*. Einmalig, als `postgres`:
+
+```powershell
+& $psql --username=postgres --dbname=postgres --command="ALTER ROLE ata CREATEDB;"
 ```
-localhost:5432:*:ata:<passwort>
-```
 
-**Nie in die Task-Argumente.** Die sind im Aufgabenplaner für jeden lesbar,
-der den Rechner sieht.
+Die Alternative ist `-VerwaltungsBenutzer postgres` an der Zählprobe, dann
+wird aber jedes Mal das Superuser-Passwort gebraucht. `CREATEDB` an die
+Anwendungsrolle zu geben ist das kleinere Übel: Es erlaubt das Anlegen neuer
+Datenbanken, nicht den Zugriff auf fremde.
 
-### Die beiden Skripte
+### Die Skripte
 
 Sie liegen **im Repository** unter `scripts\` und wandern damit mit `git
-pull` mit. Anders als die `.env` enthalten sie kein Geheimnis — das Passwort
-steht in der `pgpass.conf`, nicht im Skript. Ein Sicherungsskript, das nur
-auf einem Rechner existiert und nirgends versioniert ist, wäre selbst ein
-Ausfallrisiko.
+pull` mit. Anders als die `.env` enthalten sie kein Geheimnis — es steht in
+der `.env` bzw. in der Umgebung, nicht im Skript. Ein Sicherungsskript, das
+nur auf einem Rechner existiert und nirgends versioniert ist, wäre selbst
+ein Ausfallrisiko.
 
 | Skript | Zweck |
 |---|---|
@@ -2077,6 +2121,7 @@ Ausfallrisiko.
 | `scripts\sicherung-extern-probe.ps1` | Zählprobe der **externen** Kopie; läuft nicht auf dem Server |
 | `scripts\postgres-werkzeuge.ps1` | findet `pg_dump`, `pg_restore` und `psql`; von den anderen eingebunden |
 | `scripts\s3-ziel.ps1` | zerlegt eine S3-URI in Eimer und Objektschlüssel |
+| `scripts\datenbank-zugang.ps1` | liest den Zugang aus `ATA_DATABASE_URL` — dieselbe Quelle wie die Anwendung |
 | `scripts\pruefe-postgres-werkzeuge.ps1` | prüft die Werkzeugsuche und die Syntax **aller** Skripte hier |
 | `scripts\pruefe-sicherung.ps1` | prüft die Leitplanken der Auslagerung |
 
@@ -2100,8 +2145,9 @@ powershell.exe -NoProfile -File scripts\sicherung.ps1 -Ziel C:\ata-backups
 echo $LASTEXITCODE
 ```
 
-Erwartet: `0`, eine Zeile „Sicherung erfolgreich" mit Größenangabe, und eine
-`.dump`-Datei im Zielordner. **Rückgabewert 2 heißt: keine brauchbare
+Erwartet: `0`, eine erste Zeile, die Datenbank, Rechner, Rolle **und die
+Quelle des Zugangs** nennt, dann „Sicherung erfolgreich" mit Größenangabe und
+eine `.dump`-Datei im Zielordner. **Rückgabewert 2 heißt: keine brauchbare
 Sicherung** — der Grund steht darüber und zusätzlich in
 `sicherung.log` neben den Dumps.
 
@@ -2112,6 +2158,10 @@ Zwei Eigenschaften des Skripts, die den Unterschied machen:
   Datei.
 - Es **räumt erst nach einer erfolgreichen Sicherung auf.** Umgekehrt
   löschte ein fehlgeschlagener Lauf die letzten funktionierenden Stände.
+- Eine **abgebrochene Datei bleibt liegen** — absichtlich, als Zeuge. Die
+  Zählprobe und der Wächter übergehen beide alles unter 1 KiB; ohne diese
+  Schranke probte die Zählprobe die Ruine eines gescheiterten Dumps und
+  meldete „0,0 MB", wie am 2026-10-10 geschehen.
 
 ### In die Aufgabenplanung
 
@@ -2426,6 +2476,7 @@ SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 WHERE datname = 'ai_trading_analyst' AND pid <> pg_backend_pid();
 "@
 & $psql --username=postgres --dbname=postgres --command @"
+-- Der Name steht in ATA_DATABASE_URL; hier und unten entsprechend ersetzen.
 ALTER DATABASE ai_trading_analyst RENAME TO ai_trading_analyst_alt;
 "@
 ```
